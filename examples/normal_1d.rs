@@ -10,7 +10,6 @@ use rand::{Rng, RngExt, SeedableRng};
 
 #[derive(Clone, Debug)]
 struct Scalar(f64);
-impl State for Scalar {}
 
 // --- Target: N(0,1) ---
 

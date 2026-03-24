@@ -9,11 +9,14 @@ license = "BSD-3-Clause"
 repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
 readme = "README.md"
 
-keywords = ["mcmc", "markov", "monte-carlo", "sampling", "metropolis"]
+keywords = ["mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hastings"]
 categories = ["science", "mathematics", "algorithms"]
 
 [dependencies]
 rand = "0.10.0"
+
+[dev-dependencies]
+proptest = "1.10.0"
 
 [lints.rust]
 unsafe_code = "forbid"
