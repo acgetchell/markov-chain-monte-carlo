@@ -1,0 +1,24 @@
+[package]
+name = "markov-chain-monte-carlo"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.94.0"
+
+description = "A composable Markov Chain Monte Carlo (MCMC) framework for arbitrary state spaces in Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
+readme = "README.md"
+
+keywords = ["mcmc", "markov", "monte-carlo", "sampling", "metropolis"]
+categories = ["science", "mathematics", "algorithms"]
+
+[dependencies]
+rand = "0.10.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+# Transitive dependency version conflicts are outside our control
+multiple_crate_versions = "allow"
