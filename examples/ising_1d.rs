@@ -102,7 +102,7 @@ fn main() -> Result<(), McmcError> {
     );
 
     // Collect samples
-    let n_samples: i32 = 20_000;
+    let n_samples: u32 = 20_000;
     let mut mag_sum = 0.0;
     let mut mag_sq_sum = 0.0;
     for _ in 0..n_samples {

@@ -165,4 +165,28 @@ proptest! {
             chain.accepted, chain.rejected, steps,
         );
     }
+
+    /// Same counts invariant for the clone-based `step`.
+    #[test]
+    fn counts_invariant_step(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..500,
+        seed in any::<u64>(),
+    ) {
+        let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let proposal = CloneWalk { width };
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        for _ in 0..steps {
+            chain.step(&Normal, &proposal, &mut rng).unwrap();
+        }
+
+        prop_assert_eq!(
+            chain.accepted + chain.rejected,
+            steps as usize,
+            "accepted ({}) + rejected ({}) != steps ({})",
+            chain.accepted, chain.rejected, steps,
+        );
+    }
 }
