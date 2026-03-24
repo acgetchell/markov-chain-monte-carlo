@@ -100,10 +100,10 @@ When creating or updating issues:
 - This is a single Rust *library crate* (no `src/main.rs`). The crate root is `src/lib.rs`.
 - The MCMC framework is implemented in `src/lib.rs`:
   - `McmcError`: error type for NaN detection in log-probabilities and proposal ratios
-  - `State`: marker trait for MCMC state types (requires `Clone`)
   - `Target<S>`: trait for target distributions (log-probability)
-  - `Proposal<S>`: trait for proposal distributions (propose + log q-ratio)
-  - `Chain<S>`: Metropolis–Hastings chain with acceptance tracking
+  - `Proposal<S>`: clone-based proposal distributions (propose + log q-ratio; requires `S: Clone`)
+  - `ProposalMut<S>`: in-place proposal with rollback (associated `Undo` type; no `Clone` required)
+  - `Chain<S>`: Metropolis–Hastings chain with `step` (clone-based) and `step_mut` (in-place)
   - `prelude`: convenience re-exports for common usage
 - Rust tests are inline `#[cfg(test)]` modules in `src/lib.rs`.
 - The `justfile` defines all dev workflows (see `just --list`).
