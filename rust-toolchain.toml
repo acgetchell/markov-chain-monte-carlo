@@ -4,7 +4,6 @@ channel = "1.94.0"
 
 # Essential components for development
 components = [
-    "cargo", # Package manager
     "clippy", # Linting (strict pedantic mode)
     "rustfmt", # Code formatting
     "rust-docs", # Local documentation

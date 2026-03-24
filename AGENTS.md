@@ -33,7 +33,7 @@ When user requests commit message generation:
 ### Code Quality
 
 - **ALLOWED**: Run formatters/linters: `cargo fmt`, `cargo clippy`, `cargo doc`
-- **NEVER**: Use `sed`, `awk`, `perl` for code edits
+- **NEVER**: Use `sed`, `awk`, `python`, or `perl` to edit code or write file changes
 - **ALWAYS**: Use `edit_files` tool for edits (and `create_file` for new files)
 - **EXCEPTION**: Shell text tools OK for read-only analysis only
 
@@ -115,5 +115,4 @@ When creating or updating issues:
 
 ## Editing tools policy
 
-- Never use `sed`, `awk`, `python`, or `perl` to edit code or write file changes.
-- These tools may be used for read-only inspection, parsing, or analysis, but never for writing.
+See [Code Quality](#code-quality) above for the canonical editing tools policy.
