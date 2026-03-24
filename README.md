@@ -26,9 +26,9 @@ The design emphasizes:
 
 This crate is part of a broader ecosystem:
 
-- `causal-triangulations` — CDT physics and simulation
-- `delaunay` — geometric primitives
-- `la-stack` — linear algebra
+- [`causal-triangulations`](https://github.com/acgetchell/causal-triangulations) — CDT physics and simulation
+- [`delaunay`](https://github.com/acgetchell/delaunay) — geometric primitives
+- [`la-stack`](https://github.com/acgetchell/la-stack) — linear algebra
 
 The long-term architecture separates:
 

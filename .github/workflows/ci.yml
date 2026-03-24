@@ -1,0 +1,69 @@
+name: CI
+permissions:
+  contents: read
+concurrency:
+  group: >
+    ci-${{ github.workflow }}-${{
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number ||
+      github.ref
+    }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # Continue other jobs if one fails
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          target: ${{ matrix.target }}
+          cache: true # Built-in caching
+          # toolchain, components, etc. are specified in rust-toolchain.toml
+
+      - name: Install just
+        if: matrix.os != 'windows-latest'
+        uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5 # v2.69.6
+        with:
+          tool: just
+
+      - name: Run CI checks (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: just ci
+
+      - name: Build and test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cargo build --verbose --all-targets
+          cargo test --lib --verbose
+          cargo test --doc --verbose
+          cargo test --tests --verbose

@@ -1,0 +1,65 @@
+# Advanced Clippy analysis with SARIF output for security integration
+# Note: Basic clippy checks are also run in the main CI workflow
+
+name: "Clippy Security Analysis"
+
+on:
+  # Only run on schedule and manual trigger to avoid duplication with CI
+  schedule:
+    - cron: "17 22 * * 0" # Weekly on Sunday
+  workflow_dispatch:
+  # Run on main branch pushes for security scanning
+  push:
+    branches: ["main"]
+
+# Security: Define minimal required permissions
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  clippy-sarif:
+    name: Clippy SARIF Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          cache: true # toolchain/components are specified in rust-toolchain.toml
+
+      - name: Cache clippy tools
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/bin/clippy-sarif
+            ~/.cargo/bin/sarif-fmt
+          key: clippy-sarif-${{ runner.os }}
+
+      - name: Install clippy-sarif tools
+        run: |
+          if ! command -v clippy-sarif &> /dev/null; then
+            cargo install clippy-sarif sarif-fmt --locked
+          fi
+
+      - name: Run clippy with SARIF output
+        run: |
+          cargo clippy \
+            --all-targets \
+            --all-features \
+            --message-format=json \
+            -- -W clippy::pedantic -W clippy::nursery | \
+            clippy-sarif | \
+            tee rust-clippy-results.sarif | \
+            sarif-fmt
+        continue-on-error: true
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@b36bf259c813715f76eafece573914b94412cd13 # v3
+        with:
+          sarif_file: rust-clippy-results.sarif
+          category: "clippy"
+          wait-for-processing: true

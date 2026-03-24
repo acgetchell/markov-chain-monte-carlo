@@ -2,6 +2,34 @@
 # Install just: https://github.com/casey/just
 # Usage: just <command> or just --list
 
+# Use bash with strict error handling for all recipes
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Internal helpers: ensure external tooling is installed
+_ensure-actionlint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v actionlint >/dev/null || { echo "❌ 'actionlint' not found. Install: brew install actionlint"; exit 1; }
+
+_ensure-yamllint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v yamllint >/dev/null || { echo "❌ 'yamllint' not found. Install: brew install yamllint"; exit 1; }
+
+# GitHub Actions workflow validation
+action-lint: _ensure-actionlint
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        files+=("$file")
+    done < <(git ls-files -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
+    if [ "${#files[@]}" -gt 0 ]; then
+        printf '%s\0' "${files[@]}" | xargs -0 actionlint
+    else
+        echo "No workflow files found to lint."
+    fi
+
 # Default recipe shows available commands
 default:
     @just --list
@@ -11,7 +39,7 @@ build:
     cargo build
 
 # Fast compile check (no binary produced)
-check: fmt-check clippy
+check: fmt-check clippy yaml-lint action-lint
     @echo "✅ Checks complete!"
 
 # CI simulation: comprehensive validation
@@ -65,3 +93,18 @@ test-all: test test-integration
 
 test-integration:
     cargo test --tests --verbose
+
+# YAML lint
+yaml-lint: _ensure-yamllint
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        files+=("$file")
+    done < <(git ls-files -z '*.yml' '*.yaml')
+    if [ "${#files[@]}" -gt 0 ]; then
+        echo "🔍 yamllint (${#files[@]} files)"
+        yamllint --strict -c .yamllint "${files[@]}"
+    else
+        echo "No YAML files found to lint."
+    fi

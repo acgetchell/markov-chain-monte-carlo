@@ -1,0 +1,51 @@
+name: "Audit dependencies"
+
+on:
+  push:
+    paths:
+      - .github/workflows/audit.yml
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  schedule:
+    - cron: "0 6 * * 1" # Monday at 6 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          cache: true # toolchain/components are specified in rust-toolchain.toml
+
+      - name: Cache advisory database
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cargo/advisory-db
+          key: advisory-db-${{ github.ref_name }}-v1
+          restore-keys: advisory-db-
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
+      - name: Run cargo audit
+        run: |
+          cargo audit --json > audit-results.json
+          cargo audit
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: audit-results
+          path: audit-results.json
