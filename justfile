@@ -43,11 +43,11 @@ build:
     cargo build
 
 # Fast compile check (no binary produced)
-check: fmt-check clippy yaml-lint action-lint
+check: fmt-check clippy yaml-lint
     @echo "✅ Checks complete!"
 
 # CI simulation: comprehensive validation
-ci: check doc test examples
+ci: check doc test examples validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts

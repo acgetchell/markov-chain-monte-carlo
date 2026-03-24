@@ -1,5 +1,10 @@
 # markov-chain-monte-carlo
 
+[![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml)
+[![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml)
+[![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
+[![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
+
 A composable **Markov Chain Monte Carlo (MCMC)** framework for arbitrary state spaces in Rust.
 
 🚧 **Pre-release (0.0.x)** — This crate is under active development and **not yet ready for production use**. APIs may change without notice.
@@ -26,9 +31,9 @@ The design emphasizes:
 
 This crate is part of a broader ecosystem:
 
-- [`causal-triangulations`](https://github.com/acgetchell/causal-triangulations) — CDT physics and simulation
-- [`delaunay`](https://github.com/acgetchell/delaunay) — geometric primitives
-- [`la-stack`](https://github.com/acgetchell/la-stack) — linear algebra
+- [`causal-triangulations`](https://crates.io/crates/causal-triangulations) — CDT physics and simulation
+- [`delaunay`](https://crates.io/crates/delaunay) — geometric primitives
+- [`la-stack`](https://crates.io/crates/la-stack) — linear algebra
 
 The long-term architecture separates:
 
