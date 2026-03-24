@@ -5,6 +5,14 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# Coverage (cargo-tarpaulin)
+#
+# Common tarpaulin arguments for all coverage runs
+# Note: -t 300 sets per-test timeout to 5 minutes (needed for slow CI environments)
+_coverage_base_args := '''--exclude-files 'examples/*' \
+  --workspace --lib --tests \
+  -t 300 --verbose --implicit-test-threads'''
+
 # Internal helpers: ensure external tooling is installed
 _ensure-actionlint:
     #!/usr/bin/env bash
@@ -30,10 +38,6 @@ action-lint: _ensure-actionlint
         echo "No workflow files found to lint."
     fi
 
-# Default recipe shows available commands
-default:
-    @just --list
-
 # Build
 build:
     cargo build
@@ -49,10 +53,43 @@ ci: check doc test examples
 # Clean build artifacts
 clean:
     cargo clean
+    rm -rf target/tarpaulin
+    rm -rf coverage
 
 # Clippy linting
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+
+# Coverage analysis for local development (HTML output)
+coverage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v cargo-tarpaulin >/dev/null 2>&1; then
+        echo "cargo-tarpaulin not found. Install with: cargo install cargo-tarpaulin"
+        exit 1
+    fi
+
+    mkdir -p target/tarpaulin
+    cargo tarpaulin {{_coverage_base_args}} --out Html --output-dir target/tarpaulin
+    echo "Coverage report generated: target/tarpaulin/tarpaulin-report.html"
+
+# Coverage analysis for CI (XML output for codecov)
+coverage-ci:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v cargo-tarpaulin >/dev/null 2>&1; then
+        echo "cargo-tarpaulin not found. Install with: cargo install cargo-tarpaulin"
+        exit 1
+    fi
+
+    mkdir -p coverage
+    cargo tarpaulin {{_coverage_base_args}} --out Xml --output-dir coverage
+
+# Default recipe shows available commands
+default:
+    @just --list
 
 # Documentation
 doc:
@@ -73,16 +110,6 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Validate example output (seeded, deterministic)
-validate-examples:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    output=$(cargo run --quiet --example normal_1d)
-    echo "$output"
-    echo "$output" | grep -q "Sample mean" || { echo "❌ Missing sample mean"; exit 1; }
-    echo "$output" | grep -q "Acceptance rate" || { echo "❌ Missing acceptance rate"; exit 1; }
-    echo "✅ Example output validated"
-
 # Testing
 test:
     cargo test --lib --verbose
@@ -93,6 +120,16 @@ test-all: test test-integration
 
 test-integration:
     cargo test --tests --verbose
+
+# Validate example output (seeded, deterministic)
+validate-examples:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output=$(cargo run --quiet --example normal_1d)
+    echo "$output"
+    echo "$output" | grep -q "Sample mean" || { echo "❌ Missing sample mean"; exit 1; }
+    echo "$output" | grep -q "Acceptance rate" || { echo "❌ Missing acceptance rate"; exit 1; }
+    echo "✅ Example output validated"
 
 # YAML lint
 yaml-lint: _ensure-yamllint
