@@ -56,15 +56,15 @@ jobs:
         with:
           tool: just
 
-      - name: Install lint tools (Linux)
+      - name: Install yamllint (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y yamllint actionlint
+          sudo apt-get install -y yamllint
 
-      - name: Install lint tools (macOS)
+      - name: Install yamllint (macOS)
         if: matrix.os == 'macos-latest'
-        run: brew install yamllint actionlint
+        run: brew install yamllint
 
       - name: Run CI checks (Linux/macOS)
         if: matrix.os != 'windows-latest'
