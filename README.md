@@ -4,7 +4,9 @@
 
 A composable **Markov Chain Monte Carlo (MCMC)** framework for arbitrary state spaces in Rust.
 
-🚧 **Pre-release (0.0.x)** — This crate is under active development and **not yet ready for production use**. APIs may change without notice.
+🚧 **Pre-release (0.x)** — This crate is under active development. APIs may change between minor versions.
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
