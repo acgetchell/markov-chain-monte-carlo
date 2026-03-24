@@ -77,6 +77,7 @@
 //! impl ProposalMut<SpinChain> for SpinFlip {
 //!     type Undo = usize;
 //!     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
+//!         if state.spins.is_empty() { return None; }
 //!         let idx = rng.random_range(0..state.spins.len());
 //!         state.spins[idx] *= -1;
 //!         Some(idx)
