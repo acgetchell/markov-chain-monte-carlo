@@ -18,7 +18,7 @@ categories = ["science", "mathematics", "algorithms"]
 rand = "0.10.0"
 
 [dev-dependencies]
-proptest = "1.10.0"
+proptest = "1.11.0"
 
 [lints.rust]
 unsafe_code = "forbid"
