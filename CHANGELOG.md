@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-06
+
 ### Added
 
 - `Sampler<S, T, P, R>` ergonomic wrapper that bundles a `Chain` with its target, proposal, and RNG
@@ -23,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Chain::state()`, `Chain::replace_state()`, `Chain::into_state()` accessor methods (field now private)
 - `#[non_exhaustive]` on `McmcError` for forward-compatible error variants
 - `Debug` implementation for `Sampler` (prints chain state)
+- `publish-check` justfile recipe for crates.io metadata validation
+- `iterator_sampling` example demonstrating `Sampler`'s `Iterator` impl with `.take(n)` and `.by_ref()`
+- Doctest for `Iterator::next` on `Sampler`
 - Doctests for all public `Chain` methods
 - Display tests for all `McmcError` variants
 - Asymmetric proposal tests (non-zero `log_q_ratio`)
@@ -34,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `Sampler` added to `prelude`
 - Split crate into modules: `chain`, `error`, `sampler`, `traits`
 - Examples (`normal_1d`, `ising_1d`) updated to use `Sampler` with `reset_counters()`
-- `justfile`: `examples` and `validate-examples` recipes now include `ising_1d`
+- `justfile` recipes sorted lexicographically; `examples` and `validate-examples` now include `ising_1d`
 
 ## [0.1.0] - 2026-03-24
 
@@ -64,6 +69,7 @@ First usable release of the MCMC framework.
 - `normal_1d` example
 - CI/CD infrastructure
 
-[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/acgetchell/markov-chain-monte-carlo/releases/tag/v0.0.1

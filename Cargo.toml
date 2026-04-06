@@ -1,6 +1,6 @@
 [package]
 name = "markov-chain-monte-carlo"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Adam Getchell <adam@adamgetchell.org>"]
 edition = "2024"
 rust-version = "1.94.0"

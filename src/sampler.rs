@@ -223,6 +223,34 @@ where
     ///
     /// This is an infinite iterator — it always returns `Some`.
     /// Use `.take(n)` to limit the number of steps.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// #[derive(Clone)]
+    /// struct Val(f64);
+    /// struct Flat;
+    /// impl Target<Val> for Flat {
+    ///     fn log_prob(&self, _: &Val) -> f64 { 0.0 }
+    /// }
+    /// struct Walk;
+    /// impl Proposal<Val> for Walk {
+    ///     fn propose<R: Rng + ?Sized>(&self, c: &Val, r: &mut R) -> Val {
+    ///         Val(c.0 + r.random_range(-1.0..1.0))
+    ///     }
+    /// }
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(Val(0.0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng);
+    ///
+    /// // Take exactly 100 steps using iterator
+    /// let errors: Vec<_> = sampler.by_ref().take(100).filter_map(Result::err).collect();
+    /// assert!(errors.is_empty());
+    /// assert_eq!(sampler.chain.total_steps(), 100);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.step())
     }
