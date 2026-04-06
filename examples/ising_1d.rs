@@ -1,6 +1,7 @@
 //! 1-D Ising model sampled with `ProposalMut` (in-place mutation + rollback).
 //!
-//! Demonstrates the zero-copy MCMC API on a discrete, non-Clone state space.
+//! Demonstrates [`Sampler`] with `run_mut` for burn-in and `step_mut` for
+//! per-sample collection on a discrete, non-Clone state space.
 //!
 //! Run with: `cargo run --example ising_1d`
 
@@ -88,29 +89,33 @@ fn main() -> Result<(), McmcError> {
 
     let target = Ising { coupling, beta };
     let proposal = SpinFlip;
-    let state = SpinChain::all_up(n_spins);
-    let mut chain = Chain::new(state, &target)?;
+    let chain = Chain::new(SpinChain::all_up(n_spins), &target)?;
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
 
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
-    println!("Initial magnetization: {:.3}", chain.state.magnetization());
+    println!(
+        "Initial magnetization: {:.3}",
+        sampler.chain.state().magnetization()
+    );
 
     // Burn-in
     let burn_in = 5_000;
-    for _ in 0..burn_in {
-        chain.step_mut(&target, &proposal, &mut rng)?;
-    }
+    sampler.run_mut(burn_in)?;
     println!(
         "After {burn_in} burn-in steps: m = {:.3}",
-        chain.state.magnetization()
+        sampler.chain.state().magnetization()
     );
+
+    // Reset counters so acceptance rate reflects production only
+    sampler.chain.reset_counters();
 
     // Collect samples
     let n_samples: u32 = 20_000;
     let mut mag_sum = 0.0;
     let mut mag_sq_sum = 0.0;
     for _ in 0..n_samples {
-        chain.step_mut(&target, &proposal, &mut rng)?;
-        let m = chain.state.magnetization();
+        sampler.step_mut()?;
+        let m = sampler.chain.state().magnetization();
         mag_sum += m;
         mag_sq_sum += m * m;
     }
@@ -123,7 +128,10 @@ fn main() -> Result<(), McmcError> {
     println!("  <m>:             {mean_mag:+.4}");
     println!("  <m²>:            {mean_mag_sq:.4}");
     println!("  susceptibility:  {susceptibility:.2}");
-    println!("  acceptance rate: {:.1}%", chain.acceptance_rate() * 100.0);
+    println!(
+        "  acceptance rate: {:.1}%",
+        sampler.chain.acceptance_rate() * 100.0
+    );
 
     Ok(())
 }

@@ -19,7 +19,9 @@ This crate provides:
   - **`Proposal<S>`** — clone-based, for simple/small state spaces
   - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
 - `Chain<S>` with `step` (clone-based) and `step_mut` (in-place) methods
-- NaN detection and automatic state rollback on error
+- `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
+- NaN and +∞ detection with automatic state rollback on error
+- Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
 - Seeded RNG support for reproducible simulations
 
 The design emphasizes:
@@ -64,6 +66,39 @@ fn main() -> Result<(), McmcError> {
     }
 
     assert!(chain.acceptance_rate() > 0.2);
+    Ok(())
+}
+```
+
+### Using `Sampler` (ergonomic wrapper)
+
+```rust
+use markov_chain_monte_carlo::prelude::*;
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+
+# #[derive(Clone)] struct Scalar(f64);
+# struct Normal;
+# impl Target<Scalar> for Normal {
+#     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
+# }
+# struct RandomWalk;
+# impl Proposal<Scalar> for RandomWalk {
+#     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
+#         Scalar(c.0 + r.random_range(-1.0..1.0))
+#     }
+# }
+fn main() -> Result<(), McmcError> {
+    let mut rng = StdRng::seed_from_u64(42);
+    let chain = Chain::new(Scalar(0.0), &Normal)?;
+    let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
+
+    // Burn-in
+    sampler.run(1000)?;
+    sampler.chain.reset_counters();
+
+    // Production
+    sampler.run(10_000)?;
+    assert!(sampler.chain.acceptance_rate() > 0.0);
     Ok(())
 }
 ```
@@ -137,4 +172,5 @@ The long-term architecture separates:
 - [ ] Parallel chains
 - [ ] Diagnostics (ESS, autocorrelation)
 - [ ] Learned proposals (ML integration)
+- [ ] `serde` feature for chain checkpointing
 
