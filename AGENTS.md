@@ -98,16 +98,15 @@ When creating or updating issues:
 ## Code structure (big picture)
 
 - This is a single Rust *library crate* (no `src/main.rs`). The crate root is `src/lib.rs`.
-- The MCMC framework is implemented in `src/lib.rs`:
-  - `McmcError`: error type for NaN detection in log-probabilities and proposal ratios
-  - `Target<S>`: trait for target distributions (log-probability)
-  - `Proposal<S>`: clone-based proposal distributions (propose + log q-ratio; requires `S: Clone`)
-  - `ProposalMut<S>`: in-place proposal with rollback (associated `Undo` type; no `Clone` required)
-  - `Chain<S>`: Metropolis–Hastings chain with `step` (clone-based) and `step_mut` (in-place)
-  - `prelude`: convenience re-exports for common usage
-- Rust tests are inline `#[cfg(test)]` modules in `src/lib.rs`.
+- The MCMC framework is split across four modules, all re-exported from `src/lib.rs`:
+  - `src/error.rs` — `McmcError`: error type for NaN/+∞ detection in log-probabilities and proposal ratios
+  - `src/traits.rs` — `Target<S>`, `Proposal<S>` (clone-based), `ProposalMut<S>` (in-place with rollback)
+  - `src/chain.rs` — `Chain<S>`: Metropolis–Hastings chain with `step` (clone-based) and `step_mut` (in-place)
+  - `src/sampler.rs` — `Sampler<S,T,P,R>`: ergonomic wrapper bundling a chain with its target, proposal, and RNG; provides `run`/`run_mut` for bulk sampling and implements `Iterator` for the clone-based path
+  - `prelude` module in `src/lib.rs`: convenience re-exports (`Chain`, `McmcError`, `Proposal`, `ProposalMut`, `Sampler`, `Target`)
+- Rust tests are inline `#[cfg(test)]` modules in each source file.
 - The `justfile` defines all dev workflows (see `just --list`).
-- Examples live in `examples/` (e.g. `normal_1d.rs`).
+- Examples live in `examples/` (e.g. `normal_1d.rs`, `ising_1d.rs`).
 
 ## Publishing note
 

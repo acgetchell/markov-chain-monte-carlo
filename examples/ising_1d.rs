@@ -95,7 +95,7 @@ fn main() -> Result<(), McmcError> {
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
     println!(
         "Initial magnetization: {:.3}",
-        sampler.chain.state.magnetization()
+        sampler.chain.state().magnetization()
     );
 
     // Burn-in
@@ -103,7 +103,7 @@ fn main() -> Result<(), McmcError> {
     sampler.run_mut(burn_in)?;
     println!(
         "After {burn_in} burn-in steps: m = {:.3}",
-        sampler.chain.state.magnetization()
+        sampler.chain.state().magnetization()
     );
 
     // Reset counters so acceptance rate reflects production only
@@ -115,7 +115,7 @@ fn main() -> Result<(), McmcError> {
     let mut mag_sq_sum = 0.0;
     for _ in 0..n_samples {
         sampler.step_mut()?;
-        let m = sampler.chain.state.magnetization();
+        let m = sampler.chain.state().magnetization();
         mag_sum += m;
         mag_sq_sum += m * m;
     }

@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `McmcError::InfiniteInitialLogProb` and `McmcError::InfiniteProposedLogProb` error variants for +∞ detection
 - `McmcError` now implements `Copy`
 - `#[must_use]` on `Chain`, `Sampler`, and all query methods
+- `Chain::state()`, `Chain::state_mut()`, `Chain::into_state()` accessor methods (field now private)
+- `#[non_exhaustive]` on `McmcError` for forward-compatible error variants
+- `Debug` implementation for `Sampler` (prints chain state)
 - Doctests for all public `Chain` methods
 - Display tests for all `McmcError` variants
 - Asymmetric proposal tests (non-zero `log_q_ratio`)
@@ -27,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** `Chain` fields `log_prob`, `accepted`, `rejected` are now private (use accessor methods)
+- **Breaking:** All `Chain` fields are now private (use accessor methods: `state()`, `log_prob()`, `accepted()`, `rejected()`)
 - **Breaking:** `Sampler` added to `prelude`
 - Split crate into modules: `chain`, `error`, `sampler`, `traits`
 - Examples (`normal_1d`, `ising_1d`) updated to use `Sampler` with `reset_counters()`
@@ -61,5 +64,6 @@ First usable release of the MCMC framework.
 - `normal_1d` example
 - CI/CD infrastructure
 
+[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/acgetchell/markov-chain-monte-carlo/releases/tag/v0.0.1

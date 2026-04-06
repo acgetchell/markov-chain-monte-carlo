@@ -1,5 +1,7 @@
 //! Ergonomic sampling wrapper that bundles a chain with its components.
 
+use std::fmt;
+
 use rand::Rng;
 
 use crate::{Chain, McmcError, Proposal, ProposalMut, Target};
@@ -56,6 +58,14 @@ pub struct Sampler<'a, S, T, P, R: ?Sized> {
     target: &'a T,
     proposal: &'a P,
     rng: &'a mut R,
+}
+
+impl<S: fmt::Debug, T, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sampler")
+            .field("chain", &self.chain)
+            .finish_non_exhaustive()
+    }
 }
 
 // --- Construction and decomposition (no trait bounds) ---

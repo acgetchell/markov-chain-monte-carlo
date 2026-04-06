@@ -5,6 +5,7 @@ use std::fmt;
 
 /// Errors that can occur during MCMC operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum McmcError {
     /// Target returned NaN log-probability for the initial state.
     NanInitialLogProb,

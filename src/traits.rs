@@ -57,3 +57,57 @@ pub trait ProposalMut<S> {
         0.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Fixtures ---
+
+    #[derive(Clone, Debug)]
+    struct Scalar(f64);
+
+    struct SymmetricProposal;
+    impl Proposal<Scalar> for SymmetricProposal {
+        fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
+            Scalar(current.0 + 1.0)
+        }
+        // log_q_ratio intentionally not overridden — uses default
+    }
+
+    struct SymmetricMutProposal;
+    impl ProposalMut<Scalar> for SymmetricMutProposal {
+        type Undo = f64;
+        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut Scalar, _rng: &mut R) -> Option<f64> {
+            let old = state.0;
+            state.0 += 1.0;
+            Some(old)
+        }
+        fn undo(&self, state: &mut Scalar, old: f64) {
+            state.0 = old;
+        }
+        // log_q_ratio intentionally not overridden — uses default
+    }
+
+    // --- Default log_q_ratio tests ---
+
+    #[test]
+    fn proposal_default_log_q_ratio_is_zero() {
+        let p = SymmetricProposal;
+        let ratio = p.log_q_ratio(&Scalar(0.0), &Scalar(1.0));
+        assert!(
+            ratio.abs() < f64::EPSILON,
+            "Default Proposal::log_q_ratio should be 0.0"
+        );
+    }
+
+    #[test]
+    fn proposal_mut_default_log_q_ratio_is_zero() {
+        let p = SymmetricMutProposal;
+        let ratio = p.log_q_ratio(&Scalar(1.0), &0.0_f64);
+        assert!(
+            ratio.abs() < f64::EPSILON,
+            "Default ProposalMut::log_q_ratio should be 0.0"
+        );
+    }
+}

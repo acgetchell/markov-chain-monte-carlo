@@ -9,7 +9,7 @@ use crate::{McmcError, Proposal, ProposalMut, Target};
 #[must_use]
 pub struct Chain<S> {
     /// Current state.
-    pub state: S,
+    pub(crate) state: S,
     /// Current log-probability of the state.
     log_prob: f64,
     /// Number of accepted moves.
@@ -154,6 +154,40 @@ impl<S> Chain<S> {
             self.rejected += 1;
         }
         Ok(accept)
+    }
+
+    /// Shared reference to the current state.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// let chain = Chain::new(1.0_f64, &T)?;
+    /// assert!((*chain.state() - 1.0).abs() < f64::EPSILON);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    #[must_use]
+    pub const fn state(&self) -> &S {
+        &self.state
+    }
+
+    /// Mutable reference to the current state.
+    ///
+    /// # Warning
+    ///
+    /// Modifying the state through this reference **does not** update the
+    /// cached `log_prob`.  Call [`Chain::new`] or take a new step to
+    /// re-synchronize.
+    #[must_use]
+    pub const fn state_mut(&mut self) -> &mut S {
+        &mut self.state
+    }
+
+    /// Consume the chain and return the state.
+    #[must_use]
+    pub fn into_state(self) -> S {
+        self.state
     }
 
     /// Current log-probability of the chain state.

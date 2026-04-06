@@ -45,14 +45,14 @@ fn main() -> Result<(), McmcError> {
     let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
 
     println!("Sampling N(0,1) with Metropolis–Hastings (seed={seed})");
-    println!("Initial state: x = {:.3}", sampler.chain.state.0);
+    println!("Initial state: x = {:.3}", sampler.chain.state().0);
 
     // Burn-in
     let burn_in = 1_000;
     sampler.run(burn_in)?;
     println!(
         "After {burn_in} burn-in steps: x = {:.3}",
-        sampler.chain.state.0
+        sampler.chain.state().0
     );
 
     // Reset counters so acceptance rate reflects production only
@@ -64,8 +64,8 @@ fn main() -> Result<(), McmcError> {
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
         sampler.step()?;
-        sum += sampler.chain.state.0;
-        sum_sq += sampler.chain.state.0 * sampler.chain.state.0;
+        sum += sampler.chain.state().0;
+        sum_sq += sampler.chain.state().0 * sampler.chain.state().0;
     }
 
     let mean = sum / f64::from(n_samples);

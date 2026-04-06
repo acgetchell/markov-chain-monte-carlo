@@ -73,7 +73,7 @@ proptest! {
             chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
         }
 
-        let expected = Normal.log_prob(&chain.state);
+        let expected = Normal.log_prob(chain.state());
         prop_assert!(
             (chain.log_prob() - expected).abs() < 1e-12,
             "log_prob {:.15} != target {:.15} after {} steps",
@@ -97,7 +97,7 @@ proptest! {
             chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
-        let expected = Normal.log_prob(&chain.state);
+        let expected = Normal.log_prob(chain.state());
         prop_assert!(
             (chain.log_prob() - expected).abs() < 1e-12,
             "log_prob {:.15} != target {:.15} after {} steps",
@@ -130,7 +130,7 @@ proptest! {
         }
 
         prop_assert_eq!(
-            chain_clone.state, chain_mut.state,
+            chain_clone.state(), chain_mut.state(),
             "Final states diverged after {} steps", steps,
         );
         prop_assert!(
@@ -188,5 +188,63 @@ proptest! {
             "accepted ({}) + rejected ({}) != steps ({})",
             chain.accepted(), chain.rejected(), steps,
         );
+    }
+
+    /// `Sampler::run` must produce identical results to a raw `Chain` loop
+    /// with the same seed.
+    #[test]
+    fn sampler_run_matches_raw_chain(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..500,
+        seed in any::<u64>(),
+    ) {
+        let proposal = CloneWalk { width };
+
+        // Raw chain
+        let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng = StdRng::seed_from_u64(seed);
+        for _ in 0..steps {
+            chain.step(&Normal, &proposal, &mut rng).unwrap();
+        }
+
+        // Sampler
+        let chain2 = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng2 = StdRng::seed_from_u64(seed);
+        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        sampler.run(steps as usize).unwrap();
+
+        prop_assert_eq!(chain.state(), sampler.chain.state());
+        prop_assert_eq!(chain.accepted(), sampler.chain.accepted());
+        prop_assert_eq!(chain.rejected(), sampler.chain.rejected());
+    }
+
+    /// `Sampler::run_mut` must produce identical results to a raw `Chain`
+    /// loop with the same seed.
+    #[test]
+    fn sampler_run_mut_matches_raw_chain(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..500,
+        seed in any::<u64>(),
+    ) {
+        let proposal = MutWalk { width };
+
+        // Raw chain
+        let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng = StdRng::seed_from_u64(seed);
+        for _ in 0..steps {
+            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+        }
+
+        // Sampler
+        let chain2 = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng2 = StdRng::seed_from_u64(seed);
+        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        sampler.run_mut(steps as usize).unwrap();
+
+        prop_assert_eq!(chain.state(), sampler.chain.state());
+        prop_assert_eq!(chain.accepted(), sampler.chain.accepted());
+        prop_assert_eq!(chain.rejected(), sampler.chain.rejected());
     }
 }
