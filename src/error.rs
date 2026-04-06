@@ -24,6 +24,12 @@ pub enum McmcError {
     /// proper (normalizable) distribution.  If accepted, the chain
     /// would become permanently stuck.
     InfiniteProposedLogProb,
+    /// Proposal returned +∞ log q-ratio.
+    ///
+    /// This indicates a degenerate proposal where the forward transition
+    /// probability is zero (yet a state was somehow proposed), almost
+    /// certainly a bug in the proposal implementation.
+    InfiniteLogQRatio,
 }
 
 impl fmt::Display for McmcError {
@@ -54,6 +60,7 @@ impl fmt::Display for McmcError {
                     "target returned +inf log-probability for a proposed state"
                 )
             }
+            Self::InfiniteLogQRatio => write!(f, "proposal returned +inf log q-ratio"),
         }
     }
 }
@@ -104,6 +111,12 @@ mod tests {
             msg,
             "target returned +inf log-probability for a proposed state"
         );
+    }
+
+    #[test]
+    fn display_infinite_log_q_ratio() {
+        let msg = McmcError::InfiniteLogQRatio.to_string();
+        assert_eq!(msg, "proposal returned +inf log q-ratio");
     }
 
     #[test]

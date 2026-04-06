@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `McmcError::InfiniteInitialLogProb` and `McmcError::InfiniteProposedLogProb` error variants for +∞ detection
 - `McmcError` now implements `Copy`
 - `#[must_use]` on `Chain`, `Sampler`, and all query methods
-- `Chain::state()`, `Chain::state_mut()`, `Chain::into_state()` accessor methods (field now private)
+- `Chain::state()`, `Chain::replace_state()`, `Chain::into_state()` accessor methods (field now private)
 - `#[non_exhaustive]` on `McmcError` for forward-compatible error variants
 - `Debug` implementation for `Sampler` (prints chain state)
 - Doctests for all public `Chain` methods

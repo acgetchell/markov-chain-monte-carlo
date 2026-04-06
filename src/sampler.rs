@@ -290,6 +290,18 @@ mod tests {
         assert_eq!(chain.state, Scalar(1.0));
     }
 
+    // --- Debug ---
+
+    #[test]
+    fn debug_output_contains_chain() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let debug = format!("{sampler:?}");
+        assert!(debug.contains("Sampler"));
+        assert!(debug.contains("chain"));
+    }
+
     // --- Clone-based: step and run ---
 
     #[test]

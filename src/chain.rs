@@ -51,8 +51,9 @@ impl<S> Chain<S> {
     ///
     /// Returns [`McmcError::NanProposedLogProb`] or
     /// [`McmcError::InfiniteProposedLogProb`] if the target's log-probability
-    /// for the proposed state is NaN or +∞, or [`McmcError::NanLogQRatio`] if
-    /// the proposal's log q-ratio is NaN.
+    /// for the proposed state is NaN or +∞, [`McmcError::NanLogQRatio`] or
+    /// [`McmcError::InfiniteLogQRatio`] if the proposal's log q-ratio is
+    /// NaN or +∞.
     pub fn step<T, P, R>(&mut self, target: &T, proposal: &P, rng: &mut R) -> Result<(), McmcError>
     where
         S: Clone,
@@ -72,6 +73,9 @@ impl<S> Chain<S> {
         let log_q = proposal.log_q_ratio(&self.state, &proposed);
         if log_q.is_nan() {
             return Err(McmcError::NanLogQRatio);
+        }
+        if log_q == f64::INFINITY {
+            return Err(McmcError::InfiniteLogQRatio);
         }
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
@@ -104,8 +108,8 @@ impl<S> Chain<S> {
     /// # Errors
     ///
     /// Returns [`McmcError::NanProposedLogProb`],
-    /// [`McmcError::InfiniteProposedLogProb`], or [`McmcError::NanLogQRatio`]
-    /// after rolling back the state.
+    /// [`McmcError::InfiniteProposedLogProb`], [`McmcError::NanLogQRatio`],
+    /// or [`McmcError::InfiniteLogQRatio`] after rolling back the state.
     pub fn step_mut<T, P, R>(
         &mut self,
         target: &T,
@@ -136,6 +140,10 @@ impl<S> Chain<S> {
         if log_q.is_nan() {
             proposal.undo(&mut self.state, token);
             return Err(McmcError::NanLogQRatio);
+        }
+        if log_q == f64::INFINITY {
+            proposal.undo(&mut self.state, token);
+            return Err(McmcError::InfiniteLogQRatio);
         }
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
@@ -172,16 +180,43 @@ impl<S> Chain<S> {
         &self.state
     }
 
-    /// Mutable reference to the current state.
+    /// Replace the current state and recompute the cached log-probability.
     ///
-    /// # Warning
+    /// This is the safe way to externally mutate the chain state.  The
+    /// cached `log_prob` is always kept in sync.
     ///
-    /// Modifying the state through this reference **does not** update the
-    /// cached `log_prob`.  Call [`Chain::new`] or take a new step to
-    /// re-synchronize.
-    #[must_use]
-    pub const fn state_mut(&mut self) -> &mut S {
-        &mut self.state
+    /// # Errors
+    ///
+    /// Returns [`McmcError::NanInitialLogProb`] or
+    /// [`McmcError::InfiniteInitialLogProb`] if the target's log-probability
+    /// for `new_state` is NaN or +∞ (the chain is unchanged on error).
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// let mut chain = Chain::new(0.0_f64, &T)?;
+    /// chain.replace_state(2.0, &T)?;
+    /// assert!((*chain.state() - 2.0).abs() < f64::EPSILON);
+    /// assert!((chain.log_prob() - (-2.0)).abs() < 1e-12);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn replace_state<T: Target<S>>(
+        &mut self,
+        new_state: S,
+        target: &T,
+    ) -> Result<(), McmcError> {
+        let lp = target.log_prob(&new_state);
+        if lp.is_nan() {
+            return Err(McmcError::NanInitialLogProb);
+        }
+        if lp == f64::INFINITY {
+            return Err(McmcError::InfiniteInitialLogProb);
+        }
+        self.state = new_state;
+        self.log_prob = lp;
+        Ok(())
     }
 
     /// Consume the chain and return the state.
@@ -540,6 +575,57 @@ mod tests {
 
         let result = chain.step(&InfAtOrigin, &proposal, &mut rng);
         assert!(matches!(result, Err(McmcError::InfiniteProposedLogProb)));
+    }
+
+    #[test]
+    fn step_rejects_inf_log_q_ratio() {
+        struct InfQProposal;
+        impl Proposal<Scalar> for InfQProposal {
+            fn propose<R: Rng + ?Sized>(&self, _current: &Scalar, _rng: &mut R) -> Scalar {
+                Scalar(0.0)
+            }
+            fn log_q_ratio(&self, _current: &Scalar, _proposed: &Scalar) -> f64 {
+                f64::INFINITY
+            }
+        }
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step(&Normal, &InfQProposal, &mut rng);
+        assert!(matches!(result, Err(McmcError::InfiniteLogQRatio)));
+    }
+
+    #[test]
+    fn step_mut_rolls_back_on_inf_log_q_ratio() {
+        struct InfQMutProposal;
+        impl ProposalMut<MutScalar> for InfQMutProposal {
+            type Undo = f64;
+            fn propose_mut<R: Rng + ?Sized>(
+                &self,
+                state: &mut MutScalar,
+                _rng: &mut R,
+            ) -> Option<f64> {
+                let old = state.0;
+                state.0 = 0.0;
+                Some(old)
+            }
+            fn undo(&self, state: &mut MutScalar, old: f64) {
+                state.0 = old;
+            }
+            fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
+                f64::INFINITY
+            }
+        }
+        let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_mut(&Normal, &InfQMutProposal, &mut rng);
+        assert!(matches!(result, Err(McmcError::InfiniteLogQRatio)));
+        assert_eq!(
+            chain.state,
+            MutScalar(1.0),
+            "State should be rolled back after +inf log_q_ratio"
+        );
     }
 
     #[test]
@@ -919,6 +1005,55 @@ mod tests {
             ratio.abs() < f64::EPSILON,
             "Default ProposalMut log_q_ratio should be 0"
         );
+    }
+
+    // --- state accessors ---
+
+    #[test]
+    fn replace_state_updates_state_and_log_prob() {
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        chain.replace_state(Scalar(2.0), &Normal).unwrap();
+        assert_eq!(chain.state, Scalar(2.0));
+        assert!(
+            (chain.log_prob() - (-2.0)).abs() < 1e-12,
+            "log_prob should be recomputed after replace_state"
+        );
+    }
+
+    #[test]
+    fn replace_state_rejects_nan() {
+        struct NanTarget;
+        impl Target<Scalar> for NanTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::NAN
+            }
+        }
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let result = chain.replace_state(Scalar(0.0), &NanTarget);
+        assert!(matches!(result, Err(McmcError::NanInitialLogProb)));
+        // State should be unchanged on error
+        assert_eq!(chain.state, Scalar(1.0));
+    }
+
+    #[test]
+    fn replace_state_rejects_inf() {
+        struct InfTarget;
+        impl Target<Scalar> for InfTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::INFINITY
+            }
+        }
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let result = chain.replace_state(Scalar(0.0), &InfTarget);
+        assert!(matches!(result, Err(McmcError::InfiniteInitialLogProb)));
+        assert_eq!(chain.state, Scalar(1.0));
+    }
+
+    #[test]
+    fn into_state_returns_state() {
+        let chain = Chain::new(Scalar(3.0), &Normal).unwrap();
+        let state = chain.into_state();
+        assert_eq!(state, Scalar(3.0));
     }
 
     // --- reset_counters and total_steps ---
