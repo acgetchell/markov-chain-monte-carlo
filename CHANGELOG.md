@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Sampler<S, T, P, R>` ergonomic wrapper that bundles a `Chain` with its target, proposal, and RNG
+  - `step()` / `run(n)` for clone-based proposals
+  - `step_mut()` / `run_mut(n)` for in-place proposals
+  - `Iterator` implementation (clone-based path) for composability with `.take(n)` etc.
+  - `into_chain()` to recover the inner chain
+- `Chain::log_prob()`, `Chain::accepted()`, `Chain::rejected()` accessor methods (fields now private)
+- `Chain::total_steps()` convenience method
+- `Chain::reset_counters()` for post-burn-in measurement
+- `McmcError::InfiniteInitialLogProb` and `McmcError::InfiniteProposedLogProb` error variants for +∞ detection
+- `McmcError` now implements `Copy`
+- `#[must_use]` on `Chain`, `Sampler`, and all query methods
+- Doctests for all public `Chain` methods
+- Display tests for all `McmcError` variants
+- Asymmetric proposal tests (non-zero `log_q_ratio`)
+- Edge-case tests for `-∞` and `+∞` log-probabilities
+
+### Changed
+
+- **Breaking:** `Chain` fields `log_prob`, `accepted`, `rejected` are now private (use accessor methods)
+- **Breaking:** `Sampler` added to `prelude`
+- Split crate into modules: `chain`, `error`, `sampler`, `traits`
+- Examples (`normal_1d`, `ising_1d`) updated to use `Sampler` with `reset_counters()`
+- `justfile`: `examples` and `validate-examples` recipes now include `ising_1d`
+
 ## [0.1.0] - 2026-03-24
 
 First usable release of the MCMC framework.

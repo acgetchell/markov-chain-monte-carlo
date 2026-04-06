@@ -1,5 +1,8 @@
 //! Sample from a 1D standard normal distribution using Metropolis–Hastings.
 //!
+//! Demonstrates [`Sampler`] with `run` for burn-in and `step` for
+//! per-sample collection.
+//!
 //! Run with: `cargo run --example normal_1d`
 
 use markov_chain_monte_carlo::prelude::*;
@@ -32,32 +35,37 @@ impl Proposal<Scalar> for RandomWalk {
     }
 }
 
-fn main() -> Result<(), markov_chain_monte_carlo::McmcError> {
+fn main() -> Result<(), McmcError> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
 
     let target = StandardNormal;
     let proposal = RandomWalk { width: 1.0 };
-    let mut chain = Chain::new(Scalar(5.0), &target)?;
+    let chain = Chain::new(Scalar(5.0), &target)?;
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
 
     println!("Sampling N(0,1) with Metropolis–Hastings (seed={seed})");
-    println!("Initial state: x = {:.3}", chain.state.0);
+    println!("Initial state: x = {:.3}", sampler.chain.state.0);
 
     // Burn-in
     let burn_in = 1_000;
-    for _ in 0..burn_in {
-        chain.step(&target, &proposal, &mut rng)?;
-    }
-    println!("After {burn_in} burn-in steps: x = {:.3}", chain.state.0);
+    sampler.run(burn_in)?;
+    println!(
+        "After {burn_in} burn-in steps: x = {:.3}",
+        sampler.chain.state.0
+    );
+
+    // Reset counters so acceptance rate reflects production only
+    sampler.chain.reset_counters();
 
     // Collect samples
     let n_samples = 10_000;
     let mut sum = 0.0;
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
-        chain.step(&target, &proposal, &mut rng)?;
-        sum += chain.state.0;
-        sum_sq += chain.state.0 * chain.state.0;
+        sampler.step()?;
+        sum += sampler.chain.state.0;
+        sum_sq += sampler.chain.state.0 * sampler.chain.state.0;
     }
 
     let mean = sum / f64::from(n_samples);
@@ -66,6 +74,9 @@ fn main() -> Result<(), markov_chain_monte_carlo::McmcError> {
     println!("\nResults ({n_samples} samples):");
     println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
     println!("  Sample variance: {variance:.4} (expected: 1.0)");
-    println!("  Acceptance rate: {:.1}%", chain.acceptance_rate() * 100.0);
+    println!(
+        "  Acceptance rate: {:.1}%",
+        sampler.chain.acceptance_rate() * 100.0
+    );
     Ok(())
 }

@@ -13,7 +13,7 @@ use rand::{Rng, RngExt, SeedableRng};
 // ---------------------------------------------------------------------------
 
 /// Clone-able scalar state (used by both `step` and `step_mut` paths).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Scalar(f64);
 
 /// Standard normal target: log p(x) = −x²/2.
@@ -75,9 +75,9 @@ proptest! {
 
         let expected = Normal.log_prob(&chain.state);
         prop_assert!(
-            (chain.log_prob - expected).abs() < 1e-12,
+            (chain.log_prob() - expected).abs() < 1e-12,
             "log_prob {:.15} != target {:.15} after {} steps",
-            chain.log_prob, expected, steps,
+            chain.log_prob(), expected, steps,
         );
     }
 
@@ -99,9 +99,9 @@ proptest! {
 
         let expected = Normal.log_prob(&chain.state);
         prop_assert!(
-            (chain.log_prob - expected).abs() < 1e-12,
+            (chain.log_prob() - expected).abs() < 1e-12,
             "log_prob {:.15} != target {:.15} after {} steps",
-            chain.log_prob, expected, steps,
+            chain.log_prob(), expected, steps,
         );
     }
 
@@ -134,12 +134,12 @@ proptest! {
             "Final states diverged after {} steps", steps,
         );
         prop_assert!(
-            (chain_clone.log_prob - chain_mut.log_prob).abs() < 1e-12,
+            (chain_clone.log_prob() - chain_mut.log_prob()).abs() < 1e-12,
             "log_prob diverged: clone={:.15}, mut={:.15}",
-            chain_clone.log_prob, chain_mut.log_prob,
+            chain_clone.log_prob(), chain_mut.log_prob(),
         );
-        prop_assert_eq!(chain_clone.accepted, chain_mut.accepted);
-        prop_assert_eq!(chain_clone.rejected, chain_mut.rejected);
+        prop_assert_eq!(chain_clone.accepted(), chain_mut.accepted());
+        prop_assert_eq!(chain_clone.rejected(), chain_mut.rejected());
     }
 
     /// accepted + rejected must always equal the number of steps taken.
@@ -159,10 +159,10 @@ proptest! {
         }
 
         prop_assert_eq!(
-            chain.accepted + chain.rejected,
+            chain.accepted() + chain.rejected(),
             steps as usize,
             "accepted ({}) + rejected ({}) != steps ({})",
-            chain.accepted, chain.rejected, steps,
+            chain.accepted(), chain.rejected(), steps,
         );
     }
 
@@ -183,10 +183,10 @@ proptest! {
         }
 
         prop_assert_eq!(
-            chain.accepted + chain.rejected,
+            chain.accepted() + chain.rejected(),
             steps as usize,
             "accepted ({}) + rejected ({}) != steps ({})",
-            chain.accepted, chain.rejected, steps,
+            chain.accepted(), chain.rejected(), steps,
         );
     }
 }

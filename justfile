@@ -98,6 +98,7 @@ doc:
 # Examples
 examples:
     cargo run --quiet --example normal_1d
+    cargo run --quiet --example ising_1d
 
 # Fix (mutating): apply formatters
 fix: fmt
@@ -127,9 +128,14 @@ validate-examples:
     set -euo pipefail
     output=$(cargo run --quiet --example normal_1d)
     echo "$output"
-    echo "$output" | grep -q "Sample mean" || { echo "❌ Missing sample mean"; exit 1; }
-    echo "$output" | grep -q "Acceptance rate" || { echo "❌ Missing acceptance rate"; exit 1; }
-    echo "✅ Example output validated"
+    echo "$output" | grep -q "Sample mean" || { echo "❌ normal_1d: Missing sample mean"; exit 1; }
+    echo "$output" | grep -q "Acceptance rate" || { echo "❌ normal_1d: Missing acceptance rate"; exit 1; }
+    echo "✅ normal_1d validated"
+    output=$(cargo run --quiet --example ising_1d)
+    echo "$output"
+    echo "$output" | grep -q "<m>" || { echo "❌ ising_1d: Missing magnetization"; exit 1; }
+    echo "$output" | grep -q "acceptance rate" || { echo "❌ ising_1d: Missing acceptance rate"; exit 1; }
+    echo "✅ ising_1d validated"
 
 # YAML lint
 yaml-lint: _ensure-yamllint
