@@ -82,6 +82,24 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     }
 
     /// Consume the sampler and return the inner chain.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: rand::Rng + ?Sized>(&self, c: &f64, _r: &mut R) -> f64 { c + 1.0 }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(1.0_f64, &T)?;
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let chain = sampler.into_chain();
+    /// assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     pub fn into_chain(self) -> Chain<S> {
         self.chain
     }
@@ -99,6 +117,27 @@ where
     /// Perform a single clone-based Metropolis–Hastings step.
     ///
     /// Delegates to [`Chain::step`].
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// # #[derive(Clone)] struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl Proposal<S> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, c: &S, r: &mut R) -> S {
+    /// #         S(c.0 + r.random_range(-1.0..1.0))
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0.0), &T)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// sampler.step()?;
+    /// assert_eq!(sampler.chain.total_steps(), 1);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -156,6 +195,29 @@ where
     ///
     /// Delegates to [`Chain::step_mut`].  Returns `Ok(true)` if accepted,
     /// `Ok(false)` if rejected.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl ProposalMut<S> for P {
+    /// #     type Undo = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, r: &mut R) -> Option<f64> {
+    /// #         let old = s.0; s.0 += r.random_range(-1.0..1.0); Some(old)
+    /// #     }
+    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0.0), &T)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let accepted = sampler.step_mut()?;
+    /// assert_eq!(sampler.chain.total_steps(), 1);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -223,6 +285,34 @@ where
     ///
     /// This is an infinite iterator — it always returns `Some`.
     /// Use `.take(n)` to limit the number of steps.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// #[derive(Clone)]
+    /// struct Val(f64);
+    /// struct Flat;
+    /// impl Target<Val> for Flat {
+    ///     fn log_prob(&self, _: &Val) -> f64 { 0.0 }
+    /// }
+    /// struct Walk;
+    /// impl Proposal<Val> for Walk {
+    ///     fn propose<R: Rng + ?Sized>(&self, c: &Val, r: &mut R) -> Val {
+    ///         Val(c.0 + r.random_range(-1.0..1.0))
+    ///     }
+    /// }
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(Val(0.0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng);
+    ///
+    /// // Take exactly 100 steps using iterator
+    /// let errors: Vec<_> = sampler.by_ref().take(100).filter_map(Result::err).collect();
+    /// assert!(errors.is_empty());
+    /// assert_eq!(sampler.chain.total_steps(), 100);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.step())
     }
