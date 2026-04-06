@@ -49,14 +49,10 @@ fn main() -> Result<(), McmcError> {
     // This is the primary use case for the Iterator impl — fire-and-forget
     // stepping where you don't need to inspect state between steps.
     let burn_in = 1_000;
-    let errors: Vec<_> = sampler
+    sampler
         .by_ref()
         .take(burn_in)
-        .filter_map(Result::err)
-        .collect();
-    if let Some(err) = errors.into_iter().next() {
-        return Err(err);
-    }
+        .try_for_each(|result| result)?;
     println!("Burn-in complete ({burn_in} steps via iterator)");
 
     // Reset counters so acceptance rate reflects production only

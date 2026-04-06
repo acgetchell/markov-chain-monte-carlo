@@ -21,6 +21,17 @@ pub struct Chain<S> {
 impl<S> Chain<S> {
     /// Create a new chain from an initial state.
     ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// let chain = Chain::new(1.0_f64, &T)?;
+    /// assert_eq!(chain.accepted(), 0);
+    /// assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`McmcError::NanInitialLogProb`] if the target's log-probability
@@ -46,6 +57,26 @@ impl<S> Chain<S> {
     ///
     /// This method requires `S: Clone` because the proposal returns a new
     /// state by value.  For non-`Clone` state spaces, use [`step_mut`](Self::step_mut).
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// # #[derive(Clone)] struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl Proposal<S> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, c: &S, r: &mut R) -> S {
+    /// #         S(c.0 + r.random_range(-1.0..1.0))
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let mut chain = Chain::new(S(0.0), &T)?;
+    /// chain.step(&T, &P, &mut rng)?;
+    /// assert_eq!(chain.total_steps(), 1);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -104,6 +135,28 @@ impl<S> Chain<S> {
     ///
     /// Returns `Ok(true)` if the move was accepted, `Ok(false)` if rejected
     /// (including when the proposal returns `None`).
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl ProposalMut<S> for P {
+    /// #     type Undo = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, r: &mut R) -> Option<f64> {
+    /// #         let old = s.0; s.0 += r.random_range(-1.0..1.0); Some(old)
+    /// #     }
+    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let mut chain = Chain::new(S(0.0), &T)?;
+    /// let accepted = chain.step_mut(&T, &P, &mut rng)?;
+    /// assert_eq!(chain.total_steps(), 1);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -220,6 +273,17 @@ impl<S> Chain<S> {
     }
 
     /// Consume the chain and return the state.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// let chain = Chain::new(3.0_f64, &T)?;
+    /// let state = chain.into_state();
+    /// assert!((state - 3.0).abs() < f64::EPSILON);
+    /// # Ok::<(), McmcError>(())
+    /// ```
     #[must_use]
     pub fn into_state(self) -> S {
         self.state
