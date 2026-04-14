@@ -15,7 +15,7 @@ keywords = ["mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hasti
 categories = ["science", "mathematics", "algorithms"]
 
 [dependencies]
-rand = "0.10.0"
+rand = "0.10.1"
 
 [dev-dependencies]
 proptest = "1.11.0"
