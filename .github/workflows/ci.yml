@@ -21,6 +21,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  ACTIONLINT_VERSION: "1.7.12"
+  JUST_VERSION: "1.50.0"
+  TAPLO_VERSION: "0.10.0"
+  TYPOS_VERSION: "1.45.2"
+  UV_VERSION: "0.11.8"
 
 jobs:
   build:
@@ -52,9 +57,9 @@ jobs:
 
       - name: Install just
         if: matrix.os != 'windows-latest'
-        uses: taiki-e/install-action@481c34c1cf3a84c68b5e46f4eccfc82af798415a # v2.75.23
+        uses: taiki-e/install-action@b651345a718c8f44efa2460560b3dbf29cbd7ee1 # v2.75.26
         with:
-          tool: just
+          tool: just@${{ env.JUST_VERSION }}
 
       - name: Install yamllint (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -65,6 +70,93 @@ jobs:
       - name: Install yamllint (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install yamllint
+
+      - name: Install actionlint (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          set -euo pipefail
+
+          # actionlint is published as prebuilt binaries (Go), not a Rust crate.
+          # Install directly from rhysd/actionlint releases to avoid cargo-binstall fallback failures.
+          # Verify SHA256 checksums from the upstream release for supply-chain hardening.
+          OS="$(uname -s)"
+          ARCH="$(uname -m)"
+
+          case "$OS" in
+            Linux) ACTIONLINT_OS="linux" ;;
+            Darwin) ACTIONLINT_OS="darwin" ;;
+            *)
+              echo "Unsupported OS for actionlint: $OS" >&2
+              exit 1
+              ;;
+          esac
+
+          case "$ARCH" in
+            x86_64|amd64) ACTIONLINT_ARCH="amd64" ;;
+            arm64|aarch64) ACTIONLINT_ARCH="arm64" ;;
+            *)
+              echo "Unsupported architecture for actionlint: $ARCH" >&2
+              exit 1
+              ;;
+          esac
+
+          verify_sha256() {
+            local checksum_file="$1"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c "$checksum_file"
+            else
+              shasum -a 256 -c "$checksum_file"
+            fi
+          }
+
+          VERSION="${ACTIONLINT_VERSION}"
+          TARBALL="actionlint_${VERSION}_${ACTIONLINT_OS}_${ACTIONLINT_ARCH}.tar.gz"
+          CHECKSUMS_FILE="actionlint_${VERSION}_checksums.txt"
+          BASE_URL="https://github.com/rhysd/actionlint/releases/download/v${VERSION}"
+
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+
+          curl -fsSL "${BASE_URL}/${TARBALL}" -o "$tmpdir/$TARBALL"
+          curl -fsSL "${BASE_URL}/${CHECKSUMS_FILE}" -o "$tmpdir/$CHECKSUMS_FILE"
+
+          orig_dir="$PWD"
+          cd "$tmpdir"
+          grep -F "  $TARBALL" "$CHECKSUMS_FILE" > checksum.txt
+          verify_sha256 checksum.txt
+          cd "$orig_dir"
+
+          tar -xzf "$tmpdir/$TARBALL" -C "$tmpdir"
+
+          actionlint_path="$(find "$tmpdir" -type f -name actionlint | head -n 1)"
+          if [[ -z "$actionlint_path" ]]; then
+            echo "actionlint binary not found in $TARBALL" >&2
+            exit 1
+          fi
+
+          sudo install -m 0755 "$actionlint_path" /usr/local/bin/actionlint
+
+      - name: actionlint -version
+        if: matrix.os != 'windows-latest'
+        run: actionlint -version
+
+      - name: Install uv
+        if: matrix.os != 'windows-latest'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install taplo
+        if: matrix.os != 'windows-latest'
+        uses: taiki-e/install-action@b651345a718c8f44efa2460560b3dbf29cbd7ee1 # v2.75.26
+        with:
+          tool: taplo-cli@${{ env.TAPLO_VERSION }}
+
+      - name: Install typos-cli
+        if: matrix.os != 'windows-latest'
+        uses: taiki-e/install-action@b651345a718c8f44efa2460560b3dbf29cbd7ee1 # v2.75.26
+        with:
+          tool: typos-cli@${{ env.TYPOS_VERSION }}
 
       - name: Run CI checks (Linux/macOS)
         if: matrix.os != 'windows-latest'
@@ -77,3 +169,4 @@ jobs:
           cargo test --lib --verbose
           cargo test --doc --verbose
           cargo test --tests --verbose
+          cargo test --examples --verbose

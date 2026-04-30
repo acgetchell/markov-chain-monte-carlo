@@ -1,12 +1,23 @@
 # markov-chain-monte-carlo
 
-[![Crates.io](https://img.shields.io/crates/v/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo) [![Downloads](https://img.shields.io/crates/d/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo) [![Docs.rs](https://docs.rs/markov-chain-monte-carlo/badge.svg)](https://docs.rs/markov-chain-monte-carlo) [![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml) [![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml) [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo) [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
+[![Crates.io](https://img.shields.io/crates/v/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo)
+[![Downloads](https://img.shields.io/crates/d/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo)
+[![License](https://img.shields.io/crates/l/markov-chain-monte-carlo.svg)](LICENSE)
+[![Docs.rs](https://docs.rs/markov-chain-monte-carlo/badge.svg)](https://docs.rs/markov-chain-monte-carlo)
+[![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml)
+[![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml)
+[![Codacy Quality Scan](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codacy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codacy.yml)
+[![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
+[![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
 
 A composable **Markov Chain Monte Carlo (MCMC)** framework for arbitrary state spaces in Rust.
 
 🚧 **Pre-release (0.x)** — This crate is under active development. APIs may change between minor versions.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
+Citation metadata and background references are available in [CITATION.cff](CITATION.cff) and
+[REFERENCES.md](REFERENCES.md).
 
 ---
 
@@ -174,3 +185,48 @@ The long-term architecture separates:
 - [ ] Learned proposals (ML integration)
 - [ ] `serde` feature for chain checkpointing
 
+## Contributing
+
+A short local workflow:
+
+```bash
+just setup        # Install/verify dev tools
+just check        # Run non-mutating validation
+just fix          # Apply formatters/auto-fixes
+just ci           # Run the full local CI simulation
+```
+
+For the full command list, run `just --list`. Development tooling details live in
+[`docs/dev/rust.md`](docs/dev/rust.md), and AI assistants should follow [`AGENTS.md`](AGENTS.md).
+
+## Citation
+
+If you use this crate in academic work or downstream research software, please cite it using
+[`CITATION.cff`](CITATION.cff) or GitHub's "Cite this repository" feature. A Zenodo DOI can be
+added after an archived tagged release.
+
+## References
+
+For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
+[`REFERENCES.md`](REFERENCES.md).
+
+## AI Agents
+
+This repository contains an `AGENTS.md` file, which defines the canonical rules and invariants
+for AI coding assistants and autonomous agents working on this codebase.
+
+AI tools are expected to read and follow `AGENTS.md` when proposing or applying changes.
+
+Portions of this library were developed with the assistance of AI tools including [ChatGPT],
+[Claude], [Codex], and [CodeRabbit].
+
+All code was written and/or reviewed and validated by the author.
+
+For tool citation metadata, see the
+[AI-assisted development tools](REFERENCES.md#ai-assisted-development-tools) section of
+`REFERENCES.md`.
+
+[ChatGPT]: https://openai.com/chatgpt
+[Claude]: https://www.anthropic.com/claude
+[Codex]: https://openai.com/codex
+[CodeRabbit]: https://coderabbit.ai/

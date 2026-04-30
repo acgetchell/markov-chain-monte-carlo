@@ -22,6 +22,9 @@ jobs:
   clippy-sarif:
     name: Clippy SARIF Analysis
     runs-on: ubuntu-latest
+    env:
+      CLIPPY_SARIF_VERSION: "0.8.0"
+      SARIF_FMT_VERSION: "0.8.0"
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -37,12 +40,16 @@ jobs:
           path: |
             ~/.cargo/bin/clippy-sarif
             ~/.cargo/bin/sarif-fmt
-          key: clippy-sarif-${{ runner.os }}
+          key: clippy-sarif-${{ runner.os }}-${{ env.CLIPPY_SARIF_VERSION }}-${{ env.SARIF_FMT_VERSION }}
 
       - name: Install clippy-sarif tools
         run: |
           if ! command -v clippy-sarif &> /dev/null; then
-            cargo install clippy-sarif sarif-fmt --locked
+            cargo install clippy-sarif --locked --version "${CLIPPY_SARIF_VERSION}"
+          fi
+
+          if ! command -v sarif-fmt &> /dev/null; then
+            cargo install sarif-fmt --locked --version "${SARIF_FMT_VERSION}"
           fi
 
       - name: Run clippy with SARIF output
