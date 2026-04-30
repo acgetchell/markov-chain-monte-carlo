@@ -1,9 +1,9 @@
 [package]
 name = "markov-chain-monte-carlo"
 version = "0.2.0"
-authors = ["Adam Getchell <adam@adamgetchell.org>"]
+authors = [ "Adam Getchell <adam@adamgetchell.org>" ]
 edition = "2024"
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 
 description = "A composable Markov Chain Monte Carlo (MCMC) framework for arbitrary state spaces in Rust"
 homepage = "https://github.com/acgetchell/markov-chain-monte-carlo"
@@ -11,8 +11,8 @@ license = "BSD-3-Clause"
 repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
 readme = "README.md"
 
-keywords = ["mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hastings"]
-categories = ["science", "mathematics", "algorithms"]
+keywords = [ "mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hastings" ]
+categories = [ "science", "mathematics", "algorithms" ]
 
 [dependencies]
 rand = "0.10.1"

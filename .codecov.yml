@@ -1,0 +1,15 @@
+---
+coverage:
+  status:
+    project:
+      default:
+        target: 60%
+        removed_code_behavior: removals_only
+        threshold: 5%
+    patch:
+      default:
+        target: 50%
+
+ignore:
+  - "src/lib.rs"
+  - "examples/**"

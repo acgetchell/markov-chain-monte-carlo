@@ -1,0 +1,62 @@
+# This workflow runs repository-owned OpenGrep rules through Codacy and uploads
+# SARIF results to GitHub code scanning. Broad Codacy engines stay disabled to
+# keep this advisory signal focused and low-noise.
+
+name: Codacy Quality Scan
+
+concurrency:
+  group: codacy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "42 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codacy-quality-scan:
+    name: Codacy opengrep Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare workspace copy without .git
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/codacy-src"
+          rsync -a --delete --exclude '.git' ./ "$RUNNER_TEMP/codacy-src/"
+
+      - name: Run Codacy Analysis CLI
+        timeout-minutes: 20
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          verbose: true
+          directory: ${{ runner.temp }}/codacy-src
+          output: codacy-opengrep.sarif
+          format: sarif
+          tool: opengrep
+          skip-uncommitted-files-check: true
+          gh-code-scanning-compat: true
+          max-allowed-issues: 2147483647
+
+      - name: Upload SARIF results
+        if: ${{ hashFiles('codacy-opengrep.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@b25d0ebf40e5b63ee81e1bd6e5d2a12b7c2aeb61 # v4
+        with:
+          sarif_file: codacy-opengrep.sarif
+          category: codacy-opengrep
+          wait-for-processing: true

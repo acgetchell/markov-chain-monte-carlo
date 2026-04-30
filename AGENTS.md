@@ -19,6 +19,10 @@ When making changes in this repo, prioritize (in order):
   `git --no-pager log`, `git --no-pager show`, `git --no-pager blame`) to inspect changes/history
 - **ALWAYS** use `git --no-pager` when reading git output
 - Suggest git commands that modify version control state for the user to run manually
+- When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`,
+  e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`.
+  If an environment requires an owner/tool prefix, keep this structure after the prefix,
+  e.g. `codex/ci/312-rust-tooling`.
 
 ### Commit Messages
 
@@ -32,21 +36,27 @@ When user requests commit message generation:
 
 ### Code Quality
 
-- **ALLOWED**: Run formatters/linters: `cargo fmt`, `cargo clippy`, `cargo doc`
+- **ALLOWED**: Run formatters/linters: `cargo fmt`, `cargo clippy`, `cargo doc`, `just check`
 - **NEVER**: Use `sed`, `awk`, `python`, or `perl` to edit code or write file changes
 - **ALWAYS**: Use `edit_files` tool for edits (and `create_file` for new files)
 - **EXCEPTION**: Shell text tools OK for read-only analysis only
 
 ### Validation
 
+- **Primary gate**: Run `just check` for non-mutating local validation (format check, Clippy, YAML, GitHub Actions, TOML, spellcheck, Semgrep, Semgrep rule tests)
+- **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **YAML**: Use `just yaml-lint`
+- **TOML**: Use `just toml-fmt-check` and `just toml-lint` (uses Taplo)
+- **Spell check**: Use `just spell-check` (uses `typos`)
+- **Project rules**: Use `just semgrep` and `just semgrep-test` (Semgrep is pinned in `pyproject.toml` and run through `uv`)
 
 ### Rust
 
 - Prefer borrowed APIs by default:
   take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible.
   Only take ownership or return `Vec`/allocated data when required.
+- Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
 ## Common Commands
 
@@ -54,25 +64,15 @@ When user requests commit message generation:
 just fix              # Apply formatters/auto-fixes (mutating)
 just check            # Lint/validators (non-mutating)
 just ci               # Full CI simulation (checks + tests + examples)
+just lint             # Grouped lint aliases (code + docs + config)
+just setup            # Install/verify external dev tools
 just test             # Lib + doc tests (fast)
 just test-all         # All tests (lib + doc + integration)
 just examples         # Run all examples
 ```
 
-### Detailed Command Reference
-
-- All tests: `just test-all`
-- Build (debug): `cargo build` (or `just build`)
-- Coverage (CI XML): `just coverage-ci`
-- Coverage (HTML): `just coverage`
-- Fast Rust tests (lib + doc): `just test`
-- Format: `cargo fmt` (or `just fmt`)
-- Integration tests: `just test-integration`
-- Lint (Clippy): `just clippy`
-- Lint/validate: `just check`
-- Pre-commit validation / CI simulation: `just ci`
-- Run a single test (by name filter): `cargo test chain_samples_near_mode`
-- Run examples: `just examples` (or `cargo run --example normal_1d`)
+For detailed command references, coverage, and tooling notes, see
+[`docs/dev/rust.md`](docs/dev/rust.md).
 
 ### GitHub Issues
 

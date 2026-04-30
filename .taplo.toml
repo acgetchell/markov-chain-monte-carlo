@@ -1,0 +1,16 @@
+# Taplo configuration mirroring Rust-lang / Cargo TOML philosophy.
+# Goal: correctness + stability, not opinionated formatting.
+
+[formatting]
+align_entries = false
+align_comments = false
+reorder_keys = false
+reorder_arrays = false
+array_auto_expand = false
+array_auto_collapse = false
+compact_arrays = false
+compact_inline_tables = false
+column_width = 0
+indent_string = "    "
+trailing_newline = true
+crlf = false

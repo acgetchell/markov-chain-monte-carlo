@@ -1,0 +1,171 @@
+---
+# Repository-owned Semgrep/OpenGrep rules.
+#
+# Keep this file small and project-specific. Broad default/community rules tend
+# to duplicate Clippy, cargo-audit, and CodeQL. These rules encode local Rust
+# policies that are easier to express structurally than with Clippy.
+
+rules:
+  - id: mcmc.rust.no-stdio-diagnostics-in-src
+    languages:
+      - rust
+    severity: WARNING
+    message: "Avoid stdout/stderr diagnostics in library src/ code."
+    metadata:
+      category: maintainability
+      rationale: "Library code should return data or typed errors rather than printing diagnostics."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    patterns:
+      - pattern-either:
+          - pattern: println!(...)
+          - pattern: eprintln!(...)
+      - pattern-not-inside: |
+          mod tests {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $MOD {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          fn $FUNC(...) {
+              ...
+          }
+
+  - id: mcmc.rust.no-nonfinite-unwrap-defaults
+    languages:
+      - rust
+    severity: WARNING
+    message: "Do not hide failed floating-point conversion with NaN or infinity defaults."
+    metadata:
+      category: correctness
+      rationale: "MCMC probability code should reject or propagate non-finite values explicitly."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    pattern-either:
+      - pattern: $VALUE.unwrap_or(f64::NAN)
+      - pattern: $VALUE.unwrap_or(f64::INFINITY)
+      - pattern: $VALUE.unwrap_or(f64::NEG_INFINITY)
+      - pattern: $VALUE.unwrap_or(std::f64::NAN)
+      - pattern: $VALUE.unwrap_or(std::f64::INFINITY)
+      - pattern: $VALUE.unwrap_or(std::f64::NEG_INFINITY)
+      - pattern: $VALUE.unwrap_or_else(|| f64::NAN)
+      - pattern: $VALUE.unwrap_or_else(|| f64::INFINITY)
+      - pattern: $VALUE.unwrap_or_else(|| f64::NEG_INFINITY)
+
+  - id: mcmc.rust.no-production-unwrap-panic
+    languages:
+      - rust
+    severity: WARNING
+    message: "Avoid unwrap/expect/panic in non-test src/ code; return typed errors or document an invariant."
+    metadata:
+      category: correctness
+      rationale: "Public library paths should fail explicitly rather than panicking on user input."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    patterns:
+      - pattern-either:
+          - pattern: $VALUE.unwrap()
+          - pattern: $VALUE.expect($MESSAGE)
+          - pattern: panic!(...)
+      - pattern-not-inside: |
+          mod tests {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $MOD {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          fn $FUNC(...) {
+              ...
+          }
+
+  - id: mcmc.rust.no-box-dyn-error-in-src
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use McmcError or another typed error in src/ instead of dynamic error erasure."
+    metadata:
+      category: maintainability
+      rationale: "Public fallible paths should preserve typed error contracts."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    patterns:
+      - pattern-regex: >-
+          ^[ \t]*[^\n]*(\bBox\s*<\s*dyn\s+(std::error::)?Error\b|&\s*dyn\s+(std::error::)?Error\b|\banyhow::Error\b)
+      - pattern-not-regex: '^[ \t]*(//|///|/\*|\*)'
+      - pattern-not-inside: |
+          mod tests {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $MOD {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          fn $FUNC(...) {
+              ...
+          }
+
+  - id: mcmc.rust.no-clippy-allow-lints
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use #[expect(..., reason = ...)] instead of #[allow(...)] for Clippy suppressions."
+    metadata:
+      category: maintainability
+      rationale: "Clippy suppressions should be checked by the compiler and carry a stable reason."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/**/*.rs"
+        - "/examples/**/*.rs"
+      exclude:
+        - "/tests/semgrep/**"
+    pattern-regex: '^\s*#\s*\[\s*allow\s*\(\s*clippy::'
+
+  - id: mcmc.rust.expect-requires-reason
+    languages:
+      - rust
+    severity: WARNING
+    message: 'Add reason = "..." to #[expect(...)] so lint suppressions remain auditable.'
+    metadata:
+      category: maintainability
+      rationale: "Documented expectations make lint suppressions reviewable and less likely to go stale."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/**/*.rs"
+        - "/examples/**/*.rs"
+      exclude:
+        - "/tests/semgrep/**"
+    patterns:
+      - pattern-regex: '^\s*#\s*\[\s*expect\s*\([^\]\n]*\)\s*\]'
+      - pattern-not-regex: '\breason\s*='
+
+  - id: mcmc.rust.prefer-prelude-imports-in-examples
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use markov_chain_monte_carlo::prelude imports in examples instead of deep module paths."
+    metadata:
+      category: maintainability
+      rationale: "Examples should model the public import surface users are expected to copy."
+    paths:
+      include:
+        - "/examples/**/*.rs"
+    patterns:
+      - pattern-regex: '^\s*use\s+markov_chain_monte_carlo::(chain|error|sampler|traits)::'
+      - pattern-not-regex: '^\s*use\s+markov_chain_monte_carlo::prelude::'

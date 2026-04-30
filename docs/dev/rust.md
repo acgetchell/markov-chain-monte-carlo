@@ -1,0 +1,119 @@
+# Rust Development
+
+This repository is a single Rust library crate using Rust 1.95.0 and edition 2024.
+
+## Core Commands
+
+```bash
+just fix              # Apply formatters/auto-fixes (mutating)
+just check            # Non-mutating validation gate
+just check-fast       # Fast compile check
+just ci               # Full CI simulation
+just lint             # All lint groups
+just setup            # Install/verify external dev tools
+just test             # Lib + doc tests
+just test-all         # Lib + doc + integration tests
+just examples         # Run all examples
+```
+
+## Validation
+
+`just check` is the primary non-mutating gate. It currently runs:
+
+- `just fmt-check` - Rust formatting check
+- `just clippy` - Clippy with `pedantic`, `nursery`, and `cargo` warnings
+- `just yaml-lint` - YAML validation through `yamllint`
+- `just action-lint` - GitHub Actions validation through `actionlint`
+- `just toml-fmt-check` - TOML formatting check through Taplo
+- `just toml-lint` - TOML validation through Taplo
+- `just spell-check` - Spellcheck through `typos`
+- `just semgrep` - Repository-owned Rust policy rules
+- `just semgrep-test` - Tests for the repository-owned Semgrep rules
+
+For cross-repo muscle memory, the same checks are also available through grouped
+lint aliases:
+
+- `just lint` - all lint groups
+- `just lint-code` - Rust formatting, Clippy, Semgrep, and Semgrep rule tests
+- `just lint-config` - JSON, TOML, YAML, and GitHub Actions validation
+- `just lint-docs` - spellcheck
+
+`just ci` runs `just check`, documentation, tests, examples, and deterministic
+example-output validation.
+
+## Setup
+
+Run `just setup` or `just setup-tools` to install and verify external tools:
+
+- `actionlint`
+- `cargo-llvm-cov`
+- `jq`
+- `taplo`
+- `typos`
+- `uv`
+- `yamllint`
+
+The setup recipe uses Homebrew when available, Cargo for Rust tools, and
+`uv sync --group dev` for project-managed Python tools. Semgrep is pinned in
+`pyproject.toml` and invoked with `uv run semgrep`.
+
+## Testing
+
+- All tests: `just test-all`
+- Fast Rust tests (lib + doc): `just test`
+- Integration tests: `just test-integration`
+- Single test by name filter: `cargo test chain_samples_near_mode`
+- Examples: `just examples`
+
+## Coverage
+
+Coverage uses `cargo llvm-cov`.
+
+- Local HTML report: `just coverage`
+- CI Cobertura XML: `just coverage-ci`
+
+`just coverage` generates and opens:
+
+```text
+target/llvm-cov/html/index.html
+```
+
+`just coverage-ci` generates:
+
+```text
+coverage/cobertura.xml
+```
+
+## Tooling
+
+The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
+
+- `.coderabbit.yml` configures CodeRabbit to use focused Rust, YAML, Actions,
+  secret-scan, and Semgrep checks.
+- `.codecov.yml` configures coverage thresholds and ignores examples.
+- `.github/workflows/codacy.yml` runs Codacy/OpenGrep with `semgrep.yaml`.
+- `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
+- `clippy.toml` pins Clippy's MSRV to the crate MSRV.
+- `pyproject.toml` pins Python-based development tools used through `uv`.
+- `rustfmt.toml` keeps stable Rust formatting explicit.
+- `.taplo.toml` keeps TOML formatting stable and Cargo-like.
+- `typos.toml` configures spellcheck exclusions and project vocabulary.
+- `semgrep.yaml` contains repository-owned Rust policy rules.
+
+Keep these checks focused. Avoid broad community rule packs unless they prove
+low-noise for this crate.
+
+## Rust Style
+
+- Prefer borrowed APIs by default: take `&T`, `&mut T`, and `&[T]` when possible.
+- Return borrowed views (`&T`, `&[T]`) when possible.
+- Only take ownership or allocate returned `Vec`s when required.
+- Keep production fallible paths typed; prefer `McmcError` or a specific error
+  type over dynamic error erasure.
+- Avoid `unwrap`, `expect`, and `panic!` in production `src/` code.
+- Use `#[expect(..., reason = "...")]` rather than `#[allow(clippy::...)]`.
+
+## Publishing
+
+Before publishing, prefer updating documentation first. Doc-only changes still
+require a version bump on crates.io.

@@ -1,0 +1,16 @@
+# Configuration for typos-cli (https://github.com/crate-ci/typos).
+
+[files]
+extend-exclude = [
+    ".git/**",
+    "target/**",
+    "coverage/**",
+    "node_modules/**",
+    "dist/**",
+    "build/**",
+    ".venv/**",
+    "CHANGELOG.md",
+]
+
+[default.extend-words]
+metropolis = "metropolis"
