@@ -43,7 +43,7 @@ When user requests commit message generation:
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (format check, Clippy, YAML, GitHub Actions, TOML, spellcheck, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (format check, Clippy, YAML, GitHub Actions, TOML, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **YAML**: Use `just yaml-lint`

@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_LLVM_COV_VERSION: "0.8.5"
+      JUST_VERSION: "1.50.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -59,7 +60,7 @@ jobs:
       - name: Install just
         uses: taiki-e/install-action@481c34c1cf3a84c68b5e46f4eccfc82af798415a # v2.75.23
         with:
-          tool: just
+          tool: just@${{ env.JUST_VERSION }}
 
       - name: Run coverage
         run: |
