@@ -197,7 +197,10 @@ just ci           # Run the full local CI simulation
 ```
 
 For the full command list, run `just --list`. Development tooling details live in
-[`docs/dev/rust.md`](docs/dev/rust.md), and AI assistants should follow [`AGENTS.md`](AGENTS.md).
+[`docs/dev/rust.md`](docs/dev/rust.md), code layout is summarized in
+[`docs/code_organization.md`](docs/code_organization.md), release steps live in
+[`docs/RELEASING.md`](docs/RELEASING.md), and AI assistants should follow
+[`AGENTS.md`](AGENTS.md).
 
 ## Citation
 
