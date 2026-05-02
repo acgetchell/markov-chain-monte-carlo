@@ -3,7 +3,8 @@
 //! These tests verify mathematical properties of Metropolis–Hastings that must
 //! hold for *all* inputs, not just specific test cases.
 
-use markov_chain_monte_carlo::prelude::*;
+use markov_chain_monte_carlo::prelude::by_value::*;
+use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
 use proptest::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};

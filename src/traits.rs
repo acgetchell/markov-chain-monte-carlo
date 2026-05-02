@@ -37,6 +37,26 @@ pub trait Proposal<S> {
     }
 }
 
+impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &P {
+    fn propose<R: Rng + ?Sized>(&self, current: &S, rng: &mut R) -> S {
+        (**self).propose(current, rng)
+    }
+
+    fn log_q_ratio(&self, current: &S, proposed: &S) -> f64 {
+        (**self).log_q_ratio(current, proposed)
+    }
+}
+
+impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &mut P {
+    fn propose<R: Rng + ?Sized>(&self, current: &S, rng: &mut R) -> S {
+        (**self).propose(current, rng)
+    }
+
+    fn log_q_ratio(&self, current: &S, proposed: &S) -> f64 {
+        (**self).log_q_ratio(current, proposed)
+    }
+}
+
 /// In-place proposal distribution with rollback.
 ///
 /// Unlike [`Proposal`], which clones the state for each proposal,
@@ -74,8 +94,170 @@ pub trait ProposalMut<S> {
     }
 }
 
+impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &P {
+    type Undo = P::Undo;
+
+    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo> {
+        (**self).propose_mut(state, rng)
+    }
+
+    fn undo(&self, state: &mut S, token: Self::Undo) {
+        (**self).undo(state, token);
+    }
+
+    fn log_q_ratio(&self, state: &S, token: &Self::Undo) -> f64 {
+        (**self).log_q_ratio(state, token)
+    }
+}
+
+impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
+    type Undo = P::Undo;
+
+    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo> {
+        (**self).propose_mut(state, rng)
+    }
+
+    fn undo(&self, state: &mut S, token: Self::Undo) {
+        (**self).undo(state, token);
+    }
+
+    fn log_q_ratio(&self, state: &S, token: &Self::Undo) -> f64 {
+        (**self).log_q_ratio(state, token)
+    }
+}
+
+/// Proposal distribution for accept-before-mutation workflows.
+///
+/// `DelayedProposal` separates planning, Metropolis-Hastings evaluation, and
+/// mutation:
+///
+/// 1. [`propose_plan`](Self::propose_plan) chooses a move descriptor without
+///    mutating the state.
+/// 2. [`proposed_log_prob`](Self::proposed_log_prob) evaluates the proposed
+///    state's log-probability from that descriptor.
+/// 3. [`crate::Chain::step_delayed`] performs the accept/reject draw.
+/// 4. [`commit`](Self::commit) mutates the state only after acceptance.
+///
+/// This is useful for combinatorial state spaces where the log-probability
+/// delta is cheap to compute from a move descriptor, but applying the move may
+/// require searching for a valid local site.  If `commit` returns an error, it
+/// must be failure-atomic: either the accepted move is applied completely, or
+/// `state` is restored before returning `Err`.
+pub trait DelayedProposal<S> {
+    /// Move descriptor produced before the Metropolis-Hastings decision.
+    type Plan;
+    /// User-facing metadata returned in delayed-step telemetry.
+    type Info;
+    /// Proposal-specific error type.
+    type Error;
+
+    /// Propose a move descriptor without mutating `state`.
+    ///
+    /// Return `Ok(None)` when no valid move can be proposed from the current
+    /// state.  That is counted as a rejection by [`crate::Chain::step_delayed`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `Self::Error` when planning fails for proposal-specific reasons.
+    fn propose_plan<R: Rng + ?Sized>(
+        &mut self,
+        state: &S,
+        rng: &mut R,
+    ) -> Result<Option<Self::Plan>, Self::Error>;
+
+    /// Compute the proposed state's log-probability without mutating `state`.
+    ///
+    /// The returned value has the same numerical contract as
+    /// [`Target::log_prob`]: finite values and `f64::NEG_INFINITY` are valid,
+    /// while `NaN` and `+∞` are rejected by [`crate::Chain::step_delayed`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `Self::Error` when the proposal cannot evaluate the plan.
+    fn proposed_log_prob<T: Target<S>>(
+        &self,
+        state: &S,
+        plan: &Self::Plan,
+        target: &T,
+    ) -> Result<f64, Self::Error>;
+
+    /// Log proposal ratio:
+    /// log(q(current | proposed) / q(proposed | current)).
+    ///
+    /// Defaults to 0 for symmetric proposals.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Self::Error` when the ratio cannot be evaluated.
+    fn log_q_ratio(&self, _state: &S, _plan: &Self::Plan) -> Result<f64, Self::Error> {
+        Ok(0.0)
+    }
+
+    /// Produce telemetry metadata for `plan`.
+    fn info(&self, plan: &Self::Plan) -> Self::Info;
+
+    /// Apply an accepted move to `state`.
+    ///
+    /// This method is called only after the Metropolis-Hastings decision has
+    /// accepted `plan`.  On error, implementations must restore `state` before
+    /// returning so the chain's state and cached log-probability remain
+    /// synchronized.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Self::Error` when the accepted move cannot be committed.
+    fn commit<R: Rng + ?Sized>(
+        &mut self,
+        state: &mut S,
+        plan: Self::Plan,
+        rng: &mut R,
+    ) -> Result<(), Self::Error>;
+}
+
+impl<S, P: DelayedProposal<S> + ?Sized> DelayedProposal<S> for &mut P {
+    type Plan = P::Plan;
+    type Info = P::Info;
+    type Error = P::Error;
+
+    fn propose_plan<R: Rng + ?Sized>(
+        &mut self,
+        state: &S,
+        rng: &mut R,
+    ) -> Result<Option<Self::Plan>, Self::Error> {
+        (**self).propose_plan(state, rng)
+    }
+
+    fn proposed_log_prob<T: Target<S>>(
+        &self,
+        state: &S,
+        plan: &Self::Plan,
+        target: &T,
+    ) -> Result<f64, Self::Error> {
+        (**self).proposed_log_prob(state, plan, target)
+    }
+
+    fn log_q_ratio(&self, state: &S, plan: &Self::Plan) -> Result<f64, Self::Error> {
+        (**self).log_q_ratio(state, plan)
+    }
+
+    fn info(&self, plan: &Self::Plan) -> Self::Info {
+        (**self).info(plan)
+    }
+
+    fn commit<R: Rng + ?Sized>(
+        &mut self,
+        state: &mut S,
+        plan: Self::Plan,
+        rng: &mut R,
+    ) -> Result<(), Self::Error> {
+        (**self).commit(state, plan, rng)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
+
     use super::*;
 
     // --- Fixtures ---
@@ -108,7 +290,7 @@ mod tests {
     // --- Default log_q_ratio tests ---
 
     #[test]
-    fn proposal_default_log_q_ratio_is_zero() {
+    fn proposal_default_log_q_zero() {
         let p = SymmetricProposal;
         let ratio = p.log_q_ratio(&Scalar(0.0), &Scalar(1.0));
         assert!(
@@ -118,12 +300,60 @@ mod tests {
     }
 
     #[test]
-    fn proposal_mut_default_log_q_ratio_is_zero() {
+    fn proposal_mut_default_log_q_zero() {
         let p = SymmetricMutProposal;
         let ratio = p.log_q_ratio(&Scalar(1.0), &0.0_f64);
         assert!(
             ratio.abs() < f64::EPSILON,
             "Default ProposalMut::log_q_ratio should be 0.0"
+        );
+    }
+
+    struct SymmetricDelayedProposal;
+    impl DelayedProposal<Scalar> for SymmetricDelayedProposal {
+        type Plan = f64;
+        type Info = f64;
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _state: &Scalar,
+            _rng: &mut R,
+        ) -> Result<Option<f64>, Self::Error> {
+            Ok(Some(1.0))
+        }
+
+        fn proposed_log_prob<T: Target<Scalar>>(
+            &self,
+            _state: &Scalar,
+            plan: &f64,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(&Scalar(*plan)))
+        }
+
+        fn info(&self, plan: &f64) -> f64 {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            plan: f64,
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            state.0 = plan;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn delayed_default_log_q_zero() {
+        let p = SymmetricDelayedProposal;
+        let ratio = p.log_q_ratio(&Scalar(0.0), &1.0).unwrap();
+        assert!(
+            ratio.abs() < f64::EPSILON,
+            "Default DelayedProposal::log_q_ratio should be 0.0"
         );
     }
 }

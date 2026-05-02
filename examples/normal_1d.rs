@@ -5,7 +5,7 @@
 //!
 //! Run with: `cargo run --example normal_1d`
 
-use markov_chain_monte_carlo::prelude::*;
+use markov_chain_monte_carlo::prelude::by_value::*;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 

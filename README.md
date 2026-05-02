@@ -48,7 +48,7 @@ The design emphasizes:
 ### Clone-based (simple states)
 
 ```rust
-use markov_chain_monte_carlo::prelude::*;
+use markov_chain_monte_carlo::prelude::by_value::*;
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 #[derive(Clone)]
@@ -84,7 +84,7 @@ fn main() -> Result<(), McmcError> {
 ### Using `Sampler` (ergonomic wrapper)
 
 ```rust
-use markov_chain_monte_carlo::prelude::*;
+use markov_chain_monte_carlo::prelude::by_value::*;
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 # #[derive(Clone)] struct Scalar(f64);
@@ -117,7 +117,7 @@ fn main() -> Result<(), McmcError> {
 ### In-place mutation (combinatorial states)
 
 ```rust
-use markov_chain_monte_carlo::prelude::*;
+use markov_chain_monte_carlo::prelude::in_place::*;
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 struct SpinChain { spins: Vec<i8> }  // not Clone
