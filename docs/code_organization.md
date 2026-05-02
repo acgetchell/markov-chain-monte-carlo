@@ -77,7 +77,7 @@ changes still affect user matching and documentation.
 Defines user extension points:
 
 - `Target<S>` for target distributions through `log_prob(&S) -> f64`
-- `Proposal<S>` for clone-based proposals
+- `Proposal<S>` for by-value proposals
 - `ProposalMut<S>` for in-place proposals with rollback through an undo token
 
 This is the right place for small, fundamental traits that users implement for
@@ -91,7 +91,7 @@ This module owns:
 
 - current state and current log-probability
 - accepted/rejected counters
-- clone-based `step`
+- by-value `step`
 - in-place `step_mut`
 - state accessors and replacement helpers
 - acceptance-rate and counter utilities
@@ -108,7 +108,7 @@ This module owns:
 
 - single-step forwarding methods
 - bulk `run` and `run_mut` loops
-- clone-based `Iterator` support
+- by-value `Iterator` support
 - access to the bundled `Chain`
 
 Use `Sampler` for workflow ergonomics; use `Chain` for the core transition
@@ -118,9 +118,9 @@ logic.
 
 Examples demonstrate complete, runnable sampling workflows:
 
-- `examples/normal_1d.rs` shows a simple clone-based random-walk sampler.
+- `examples/normal_1d.rs` shows a simple by-value random-walk sampler.
 - `examples/ising_1d.rs` shows in-place mutation with rollback.
-- `examples/iterator_sampling.rs` shows the clone-based `Sampler` iterator API.
+- `examples/iterator_sampling.rs` shows the by-value `Sampler` iterator API.
 
 Keep examples deterministic when possible. The `validate-examples` recipe checks
 for expected output markers, so example output should remain stable enough for
@@ -135,7 +135,7 @@ Tests are split by scope:
 - `tests/semgrep/` validates repository-owned Semgrep rules.
 
 For narrow behavior changes, prefer focused unit tests near the implementation.
-For invariants spanning clone-based and in-place paths, prefer integration or
+For invariants spanning by-value and in-place paths, prefer integration or
 property tests.
 
 ## Tooling and Configuration
@@ -172,4 +172,3 @@ Configuration files support the same gate:
   a change affects Metropolis-Hastings invariants.
 - Run `just check` before handing off ordinary changes, and `just ci` before
   release or broad behavior changes.
-

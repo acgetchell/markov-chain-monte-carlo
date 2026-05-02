@@ -56,7 +56,7 @@ fn main() -> Result<(), McmcError> {
     println!("Burn-in complete ({burn_in} steps via iterator)");
 
     // Reset counters so acceptance rate reflects production only
-    sampler.chain.reset_counters();
+    sampler.chain_mut().reset_counters();
 
     // Collect samples: use step() when you need to read state between steps.
     // The iterator yields Result<(), McmcError> (not the state), so collecting
@@ -66,7 +66,7 @@ fn main() -> Result<(), McmcError> {
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
         sampler.step()?;
-        let x = sampler.chain.state().0;
+        let x = sampler.chain_ref().state().0;
         sum += x;
         sum_sq += x * x;
     }
@@ -79,7 +79,7 @@ fn main() -> Result<(), McmcError> {
     println!("  Sample variance: {variance:.4} (expected: 1.0)");
     println!(
         "  Acceptance rate: {:.1}%",
-        sampler.chain.acceptance_rate() * 100.0
+        sampler.chain_ref().acceptance_rate() * 100.0
     );
 
     Ok(())

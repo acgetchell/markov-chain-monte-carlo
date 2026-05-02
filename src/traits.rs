@@ -2,19 +2,29 @@
 
 use rand::Rng;
 
-/// Target distribution
+/// Target distribution.
+///
+/// `log_prob` returns a value proportional to the natural logarithm of the
+/// target probability mass or density at `state`.  It may be an unnormalized
+/// log-density or negative energy/action; additive constants do not affect
+/// Metropolis-Hastings acceptance probabilities.
+///
+/// This is not a logit or arbitrary score: differences between two returned
+/// values must be log probability ratios for the chain to target the intended
+/// distribution.  Return `f64::NEG_INFINITY` for impossible states.
 pub trait Target<S> {
     /// Compute log-probability (or negative energy/action).
     fn log_prob(&self, state: &S) -> f64;
 }
 
-/// Proposal distribution for generating new states.
+/// Proposal distribution for generating new states by value.
 ///
-/// This trait uses a clone-based model: [`propose`](Proposal::propose) returns
-/// a new state by value.  For state spaces where cloning is expensive (e.g.,
-/// triangulations, large graphs), see [`ProposalMut`] which mutates in place
-/// and supports cheap rollback.
-pub trait Proposal<S: Clone> {
+/// This trait returns a proposed state by value.  Implementations for small
+/// state spaces often clone and modify the current state internally, but the
+/// trait itself does not require `S: Clone`.  For state spaces where allocating
+/// a whole proposed state is expensive (e.g., triangulations, large graphs),
+/// see [`ProposalMut`] which mutates in place and supports cheap rollback.
+pub trait Proposal<S> {
     /// Propose a new state from the current one.
     fn propose<R: Rng + ?Sized>(&self, current: &S, rng: &mut R) -> S;
 
@@ -45,6 +55,12 @@ pub trait ProposalMut<S> {
 
     /// Mutate `state` in place, returning `Some(undo_token)` on success
     /// or `None` if no valid move could be found.
+    ///
+    /// Returning `None` must leave `state` exactly as it was on entry.  If a
+    /// proposal mutates state before discovering that the move is invalid, it
+    /// must undo those changes before returning `None`.  Once `Some(token)` is
+    /// returned, [`undo`](ProposalMut::undo) must be able to restore the exact
+    /// prior state.
     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo>;
 
     /// Reverse a previously applied move using its undo token.

@@ -14,7 +14,7 @@ use crate::{Chain, McmcError, Proposal, ProposalMut, Target};
 /// single Metropolis–Hastings steps and [`run`](Self::run) /
 /// [`run_mut`](Self::run_mut) for bulk sampling.
 ///
-/// For the clone-based path (`P: Proposal<S>`), `Sampler` also implements
+/// For the by-value proposal path (`P: Proposal<S>`), `Sampler` also implements
 /// [`Iterator`], yielding `Result<(), McmcError>` on each step.
 ///
 /// # Example
@@ -44,17 +44,17 @@ use crate::{Chain, McmcError, Proposal, ProposalMut, Target};
 ///
 /// // Burn-in
 /// sampler.run(1000)?;
-/// sampler.chain.reset_counters();
+/// sampler.chain_mut().reset_counters();
 ///
 /// // Production sampling
 /// sampler.run(10_000)?;
-/// assert!(sampler.chain.acceptance_rate() > 0.0);
+/// assert!(sampler.chain_ref().acceptance_rate() > 0.0);
 /// # Ok::<(), McmcError>(())
 /// ```
 #[must_use]
 pub struct Sampler<'a, S, T, P, R: ?Sized> {
     /// The MCMC chain being sampled.
-    pub chain: Chain<S>,
+    chain: Chain<S>,
     target: &'a T,
     proposal: &'a P,
     rng: &'a mut R,
@@ -81,6 +81,20 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
         }
     }
 
+    /// Shared reference to the inner chain.
+    pub const fn chain_ref(&self) -> &Chain<S> {
+        &self.chain
+    }
+
+    /// Mutable reference to the inner chain.
+    ///
+    /// This permits operations such as [`Chain::reset_counters`] or
+    /// [`Chain::replace_state`] without exposing `Sampler`'s fields as part of
+    /// its public representation.
+    pub const fn chain_mut(&mut self) -> &mut Chain<S> {
+        &mut self.chain
+    }
+
     /// Consume the sampler and return the inner chain.
     ///
     /// ```
@@ -105,16 +119,15 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     }
 }
 
-// --- Clone-based stepping ---
+// --- By-value stepping ---
 
 impl<S, T, P, R> Sampler<'_, S, T, P, R>
 where
-    S: Clone,
     T: Target<S>,
     P: Proposal<S>,
     R: Rng + ?Sized,
 {
-    /// Perform a single clone-based Metropolis–Hastings step.
+    /// Perform a single by-value Metropolis–Hastings step.
     ///
     /// Delegates to [`Chain::step`].
     ///
@@ -135,7 +148,7 @@ where
     /// let chain = Chain::new(S(0.0), &T)?;
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
     /// sampler.step()?;
-    /// assert_eq!(sampler.chain.total_steps(), 1);
+    /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -146,7 +159,7 @@ where
         self.chain.step(self.target, self.proposal, self.rng)
     }
 
-    /// Run `steps` clone-based Metropolis–Hastings steps.
+    /// Run `steps` by-value Metropolis–Hastings steps.
     ///
     /// Stops and returns the first error encountered.
     ///
@@ -168,7 +181,7 @@ where
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
     ///
     /// sampler.run(1000)?;
-    /// assert_eq!(sampler.chain.total_steps(), 1000);
+    /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -215,7 +228,7 @@ where
     /// let chain = Chain::new(S(0.0), &T)?;
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
     /// let accepted = sampler.step_mut()?;
-    /// assert_eq!(sampler.chain.total_steps(), 1);
+    /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -255,7 +268,7 @@ where
     /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng);
     ///
     /// sampler.run_mut(1000)?;
-    /// assert_eq!(sampler.chain.total_steps(), 1000);
+    /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -270,18 +283,17 @@ where
     }
 }
 
-// --- Iterator (clone-based path only) ---
+// --- Iterator (by-value proposal path only) ---
 
 impl<S, T, P, R> Iterator for Sampler<'_, S, T, P, R>
 where
-    S: Clone,
     T: Target<S>,
     P: Proposal<S>,
     R: Rng + ?Sized,
 {
     type Item = Result<(), McmcError>;
 
-    /// Perform one clone-based step and yield the result.
+    /// Perform one by-value step and yield the result.
     ///
     /// This is an infinite iterator — it always returns `Some`.
     /// Use `.take(n)` to limit the number of steps.
@@ -310,7 +322,7 @@ where
     /// // Take exactly 100 steps using iterator
     /// let errors: Vec<_> = sampler.by_ref().take(100).filter_map(Result::err).collect();
     /// assert!(errors.is_empty());
-    /// assert_eq!(sampler.chain.total_steps(), 100);
+    /// assert_eq!(sampler.chain_ref().total_steps(), 100);
     /// # Ok::<(), McmcError>(())
     /// ```
     fn next(&mut self) -> Option<Self::Item> {
@@ -392,7 +404,7 @@ mod tests {
         assert!(debug.contains("chain"));
     }
 
-    // --- Clone-based: step and run ---
+    // --- By-value: step and run ---
 
     #[test]
     fn step_advances_chain() {
@@ -401,7 +413,7 @@ mod tests {
         let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         sampler.step().unwrap();
-        assert_eq!(sampler.chain.total_steps(), 1);
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
     #[test]
@@ -411,7 +423,7 @@ mod tests {
         let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         sampler.run(500).unwrap();
-        assert_eq!(sampler.chain.total_steps(), 500);
+        assert_eq!(sampler.chain_ref().total_steps(), 500);
     }
 
     // --- In-place: step_mut and run_mut ---
@@ -423,7 +435,7 @@ mod tests {
         let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
 
         sampler.step_mut().unwrap();
-        assert_eq!(sampler.chain.total_steps(), 1);
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
     #[test]
@@ -433,7 +445,7 @@ mod tests {
         let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
 
         sampler.run_mut(500).unwrap();
-        assert_eq!(sampler.chain.total_steps(), 500);
+        assert_eq!(sampler.chain_ref().total_steps(), 500);
     }
 
     // --- Iterator ---
@@ -448,7 +460,7 @@ mod tests {
         for result in sampler.by_ref().take(200) {
             result.unwrap();
         }
-        assert_eq!(sampler.chain.total_steps(), 200);
+        assert_eq!(sampler.chain_ref().total_steps(), 200);
     }
 
     #[test]
@@ -483,9 +495,9 @@ mod tests {
         let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
         sampler.run(steps).unwrap();
 
-        assert_eq!(chain.state, sampler.chain.state);
-        assert_eq!(chain.accepted(), sampler.chain.accepted());
-        assert_eq!(chain.rejected(), sampler.chain.rejected());
+        assert_eq!(chain.state, *sampler.chain_ref().state());
+        assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
+        assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 
     #[test]
@@ -506,7 +518,8 @@ mod tests {
         let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
         sampler.run_mut(steps).unwrap();
 
-        assert_eq!(chain.state, sampler.chain.state);
-        assert_eq!(chain.accepted(), sampler.chain.accepted());
+        assert_eq!(chain.state, *sampler.chain_ref().state());
+        assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
+        assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 }

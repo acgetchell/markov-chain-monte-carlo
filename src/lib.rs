@@ -7,6 +7,27 @@
 //! methods over arbitrary state spaces, including discrete and combinatorial
 //! systems (e.g., triangulations).
 //!
+//! [`Target::log_prob`] should return an unnormalized natural log-probability
+//! or log-density.  Additive constants are fine because Metropolis-Hastings
+//! only uses differences, but arbitrary scores or logits will sample a
+//! different distribution.
+//!
+//! # Numerical semantics
+//!
+//! The core Metropolis-Hastings acceptance calculation is performed in log
+//! space using `f64`.  Domain-specific code may use exact arithmetic internally
+//! for predicates or invariant checks, but targets and proposal ratios cross the
+//! crate boundary as log weights:
+//!
+//! - finite values represent unnormalized log probability mass/density
+//! - `f64::NEG_INFINITY` represents an impossible or zero-probability state
+//! - `NaN` log-probabilities and log proposal ratios are rejected with
+//!   [`McmcError`]
+//! - `+∞` log-probabilities and log proposal ratios are rejected with
+//!   [`McmcError`]
+//! - acceptance ratios that become `NaN` during arithmetic, such as
+//!   `-∞ - (-∞)`, are treated as rejection
+//!
 //! # Example
 //!
 //! Sample from a standard normal distribution using Metropolis–Hastings:
@@ -127,11 +148,11 @@
 //!
 //! // Burn-in
 //! sampler.run(1000)?;
-//! sampler.chain.reset_counters();
+//! sampler.chain_mut().reset_counters();
 //!
 //! // Production
 //! sampler.run(10_000)?;
-//! assert!(sampler.chain.acceptance_rate() > 0.0);
+//! assert!(sampler.chain_ref().acceptance_rate() > 0.0);
 //! # Ok::<(), McmcError>(())
 //! ```
 
