@@ -81,7 +81,7 @@ proptest! {
         );
     }
 
-    /// Same property for the clone-based `step`.
+    /// Same property for the by-value `step`.
     #[test]
     fn log_prob_consistent_after_step(
         initial in -10.0f64..10.0,
@@ -166,7 +166,7 @@ proptest! {
         );
     }
 
-    /// Same counts invariant for the clone-based `step`.
+    /// Same counts invariant for the by-value `step`.
     #[test]
     fn counts_invariant_step(
         initial in -10.0f64..10.0,
@@ -214,9 +214,9 @@ proptest! {
         let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
         sampler.run(steps as usize).unwrap();
 
-        prop_assert_eq!(chain.state(), sampler.chain.state());
-        prop_assert_eq!(chain.accepted(), sampler.chain.accepted());
-        prop_assert_eq!(chain.rejected(), sampler.chain.rejected());
+        prop_assert_eq!(chain.state(), sampler.chain_ref().state());
+        prop_assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
+        prop_assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 
     /// `Sampler::run_mut` must produce identical results to a raw `Chain`
@@ -243,8 +243,8 @@ proptest! {
         let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
         sampler.run_mut(steps as usize).unwrap();
 
-        prop_assert_eq!(chain.state(), sampler.chain.state());
-        prop_assert_eq!(chain.accepted(), sampler.chain.accepted());
-        prop_assert_eq!(chain.rejected(), sampler.chain.rejected());
+        prop_assert_eq!(chain.state(), sampler.chain_ref().state());
+        prop_assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
+        prop_assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 }

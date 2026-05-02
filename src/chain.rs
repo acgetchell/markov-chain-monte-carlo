@@ -1,8 +1,26 @@
 //! MCMC chain implementation.
 
+use rand::distr::Open01;
 use rand::{Rng, RngExt};
 
 use crate::{McmcError, Proposal, ProposalMut, Target};
+
+fn accept_from_log_uniform(log_alpha: f64, log_u: f64) -> bool {
+    // NaN can arise from valid inputs such as -inf - (-inf); treat that as a
+    // zero acceptance probability instead of relying on float comparison quirks.
+    if log_alpha.is_nan() {
+        false
+    } else if log_alpha >= 0.0 {
+        true
+    } else {
+        log_u < log_alpha
+    }
+}
+
+fn accept_log_alpha<R: Rng + ?Sized>(log_alpha: f64, rng: &mut R) -> bool {
+    let log_u: f64 = rng.sample::<f64, _>(Open01).ln();
+    accept_from_log_uniform(log_alpha, log_u)
+}
 
 /// A single MCMC chain.
 #[derive(Debug)]
@@ -53,10 +71,11 @@ impl<S> Chain<S> {
         })
     }
 
-    /// Perform a single Metropolis–Hastings step (clone-based).
+    /// Perform a single Metropolis–Hastings step with a by-value proposal.
     ///
-    /// This method requires `S: Clone` because the proposal returns a new
-    /// state by value.  For non-`Clone` state spaces, use [`step_mut`](Self::step_mut).
+    /// The proposal returns a new state by value.  For state spaces where
+    /// constructing a whole proposed state is expensive, use
+    /// [`step_mut`](Self::step_mut).
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::*;
@@ -87,7 +106,6 @@ impl<S> Chain<S> {
     /// NaN or +∞.
     pub fn step<T, P, R>(&mut self, target: &T, proposal: &P, rng: &mut R) -> Result<(), McmcError>
     where
-        S: Clone,
         T: Target<S>,
         P: Proposal<S>,
         R: Rng + ?Sized,
@@ -111,11 +129,7 @@ impl<S> Chain<S> {
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
 
-        let accept = if log_alpha >= 0.0 {
-            true
-        } else {
-            rng.random::<f64>() < log_alpha.exp()
-        };
+        let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
             self.state = proposed;
@@ -129,9 +143,10 @@ impl<S> Chain<S> {
 
     /// Perform a single Metropolis–Hastings step (in-place with rollback).
     ///
-    /// Unlike [`step`](Self::step), this method does not require `S: Clone`.
-    /// The proposal mutates the state in place and returns an undo token;
-    /// on rejection (or NaN error) the state is rolled back automatically.
+    /// Unlike [`step`](Self::step), this method avoids constructing a whole
+    /// proposed state. The proposal mutates the state in place and returns an
+    /// undo token; on rejection (or NaN error) the state is rolled back
+    /// automatically.
     ///
     /// Returns `Ok(true)` if the move was accepted, `Ok(false)` if rejected
     /// (including when the proposal returns `None`).
@@ -201,11 +216,7 @@ impl<S> Chain<S> {
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
 
-        let accept = if log_alpha >= 0.0 {
-            true
-        } else {
-            rng.random::<f64>() < log_alpha.exp()
-        };
+        let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
             self.log_prob = log_prob_new;
@@ -519,6 +530,30 @@ mod tests {
         assert!((chain.acceptance_rate()).abs() < f64::EPSILON);
     }
 
+    #[test]
+    fn accept_log_alpha_rejects_nan() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        assert!(
+            !accept_log_alpha(f64::NAN, &mut rng),
+            "NaN log acceptance ratio should be an explicit rejection"
+        );
+    }
+
+    #[test]
+    fn accept_from_log_uniform_handles_extreme_tail_without_exp() {
+        let log_alpha = -800.0;
+
+        assert!(
+            accept_from_log_uniform(log_alpha, -801.0),
+            "Should accept when log(u) is below an extreme log acceptance ratio"
+        );
+        assert!(
+            !accept_from_log_uniform(log_alpha, -799.0),
+            "Should reject when log(u) is above an extreme log acceptance ratio"
+        );
+    }
+
     // --- MH acceptance logic ---
 
     #[test]
@@ -830,6 +865,18 @@ mod tests {
         fn undo(&self, _state: &mut MutScalar, _token: ()) {}
     }
 
+    /// Proposal that probes a mutation, rolls it back internally, and returns None.
+    struct ProbeThenNoMoveProposal;
+    impl ProposalMut<MutScalar> for ProbeThenNoMoveProposal {
+        type Undo = ();
+        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<()> {
+            state.0 += 1.0;
+            state.0 -= 1.0;
+            None
+        }
+        fn undo(&self, _state: &mut MutScalar, _token: ()) {}
+    }
+
     // --- step_mut acceptance ---
 
     #[test]
@@ -872,12 +919,41 @@ mod tests {
     #[test]
     fn step_mut_returns_false_on_none_proposal() {
         let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
         let mut rng = StdRng::seed_from_u64(42);
 
         let accepted = chain.step_mut(&Normal, &NoMoveProposal, &mut rng).unwrap();
 
         assert!(!accepted, "Should return false when proposal returns None");
         assert_eq!(chain.state, MutScalar(1.0), "State should be unchanged");
+        assert!(
+            (chain.log_prob() - log_prob).abs() < f64::EPSILON,
+            "Cached log_prob should remain synchronized after no-move proposal"
+        );
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 1);
+    }
+
+    #[test]
+    fn step_mut_allows_internal_rollback_before_none() {
+        let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let accepted = chain
+            .step_mut(&Normal, &ProbeThenNoMoveProposal, &mut rng)
+            .unwrap();
+
+        assert!(!accepted, "Should return false when no move is produced");
+        assert_eq!(
+            chain.state,
+            MutScalar(1.0),
+            "ProposalMut::propose_mut(None) must leave state unchanged"
+        );
+        assert!(
+            (chain.log_prob() - log_prob).abs() < f64::EPSILON,
+            "Cached log_prob should remain synchronized after internally rolled-back no-move"
+        );
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
     }
@@ -1190,6 +1266,25 @@ mod tests {
         }
     }
 
+    /// In-place proposal whose proposal ratio depends on both old and new state.
+    struct StateDependentMutProposal {
+        target_value: f64,
+    }
+    impl ProposalMut<MutScalar> for StateDependentMutProposal {
+        type Undo = f64;
+        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<f64> {
+            let old = state.0;
+            state.0 = self.target_value;
+            Some(old)
+        }
+        fn undo(&self, state: &mut MutScalar, old: f64) {
+            state.0 = old;
+        }
+        fn log_q_ratio(&self, state: &MutScalar, old: &f64) -> f64 {
+            old - state.0
+        }
+    }
+
     #[test]
     fn positive_log_q_ratio_promotes_acceptance() {
         // From x=0 (log_prob=0) to x=1 (log_prob=-0.5).
@@ -1255,6 +1350,33 @@ mod tests {
         let accepted2 = chain2.step_mut(&Normal, &proposal2, &mut rng2).unwrap();
         assert!(!accepted2, "Large negative log_q should force rejection");
         assert_eq!(chain2.state, MutScalar(2.0));
+    }
+
+    #[test]
+    fn step_mut_log_q_ratio_can_depend_on_old_and_new_state() {
+        let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let proposal = StateDependentMutProposal { target_value: 0.0 };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+
+        assert!(
+            accepted,
+            "old - new log q-ratio should contribute to acceptance"
+        );
+        assert_eq!(chain.state, MutScalar(0.0));
+
+        let mut chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let proposal2 = StateDependentMutProposal { target_value: 2.0 };
+        let mut rng2 = StdRng::seed_from_u64(42);
+
+        let accepted2 = chain2.step_mut(&Normal, &proposal2, &mut rng2).unwrap();
+
+        assert!(
+            !accepted2,
+            "new state and old-state undo token should both affect log q-ratio"
+        );
+        assert_eq!(chain2.state, MutScalar(0.0));
     }
 
     // --- Edge case: -inf log-probability ---
@@ -1331,6 +1453,33 @@ mod tests {
             chain.state,
             Scalar(0.0),
             "Should reject when both states have -inf log_prob"
+        );
+        assert_eq!(chain.rejected(), 1);
+    }
+
+    #[test]
+    fn step_mut_rejects_both_neg_inf() {
+        struct AlwaysNegInf;
+        impl Target<MutScalar> for AlwaysNegInf {
+            fn log_prob(&self, _state: &MutScalar) -> f64 {
+                f64::NEG_INFINITY
+            }
+        }
+
+        let mut chain = Chain::new(MutScalar(0.0), &AlwaysNegInf).unwrap();
+        let proposal = FixedMutProposal(1.0);
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let accepted = chain.step_mut(&AlwaysNegInf, &proposal, &mut rng).unwrap();
+
+        assert!(
+            !accepted,
+            "Should reject when both states have -inf log_prob"
+        );
+        assert_eq!(
+            chain.state,
+            MutScalar(0.0),
+            "State should be rolled back after NaN log acceptance ratio"
         );
         assert_eq!(chain.rejected(), 1);
     }

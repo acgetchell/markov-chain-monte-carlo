@@ -27,9 +27,9 @@ This crate provides:
 
 - A generic Metropolis–Hastings implementation
 - Two proposal models:
-  - **`Proposal<S>`** — clone-based, for simple/small state spaces
+  - **`Proposal<S>`** — by-value proposals for simple/small state spaces
   - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
-- `Chain<S>` with `step` (clone-based) and `step_mut` (in-place) methods
+- `Chain<S>` with `step` (by-value) and `step_mut` (in-place) methods
 - `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
 - NaN and +∞ detection with automatic state rollback on error
 - Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
@@ -105,11 +105,11 @@ fn main() -> Result<(), McmcError> {
 
     // Burn-in
     sampler.run(1000)?;
-    sampler.chain.reset_counters();
+    sampler.chain_mut().reset_counters();
 
     // Production
     sampler.run(10_000)?;
-    assert!(sampler.chain.acceptance_rate() > 0.0);
+    assert!(sampler.chain_ref().acceptance_rate() > 0.0);
     Ok(())
 }
 ```
