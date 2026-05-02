@@ -33,7 +33,7 @@
 //! Sample from a standard normal distribution using Metropolis–Hastings:
 //!
 //! ```
-//! use markov_chain_monte_carlo::prelude::*;
+//! use markov_chain_monte_carlo::prelude::by_value::*;
 //! use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 //!
 //! #[derive(Clone)]
@@ -75,7 +75,7 @@
 //! a small undo token for rollback on rejection:
 //!
 //! ```
-//! use markov_chain_monte_carlo::prelude::*;
+//! use markov_chain_monte_carlo::prelude::in_place::*;
 //! use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 //!
 //! /// A lattice of spins (not Clone — only mutated in place).
@@ -122,13 +122,82 @@
 //! }
 //! ```
 //!
+//! # Delayed commit proposals
+//!
+//! Use [`DelayedProposal`] with [`Chain::step_delayed`] when a proposal can
+//! plan and score a move before mutating the state, then commit only after the
+//! Metropolis-Hastings decision accepts it.
+//!
+//! ```
+//! use core::convert::Infallible;
+//! use markov_chain_monte_carlo::prelude::delayed::*;
+//! use rand::{Rng, SeedableRng, rngs::StdRng};
+//!
+//! struct TargetLine;
+//! impl Target<i32> for TargetLine {
+//!     fn log_prob(&self, state: &i32) -> f64 {
+//!         -f64::from(state.abs())
+//!     }
+//! }
+//!
+//! struct MoveRight;
+//! impl DelayedProposal<i32> for MoveRight {
+//!     type Plan = i32;
+//!     type Info = i32;
+//!     type Error = Infallible;
+//!
+//!     fn propose_plan<R: Rng + ?Sized>(
+//!         &mut self,
+//!         _state: &i32,
+//!         _rng: &mut R,
+//!     ) -> Result<Option<i32>, Self::Error> {
+//!         Ok(Some(1))
+//!     }
+//!
+//!     fn proposed_log_prob<T: Target<i32>>(
+//!         &self,
+//!         state: &i32,
+//!         plan: &i32,
+//!         target: &T,
+//!     ) -> Result<f64, Self::Error> {
+//!         Ok(target.log_prob(&(*state + *plan)))
+//!     }
+//!
+//!     fn info(&self, plan: &i32) -> i32 {
+//!         *plan
+//!     }
+//!
+//!     fn commit<R: Rng + ?Sized>(
+//!         &mut self,
+//!         state: &mut i32,
+//!         plan: i32,
+//!         _rng: &mut R,
+//!     ) -> Result<(), Self::Error> {
+//!         *state += plan;
+//!         Ok(())
+//!     }
+//! }
+//!
+//! fn main() -> Result<(), DelayedStepError<Infallible>> {
+//!     let target = TargetLine;
+//!     let mut proposal = MoveRight;
+//!     let mut rng = StdRng::seed_from_u64(42);
+//!     let mut chain = Chain::new(-1, &target).map_err(DelayedStepError::Mcmc)?;
+//!
+//!     let step = chain.step_delayed(&target, &mut proposal, &mut rng)?;
+//!     assert!(step.accepted);
+//!     assert_eq!(*chain.state(), 0);
+//!     Ok(())
+//! }
+//! ```
+//!
 //! # Ergonomic sampling with [`Sampler`]
 //!
 //! [`Sampler`] bundles a chain with its target, proposal, and RNG so you
 //! don't have to pass them on every step:
 //!
 //! ```
-//! use markov_chain_monte_carlo::prelude::*;
+//! use markov_chain_monte_carlo::prelude::by_value::*;
 //! use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 //!
 //! # #[derive(Clone)] struct Scalar(f64);
@@ -161,16 +230,63 @@ mod error;
 mod sampler;
 mod traits;
 
-pub use chain::Chain;
+pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
 pub use error::McmcError;
 pub use sampler::Sampler;
-pub use traits::{Proposal, ProposalMut, Target};
+pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 
 /// Convenience re-exports for common usage.
 ///
+/// The top-level prelude contains only the shared sampling foundation:
+///
 /// ```
 /// use markov_chain_monte_carlo::prelude::*;
+///
+/// fn accepts_target<T: Target<f64>>(_: &T) {}
+/// ```
+///
+/// Workflow-specific preludes are available when tests, examples, or
+/// benchmarks should import only one proposal API:
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::by_value::*;
+/// use markov_chain_monte_carlo::prelude::delayed as delayed_prelude;
+/// use markov_chain_monte_carlo::prelude::in_place as in_place_prelude;
+///
+/// fn needs_by_value<T: Target<f64>, P: Proposal<f64>>(_: &T, _: &P) {}
+/// fn needs_in_place<
+///     T: in_place_prelude::Target<f64>,
+///     P: in_place_prelude::ProposalMut<f64>,
+/// >(_: &T, _: &P) {}
+/// fn needs_delayed<
+///     T: delayed_prelude::Target<f64>,
+///     P: delayed_prelude::DelayedProposal<f64>,
+/// >(_: &T, _: &P) {}
 /// ```
 pub mod prelude {
-    pub use crate::{Chain, McmcError, Proposal, ProposalMut, Sampler, Target};
+    pub use crate::{Chain, McmcError, Sampler, Target};
+
+    /// Prelude for by-value proposals.
+    ///
+    /// This imports the shared sampling types plus [`Proposal`], without
+    /// importing the in-place or delayed proposal traits.
+    pub mod by_value {
+        pub use crate::{Chain, McmcError, Proposal, Sampler, Target};
+    }
+
+    /// Prelude for in-place proposals with rollback.
+    ///
+    /// This imports the shared sampling types plus [`ProposalMut`], without
+    /// importing the by-value or delayed proposal traits.
+    pub mod in_place {
+        pub use crate::{Chain, McmcError, ProposalMut, Sampler, Target};
+    }
+
+    /// Prelude for delayed-commit proposals.
+    ///
+    /// This imports the shared sampling types plus delayed-step telemetry and
+    /// errors, without importing the by-value or in-place proposal traits.
+    pub mod delayed {
+        pub use crate::{Chain, DelayedProposal, DelayedStep, DelayedStepError, Sampler, Target};
+    }
 }
