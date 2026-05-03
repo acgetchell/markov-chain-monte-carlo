@@ -71,6 +71,14 @@ action-lint: _ensure-actionlint
 build:
     cargo build
 
+# Benchmarks
+bench:
+    cargo bench --bench stepping
+
+# Compile benchmark harnesses without running Criterion measurements.
+bench-compile:
+    cargo bench --no-run
+
 # Non-mutating validation gate
 check: fmt-check clippy yaml-lint action-lint toml-fmt-check toml-lint spell-check semgrep semgrep-test
     @echo "✅ Checks complete!"
@@ -80,7 +88,7 @@ check-fast:
     cargo check
 
 # CI simulation: comprehensive validation
-ci: check doc test examples validate-examples
+ci: check bench-compile doc test examples validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
@@ -140,7 +148,7 @@ help-workflows:
     @echo "Common Just workflows:"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
-    @echo "  just ci             # Full CI simulation (check + docs + tests + examples)"
+    @echo "  just ci             # Full CI simulation, including benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
     @echo ""
@@ -153,6 +161,8 @@ help-workflows:
     @echo "Testing:"
     @echo "  just test           # Lib + doc tests"
     @echo "  just test-all       # Lib + doc + integration tests"
+    @echo "  just bench          # Run Criterion benchmarks"
+    @echo "  just bench-compile  # Compile benchmarks without measuring"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
     @echo "  just examples       # Run all examples"

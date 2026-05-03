@@ -219,7 +219,7 @@ impl<S> Chain<S> {
     /// for the proposed state is NaN or +∞, [`McmcError::NanLogQRatio`] or
     /// [`McmcError::InfiniteLogQRatio`] if the proposal's log q-ratio is
     /// NaN or +∞.
-    pub fn step<T: Target<S>, P: Proposal<S>, R: Rng + ?Sized>(
+    pub fn step<T: Target<S>, P: Proposal<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &P,
@@ -283,7 +283,7 @@ impl<S> Chain<S> {
     /// Returns [`McmcError::NanProposedLogProb`],
     /// [`McmcError::InfiniteProposedLogProb`], [`McmcError::NanLogQRatio`],
     /// or [`McmcError::InfiniteLogQRatio`] after rolling back the state.
-    pub fn step_mut<T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized>(
+    pub fn step_mut<T: Target<S>, P: ProposalMut<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &P,
@@ -322,9 +322,20 @@ impl<S> Chain<S> {
 
     /// Perform a single delayed-commit Metropolis-Hastings step.
     ///
-    /// The proposal first returns a move plan without mutating the state.
-    /// `Chain` evaluates the Metropolis-Hastings accept/reject decision and
-    /// calls [`DelayedProposal::commit`] only after acceptance.
+    /// The proposal first returns a concrete move plan without mutating the
+    /// state.  `Chain` evaluates the Metropolis-Hastings accept/reject decision
+    /// for that exact transition and calls [`DelayedProposal::commit`] only
+    /// after acceptance.
+    ///
+    /// A delayed plan should already identify the local site or handle needed
+    /// to apply the move.  If no valid site exists, the proposal should return
+    /// `Ok(None)` from [`DelayedProposal::propose_plan`], which `Chain` records
+    /// as a rejection without calling scoring or commit hooks.
+    ///
+    /// `commit` must be failure-atomic: if it returns an error, it must leave
+    /// `state` exactly as it was before the commit attempt.  `Chain` keeps a
+    /// cached log-probability and cannot restore an arbitrary partially
+    /// applied domain-specific move on its own.
     ///
     /// ```
     /// use core::convert::Infallible;
@@ -395,7 +406,7 @@ impl<S> Chain<S> {
     /// evaluation fails, [`DelayedStepError::Mcmc`] on invalid
     /// log-probability or log q-ratio values, and [`DelayedStepError::Commit`]
     /// if applying an accepted move fails.
-    pub fn step_delayed<T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized>(
+    pub fn step_delayed<T: Target<S>, P: DelayedProposal<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &mut P,
@@ -481,9 +492,10 @@ impl<S> Chain<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`McmcError::NanInitialLogProb`] or
-    /// [`McmcError::InfiniteInitialLogProb`] if the target's log-probability
-    /// for `new_state` is NaN or +∞ (the chain is unchanged on error).
+    /// Returns [`McmcError::NanReplacementLogProb`] or
+    /// [`McmcError::InfiniteReplacementLogProb`] if the target's
+    /// log-probability for `new_state` is NaN or +∞ (the chain is unchanged on
+    /// error).
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::*;
@@ -503,10 +515,10 @@ impl<S> Chain<S> {
     ) -> Result<(), McmcError> {
         let lp = target.log_prob(&new_state);
         if lp.is_nan() {
-            return Err(McmcError::NanInitialLogProb);
+            return Err(McmcError::NanReplacementLogProb);
         }
         if lp == f64::INFINITY {
-            return Err(McmcError::InfiniteInitialLogProb);
+            return Err(McmcError::InfiniteReplacementLogProb);
         }
         self.state = new_state;
         self.log_prob = lp;
@@ -1708,6 +1720,42 @@ mod tests {
     }
 
     #[test]
+    fn delayed_error_sources() {
+        let mcmc: DelayedStepError<DelayedFixtureError> = McmcError::NanLogQRatio.into();
+        assert!(matches!(
+            mcmc,
+            DelayedStepError::Mcmc(McmcError::NanLogQRatio)
+        ));
+        assert_eq!(
+            mcmc.source().map(ToString::to_string),
+            Some("proposal returned NaN log q-ratio".to_owned())
+        );
+
+        let cases = [
+            (DelayedStepError::Plan(DelayedFixtureError::Plan), "Plan"),
+            (
+                DelayedStepError::ProposedLogProb(DelayedFixtureError::Score),
+                "Score",
+            ),
+            (
+                DelayedStepError::LogQRatio(DelayedFixtureError::Ratio),
+                "Ratio",
+            ),
+            (
+                DelayedStepError::Commit(DelayedFixtureError::Commit),
+                "Commit",
+            ),
+        ];
+
+        for (err, source) in cases {
+            assert_eq!(
+                err.source().map(ToString::to_string),
+                Some(source.to_owned())
+            );
+        }
+    }
+
+    #[test]
     fn delayed_commit_error_is_atomic() {
         let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let log_prob = chain.log_prob();
@@ -1715,6 +1763,66 @@ mod tests {
             commit_error: Some(DelayedFixtureError::Commit),
             ..FixedDelayedProposal::new(0.0)
         };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
+
+        assert!(matches!(
+            result,
+            Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
+        ));
+        assert_eq!(chain.state, MutScalar(2.0));
+        assert!((chain.log_prob() - log_prob).abs() < f64::EPSILON);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_commit_error_may_restore_after_mutating() {
+        struct RestoringCommitError;
+
+        impl DelayedProposal<MutScalar> for RestoringCommitError {
+            type Plan = f64;
+            type Info = f64;
+            type Error = DelayedFixtureError;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &MutScalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(0.0))
+            }
+
+            fn proposed_log_prob<T: Target<MutScalar>>(
+                &self,
+                _state: &MutScalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&MutScalar(*plan)))
+            }
+
+            fn info(&self, plan: &f64) -> f64 {
+                *plan
+            }
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut MutScalar,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                let old = state.0;
+                state.0 = plan;
+                state.0 = old;
+                Err(DelayedFixtureError::Commit)
+            }
+        }
+
+        let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = RestoringCommitError;
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
@@ -1752,7 +1860,7 @@ mod tests {
         }
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &NanTarget);
-        assert!(matches!(result, Err(McmcError::NanInitialLogProb)));
+        assert!(matches!(result, Err(McmcError::NanReplacementLogProb)));
         // State should be unchanged on error
         assert_eq!(chain.state, Scalar(1.0));
     }
@@ -1767,7 +1875,7 @@ mod tests {
         }
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &InfTarget);
-        assert!(matches!(result, Err(McmcError::InfiniteInitialLogProb)));
+        assert!(matches!(result, Err(McmcError::InfiniteReplacementLogProb)));
         assert_eq!(chain.state, Scalar(1.0));
     }
 

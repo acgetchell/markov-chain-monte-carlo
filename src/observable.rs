@@ -11,6 +11,10 @@ use std::vec;
 /// order parameters, or correlation functions without storing full state
 /// histories.  The observable is mutable so implementations can keep internal
 /// scratch space, counters, or online statistics state.
+///
+/// For very long runs, prefer an observable that updates compact internal
+/// state, or call single-step observing methods directly, when retaining every
+/// measurement in a [`SampleBuffer`] would dominate memory use.
 pub trait Observable<S> {
     /// Measurement value produced by this observable.
     type Output;

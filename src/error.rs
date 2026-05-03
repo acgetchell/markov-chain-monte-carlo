@@ -13,6 +13,8 @@ pub enum McmcError {
     NanProposedLogProb,
     /// Proposal returned NaN log q-ratio.
     NanLogQRatio,
+    /// Target returned NaN log-probability for a replacement state.
+    NanReplacementLogProb,
     /// Target returned +∞ log-probability for the initial state.
     ///
     /// This indicates infinite probability, which is invalid for any
@@ -30,6 +32,11 @@ pub enum McmcError {
     /// probability is zero (yet a state was somehow proposed), almost
     /// certainly a bug in the proposal implementation.
     InfiniteLogQRatio,
+    /// Target returned +∞ log-probability for a replacement state.
+    ///
+    /// This indicates infinite probability, which is invalid for any
+    /// proper (normalizable) distribution.
+    InfiniteReplacementLogProb,
 }
 
 impl fmt::Display for McmcError {
@@ -48,6 +55,12 @@ impl fmt::Display for McmcError {
                 )
             }
             Self::NanLogQRatio => write!(f, "proposal returned NaN log q-ratio"),
+            Self::NanReplacementLogProb => {
+                write!(
+                    f,
+                    "target returned NaN log-probability for a replacement state"
+                )
+            }
             Self::InfiniteInitialLogProb => {
                 write!(
                     f,
@@ -61,6 +74,12 @@ impl fmt::Display for McmcError {
                 )
             }
             Self::InfiniteLogQRatio => write!(f, "proposal returned +inf log q-ratio"),
+            Self::InfiniteReplacementLogProb => {
+                write!(
+                    f,
+                    "target returned +inf log-probability for a replacement state"
+                )
+            }
         }
     }
 }
@@ -96,6 +115,15 @@ mod tests {
     }
 
     #[test]
+    fn display_nan_replacement_log_prob() {
+        let msg = McmcError::NanReplacementLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned NaN log-probability for a replacement state"
+        );
+    }
+
+    #[test]
     fn display_infinite_initial_log_prob() {
         let msg = McmcError::InfiniteInitialLogProb.to_string();
         assert_eq!(
@@ -117,6 +145,15 @@ mod tests {
     fn display_infinite_log_q_ratio() {
         let msg = McmcError::InfiniteLogQRatio.to_string();
         assert_eq!(msg, "proposal returned +inf log q-ratio");
+    }
+
+    #[test]
+    fn display_infinite_replacement_log_prob() {
+        let msg = McmcError::InfiniteReplacementLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned +inf log-probability for a replacement state"
+        );
     }
 
     #[test]

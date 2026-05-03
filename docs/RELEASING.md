@@ -84,8 +84,9 @@ just ci
 just publish-check
 ```
 
-`just ci` covers formatting, Clippy, docs, tests, examples, example output
-validation, YAML, TOML, spelling, GitHub Actions, and Semgrep checks.
+`just ci` covers formatting, Clippy, benchmark harness compilation, docs,
+tests, examples, example output validation, YAML, TOML, spelling, GitHub
+Actions, and Semgrep checks.
 `just publish-check` validates crates.io metadata and runs
 `cargo publish --locked --allow-dirty --dry-run`.
 
@@ -144,4 +145,3 @@ cargo publish --locked
   add changelog automation as a separate tooling issue.
 - Run `just ci` before handing off a release PR.
 - Run `just publish-check` before publishing.
-

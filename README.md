@@ -26,10 +26,11 @@ Citation metadata and background references are available in [CITATION.cff](CITA
 This crate provides:
 
 - A generic Metropolis–Hastings implementation
-- Two proposal models:
+- Three proposal models:
   - **`Proposal<S>`** — by-value proposals for simple/small state spaces
   - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
-- `Chain<S>` with `step` (by-value) and `step_mut` (in-place) methods
+  - **`DelayedProposal<S>`** — accept-before-mutation proposals with concrete plans and failure-atomic commits
+- `Chain<S>` with `step` (by-value), `step_mut` (in-place), and `step_delayed` (accept-before-mutation) methods
 - `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
 - `Observable<S>` and `SampleBuffer<T>` for computing and collecting derived measurements during sampling
 - NaN and +∞ detection with automatic state rollback on error
@@ -41,6 +42,10 @@ The design emphasizes:
 - Zero-cost abstractions
 - Log-space numerical stability
 - Extensibility for research and experimentation
+
+For independent parallel chains, give each worker its own `Chain`, proposal
+state, and RNG stream. The crate keeps parallelism explicit so simulations can
+control reproducibility and random-stream splitting.
 
 ---
 
@@ -224,6 +229,8 @@ just setup        # Install/verify dev tools
 just check        # Run non-mutating validation
 just fix          # Apply formatters/auto-fixes
 just ci           # Run the full local CI simulation
+just bench-compile # Compile Criterion benchmarks without measuring
+just bench        # Run Criterion benchmarks
 ```
 
 For the full command list, run `just --list`. Development tooling details live in

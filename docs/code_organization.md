@@ -10,6 +10,8 @@ public API starts in `src/lib.rs`.
 
 ```text
 markov-chain-monte-carlo/
+├── benches/
+│   └── stepping.rs
 ├── .github/
 │   ├── CODEOWNERS
 │   ├── dependabot.yml
@@ -95,6 +97,8 @@ Defines user extension points:
 - `Target<S>` for target distributions through `log_prob(&S) -> f64`
 - `Proposal<S>` for by-value proposals
 - `ProposalMut<S>` for in-place proposals with rollback through an undo token
+- `DelayedProposal<S>` for accept-before-mutation workflows whose plans describe
+  concrete transitions and whose commits must be failure-atomic on error
 
 This is the right place for small, fundamental traits that users implement for
 their own state spaces. Prefer borrowed parameters by default.
@@ -143,6 +147,13 @@ Keep examples deterministic when possible. The `validate-examples` recipe checks
 for expected output markers, so example output should remain stable enough for
 CI validation.
 
+## Benchmarks
+
+Benchmarks live in `benches/` and use Criterion.  Keep them deterministic and
+focused on library invariants rather than distribution convergence.  The
+stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no
+plan, sampler bulk loops, and observing overhead.
+
 ## Tests
 
 Tests are split by scope:
@@ -160,8 +171,8 @@ property tests.
 The main local workflows are defined in `justfile`:
 
 - `just check` runs the non-mutating validation gate.
-- `just ci` runs checks, documentation, tests, examples, and example output
-  validation.
+- `just ci` runs checks, benchmark harness compilation, documentation, tests,
+  examples, and example output validation.
 - `just fix` applies formatting fixes.
 - `just publish-check` validates crates.io metadata and runs
   `cargo publish --dry-run`.

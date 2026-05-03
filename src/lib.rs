@@ -28,6 +28,18 @@
 //! - acceptance ratios that become `NaN` during arithmetic, such as
 //!   `-∞ - (-∞)`, are treated as rejection
 //!
+//! # Long runs and parallelism
+//!
+//! `Chain`, `Sampler`, proposal values, and RNGs are ordinary per-instance
+//! values; the crate does not use global mutable state.  Run independent chains
+//! in parallel by giving each worker its own chain, proposal state, and RNG
+//! stream.  This keeps reproducibility and RNG stream splitting under caller
+//! control.
+//!
+//! Bulk observing methods return a [`SampleBuffer`], which stores one output
+//! per step.  For production runs with many samples, use compact observables or
+//! single-step observing loops when retaining every measurement is unnecessary.
+//!
 //! # Example
 //!
 //! Sample from a standard normal distribution using Metropolis–Hastings:
@@ -127,6 +139,12 @@
 //! Use [`DelayedProposal`] with [`Chain::step_delayed`] when a proposal can
 //! plan and score a move before mutating the state, then commit only after the
 //! Metropolis-Hastings decision accepts it.
+//!
+//! The plan should describe a concrete transition, such as a move kind plus the
+//! local site or handle needed to apply it.  If no valid site can be selected,
+//! return `Ok(None)` from [`DelayedProposal::propose_plan`]; that is an ordinary
+//! rejection, while [`DelayedProposal::commit`] errors are reserved for
+//! exceptional failures applying an already accepted concrete move.
 //!
 //! ```
 //! use core::convert::Infallible;
@@ -282,14 +300,19 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
-/// benchmarks should import only one proposal API:
+/// benchmarks should import only one proposal API.  Modules that exercise
+/// several workflows can import shared types from the top-level prelude and
+/// individual proposal traits from workflow preludes:
 ///
 /// ```
-/// use markov_chain_monte_carlo::prelude::by_value::*;
+/// use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target};
+/// use markov_chain_monte_carlo::prelude::by_value::Proposal;
 /// use markov_chain_monte_carlo::prelude::delayed as delayed_prelude;
 /// use markov_chain_monte_carlo::prelude::in_place as in_place_prelude;
 ///
 /// fn needs_by_value<T: Target<f64>, P: Proposal<f64>>(_: &T, _: &P) {}
+/// fn accepts_chain(_: &Chain<f64>) {}
+/// fn accepts_sampler<T, P, R: ?Sized>(_: &Sampler<'_, f64, T, P, R>) {}
 /// fn needs_in_place<
 ///     T: in_place_prelude::Target<f64>,
 ///     P: in_place_prelude::ProposalMut<f64>,

@@ -1236,6 +1236,24 @@ mod tests {
         assert_eq!(chain.state, Scalar(1.0));
     }
 
+    #[test]
+    fn accessors_expose_components() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, Walk { width: 1.0 }, &mut rng);
+
+        assert_eq!(sampler.chain_ref().state(), &Scalar(1.0));
+        sampler
+            .chain_mut()
+            .replace_state(Scalar(2.0), &Normal)
+            .unwrap();
+        assert_eq!(sampler.chain_ref().state(), &Scalar(2.0));
+
+        assert!((sampler.proposal_ref().width - 1.0).abs() < f64::EPSILON);
+        sampler.proposal_mut().width = 0.5;
+        assert!((sampler.proposal_ref().width - 0.5).abs() < f64::EPSILON);
+    }
+
     // --- Debug ---
 
     #[test]
@@ -1375,6 +1393,19 @@ mod tests {
     }
 
     #[test]
+    fn try_step_mut_observing_collects() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
+
+        let (_accepted, sample) = sampler.try_step_mut_observing(&mut coordinate).unwrap();
+
+        assert!(sample.is_finite());
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
     fn try_run_mut_observing_errors() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
@@ -1469,6 +1500,22 @@ mod tests {
 
         assert_eq!(measurements.as_slice(), &[0.0; 5]);
         assert_eq!(sampler.chain_ref().total_steps(), 5);
+    }
+
+    #[test]
+    fn try_run_delayed_observing_collects() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut proposal = DelayedToZero;
+        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
+
+        let measurements = sampler
+            .try_run_delayed_observing(3, &mut coordinate)
+            .unwrap();
+
+        assert_eq!(measurements.as_slice(), &[0.0; 3]);
+        assert_eq!(sampler.chain_ref().total_steps(), 3);
     }
 
     #[test]
