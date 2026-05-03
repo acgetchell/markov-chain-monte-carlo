@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn display_infinite_proposed_log_prob() {
+    fn display_inf_proposed_log_prob() {
         let msg = McmcError::InfiniteProposedLogProb.to_string();
         assert_eq!(
             msg,

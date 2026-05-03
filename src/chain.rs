@@ -219,12 +219,12 @@ impl<S> Chain<S> {
     /// for the proposed state is NaN or +∞, [`McmcError::NanLogQRatio`] or
     /// [`McmcError::InfiniteLogQRatio`] if the proposal's log q-ratio is
     /// NaN or +∞.
-    pub fn step<T, P, R>(&mut self, target: &T, proposal: &P, rng: &mut R) -> Result<(), McmcError>
-    where
-        T: Target<S>,
-        P: Proposal<S>,
-        R: Rng + ?Sized,
-    {
+    pub fn step<T: Target<S>, P: Proposal<S>, R: Rng + ?Sized>(
+        &mut self,
+        target: &T,
+        proposal: &P,
+        rng: &mut R,
+    ) -> Result<(), McmcError> {
         let proposed = proposal.propose(&self.state, rng);
         let log_prob_new = target.log_prob(&proposed);
         check_proposed_log_prob(log_prob_new)?;
@@ -283,17 +283,12 @@ impl<S> Chain<S> {
     /// Returns [`McmcError::NanProposedLogProb`],
     /// [`McmcError::InfiniteProposedLogProb`], [`McmcError::NanLogQRatio`],
     /// or [`McmcError::InfiniteLogQRatio`] after rolling back the state.
-    pub fn step_mut<T, P, R>(
+    pub fn step_mut<T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &P,
         rng: &mut R,
-    ) -> Result<bool, McmcError>
-    where
-        T: Target<S>,
-        P: ProposalMut<S>,
-        R: Rng + ?Sized,
-    {
+    ) -> Result<bool, McmcError> {
         let Some(token) = proposal.propose_mut(&mut self.state, rng) else {
             self.rejected += 1;
             return Ok(false);
@@ -400,17 +395,12 @@ impl<S> Chain<S> {
     /// evaluation fails, [`DelayedStepError::Mcmc`] on invalid
     /// log-probability or log q-ratio values, and [`DelayedStepError::Commit`]
     /// if applying an accepted move fails.
-    pub fn step_delayed<T, P, R>(
+    pub fn step_delayed<T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &mut P,
         rng: &mut R,
-    ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>>
-    where
-        T: Target<S>,
-        P: DelayedProposal<S>,
-        R: Rng + ?Sized,
-    {
+    ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>> {
         let log_prob_before = self.log_prob;
         let Some(plan) = proposal
             .propose_plan(&self.state, rng)
@@ -847,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn step_rejects_nan_proposed_log_prob() {
+    fn step_rejects_nan_proposal() {
         struct NanAtOrigin;
         impl Target<Scalar> for NanAtOrigin {
             fn log_prob(&self, state: &Scalar) -> f64 {
@@ -897,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn step_rejects_inf_proposed_log_prob() {
+    fn step_rejects_inf_proposal() {
         struct InfAtOrigin;
         impl Target<Scalar> for InfAtOrigin {
             fn log_prob(&self, state: &Scalar) -> f64 {
@@ -1878,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    fn positive_log_q_promotes_acceptance() {
+    fn positive_log_q_accepts() {
         // From x=0 (log_prob=0) to x=1 (log_prob=-0.5).
         // Without asymmetry: log_alpha = -0.5, might reject.
         // With large positive log_q: log_alpha = -0.5 + 100 = 99.5, always accept.

@@ -60,7 +60,7 @@ proptest! {
     /// evaluated at the current state.  This catches bugs where `log_prob`
     /// is not updated on acceptance or is corrupted during rollback.
     #[test]
-    fn log_prob_consistent_after_step_mut(
+    fn step_mut_preserves_log_prob(
         initial in -10.0f64..10.0,
         width in 0.1f64..5.0,
         steps in 1u32..500,

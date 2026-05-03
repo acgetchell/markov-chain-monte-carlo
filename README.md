@@ -31,6 +31,7 @@ This crate provides:
   - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
 - `Chain<S>` with `step` (by-value) and `step_mut` (in-place) methods
 - `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
+- `Observable<S>` and `SampleBuffer<T>` for computing and collecting derived measurements during sampling
 - NaN and +∞ detection with automatic state rollback on error
 - Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
 - Seeded RNG support for reproducible simulations
@@ -110,6 +111,35 @@ fn main() -> Result<(), McmcError> {
     // Production
     sampler.run(10_000)?;
     assert!(sampler.chain_ref().acceptance_rate() > 0.0);
+    Ok(())
+}
+```
+
+### Measuring observables during sampling
+
+```rust
+use markov_chain_monte_carlo::prelude::by_value::*;
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+
+# #[derive(Clone)] struct Scalar(f64);
+# struct Normal;
+# impl Target<Scalar> for Normal {
+#     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
+# }
+# struct RandomWalk;
+# impl Proposal<Scalar> for RandomWalk {
+#     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
+#         Scalar(c.0 + r.random_range(-1.0..1.0))
+#     }
+# }
+fn main() -> Result<(), McmcError> {
+    let mut rng = StdRng::seed_from_u64(42);
+    let chain = Chain::new(Scalar(0.0), &Normal)?;
+    let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
+    let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
+
+    let measurements: SampleBuffer<f64> = sampler.run_observing(10_000, &mut energy)?;
+    assert_eq!(measurements.len(), 10_000);
     Ok(())
 }
 ```

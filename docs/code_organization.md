@@ -33,6 +33,7 @@ markov-chain-monte-carlo/
 │   ├── chain.rs
 │   ├── error.rs
 │   ├── lib.rs
+│   ├── observable.rs
 │   ├── sampler.rs
 │   └── traits.rs
 ├── tests/
@@ -72,6 +73,21 @@ proposal ratios.
 Add new variants conservatively. `McmcError` is `#[non_exhaustive]`, but error
 changes still affect user matching and documentation.
 
+### `src/observable.rs`
+
+Defines measurement APIs and collection helpers:
+
+- `Observable<S>` for infallible measurements
+- `TryObservable<S>` for fallible measurements
+- `ObservedStepError<StepError, ObservationError>` to keep sampling failures
+  and measurement failures orthogonal
+- `SampleBuffer<T>` for simple in-memory observation collection
+
+Observables are shared across proposal workflows, so the core observable traits
+and buffer belong in the shared prelude. Workflow-specific result aliases should
+stay at the crate root unless a prelude needs them for ordinary examples or
+doctests.
+
 ### `src/traits.rs`
 
 Defines user extension points:
@@ -108,6 +124,7 @@ This module owns:
 
 - single-step forwarding methods
 - bulk `run` and `run_mut` loops
+- observing variants that measure derived quantities after sampling steps
 - by-value `Iterator` support
 - access to the bundled `Chain`
 
