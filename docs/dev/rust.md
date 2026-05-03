@@ -13,6 +13,8 @@ just lint             # All lint groups
 just setup            # Install/verify external dev tools
 just test             # Lib + doc tests
 just test-all         # Lib + doc + integration tests
+just bench-compile    # Compile Criterion benchmarks without measuring
+just bench            # Criterion benchmarks
 just examples         # Run all examples
 ```
 
@@ -38,8 +40,8 @@ lint aliases:
 - `just lint-config` - JSON, TOML, YAML, and GitHub Actions validation
 - `just lint-docs` - spellcheck
 
-`just ci` runs `just check`, documentation, tests, examples, and deterministic
-example-output validation.
+`just ci` runs `just check`, benchmark harness compilation, documentation,
+tests, examples, and deterministic example-output validation.
 
 ## Setup
 
@@ -64,6 +66,26 @@ The setup recipe uses Homebrew when available, Cargo for Rust tools, and
 - Integration tests: `just test-integration`
 - Single test by name filter: `cargo test chain_samples_near_mode`
 - Examples: `just examples`
+
+## Benchmarks
+
+Benchmarks use Criterion and are intentionally deterministic.  Run all
+benchmarks with:
+
+```bash
+just bench
+```
+
+The full CI simulation (`just ci`) compiles benchmark harnesses with
+`just bench-compile`, but it does not run Criterion measurements.
+
+The initial `benches/stepping.rs` suite protects core transition costs:
+
+- by-value `Chain::step`
+- in-place `Chain::step_mut` acceptance and rollback paths
+- delayed `Chain::step_delayed` accepted, rejected, and no-plan paths
+- bulk `Sampler` run loops
+- observing with `SampleBuffer` versus manual online accumulation
 
 ## Coverage
 

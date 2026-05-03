@@ -26,11 +26,13 @@ Citation metadata and background references are available in [CITATION.cff](CITA
 This crate provides:
 
 - A generic Metropolis–Hastings implementation
-- Two proposal models:
+- Three proposal models:
   - **`Proposal<S>`** — by-value proposals for simple/small state spaces
   - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
-- `Chain<S>` with `step` (by-value) and `step_mut` (in-place) methods
+  - **`DelayedProposal<S>`** — accept-before-mutation proposals with concrete plans and failure-atomic commits
+- `Chain<S>` with `step` (by-value), `step_mut` (in-place), and `step_delayed` (accept-before-mutation) methods
 - `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
+- `Observable<S>` and `SampleBuffer<T>` for computing and collecting derived measurements during sampling
 - NaN and +∞ detection with automatic state rollback on error
 - Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
 - Seeded RNG support for reproducible simulations
@@ -40,6 +42,10 @@ The design emphasizes:
 - Zero-cost abstractions
 - Log-space numerical stability
 - Extensibility for research and experimentation
+
+For independent parallel chains, give each worker its own `Chain`, proposal
+state, and RNG stream. The crate keeps parallelism explicit so simulations can
+control reproducibility and random-stream splitting.
 
 ---
 
@@ -110,6 +116,35 @@ fn main() -> Result<(), McmcError> {
     // Production
     sampler.run(10_000)?;
     assert!(sampler.chain_ref().acceptance_rate() > 0.0);
+    Ok(())
+}
+```
+
+### Measuring observables during sampling
+
+```rust
+use markov_chain_monte_carlo::prelude::by_value::*;
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+
+# #[derive(Clone)] struct Scalar(f64);
+# struct Normal;
+# impl Target<Scalar> for Normal {
+#     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
+# }
+# struct RandomWalk;
+# impl Proposal<Scalar> for RandomWalk {
+#     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
+#         Scalar(c.0 + r.random_range(-1.0..1.0))
+#     }
+# }
+fn main() -> Result<(), McmcError> {
+    let mut rng = StdRng::seed_from_u64(42);
+    let chain = Chain::new(Scalar(0.0), &Normal)?;
+    let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
+    let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
+
+    let measurements: SampleBuffer<f64> = sampler.run_observing(10_000, &mut energy)?;
+    assert_eq!(measurements.len(), 10_000);
     Ok(())
 }
 ```
@@ -194,6 +229,8 @@ just setup        # Install/verify dev tools
 just check        # Run non-mutating validation
 just fix          # Apply formatters/auto-fixes
 just ci           # Run the full local CI simulation
+just bench-compile # Compile Criterion benchmarks without measuring
+just bench        # Run Criterion benchmarks
 ```
 
 For the full command list, run `just --list`. Development tooling details live in

@@ -88,6 +88,12 @@ pub trait ProposalMut<S> {
 
     /// Log proposal ratio for the in-place move.
     ///
+    /// `state` is the already-mutated proposed state.  Implementations that
+    /// need the previous state to compute an asymmetric proposal ratio should
+    /// store that information in [`Undo`](ProposalMut::Undo).  This keeps the
+    /// normal in-place path allocation-free while still allowing exact
+    /// forward/reverse proposal accounting.
+    ///
     /// Defaults to 0 for symmetric proposals.
     fn log_q_ratio(&self, _state: &S, _token: &Self::Undo) -> f64 {
         0.0
@@ -131,30 +137,38 @@ impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
 /// `DelayedProposal` separates planning, Metropolis-Hastings evaluation, and
 /// mutation:
 ///
-/// 1. [`propose_plan`](Self::propose_plan) chooses a move descriptor without
-///    mutating the state.
+/// 1. [`propose_plan`](Self::propose_plan) chooses a concrete transition
+///    descriptor without mutating the state.
 /// 2. [`proposed_log_prob`](Self::proposed_log_prob) evaluates the proposed
 ///    state's log-probability from that descriptor.
 /// 3. [`crate::Chain::step_delayed`] performs the accept/reject draw.
 /// 4. [`commit`](Self::commit) mutates the state only after acceptance.
 ///
+/// The plan should identify the actual proposed transition, not just a move
+/// class.  For example, a triangulation proposal should choose the move kind
+/// and the concrete facet, vertex, or handle needed to apply it.  If no valid
+/// site exists, return `Ok(None)` from [`propose_plan`](Self::propose_plan)
+/// instead of accepting first and discovering that absence during
+/// [`commit`](Self::commit).
+///
 /// This is useful for combinatorial state spaces where the log-probability
-/// delta is cheap to compute from a move descriptor, but applying the move may
-/// require searching for a valid local site.  If `commit` returns an error, it
-/// must be failure-atomic: either the accepted move is applied completely, or
-/// `state` is restored before returning `Err`.
+/// delta is cheap to compute from a concrete move descriptor.  If `commit`
+/// returns an error, it must be failure-atomic: either the accepted move is
+/// applied completely, or `state` is restored before returning `Err`.
 pub trait DelayedProposal<S> {
-    /// Move descriptor produced before the Metropolis-Hastings decision.
+    /// Concrete move descriptor produced before the Metropolis-Hastings decision.
     type Plan;
     /// User-facing metadata returned in delayed-step telemetry.
     type Info;
     /// Proposal-specific error type.
     type Error;
 
-    /// Propose a move descriptor without mutating `state`.
+    /// Propose a concrete move descriptor without mutating `state`.
     ///
     /// Return `Ok(None)` when no valid move can be proposed from the current
     /// state.  That is counted as a rejection by [`crate::Chain::step_delayed`].
+    /// Ordinary proposal absence, such as failing to find a valid local site,
+    /// should use this path rather than a later commit error.
     ///
     /// # Errors
     ///
@@ -165,7 +179,8 @@ pub trait DelayedProposal<S> {
         rng: &mut R,
     ) -> Result<Option<Self::Plan>, Self::Error>;
 
-    /// Compute the proposed state's log-probability without mutating `state`.
+    /// Compute the concrete proposed state's log-probability without mutating
+    /// `state`.
     ///
     /// The returned value has the same numerical contract as
     /// [`Target::log_prob`]: finite values and `f64::NEG_INFINITY` are valid,
@@ -184,6 +199,11 @@ pub trait DelayedProposal<S> {
     /// Log proposal ratio:
     /// log(q(current | proposed) / q(proposed | current)).
     ///
+    /// This ratio must correspond to the same concrete transition represented
+    /// by [`Plan`](DelayedProposal::Plan).  Include proposal asymmetries such
+    /// as move-kind weights, site multiplicities, or reverse-move counts when
+    /// they affect the forward/reverse transition probabilities.
+    ///
     /// Defaults to 0 for symmetric proposals.
     ///
     /// # Errors
@@ -196,16 +216,22 @@ pub trait DelayedProposal<S> {
     /// Produce telemetry metadata for `plan`.
     fn info(&self, plan: &Self::Plan) -> Self::Info;
 
-    /// Apply an accepted move to `state`.
+    /// Apply an accepted concrete move to `state`.
     ///
     /// This method is called only after the Metropolis-Hastings decision has
     /// accepted `plan`.  On error, implementations must restore `state` before
     /// returning so the chain's state and cached log-probability remain
-    /// synchronized.
+    /// synchronized.  [`crate::Chain`] cannot repair a partially applied
+    /// failed commit without an implementation-provided rollback token, so
+    /// failure atomicity is part of this trait's correctness contract.
     ///
     /// # Errors
     ///
-    /// Returns `Self::Error` when the accepted move cannot be committed.
+    /// Returns `Self::Error` when a concrete accepted move cannot be committed
+    /// because of an exceptional proposal, backend, or invariant failure.
+    /// Absence of a valid site is ordinary proposal absence and should normally
+    /// be reported by [`propose_plan`](DelayedProposal::propose_plan) as
+    /// `Ok(None)`.
     fn commit<R: Rng + ?Sized>(
         &mut self,
         state: &mut S,
@@ -259,6 +285,7 @@ mod tests {
     use core::convert::Infallible;
 
     use super::*;
+    use rand::rng;
 
     // --- Fixtures ---
 
@@ -300,6 +327,44 @@ mod tests {
     }
 
     #[test]
+    fn proposal_ref_forwards() {
+        let proposal = SymmetricProposal;
+        let shared = &proposal;
+        let proposed = shared.propose(&Scalar(2.0), &mut rng());
+
+        assert!((proposed.0 - 3.0).abs() < f64::EPSILON);
+        assert!(shared.log_q_ratio(&Scalar(2.0), &proposed).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn shared_mut_proposal_forwards() {
+        let proposal = SymmetricMutProposal;
+        let shared = &proposal;
+        let mut state = Scalar(2.0);
+        let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
+
+        assert!((state.0 - 3.0).abs() < f64::EPSILON);
+        assert!(shared.log_q_ratio(&state, &token).abs() < f64::EPSILON);
+
+        shared.undo(&mut state, token);
+        assert!((state.0 - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn mut_ref_mut_proposal_forwards() {
+        let mut proposal = SymmetricMutProposal;
+        let shared = &mut proposal;
+        let mut state = Scalar(2.0);
+        let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
+
+        assert!((state.0 - 3.0).abs() < f64::EPSILON);
+        assert!(shared.log_q_ratio(&state, &token).abs() < f64::EPSILON);
+
+        shared.undo(&mut state, token);
+        assert!((state.0 - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn proposal_mut_default_log_q_zero() {
         let p = SymmetricMutProposal;
         let ratio = p.log_q_ratio(&Scalar(1.0), &0.0_f64);
@@ -307,6 +372,16 @@ mod tests {
             ratio.abs() < f64::EPSILON,
             "Default ProposalMut::log_q_ratio should be 0.0"
         );
+    }
+
+    #[test]
+    fn mut_ref_proposal_forwards() {
+        let mut proposal = SymmetricProposal;
+        let shared = &mut proposal;
+        let proposed = shared.propose(&Scalar(2.0), &mut rng());
+
+        assert!((proposed.0 - 3.0).abs() < f64::EPSILON);
+        assert!(shared.log_q_ratio(&Scalar(2.0), &proposed).abs() < f64::EPSILON);
     }
 
     struct SymmetricDelayedProposal;
@@ -355,5 +430,36 @@ mod tests {
             ratio.abs() < f64::EPSILON,
             "Default DelayedProposal::log_q_ratio should be 0.0"
         );
+    }
+
+    #[test]
+    fn delayed_mut_ref_forwards() {
+        struct ZeroTarget;
+        impl Target<Scalar> for ZeroTarget {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                -state.0.abs()
+            }
+        }
+
+        let mut proposal = SymmetricDelayedProposal;
+        let shared = &mut proposal;
+        let state = Scalar(0.0);
+        let plan = shared.propose_plan(&state, &mut rng()).unwrap().unwrap();
+
+        assert!((plan - 1.0).abs() < f64::EPSILON);
+        assert!(
+            (shared
+                .proposed_log_prob(&state, &plan, &ZeroTarget)
+                .unwrap()
+                + 1.0)
+                .abs()
+                < f64::EPSILON
+        );
+        assert!(shared.log_q_ratio(&state, &plan).unwrap().abs() < f64::EPSILON);
+        assert!((shared.info(&plan) - 1.0).abs() < f64::EPSILON);
+
+        let mut committed = Scalar(0.0);
+        shared.commit(&mut committed, plan, &mut rng()).unwrap();
+        assert!((committed.0 - 1.0).abs() < f64::EPSILON);
     }
 }

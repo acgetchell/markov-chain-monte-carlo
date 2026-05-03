@@ -3,8 +3,12 @@
 //! These tests verify mathematical properties of Metropolis–Hastings that must
 //! hold for *all* inputs, not just specific test cases.
 
-use markov_chain_monte_carlo::prelude::by_value::*;
+use core::convert::Infallible;
+
+use markov_chain_monte_carlo::prelude::by_value::Proposal;
+use markov_chain_monte_carlo::prelude::delayed::DelayedProposal;
 use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
+use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target};
 use proptest::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
@@ -51,6 +55,48 @@ impl ProposalMut<Scalar> for MutWalk {
     }
 }
 
+/// Accept-before-mutation random walk proposal equivalent to `CloneWalk`.
+struct DelayedWalk {
+    width: f64,
+}
+
+impl DelayedProposal<Scalar> for DelayedWalk {
+    type Plan = f64;
+    type Info = f64;
+    type Error = Infallible;
+
+    fn propose_plan<R: Rng + ?Sized>(
+        &mut self,
+        _state: &Scalar,
+        rng: &mut R,
+    ) -> Result<Option<f64>, Self::Error> {
+        Ok(Some(rng.random_range(-self.width..self.width)))
+    }
+
+    fn proposed_log_prob<T: Target<Scalar>>(
+        &self,
+        state: &Scalar,
+        plan: &f64,
+        target: &T,
+    ) -> Result<f64, Self::Error> {
+        Ok(target.log_prob(&Scalar(state.0 + *plan)))
+    }
+
+    fn info(&self, plan: &f64) -> f64 {
+        *plan
+    }
+
+    fn commit<R: Rng + ?Sized>(
+        &mut self,
+        state: &mut Scalar,
+        plan: f64,
+        _rng: &mut R,
+    ) -> Result<(), Self::Error> {
+        state.0 += plan;
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Properties
 // ---------------------------------------------------------------------------
@@ -60,7 +106,7 @@ proptest! {
     /// evaluated at the current state.  This catches bugs where `log_prob`
     /// is not updated on acceptance or is corrupted during rollback.
     #[test]
-    fn log_prob_consistent_after_step_mut(
+    fn step_mut_preserves_log_prob(
         initial in -10.0f64..10.0,
         width in 0.1f64..5.0,
         steps in 1u32..500,
@@ -141,6 +187,44 @@ proptest! {
         );
         prop_assert_eq!(chain_clone.accepted(), chain_mut.accepted());
         prop_assert_eq!(chain_clone.rejected(), chain_mut.rejected());
+    }
+
+    /// `step` and `step_delayed` must produce identical results when the
+    /// delayed plan describes the same proposed state as the by-value path.
+    #[test]
+    fn step_and_step_delayed_are_equivalent(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..200,
+        seed in any::<u64>(),
+    ) {
+        let clone_proposal = CloneWalk { width };
+        let mut delayed_proposal = DelayedWalk { width };
+
+        let mut chain_clone = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng_clone = StdRng::seed_from_u64(seed);
+
+        let mut chain_delayed = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut rng_delayed = StdRng::seed_from_u64(seed);
+
+        for _ in 0..steps {
+            chain_clone.step(&Normal, &clone_proposal, &mut rng_clone).unwrap();
+            let _ = chain_delayed
+                .step_delayed(&Normal, &mut delayed_proposal, &mut rng_delayed)
+                .unwrap();
+        }
+
+        prop_assert_eq!(
+            chain_clone.state(), chain_delayed.state(),
+            "Final states diverged after {} steps", steps,
+        );
+        prop_assert!(
+            (chain_clone.log_prob() - chain_delayed.log_prob()).abs() < 1e-12,
+            "log_prob diverged: clone={:.15}, delayed={:.15}",
+            chain_clone.log_prob(), chain_delayed.log_prob(),
+        );
+        prop_assert_eq!(chain_clone.accepted(), chain_delayed.accepted());
+        prop_assert_eq!(chain_clone.rejected(), chain_delayed.rejected());
     }
 
     /// accepted + rejected must always equal the number of steps taken.

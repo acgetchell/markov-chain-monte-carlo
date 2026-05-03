@@ -28,6 +28,18 @@
 //! - acceptance ratios that become `NaN` during arithmetic, such as
 //!   `-∞ - (-∞)`, are treated as rejection
 //!
+//! # Long runs and parallelism
+//!
+//! `Chain`, `Sampler`, proposal values, and RNGs are ordinary per-instance
+//! values; the crate does not use global mutable state.  Run independent chains
+//! in parallel by giving each worker its own chain, proposal state, and RNG
+//! stream.  This keeps reproducibility and RNG stream splitting under caller
+//! control.
+//!
+//! Bulk observing methods return a [`SampleBuffer`], which stores one output
+//! per step.  For production runs with many samples, use compact observables or
+//! single-step observing loops when retaining every measurement is unnecessary.
+//!
 //! # Example
 //!
 //! Sample from a standard normal distribution using Metropolis–Hastings:
@@ -128,6 +140,12 @@
 //! plan and score a move before mutating the state, then commit only after the
 //! Metropolis-Hastings decision accepts it.
 //!
+//! The plan should describe a concrete transition, such as a move kind plus the
+//! local site or handle needed to apply it.  If no valid site can be selected,
+//! return `Ok(None)` from [`DelayedProposal::propose_plan`]; that is an ordinary
+//! rejection, while [`DelayedProposal::commit`] errors are reserved for
+//! exceptional failures applying an already accepted concrete move.
+//!
 //! ```
 //! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::delayed::*;
@@ -224,15 +242,51 @@
 //! assert!(sampler.chain_ref().acceptance_rate() > 0.0);
 //! # Ok::<(), McmcError>(())
 //! ```
+//!
+//! # Observables and measurements
+//!
+//! Use [`Observable`] or a closure with [`Sampler::run_observing`] to compute
+//! derived quantities during sampling without storing full state histories:
+//!
+//! ```
+//! use markov_chain_monte_carlo::prelude::by_value::*;
+//! use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+//!
+//! # #[derive(Clone)] struct Scalar(f64);
+//! # struct Normal;
+//! # impl Target<Scalar> for Normal {
+//! #     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
+//! # }
+//! # struct Walk;
+//! # impl Proposal<Scalar> for Walk {
+//! #     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
+//! #         Scalar(c.0 + r.random_range(-1.0..1.0))
+//! #     }
+//! # }
+//! let mut rng = StdRng::seed_from_u64(42);
+//! let chain = Chain::new(Scalar(0.0), &Normal)?;
+//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+//! let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
+//!
+//! let samples: SampleBuffer<f64> = sampler.run_observing(256, &mut energy)?;
+//! assert_eq!(samples.len(), 256);
+//! # Ok::<(), McmcError>(())
+//! ```
 
 mod chain;
 mod error;
+mod observable;
 mod sampler;
 mod traits;
 
 pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
 pub use error::McmcError;
-pub use sampler::Sampler;
+pub use observable::{Observable, ObservedStepError, SampleBuffer, TryObservable};
+pub use sampler::{
+    ObservedDelayedStep, ObservedDelayedStepResult, Sampler, TryObservedDelayedRunResult,
+    TryObservedDelayedStepResult, TryObservedMutStepResult, TryObservedRunResult,
+    TryObservedStepResult,
+};
 pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 
 /// Convenience re-exports for common usage.
@@ -246,14 +300,19 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
-/// benchmarks should import only one proposal API:
+/// benchmarks should import only one proposal API.  Modules that exercise
+/// several workflows can import shared types from the top-level prelude and
+/// individual proposal traits from workflow preludes:
 ///
 /// ```
-/// use markov_chain_monte_carlo::prelude::by_value::*;
+/// use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target};
+/// use markov_chain_monte_carlo::prelude::by_value::Proposal;
 /// use markov_chain_monte_carlo::prelude::delayed as delayed_prelude;
 /// use markov_chain_monte_carlo::prelude::in_place as in_place_prelude;
 ///
 /// fn needs_by_value<T: Target<f64>, P: Proposal<f64>>(_: &T, _: &P) {}
+/// fn accepts_chain(_: &Chain<f64>) {}
+/// fn accepts_sampler<T, P, R: ?Sized>(_: &Sampler<'_, f64, T, P, R>) {}
 /// fn needs_in_place<
 ///     T: in_place_prelude::Target<f64>,
 ///     P: in_place_prelude::ProposalMut<f64>,
@@ -264,22 +323,31 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// >(_: &T, _: &P) {}
 /// ```
 pub mod prelude {
-    pub use crate::{Chain, McmcError, Sampler, Target};
+    pub use crate::{
+        Chain, McmcError, Observable, ObservedStepError, SampleBuffer, Sampler, Target,
+        TryObservable,
+    };
 
     /// Prelude for by-value proposals.
     ///
-    /// This imports the shared sampling types plus [`Proposal`], without
+    /// This imports the shared sampling types plus [`crate::Proposal`], without
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
-        pub use crate::{Chain, McmcError, Proposal, Sampler, Target};
+        pub use crate::{
+            Chain, McmcError, Observable, ObservedStepError, Proposal, SampleBuffer, Sampler,
+            Target, TryObservable,
+        };
     }
 
     /// Prelude for in-place proposals with rollback.
     ///
-    /// This imports the shared sampling types plus [`ProposalMut`], without
+    /// This imports the shared sampling types plus [`crate::ProposalMut`], without
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
-        pub use crate::{Chain, McmcError, ProposalMut, Sampler, Target};
+        pub use crate::{
+            Chain, McmcError, Observable, ObservedStepError, ProposalMut, SampleBuffer, Sampler,
+            Target, TryObservable,
+        };
     }
 
     /// Prelude for delayed-commit proposals.
@@ -287,6 +355,10 @@ pub mod prelude {
     /// This imports the shared sampling types plus delayed-step telemetry and
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
-        pub use crate::{Chain, DelayedProposal, DelayedStep, DelayedStepError, Sampler, Target};
+        pub use crate::{
+            Chain, DelayedProposal, DelayedStep, DelayedStepError, Observable, ObservedDelayedStep,
+            ObservedDelayedStepResult, ObservedStepError, SampleBuffer, Sampler, Target,
+            TryObservable,
+        };
     }
 }
