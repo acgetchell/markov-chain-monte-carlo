@@ -92,7 +92,7 @@ use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 #         Scalar(c.0 + r.random_range(-1.0..1.0))
 #     }
 # }
-fn main() -> Result<(), McmcError> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = StdRng::seed_from_u64(42);
     let chain = Chain::new(Scalar(0.0), &Normal)?;
     let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
@@ -178,6 +178,33 @@ fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
 
     sampler.run_observing_into(10_000, &mut coordinate, &mut stats)?;
     assert_eq!(stats.count(), 10_000);
+    Ok(())
+}
+```
+
+Sampler methods also support thinning. The chain still advances on every step, but cloned states or observable outputs are collected only after every k-th completed step:
+
+```rust
+use markov_chain_monte_carlo::prelude::by_value::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+
+# struct T;
+# impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+# struct P;
+# impl Proposal<f64> for P {
+#     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+#         current + 1.0
+#     }
+# }
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut rng = StdRng::seed_from_u64(42);
+    let chain = Chain::new(0.0, &T)?;
+    let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    let mut coordinate = |state: &f64| *state;
+
+    let samples = sampler.run_observing_with_thinning(10_000, 10, &mut coordinate)?;
+    assert_eq!(samples.len(), 1_000);
+    assert_eq!(sampler.chain_ref().total_steps(), 10_000);
     Ok(())
 }
 ```

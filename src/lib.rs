@@ -40,7 +40,9 @@
 //! per step.  For production runs with many samples, use compact observables or
 //! single-step observing loops when retaining every measurement is unnecessary.
 //! [`OnlineStats`] and [`BinningAnalysis`] provide constant-memory statistics
-//! for those streaming measurement loops.
+//! for those streaming measurement loops.  Samplers also provide
+//! `*_with_thinning` variants to collect cloned states or measurements only
+//! every k-th completed step while still advancing the chain on every step.
 //!
 //! # Example
 //!
@@ -332,9 +334,12 @@ pub use observable::{
 };
 pub use sampler::{
     ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
-    ObservedIntoRunResult, Sampler, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
-    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
-    TryObservedRunResult, TryObservedStepResult,
+    ObservedIntoRunResult, Sampler, ThinnedObservedDelayedIntoRunResult,
+    ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryObservedDelayedIntoRunResult,
+    TryObservedDelayedRunResult, TryObservedDelayedStepResult, TryObservedIntoRunResult,
+    TryObservedMutStepResult, TryObservedRunResult, TryObservedStepResult,
+    TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
+    TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
@@ -383,8 +388,11 @@ pub mod prelude {
     pub use crate::{
         BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
         ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
-        StatisticsError, Target, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
-        TryObservedIntoRunResult,
+        StatisticsError, Target, ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult,
+        ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
+        TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
+        TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
+        TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -395,8 +403,9 @@ pub mod prelude {
         pub use crate::{
             BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
             ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
-            StatisticsError, Target, TryAccumulator, TryObservable,
-            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
+            StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError,
+            TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -408,8 +417,9 @@ pub mod prelude {
         pub use crate::{
             BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
             ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
-            Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
-            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
+            Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
+            ThinningError, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -422,8 +432,10 @@ pub mod prelude {
             BinningAnalysis, BinningEstimate, Chain, DelayedProposal, DelayedStep,
             DelayedStepError, Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
             ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            SampleBuffer, Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
-            TryObservedDelayedIntoRunResult,
+            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedDelayedIntoRunResult,
+            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 }
@@ -437,7 +449,7 @@ mod public_api_smoke_tests {
     use super::{
         BinningAnalysis, BinningEstimate, Chain, DelayedStep, McmcError, Observable,
         ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
-        StatisticsError, Step, Target,
+        StatisticsError, Step, Target, ThinningError,
         prelude::{self, by_value, delayed, in_place},
     };
 
@@ -521,11 +533,19 @@ mod public_api_smoke_tests {
         let _: Option<McmcError> = None;
         let _: Option<SampleBuffer<f64>> = None;
         let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
+        let _: Option<ThinningError<McmcError>> = None;
         let _: Option<ObservedDelayedStep<(), f64>> = None;
         let _: Option<BinningAnalysis> = None;
         let _: Option<BinningEstimate> = None;
         let _: Option<OnlineStats> = None;
         let _: Option<StatisticsError> = None;
+        let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
+        let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
+        let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
+        let _: Option<
+            in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
+        > = None;
+        let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
         let _: Option<
             prelude::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
         > = None;
