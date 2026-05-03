@@ -512,6 +512,32 @@ impl BinningLevel {
             standard_error,
         })
     }
+
+    /// Apply the per-level update shared by infallible and staged pushes.
+    ///
+    /// Returns a coarser block mean only when this level pairs the incoming block
+    /// with an existing pending block.
+    fn push_block_mean(&mut self, block_mean: f64) -> Option<f64> {
+        self.stats.push(block_mean);
+        if let Some(previous) = self.pending.take() {
+            Some(0.5_f64.mul_add(block_mean, 0.5 * previous))
+        } else {
+            self.pending = Some(block_mean);
+            None
+        }
+    }
+
+    /// Validate a staged level before it is committed to the visible analysis.
+    ///
+    /// This preserves `try_push` failure atomicity while reusing the same sample
+    /// and accumulator checks as the public fallible statistics APIs.
+    fn check(&self) -> Result<(), StatisticsError> {
+        check_stats(&self.stats)?;
+        if let Some(pending) = self.pending {
+            check_sample(pending)?;
+        }
+        Ok(())
+    }
 }
 
 /// Streaming binning analysis for autocorrelation-corrected error estimates.
@@ -577,9 +603,6 @@ impl BinningAnalysis {
     }
 
     /// Add one measurement without validating it.
-    ///
-    /// This lets `try_push` validate by applying the update to a cloned analysis
-    /// before replacing the caller-visible state.
     fn push_unchecked(&mut self, sample: f64) {
         self.count += 1;
         self.push_block(0, sample);
@@ -603,10 +626,16 @@ impl BinningAnalysis {
     /// online binning accumulator becomes non-finite while updating.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
         check_sample(sample)?;
-        let mut next = self.clone();
-        next.push_unchecked(sample);
-        next.check_levels()?;
-        *self = next;
+        let staged_levels = self.staged_push(sample)?;
+
+        self.count += 1;
+        for (level_index, level) in staged_levels {
+            if level_index == self.levels.len() {
+                self.levels.push(level);
+            } else {
+                self.levels[level_index] = level;
+            }
+        }
         Ok(())
     }
 
@@ -774,16 +803,7 @@ impl BinningAnalysis {
     fn push_block(&mut self, mut level_index: usize, mut block_mean: f64) {
         loop {
             self.ensure_level(level_index);
-            let next_block_mean = {
-                let level = &mut self.levels[level_index];
-                level.stats.push(block_mean);
-                if let Some(previous) = level.pending.take() {
-                    Some(0.5_f64.mul_add(block_mean, 0.5 * previous))
-                } else {
-                    level.pending = Some(block_mean);
-                    None
-                }
-            };
+            let next_block_mean = self.levels[level_index].push_block_mean(block_mean);
 
             if let Some(mean) = next_block_mean {
                 block_mean = mean;
@@ -792,6 +812,57 @@ impl BinningAnalysis {
                 break;
             }
         }
+    }
+
+    /// Stage the exact levels changed by a fallible push.
+    ///
+    /// A single sample only touches a prefix of the binning hierarchy.  Staging
+    /// that prefix keeps `try_push` failure-atomic without cloning untouched
+    /// coarser levels.
+    fn staged_push(&self, sample: f64) -> Result<Vec<(usize, BinningLevel)>, StatisticsError> {
+        let mut staged_levels = Vec::new();
+        let mut level_index = 0;
+        let mut block_mean = sample;
+
+        loop {
+            let mut level = self
+                .levels
+                .get(level_index)
+                .cloned()
+                .unwrap_or_else(|| self.new_staged_level(level_index, &staged_levels));
+            let next_block_mean = level.push_block_mean(block_mean);
+            level.check()?;
+            staged_levels.push((level_index, level));
+
+            if let Some(mean) = next_block_mean {
+                block_mean = mean;
+                level_index += 1;
+            } else {
+                break;
+            }
+        }
+
+        Ok(staged_levels)
+    }
+
+    /// Create a lazily allocated level without mutating the visible hierarchy.
+    ///
+    /// This mirrors `ensure_level` for staged updates, deriving the next block
+    /// size from either the latest staged level or the existing hierarchy.
+    fn new_staged_level(
+        &self,
+        level_index: usize,
+        staged_levels: &[(usize, BinningLevel)],
+    ) -> BinningLevel {
+        let block_size = if level_index == 0 {
+            1
+        } else if let Some((_, previous)) = staged_levels.last() {
+            previous.block_size.saturating_mul(2)
+        } else {
+            self.levels[level_index - 1].block_size.saturating_mul(2)
+        };
+
+        BinningLevel::new(block_size)
     }
 
     /// Ensure the hierarchy contains `level_index`.
@@ -806,20 +877,6 @@ impl BinningAnalysis {
                 .map_or(1, |level| level.block_size.saturating_mul(2));
             self.levels.push(BinningLevel::new(block_size));
         }
-    }
-
-    /// Validate all completed and pending per-level statistics after a trial update.
-    ///
-    /// This lets `try_push` keep invalid arithmetic from becoming visible while
-    /// preserving precise error variants for the failed stage.
-    fn check_levels(&self) -> Result<(), StatisticsError> {
-        for level in &self.levels {
-            check_stats(&level.stats)?;
-            if let Some(pending) = level.pending {
-                check_sample(pending)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -1063,6 +1120,36 @@ mod tests {
         assert_eq!(bins.count(), 1);
         assert_eq!(bins.mean(), Some(f64::MAX));
         assert_eq!(bins.estimates().next().unwrap().block_count(), 1);
+    }
+
+    #[test]
+    fn binning_analysis_try_push_matches_infallible_hierarchy() {
+        let samples = (1..=9).map(f64::from);
+        let mut fallible = BinningAnalysis::new();
+        let mut infallible = BinningAnalysis::new();
+
+        for sample in samples {
+            fallible.try_push(sample).unwrap();
+            infallible.push(sample);
+        }
+
+        assert_eq!(fallible, infallible);
+
+        let estimates: Vec<_> = fallible.estimates().collect();
+        assert_eq!(
+            estimates
+                .iter()
+                .map(BinningEstimate::block_size)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 4, 8]
+        );
+        assert_eq!(
+            estimates
+                .iter()
+                .map(BinningEstimate::block_count)
+                .collect::<Vec<_>>(),
+            vec![9, 4, 2, 1]
+        );
     }
 
     #[test]

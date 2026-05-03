@@ -296,7 +296,6 @@
 //! `Sampler` can also stream observations directly into these accumulators:
 //!
 //! ```
-//! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::by_value::*;
 //! use rand::{Rng, SeedableRng, rngs::StdRng};
 //!
@@ -309,14 +308,14 @@
 //! #     }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
+//! let chain = Chain::new(0.0, &T)?;
 //! let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
 //! let mut coordinate = |state: &f64| *state;
 //! let mut stats = OnlineStats::new();
 //!
 //! sampler.run_observing_into(4, &mut coordinate, &mut stats)?;
 //! assert_eq!(stats.count(), 4);
-//! # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 mod chain;
@@ -419,5 +418,104 @@ pub mod prelude {
             SampleBuffer, Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
             TryObservedDelayedIntoRunResult,
         };
+    }
+}
+
+#[cfg(test)]
+mod public_api_smoke_tests {
+    use core::convert::Infallible;
+
+    use rand::{Rng, rngs::StdRng};
+
+    use super::{
+        BinningEstimate, Chain, DelayedStep, McmcError, Observable, ObservedDelayedStep,
+        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, Target,
+        prelude::{self, by_value, delayed, in_place},
+    };
+
+    struct Smoke;
+
+    impl Target<f64> for Smoke {
+        fn log_prob(&self, _: &f64) -> f64 {
+            0.0
+        }
+    }
+
+    impl Proposal<f64> for Smoke {
+        fn propose<R: Rng + ?Sized>(&self, current: &f64, _: &mut R) -> f64 {
+            *current
+        }
+    }
+
+    impl ProposalMut<f64> for Smoke {
+        type Undo = ();
+
+        fn propose_mut<R: Rng + ?Sized>(&self, _: &mut f64, _: &mut R) -> Option<Self::Undo> {
+            Some(())
+        }
+
+        fn undo(&self, _: &mut f64, (): Self::Undo) {}
+    }
+
+    impl delayed::DelayedProposal<f64> for Smoke {
+        type Plan = ();
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _: &f64,
+            _: &mut R,
+        ) -> Result<Option<Self::Plan>, Self::Error> {
+            Ok(Some(()))
+        }
+
+        fn proposed_log_prob<T: delayed::Target<f64>>(
+            &self,
+            state: &f64,
+            (): &Self::Plan,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(state))
+        }
+
+        fn info(&self, (): &Self::Plan) -> Self::Info {}
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _: &mut f64,
+            (): Self::Plan,
+            _: &mut R,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn public_reexports_compile() {
+        fn needs_target<T: prelude::Target<f64>>() {}
+        fn needs_by_value<P: by_value::Proposal<f64>>() {}
+        fn needs_in_place<P: in_place::ProposalMut<f64>>() {}
+        fn needs_delayed<P: delayed::DelayedProposal<f64>>() {}
+        fn needs_observable<O: Observable<f64, Output = f64>>(_: &mut O) {}
+
+        needs_target::<Smoke>();
+        needs_by_value::<Smoke>();
+        needs_in_place::<Smoke>();
+        needs_delayed::<Smoke>();
+
+        let mut observable = |state: &f64| *state;
+        needs_observable(&mut observable);
+
+        let _: Option<Chain<f64>> = None;
+        let _: Option<Step<()>> = None;
+        let _: Option<DelayedStep<()>> = None;
+        let _: Option<McmcError> = None;
+        let _: Option<SampleBuffer<f64>> = None;
+        let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
+        let _: Option<ObservedDelayedStep<(), f64>> = None;
+        let _: Option<BinningEstimate> = None;
+        let _: Option<OnlineStats> = None;
+        let _: Option<StatisticsError> = None;
     }
 }
