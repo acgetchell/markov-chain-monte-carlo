@@ -15,14 +15,10 @@ When making changes in this repo, prioritize (in order):
 ### Git Operations
 
 - **NEVER** run `git commit`, `git push`, `git tag`, or any git commands that modify version control state
-- **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`,
-  `git --no-pager log`, `git --no-pager show`, `git --no-pager blame`) to inspect changes/history
+- **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`, `git --no-pager log`, `git --no-pager show`, `git --no-pager blame`) to inspect changes/history
 - **ALWAYS** use `git --no-pager` when reading git output
 - Suggest git commands that modify version control state for the user to run manually
-- When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`,
-  e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`.
-  If an environment requires an owner/tool prefix, keep this structure after the prefix,
-  e.g. `codex/ci/312-rust-tooling`.
+- When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`, e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`. If an environment requires an owner/tool prefix, keep this structure after the prefix, e.g. `codex/ci/312-rust-tooling`.
 
 ### Commit Messages
 
@@ -43,7 +39,7 @@ When user requests commit message generation:
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (format check, Clippy, YAML, GitHub Actions, TOML, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **YAML**: Use `just yaml-lint`
@@ -53,9 +49,7 @@ When user requests commit message generation:
 
 ### Rust
 
-- Prefer borrowed APIs by default:
-  take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible.
-  Only take ownership or return `Vec`/allocated data when required.
+- Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take ownership or return `Vec`/allocated data when required.
 - Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
 ## Common Commands
@@ -67,12 +61,11 @@ just ci               # Full CI simulation (checks + tests + examples)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install/verify external dev tools
 just test             # Lib + doc tests (fast)
-just test-all         # All tests (lib + doc + integration)
+just test-all         # All tests (lib + doc + integration + Python tooling)
 just examples         # Run all examples
 ```
 
-For detailed command references, coverage, and tooling notes, see
-[`docs/dev/rust.md`](docs/dev/rust.md).
+For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).
 
 ### GitHub Issues
 

@@ -22,6 +22,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   ACTIONLINT_VERSION: "1.7.12"
+  DPRINT_VERSION: "0.54.0"
   JUST_VERSION: "1.50.0"
   TAPLO_VERSION: "0.10.0"
   TYPOS_VERSION: "1.45.2"
@@ -60,6 +61,12 @@ jobs:
         uses: taiki-e/install-action@b651345a718c8f44efa2460560b3dbf29cbd7ee1 # v2.75.26
         with:
           tool: just@${{ env.JUST_VERSION }}
+
+      - name: Install dprint
+        if: matrix.os != 'windows-latest'
+        uses: taiki-e/install-action@b651345a718c8f44efa2460560b3dbf29cbd7ee1 # v2.75.26
+        with:
+          tool: dprint@${{ env.DPRINT_VERSION }}
 
       - name: Install yamllint (Linux)
         if: matrix.os == 'ubuntu-latest'

@@ -1,12 +1,8 @@
 # Releasing markov-chain-monte-carlo
 
-This guide documents the manual release flow for this crate. It is intentionally
-lighter than the Delaunay release process: this repository does not currently
-generate changelogs, archive changelog sections, run benchmarks, or produce
-performance baselines as part of release automation.
+This guide documents the release flow for this crate. Changelog generation and annotated release tags are automated locally with `git-cliff` plus the Python helpers in `scripts/`.
 
-Applies to versions `vX.Y.Z`. Prefer updating documentation before publishing to
-crates.io.
+Applies to versions `vX.Y.Z`. Prefer updating documentation before publishing to crates.io.
 
 ## Conventions
 
@@ -27,12 +23,9 @@ git --no-pager status --short
 
 ## Release PR
 
-The release PR should primarily contain version, changelog, and documentation
-updates. Major behavior or API changes should already be merged before release
-prep begins.
+The release PR should primarily contain version, changelog, and documentation updates. Major behavior or API changes should already be merged before release prep begins.
 
-Small release-critical fixes are acceptable if they are discovered during
-validation, but keep the PR focused.
+Small release-critical fixes are acceptable if they are discovered during validation, but keep the PR focused.
 
 ### 1. Create the release branch
 
@@ -56,17 +49,19 @@ Then refresh the lockfile/build metadata:
 cargo check
 ```
 
-### 3. Update documentation and changelog
+### 3. Generate the changelog
 
-Update `CHANGELOG.md` by hand:
+Generate a release section from commits since the previous tag:
 
-- move relevant `[Unreleased]` entries under `## [X.Y.Z] - YYYY-MM-DD`
-- add a fresh empty `## [Unreleased]` section
-- update comparison links at the bottom
+```bash
+just changelog-unreleased "$TAG"
+```
 
-For a patch release, keep the notes focused on fixes, dependency updates,
-tooling, and documentation. Do not pull planned feature-roadmap issues into a
-patch release unless they are small and explicitly intended for that patch.
+Review `CHANGELOG.md` and lightly edit the generated section if needed for clarity. Keep the Keep a Changelog headings intact.
+
+The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not recoverable from local git history.
+
+For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch release unless they are small and explicitly intended for that patch.
 
 Review version references:
 
@@ -84,11 +79,7 @@ just ci
 just publish-check
 ```
 
-`just ci` covers formatting, Clippy, benchmark harness compilation, docs,
-tests, examples, example output validation, YAML, TOML, spelling, GitHub
-Actions, and Semgrep checks.
-`just publish-check` validates crates.io metadata and runs
-`cargo publish --locked --allow-dirty --dry-run`.
+`just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
 
 ### 5. Commit, push, and open the PR
 
@@ -114,21 +105,18 @@ git checkout main
 git pull --ff-only
 ```
 
-Create and push an annotated tag:
+Create and push an annotated tag from the release changelog section:
 
 ```bash
-git tag -a "$TAG" -m "markov-chain-monte-carlo $TAG"
+just tag "$TAG"
 git push origin "$TAG"
 ```
 
 Create the GitHub release:
 
 ```bash
-gh release create "$TAG" --title "$TAG" --notes-file CHANGELOG.md
+gh release create "$TAG" --title "$TAG" --notes-from-tag
 ```
-
-For a small release, it is also fine to paste the specific changelog section into
-the GitHub release notes instead of using the full changelog file.
 
 Publish to crates.io:
 
@@ -140,8 +128,9 @@ cargo publish --locked
 
 - Do not tag or publish until the release PR has merged.
 - Keep release PRs small: version, changelog, docs, and release-critical fixes.
-- `CHANGELOG.md` is currently maintained manually.
-- If releases become frequent enough to make manual changelog updates noisy,
-  add changelog automation as a separate tooling issue.
+- `just changelog` regenerates the full changelog from local git history.
+- `just changelog-unreleased <tag>` prepends only the unreleased section for a release PR.
+- `cliff.toml` skips release-prep commits, filters CI/action dependency churn, and keeps Rust-library dependency bumps concise.
+- `just tag <tag>` creates the annotated release tag from the matching `CHANGELOG.md` section.
 - Run `just ci` before handing off a release PR.
 - Run `just publish-check` before publishing.
