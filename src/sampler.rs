@@ -1,12 +1,14 @@
 //! Ergonomic sampling wrapper that bundles a chain with its components.
 
+use core::convert::Infallible;
 use std::fmt;
 
 use rand::Rng;
 
 use crate::{
     Chain, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
-    ObservedStepError, Proposal, ProposalMut, SampleBuffer, Target, TryObservable,
+    ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Target,
+    TryAccumulator, TryObservable,
 };
 
 /// Delayed-step telemetry paired with a measurement from the resulting state.
@@ -32,6 +34,30 @@ pub type TryObservedDelayedStepResult<I, O, P, E> =
 /// Result returned by fallible delayed observing runs.
 pub type TryObservedDelayedRunResult<O, P, E> =
     Result<SampleBuffer<O>, ObservedStepError<DelayedStepError<P>, E>>;
+
+/// Result returned by infallible-observation streaming runs.
+pub type ObservedIntoRunResult<S, A> = Result<(), ObservedStreamError<S, Infallible, A>>;
+
+/// Result returned by fallible-observation streaming runs.
+pub type TryObservedIntoRunResult<S, O, A> = Result<(), ObservedStreamError<S, O, A>>;
+
+/// Result returned by infallible-observation delayed streaming runs.
+pub type ObservedDelayedIntoRunResult<P, A> = ObservedIntoRunResult<DelayedStepError<P>, A>;
+
+/// Result returned by fallible-observation delayed streaming runs.
+pub type TryObservedDelayedIntoRunResult<P, O, A> =
+    TryObservedIntoRunResult<DelayedStepError<P>, O, A>;
+
+/// Lift a step/observation error into the streaming error type.
+///
+/// Streaming methods add an accumulation stage, so this helper preserves the
+/// original step-vs-observation distinction while widening the error type.
+fn stream_observed_error<S, O, A>(err: ObservedStepError<S, O>) -> ObservedStreamError<S, O, A> {
+    match err {
+        ObservedStepError::Step(err) => ObservedStreamError::Step(err),
+        ObservedStepError::Observation(err) => ObservedStreamError::Observation(err),
+    }
+}
 
 /// Bundles a [`Chain`] with its target, proposal, and RNG for ergonomic
 /// sampling.
@@ -416,6 +442,65 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         Ok(samples)
     }
 
+    /// Run by-value steps and stream observations into an accumulator.
+    ///
+    /// This is the constant-memory counterpart to
+    /// [`run_observing`](Self::run_observing).  The accumulator may be an
+    /// [`OnlineStats`](crate::OnlineStats), [`BinningAnalysis`](crate::BinningAnalysis),
+    /// [`Vec`], [`SampleBuffer`], or any other type implementing
+    /// [`TryAccumulator<O::Output>`].
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// # #[derive(Clone)] struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl Proposal<S> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, c: &S, r: &mut R) -> S {
+    /// #         S(c.0 + r.random_range(-1.0..1.0))
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut coordinate = |state: &S| state.0;
+    /// let mut stats = OnlineStats::new();
+    ///
+    /// sampler.run_observing_into(128, &mut coordinate, &mut stats)?;
+    /// assert_eq!(stats.count(), 128);
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError::Step`] on the first step failure, or
+    /// [`ObservedStreamError::Accumulation`] when the accumulator rejects a
+    /// measurement.
+    pub fn run_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> ObservedIntoRunResult<McmcError, A::Error>
+    where
+        O: Observable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let sample = self
+                .step_observing(observable)
+                .map_err(ObservedStreamError::Step)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
+    }
+
     /// Perform one by-value step and fallibly observe the resulting state.
     ///
     /// Step failures are returned as [`ObservedStepError::Step`]. Measurement
@@ -499,6 +584,58 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
             samples.push(self.try_step_observing(observable)?);
         }
         Ok(samples)
+    }
+
+    /// Run by-value steps and stream fallible observations into an accumulator.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut nonnegative = |state: &f64| {
+    ///     if *state >= 0.0 { Ok(*state) } else { Err("negative state") }
+    /// };
+    /// let mut stats = OnlineStats::new();
+    ///
+    /// sampler.try_run_observing_into(2, &mut nonnegative, &mut stats)?;
+    /// assert_eq!(stats.count(), 2);
+    /// # Ok::<(), ObservedStreamError<McmcError, &'static str, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError`] on the first step, observation, or
+    /// accumulation failure.
+    pub fn try_run_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> TryObservedIntoRunResult<McmcError, O::Error, A::Error>
+    where
+        O: TryObservable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let sample = self
+                .try_step_observing(observable)
+                .map_err(stream_observed_error)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
     }
 }
 
@@ -667,6 +804,64 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         Ok(samples)
     }
 
+    /// Run in-place steps and stream observations into an accumulator.
+    ///
+    /// This is the constant-memory counterpart to
+    /// [`run_mut_observing`](Self::run_mut_observing).
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl ProposalMut<S> for P {
+    /// #     type Undo = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #     }
+    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut coordinate = |state: &S| state.0;
+    /// let mut bins = BinningAnalysis::new();
+    ///
+    /// sampler.run_mut_observing_into(16, &mut coordinate, &mut bins)?;
+    /// assert_eq!(bins.count(), 16);
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError::Step`] on the first step failure, or
+    /// [`ObservedStreamError::Accumulation`] when the accumulator rejects a
+    /// measurement.
+    pub fn run_mut_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> ObservedIntoRunResult<McmcError, A::Error>
+    where
+        O: Observable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let (_, sample) = self
+                .step_mut_observing(observable)
+                .map_err(ObservedStreamError::Step)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
+    }
+
     /// Perform one in-place step and fallibly observe the resulting state.
     ///
     /// ```
@@ -754,6 +949,61 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
             samples.push(sample);
         }
         Ok(samples)
+    }
+
+    /// Run in-place steps and stream fallible observations into an accumulator.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct S(f64);
+    /// # struct T;
+    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
+    /// # struct P;
+    /// # impl ProposalMut<S> for P {
+    /// #     type Undo = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #     }
+    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut finite = |state: &S| {
+    ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
+    /// };
+    /// let mut stats = OnlineStats::new();
+    ///
+    /// sampler.try_run_mut_observing_into(2, &mut finite, &mut stats)?;
+    /// assert_eq!(stats.count(), 2);
+    /// # Ok::<(), ObservedStreamError<McmcError, &'static str, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError`] on the first step, observation, or
+    /// accumulation failure.
+    pub fn try_run_mut_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> TryObservedIntoRunResult<McmcError, O::Error, A::Error>
+    where
+        O: TryObservable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let (_, sample) = self
+                .try_step_mut_observing(observable)
+                .map_err(stream_observed_error)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
     }
 }
 
@@ -884,7 +1134,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     ///
     /// sampler.run_delayed(3)?;
@@ -926,7 +1176,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| *state;
     ///
@@ -998,7 +1248,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| *state;
     ///
@@ -1021,6 +1271,69 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             samples.push(sample);
         }
         Ok(samples)
+    }
+
+    /// Run delayed-commit steps and stream observations into an accumulator.
+    ///
+    /// This is the constant-memory counterpart to
+    /// [`run_delayed_observing`](Self::run_delayed_observing).
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct Flat;
+    /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
+    /// # struct Increment;
+    /// # impl DelayedProposal<i32> for Increment {
+    /// #     type Plan = i32;
+    /// #     type Info = i32;
+    /// #     type Error = Infallible;
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
+    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn info(&self, plan: &i32) -> i32 { *plan }
+    /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
+    /// # }
+    /// let target = Flat;
+    /// let mut proposal = Increment;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut coordinate = |state: &i32| f64::from(*state);
+    /// let mut stats = OnlineStats::new();
+    ///
+    /// sampler.run_delayed_observing_into(3, &mut coordinate, &mut stats)?;
+    /// assert_eq!(stats.count(), 3);
+    /// # Ok::<(), ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError::Step`] on the first step failure, or
+    /// [`ObservedStreamError::Accumulation`] when the accumulator rejects a
+    /// measurement.
+    pub fn run_delayed_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> ObservedDelayedIntoRunResult<P::Error, A::Error>
+    where
+        O: Observable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let (_, sample) = self
+                .step_delayed_observing(observable)
+                .map_err(ObservedStreamError::Step)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
     }
 
     /// Perform one delayed-commit step and fallibly observe the resulting state.
@@ -1123,6 +1436,67 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         }
         Ok(samples)
     }
+
+    /// Run delayed-commit steps and stream fallible observations into an accumulator.
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct Flat;
+    /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
+    /// # struct Increment;
+    /// # impl DelayedProposal<i32> for Increment {
+    /// #     type Plan = i32;
+    /// #     type Info = i32;
+    /// #     type Error = Infallible;
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
+    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn info(&self, plan: &i32) -> i32 { *plan }
+    /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
+    /// # }
+    /// let target = Flat;
+    /// let mut proposal = Increment;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)?;
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut positive = |state: &i32| {
+    ///     if *state > 0 { Ok(f64::from(*state)) } else { Err("not positive") }
+    /// };
+    /// let mut stats = OnlineStats::new();
+    ///
+    /// sampler.try_run_delayed_observing_into(2, &mut positive, &mut stats)?;
+    /// assert_eq!(stats.count(), 2);
+    /// # Ok::<(), ObservedStreamError<DelayedStepError<Infallible>, &'static str, StatisticsError>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObservedStreamError`] on the first step, observation, or
+    /// accumulation failure.
+    pub fn try_run_delayed_observing_into<O, A>(
+        &mut self,
+        steps: usize,
+        observable: &mut O,
+        accumulator: &mut A,
+    ) -> TryObservedDelayedIntoRunResult<P::Error, O::Error, A::Error>
+    where
+        O: TryObservable<S> + ?Sized,
+        A: TryAccumulator<O::Output> + ?Sized,
+    {
+        for _ in 0..steps {
+            let (_, sample) = self
+                .try_step_delayed_observing(observable)
+                .map_err(stream_observed_error)?;
+            accumulator
+                .try_push(sample)
+                .map_err(ObservedStreamError::Accumulation)?;
+        }
+        Ok(())
+    }
 }
 
 // --- Iterator (by-value proposal path only) ---
@@ -1172,6 +1546,7 @@ mod tests {
     use core::convert::Infallible;
 
     use super::*;
+    use crate::{BinningAnalysis, OnlineStats, StatisticsError};
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     // --- Shared fixtures ---
@@ -1192,6 +1567,17 @@ mod tests {
     impl Proposal<Scalar> for Walk {
         fn propose<R: Rng + ?Sized>(&self, c: &Scalar, rng: &mut R) -> Scalar {
             Scalar(c.0 + rng.random_range(-self.width..self.width))
+        }
+    }
+
+    struct NanLogQProposal;
+    impl Proposal<Scalar> for NanLogQProposal {
+        fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
+            current.clone()
+        }
+
+        fn log_q_ratio(&self, _current: &Scalar, _proposed: &Scalar) -> f64 {
+            f64::NAN
         }
     }
 
@@ -1223,6 +1609,20 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum ObservationFailure {
         Failed,
+    }
+
+    #[derive(Default)]
+    struct CountingAccumulator {
+        pushes: usize,
+    }
+
+    impl TryAccumulator<f64> for CountingAccumulator {
+        type Error = Infallible;
+
+        fn try_push(&mut self, _sample: f64) -> Result<(), Self::Error> {
+            self.pushes += 1;
+            Ok(())
+        }
     }
 
     // --- Construction ---
@@ -1303,6 +1703,23 @@ mod tests {
     }
 
     #[test]
+    fn run_observing_into_streams_to_online_stats() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut coordinate = |state: &Scalar| state.0;
+        let mut stats = OnlineStats::new();
+
+        sampler
+            .run_observing_into(25, &mut coordinate, &mut stats)
+            .unwrap();
+
+        assert_eq!(stats.count(), 25);
+        assert_eq!(sampler.chain_ref().total_steps(), 25);
+        assert!(stats.mean().unwrap().is_finite());
+    }
+
+    #[test]
     fn try_run_observing_reports_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
@@ -1327,21 +1744,100 @@ mod tests {
     }
 
     #[test]
-    fn try_step_observing_skips_error() {
-        struct NanProposal;
-        impl Proposal<Scalar> for NanProposal {
-            fn propose<R: Rng + ?Sized>(&self, _current: &Scalar, _rng: &mut R) -> Scalar {
-                Scalar(0.0)
-            }
-
-            fn log_q_ratio(&self, _current: &Scalar, _proposed: &Scalar) -> f64 {
-                f64::NAN
-            }
-        }
-
+    fn try_run_observing_into_stops_on_observation_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanProposal, &mut rng);
+        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut calls = 0;
+        let mut observable = |state: &Scalar| {
+            calls += 1;
+            if calls == 2 {
+                Err(ObservationFailure::Failed)
+            } else {
+                Ok(state.0)
+            }
+        };
+        let mut stats = OnlineStats::new();
+
+        let result = sampler.try_run_observing_into(3, &mut observable, &mut stats);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Observation(ObservationFailure::Failed))
+        ));
+        assert_eq!(stats.count(), 1);
+        assert_eq!(sampler.chain_ref().total_steps(), 2);
+    }
+
+    #[test]
+    fn run_observing_into_reports_accumulation_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut invalid = |_state: &Scalar| f64::NAN;
+        let mut stats = OnlineStats::new();
+
+        let result = sampler.run_observing_into(1, &mut invalid, &mut stats);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Accumulation(
+                StatisticsError::NanSample
+            ))
+        ));
+        assert_eq!(stats.count(), 0);
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn run_observing_into_reports_step_error_without_accumulating() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut observed = false;
+        let mut observable = |state: &Scalar| {
+            observed = true;
+            state.0
+        };
+        let mut accumulator = CountingAccumulator::default();
+
+        let result = sampler.run_observing_into(1, &mut observable, &mut accumulator);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Step(McmcError::NanLogQRatio))
+        ));
+        assert!(!observed);
+        assert_eq!(accumulator.pushes, 0);
+    }
+
+    #[test]
+    fn try_run_observing_into_reports_step_error_without_accumulating() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut observed = false;
+        let mut observable = |state: &Scalar| {
+            observed = true;
+            Ok::<f64, ObservationFailure>(state.0)
+        };
+        let mut accumulator = CountingAccumulator::default();
+
+        let result = sampler.try_run_observing_into(1, &mut observable, &mut accumulator);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Step(McmcError::NanLogQRatio))
+        ));
+        assert!(!observed);
+        assert_eq!(accumulator.pushes, 0);
+    }
+
+    #[test]
+    fn try_step_observing_skips_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
         let mut observed = false;
         let mut observable = |state: &Scalar| {
             observed = true;
@@ -1393,6 +1889,23 @@ mod tests {
     }
 
     #[test]
+    fn run_mut_observing_into_streams_to_binning_analysis() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut coordinate = |state: &MutScalar| state.0;
+        let mut bins = BinningAnalysis::new();
+
+        sampler
+            .run_mut_observing_into(32, &mut coordinate, &mut bins)
+            .unwrap();
+
+        assert_eq!(bins.count(), 32);
+        assert_eq!(sampler.chain_ref().total_steps(), 32);
+        assert!(bins.standard_error().is_some());
+    }
+
+    #[test]
     fn try_step_mut_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
@@ -1418,6 +1931,42 @@ mod tests {
             result,
             Err(ObservedStepError::Observation(ObservationFailure::Failed))
         ));
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn try_run_mut_observing_into_streams_successes() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
+        let mut stats = OnlineStats::new();
+
+        sampler
+            .try_run_mut_observing_into(5, &mut coordinate, &mut stats)
+            .unwrap();
+
+        assert_eq!(stats.count(), 5);
+        assert_eq!(sampler.chain_ref().total_steps(), 5);
+    }
+
+    #[test]
+    fn try_run_mut_observing_into_reports_accumulation_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut invalid = |_state: &MutScalar| Ok::<f64, ObservationFailure>(f64::INFINITY);
+        let mut stats = OnlineStats::new();
+
+        let result = sampler.try_run_mut_observing_into(1, &mut invalid, &mut stats);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Accumulation(
+                StatisticsError::InfiniteSample
+            ))
+        ));
+        assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
@@ -1503,6 +2052,24 @@ mod tests {
     }
 
     #[test]
+    fn run_delayed_observing_into_streams_to_online_stats() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut proposal = DelayedToZero;
+        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut coordinate = |state: &MutScalar| state.0;
+        let mut stats = OnlineStats::new();
+
+        sampler
+            .run_delayed_observing_into(5, &mut coordinate, &mut stats)
+            .unwrap();
+
+        assert_eq!(stats.count(), 5);
+        assert_eq!(stats.mean(), Some(0.0));
+        assert_eq!(sampler.chain_ref().total_steps(), 5);
+    }
+
+    #[test]
     fn try_run_delayed_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
@@ -1533,6 +2100,33 @@ mod tests {
             Err(ObservedStepError::Observation(ObservationFailure::Failed))
         ));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn try_run_delayed_observing_into_stops_on_observation_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut proposal = DelayedToZero;
+        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut calls = 0;
+        let mut observable = |state: &MutScalar| {
+            calls += 1;
+            if calls == 2 {
+                Err(ObservationFailure::Failed)
+            } else {
+                Ok(state.0)
+            }
+        };
+        let mut stats = OnlineStats::new();
+
+        let result = sampler.try_run_delayed_observing_into(3, &mut observable, &mut stats);
+
+        assert!(matches!(
+            result,
+            Err(ObservedStreamError::Observation(ObservationFailure::Failed))
+        ));
+        assert_eq!(stats.count(), 1);
+        assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

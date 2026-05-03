@@ -1,5 +1,6 @@
 //! Observable measurements and sample buffers.
 
+use core::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::slice;
@@ -115,6 +116,88 @@ impl<S: Error + 'static, O: Error + 'static> Error for ObservedStepError<S, O> {
             Self::Observation(err) => Some(err),
         }
     }
+}
+
+/// Error from a sampling step, observation, or accumulation sink.
+///
+/// Streaming observation methods keep the three stages orthogonal:
+///
+/// - [`Step`](Self::Step): the sampler failed before observing
+/// - [`Observation`](Self::Observation): the sampler advanced, then measuring failed
+/// - [`Accumulation`](Self::Accumulation): the sampler advanced and measuring
+///   succeeded, then storing or updating the measurement failed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ObservedStreamError<S, O, A> {
+    /// The sampling step failed before observation.
+    Step(S),
+    /// The sampling step succeeded, but observation failed.
+    Observation(O),
+    /// The sampling step and observation succeeded, but accumulation failed.
+    Accumulation(A),
+}
+
+impl<S: fmt::Display, O: fmt::Display, A: fmt::Display> fmt::Display
+    for ObservedStreamError<S, O, A>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Step(err) => write!(f, "sampling step failed before observation: {err}"),
+            Self::Observation(err) => {
+                write!(
+                    f,
+                    "observable measurement failed after a successful sampling step: {err}"
+                )
+            }
+            Self::Accumulation(err) => {
+                write!(
+                    f,
+                    "observation accumulation failed after a successful sampling step and observation: {err}"
+                )
+            }
+        }
+    }
+}
+
+impl<S: Error + 'static, O: Error + 'static, A: Error + 'static> Error
+    for ObservedStreamError<S, O, A>
+{
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Step(err) => Some(err),
+            Self::Observation(err) => Some(err),
+            Self::Accumulation(err) => Some(err),
+        }
+    }
+}
+
+/// Fallible sink for streaming observation outputs.
+///
+/// Use this when observations should be consumed without retaining a full
+/// [`SampleBuffer`].  Infallible sinks such as [`Vec`] and [`SampleBuffer`]
+/// use [`Infallible`] as their error type, while statistical accumulators can
+/// reject invalid numeric measurements with domain-specific errors.
+pub trait TryAccumulator<T> {
+    /// Accumulation-specific error type.
+    type Error;
+
+    /// Store or update one observation output.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{OnlineStats, TryAccumulator};
+    ///
+    /// let mut stats = OnlineStats::new();
+    /// TryAccumulator::try_push(&mut stats, 1.0)?;
+    /// TryAccumulator::try_push(&mut stats, 3.0)?;
+    ///
+    /// assert_eq!(stats.mean(), Some(2.0));
+    /// # Ok::<(), markov_chain_monte_carlo::StatisticsError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Self::Error` when the observation cannot be accumulated.
+    fn try_push(&mut self, sample: T) -> Result<(), Self::Error>;
 }
 
 /// In-memory collection of observation outputs.
@@ -263,6 +346,24 @@ impl<T> Extend<T> for SampleBuffer<T> {
     }
 }
 
+impl<T> TryAccumulator<T> for SampleBuffer<T> {
+    type Error = Infallible;
+
+    fn try_push(&mut self, sample: T) -> Result<(), Self::Error> {
+        self.push(sample);
+        Ok(())
+    }
+}
+
+impl<T> TryAccumulator<T> for Vec<T> {
+    type Error = Infallible;
+
+    fn try_push(&mut self, sample: T) -> Result<(), Self::Error> {
+        self.push(sample);
+        Ok(())
+    }
+}
+
 impl<T> FromIterator<T> for SampleBuffer<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self {
@@ -367,6 +468,44 @@ mod tests {
     }
 
     #[test]
+    fn observed_stream_error_messages() {
+        type Error = ObservedStreamError<MeasurementError, MeasurementError, MeasurementError>;
+
+        let step = Error::Step(MeasurementError::Domain);
+        let observation = Error::Observation(MeasurementError::Domain);
+        let accumulation = Error::Accumulation(MeasurementError::Domain);
+
+        assert_eq!(
+            step.to_string(),
+            "sampling step failed before observation: domain-specific measurement failed"
+        );
+        assert_eq!(
+            observation.to_string(),
+            "observable measurement failed after a successful sampling step: domain-specific measurement failed"
+        );
+        assert_eq!(
+            accumulation.to_string(),
+            "observation accumulation failed after a successful sampling step and observation: domain-specific measurement failed"
+        );
+    }
+
+    #[test]
+    fn observed_stream_error_sources() {
+        type Error = ObservedStreamError<MeasurementError, MeasurementError, MeasurementError>;
+
+        for err in [
+            Error::Step(MeasurementError::Domain),
+            Error::Observation(MeasurementError::Domain),
+            Error::Accumulation(MeasurementError::Domain),
+        ] {
+            assert_eq!(
+                err.source().map(ToString::to_string),
+                Some("domain-specific measurement failed".to_owned())
+            );
+        }
+    }
+
+    #[test]
     fn sample_buffer_collects_outputs() {
         let mut buffer = SampleBuffer::with_capacity(2);
         buffer.push(1);
@@ -397,5 +536,16 @@ mod tests {
         let collected: SampleBuffer<_> = [4, 5].into_iter().collect();
         let owned: Vec<_> = collected.into_iter().collect();
         assert_eq!(owned, vec![4, 5]);
+    }
+
+    #[test]
+    fn infallible_accumulators_accept_samples() {
+        let mut buffer = SampleBuffer::new();
+        buffer.try_push(1).unwrap();
+        assert_eq!(buffer.as_slice(), &[1]);
+
+        let mut vec = Vec::new();
+        vec.try_push(2).unwrap();
+        assert_eq!(vec, vec![2]);
     }
 }

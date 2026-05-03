@@ -39,6 +39,8 @@
 //! Bulk observing methods return a [`SampleBuffer`], which stores one output
 //! per step.  For production runs with many samples, use compact observables or
 //! single-step observing loops when retaining every measurement is unnecessary.
+//! [`OnlineStats`] and [`BinningAnalysis`] provide constant-memory statistics
+//! for those streaming measurement loops.
 //!
 //! # Example
 //!
@@ -272,21 +274,70 @@
 //! assert_eq!(samples.len(), 256);
 //! # Ok::<(), McmcError>(())
 //! ```
+//!
+//! # Streaming statistics
+//!
+//! Use [`OnlineStats`] for Welford mean and variance updates, and
+//! [`BinningAnalysis`] for autocorrelation-aware standard-error estimates:
+//!
+//! ```
+//! use markov_chain_monte_carlo::prelude::*;
+//!
+//! let mut energy = OnlineStats::new();
+//! energy.extend([1.0, 2.0, 3.0, 4.0]);
+//!
+//! assert_eq!(energy.mean(), Some(2.5));
+//!
+//! let mut bins = BinningAnalysis::new();
+//! bins.extend([1.0, 2.0, 3.0, 4.0]);
+//! assert!(bins.standard_error().is_some());
+//! ```
+//!
+//! `Sampler` can also stream observations directly into these accumulators:
+//!
+//! ```
+//! use core::convert::Infallible;
+//! use markov_chain_monte_carlo::prelude::by_value::*;
+//! use rand::{Rng, SeedableRng, rngs::StdRng};
+//!
+//! # struct T;
+//! # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+//! # struct P;
+//! # impl Proposal<f64> for P {
+//! #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+//! #         current + 1.0
+//! #     }
+//! # }
+//! let mut rng = StdRng::seed_from_u64(42);
+//! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
+//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+//! let mut coordinate = |state: &f64| *state;
+//! let mut stats = OnlineStats::new();
+//!
+//! sampler.run_observing_into(4, &mut coordinate, &mut stats)?;
+//! assert_eq!(stats.count(), 4);
+//! # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
+//! ```
 
 mod chain;
 mod error;
 mod observable;
 mod sampler;
+mod statistics;
 mod traits;
 
 pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
 pub use error::McmcError;
-pub use observable::{Observable, ObservedStepError, SampleBuffer, TryObservable};
-pub use sampler::{
-    ObservedDelayedStep, ObservedDelayedStepResult, Sampler, TryObservedDelayedRunResult,
-    TryObservedDelayedStepResult, TryObservedMutStepResult, TryObservedRunResult,
-    TryObservedStepResult,
+pub use observable::{
+    Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
+pub use sampler::{
+    ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
+    ObservedIntoRunResult, Sampler, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
+    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
+    TryObservedRunResult, TryObservedStepResult,
+};
+pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 
 /// Convenience re-exports for common usage.
@@ -297,6 +348,8 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// use markov_chain_monte_carlo::prelude::*;
 ///
 /// fn accepts_target<T: Target<f64>>(_: &T) {}
+/// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
+/// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
@@ -324,8 +377,9 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// ```
 pub mod prelude {
     pub use crate::{
-        Chain, McmcError, Observable, ObservedStepError, SampleBuffer, Sampler, Target,
-        TryObservable,
+        BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+        ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
+        StatisticsError, Target, TryAccumulator, TryObservable, TryObservedIntoRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -334,8 +388,9 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            Chain, McmcError, Observable, ObservedStepError, Proposal, SampleBuffer, Sampler,
-            Target, TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
+            StatisticsError, Target, TryAccumulator, TryObservable, TryObservedIntoRunResult,
         };
     }
 
@@ -345,8 +400,10 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            Chain, McmcError, Observable, ObservedStepError, ProposalMut, SampleBuffer, Sampler,
-            Target, TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
+            Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult,
         };
     }
 
@@ -356,9 +413,11 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            Chain, DelayedProposal, DelayedStep, DelayedStepError, Observable, ObservedDelayedStep,
-            ObservedDelayedStepResult, ObservedStepError, SampleBuffer, Sampler, Target,
-            TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, DelayedProposal, DelayedStep,
+            DelayedStepError, Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
+            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            SampleBuffer, Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult,
         };
     }
 }
