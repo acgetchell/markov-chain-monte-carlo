@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `OnlineStats`, `BinningAnalysis`, and `BinningEstimate` for streaming means,
+  variance estimates, and autocorrelation-aware MCMC error bars.
+- Fallible streaming accumulation support through `TryAccumulator` and
+  `TryObservable`.
+- Sampler observing APIs that stream measurements directly into accumulators,
+  including delayed-commit variants.
+- Prelude exports and documentation for ordinary streaming result aliases.
+
+### Changed
+
+- Binning updates now stage fallible pushes atomically, preserving prior
+  accumulator state when invalid samples or non-finite intermediate values are
+  rejected.
+
 ## [0.2.1] - 2026-04-30
 
 ### Added

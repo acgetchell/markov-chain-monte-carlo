@@ -39,6 +39,8 @@
 //! Bulk observing methods return a [`SampleBuffer`], which stores one output
 //! per step.  For production runs with many samples, use compact observables or
 //! single-step observing loops when retaining every measurement is unnecessary.
+//! [`OnlineStats`] and [`BinningAnalysis`] provide constant-memory statistics
+//! for those streaming measurement loops.
 //!
 //! # Example
 //!
@@ -272,21 +274,69 @@
 //! assert_eq!(samples.len(), 256);
 //! # Ok::<(), McmcError>(())
 //! ```
+//!
+//! # Streaming statistics
+//!
+//! Use [`OnlineStats`] for Welford mean and variance updates, and
+//! [`BinningAnalysis`] for autocorrelation-aware standard-error estimates:
+//!
+//! ```
+//! use markov_chain_monte_carlo::prelude::*;
+//!
+//! let mut energy = OnlineStats::new();
+//! energy.extend([1.0, 2.0, 3.0, 4.0]);
+//!
+//! assert_eq!(energy.mean(), Some(2.5));
+//!
+//! let mut bins = BinningAnalysis::new();
+//! bins.extend([1.0, 2.0, 3.0, 4.0]);
+//! assert!(bins.standard_error().is_some());
+//! ```
+//!
+//! `Sampler` can also stream observations directly into these accumulators:
+//!
+//! ```
+//! use markov_chain_monte_carlo::prelude::by_value::*;
+//! use rand::{Rng, SeedableRng, rngs::StdRng};
+//!
+//! # struct T;
+//! # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+//! # struct P;
+//! # impl Proposal<f64> for P {
+//! #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+//! #         current + 1.0
+//! #     }
+//! # }
+//! let mut rng = StdRng::seed_from_u64(42);
+//! let chain = Chain::new(0.0, &T)?;
+//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+//! let mut coordinate = |state: &f64| *state;
+//! let mut stats = OnlineStats::new();
+//!
+//! sampler.run_observing_into(4, &mut coordinate, &mut stats)?;
+//! assert_eq!(stats.count(), 4);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 mod chain;
 mod error;
 mod observable;
 mod sampler;
+mod statistics;
 mod traits;
 
 pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
 pub use error::McmcError;
-pub use observable::{Observable, ObservedStepError, SampleBuffer, TryObservable};
-pub use sampler::{
-    ObservedDelayedStep, ObservedDelayedStepResult, Sampler, TryObservedDelayedRunResult,
-    TryObservedDelayedStepResult, TryObservedMutStepResult, TryObservedRunResult,
-    TryObservedStepResult,
+pub use observable::{
+    Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
+pub use sampler::{
+    ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
+    ObservedIntoRunResult, Sampler, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
+    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
+    TryObservedRunResult, TryObservedStepResult,
+};
+pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 
 /// Convenience re-exports for common usage.
@@ -294,9 +344,16 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// The top-level prelude contains only the shared sampling foundation:
 ///
 /// ```
+/// use std::convert::Infallible;
+///
 /// use markov_chain_monte_carlo::prelude::*;
 ///
 /// fn accepts_target<T: Target<f64>>(_: &T) {}
+/// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
+/// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
+/// fn accepts_delayed_stream_result(
+///     _: TryObservedDelayedIntoRunResult<Infallible, StatisticsError, StatisticsError>,
+/// ) {}
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
@@ -324,8 +381,10 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// ```
 pub mod prelude {
     pub use crate::{
-        Chain, McmcError, Observable, ObservedStepError, SampleBuffer, Sampler, Target,
-        TryObservable,
+        BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+        ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
+        StatisticsError, Target, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+        TryObservedIntoRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -334,8 +393,10 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            Chain, McmcError, Observable, ObservedStepError, Proposal, SampleBuffer, Sampler,
-            Target, TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
+            StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
         };
     }
 
@@ -345,8 +406,10 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            Chain, McmcError, Observable, ObservedStepError, ProposalMut, SampleBuffer, Sampler,
-            Target, TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
+            Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
         };
     }
 
@@ -356,9 +419,124 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            Chain, DelayedProposal, DelayedStep, DelayedStepError, Observable, ObservedDelayedStep,
-            ObservedDelayedStepResult, ObservedStepError, SampleBuffer, Sampler, Target,
-            TryObservable,
+            BinningAnalysis, BinningEstimate, Chain, DelayedProposal, DelayedStep,
+            DelayedStepError, Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
+            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            SampleBuffer, Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult,
         };
+    }
+}
+
+#[cfg(test)]
+mod public_api_smoke_tests {
+    use core::convert::Infallible;
+
+    use rand::{Rng, rngs::StdRng};
+
+    use super::{
+        BinningAnalysis, BinningEstimate, Chain, DelayedStep, McmcError, Observable,
+        ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
+        StatisticsError, Step, Target,
+        prelude::{self, by_value, delayed, in_place},
+    };
+
+    struct Smoke;
+
+    impl Target<f64> for Smoke {
+        fn log_prob(&self, _: &f64) -> f64 {
+            0.0
+        }
+    }
+
+    impl Proposal<f64> for Smoke {
+        fn propose<R: Rng + ?Sized>(&self, current: &f64, _: &mut R) -> f64 {
+            *current
+        }
+    }
+
+    impl ProposalMut<f64> for Smoke {
+        type Undo = ();
+
+        fn propose_mut<R: Rng + ?Sized>(&self, _: &mut f64, _: &mut R) -> Option<Self::Undo> {
+            Some(())
+        }
+
+        fn undo(&self, _: &mut f64, (): Self::Undo) {}
+    }
+
+    impl delayed::DelayedProposal<f64> for Smoke {
+        type Plan = ();
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _: &f64,
+            _: &mut R,
+        ) -> Result<Option<Self::Plan>, Self::Error> {
+            Ok(Some(()))
+        }
+
+        fn proposed_log_prob<T: delayed::Target<f64>>(
+            &self,
+            state: &f64,
+            (): &Self::Plan,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(state))
+        }
+
+        fn info(&self, (): &Self::Plan) -> Self::Info {}
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _: &mut f64,
+            (): Self::Plan,
+            _: &mut R,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn public_reexports_compile() {
+        fn needs_target<T: prelude::Target<f64>>() {}
+        fn needs_by_value<P: by_value::Proposal<f64>>() {}
+        fn needs_in_place<P: in_place::ProposalMut<f64>>() {}
+        fn needs_delayed<P: delayed::DelayedProposal<f64>>() {}
+        fn needs_observable<O: Observable<f64, Output = f64>>(_: &mut O) {}
+
+        needs_target::<Smoke>();
+        needs_by_value::<Smoke>();
+        needs_in_place::<Smoke>();
+        needs_delayed::<Smoke>();
+
+        let mut observable = |state: &f64| *state;
+        needs_observable(&mut observable);
+
+        let _: Option<Chain<f64>> = None;
+        let _: Option<Step<()>> = None;
+        let _: Option<DelayedStep<()>> = None;
+        let _: Option<McmcError> = None;
+        let _: Option<SampleBuffer<f64>> = None;
+        let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
+        let _: Option<ObservedDelayedStep<(), f64>> = None;
+        let _: Option<BinningAnalysis> = None;
+        let _: Option<BinningEstimate> = None;
+        let _: Option<OnlineStats> = None;
+        let _: Option<StatisticsError> = None;
+        let _: Option<
+            prelude::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            by_value::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            in_place::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
     }
 }

@@ -30,6 +30,12 @@ implemented in this crate.
    *A Guide to Monte Carlo Simulations in Statistical Physics*. 4th ed.
    Cambridge: Cambridge University Press, 2014.
    DOI: [10.1017/CBO9781139696463](https://doi.org/10.1017/CBO9781139696463)
+6. Welford, B. P. "Note on a Method for Calculating Corrected Sums of Squares and Products."
+   *Technometrics* 4, no. 3 (1962): 419-420.
+   DOI: [10.1080/00401706.1962.10490022](https://doi.org/10.1080/00401706.1962.10490022)
+7. Flyvbjerg, H., and H. G. Petersen. "Error Estimates on Averages of Correlated Data."
+   *The Journal of Chemical Physics* 91, no. 1 (1989): 461-466.
+   DOI: [10.1063/1.457480](https://doi.org/10.1063/1.457480)
 
 ## Related crates
 

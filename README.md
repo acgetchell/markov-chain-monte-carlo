@@ -33,6 +33,7 @@ This crate provides:
 - `Chain<S>` with `step` (by-value), `step_mut` (in-place), and `step_delayed` (accept-before-mutation) methods
 - `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
 - `Observable<S>` and `SampleBuffer<T>` for computing and collecting derived measurements during sampling
+- `OnlineStats` and `BinningAnalysis` for streaming means, variances, and autocorrelation-corrected error estimates
 - NaN and +∞ detection with automatic state rollback on error
 - Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
 - Seeded RNG support for reproducible simulations
@@ -145,6 +146,52 @@ fn main() -> Result<(), McmcError> {
 
     let measurements: SampleBuffer<f64> = sampler.run_observing(10_000, &mut energy)?;
     assert_eq!(measurements.len(), 10_000);
+    Ok(())
+}
+```
+
+### Streaming statistics and error bars
+
+```rust
+use markov_chain_monte_carlo::prelude::*;
+
+fn main() {
+    let measurements = [1.0, 2.0, 3.0, 4.0];
+
+    let mut stats = OnlineStats::new();
+    stats.extend(measurements);
+    assert_eq!(stats.mean(), Some(2.5));
+
+    let mut bins = BinningAnalysis::new();
+    bins.extend(measurements);
+    assert!(bins.standard_error().is_some());
+}
+```
+
+For long sampler runs, stream measurements directly into an accumulator instead
+of collecting a `SampleBuffer`:
+
+```rust
+use markov_chain_monte_carlo::prelude::by_value::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+
+# struct T;
+# impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+# struct P;
+# impl Proposal<f64> for P {
+#     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+#         current + 1.0
+#     }
+# }
+fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
+    let mut rng = StdRng::seed_from_u64(42);
+    let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
+    let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    let mut coordinate = |state: &f64| *state;
+    let mut stats = OnlineStats::new();
+
+    sampler.run_observing_into(10_000, &mut coordinate, &mut stats)?;
+    assert_eq!(stats.count(), 10_000);
     Ok(())
 }
 ```
