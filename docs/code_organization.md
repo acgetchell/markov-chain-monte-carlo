@@ -85,10 +85,10 @@ Defines measurement APIs and collection helpers:
   and measurement failures orthogonal
 - `SampleBuffer<T>` for simple in-memory observation collection
 
-Observables are shared across proposal workflows, so the core observable traits
-and buffer belong in the shared prelude. Workflow-specific result aliases should
-stay at the crate root unless a prelude needs them for ordinary examples or
-doctests.
+Observables are shared across proposal workflows, so the core observable traits,
+buffer, and ordinary streaming result aliases belong in the shared prelude.
+Highly specialized workflow result aliases should stay at the crate root unless
+a prelude needs them for ordinary examples or doctests.
 
 ### `src/traits.rs`
 

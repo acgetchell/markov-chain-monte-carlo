@@ -344,11 +344,16 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// The top-level prelude contains only the shared sampling foundation:
 ///
 /// ```
+/// use std::convert::Infallible;
+///
 /// use markov_chain_monte_carlo::prelude::*;
 ///
 /// fn accepts_target<T: Target<f64>>(_: &T) {}
 /// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
 /// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
+/// fn accepts_delayed_stream_result(
+///     _: TryObservedDelayedIntoRunResult<Infallible, StatisticsError, StatisticsError>,
+/// ) {}
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
@@ -378,7 +383,8 @@ pub mod prelude {
     pub use crate::{
         BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
         ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
-        StatisticsError, Target, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        StatisticsError, Target, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+        TryObservedIntoRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -389,7 +395,8 @@ pub mod prelude {
         pub use crate::{
             BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
             ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
-            StatisticsError, Target, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+            StatisticsError, Target, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
         };
     }
 
@@ -402,7 +409,7 @@ pub mod prelude {
             BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
             ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
             Sampler, StatisticsError, Target, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult,
+            TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
         };
     }
 
@@ -428,8 +435,9 @@ mod public_api_smoke_tests {
     use rand::{Rng, rngs::StdRng};
 
     use super::{
-        BinningEstimate, Chain, DelayedStep, McmcError, Observable, ObservedDelayedStep,
-        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, Target,
+        BinningAnalysis, BinningEstimate, Chain, DelayedStep, McmcError, Observable,
+        ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
+        StatisticsError, Step, Target,
         prelude::{self, by_value, delayed, in_place},
     };
 
@@ -514,8 +522,21 @@ mod public_api_smoke_tests {
         let _: Option<SampleBuffer<f64>> = None;
         let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
         let _: Option<ObservedDelayedStep<(), f64>> = None;
+        let _: Option<BinningAnalysis> = None;
         let _: Option<BinningEstimate> = None;
         let _: Option<OnlineStats> = None;
         let _: Option<StatisticsError> = None;
+        let _: Option<
+            prelude::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            by_value::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            in_place::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
+        let _: Option<
+            delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
+        > = None;
     }
 }

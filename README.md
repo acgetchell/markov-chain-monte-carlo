@@ -172,7 +172,6 @@ For long sampler runs, stream measurements directly into an accumulator instead
 of collecting a `SampleBuffer`:
 
 ```rust
-use core::convert::Infallible;
 use markov_chain_monte_carlo::prelude::by_value::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -184,7 +183,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 #         current + 1.0
 #     }
 # }
-fn main() -> Result<(), ObservedStreamError<McmcError, Infallible, StatisticsError>> {
+fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
     let mut rng = StdRng::seed_from_u64(42);
     let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
     let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
