@@ -9,97 +9,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `OnlineStats`, `BinningAnalysis`, and `BinningEstimate` for streaming means,
-  variance estimates, and autocorrelation-aware MCMC error bars.
-- Fallible streaming accumulation support through `TryAccumulator` and
-  `TryObservable`.
-- Sampler observing APIs that stream measurements directly into accumulators,
-  including delayed-commit variants.
-- Prelude exports and documentation for ordinary streaming result aliases.
+- add DelayedProposal for accept-before-mutation workflows
+- add Step/DelayedStep telemetry and orthogonal DelayedStepError variants
+- implement Chain::step_delayed with no-plan, rejection, acceptance, and commit-failure handling
+- extend Sampler with delayed stepping and generic proposal-handle storage
+- add focused by-value, in-place, and delayed prelude modules
+- update doctests, examples, README snippets, and property-test imports
+- add tests for delayed acceptance, rejection, no-plan, invalid numerics, proposal-stage errors, commit atomicity, and run_delayed error stopping
+- add Observable and TryObservable traits for infallible and fallible measurements
+- add ObservedStepError to keep sampling and observation failures orthogonal
+- add SampleBuffer for collected observation outputs
+- integrate observing APIs across by-value, in-place, and delayed Sampler paths
+- expose minimal workflow preludes for by-value, in-place, and delayed usage
+- add doctests, unit tests, and documentation for the new measurement APIs
+- simplify bounds, imports, and test names across touched code
+- Add OnlineStats and BinningAnalysis for streaming mean, variance, standard error, and blocked autocorrelation-aware estimates
+- Add StatisticsError variants for invalid samples and non-finite accumulator state
+- Add TryAccumulator and ObservedStreamError for streaming observations into fallible sinks
+- Add sampler APIs for streaming by-value, in-place, and delayed observations into accumulators
+- Export new statistics and streaming types through minimal workflow preludes
+- Document usage in README and doctests
+- Ignore local .codex workspace metadata
 
-### Changed
+### Fixed
 
-- Binning updates now stage fallible pushes atomically, preserving prior
-  accumulator state when invalid samples or non-finite intermediate values are
-  rejected.
+- keep Metropolis-Hastings acceptance decisions in log space
+- explicitly reject arithmetic-created NaN acceptance ratios
+- document log_prob semantics and numerical behavior at the crate level
+- strengthen ProposalMut::propose_mut(None) contract
+- remove unnecessary S: Clone bound from by-value Proposal APIs
+- make Sampler chain storage private and expose chain_ref/chain_mut accessors
+- update examples, README, and organization docs for by-value proposal wording
+- add tests for extreme log-domain acceptance, no-move rollback, state-dependent log_q_ratio, and -inf edge cases
 
 ## [0.2.1] - 2026-04-30
 
-### Added
+### Dependencies
 
-- `docs/code_organization.md` and `docs/RELEASING.md` developer documentation.
-- CodeQL, Codacy, Codecov, Semgrep, TOML, spelling, and GitHub Actions validation
-  configuration for stronger release checks.
+- Bump rand from 0.10.0 to 0.10.1 [#25](https://github.com/acgetchell/markov-chain-monte-carlo/pull/25) [`70cec05`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/70cec057f0070c8a4ebf5084f4f6eb8a2ed4eaa5)
 
-### Changed
+### Documentation
 
-- Updated `rand` from 0.10.0 to 0.10.1.
-- Hardened Rust tooling installation and CI validation workflows.
+- Add docs/code_organization.md with the crate layout, module responsibilities, testing structure, and development conventions
+- Add docs/RELEASING.md with the simplified manual release workflow for this crate
+- Link the new developer docs from README.md
+- Record the documentation additions in CHANGELOG.md
+
+### Maintenance
+
+- Update Rust toolchain/MSRV to 1.95.0
+- Replace tarpaulin coverage with cargo-llvm-cov for local HTML and CI Cobertura reports
+- Add CodeRabbit, CodeQL, Codecov, Codacy/OpenGrep, Taplo, rustfmt, clippy, typos, and Semgrep configuration
+- Add uv-managed Semgrep tooling with pyproject.toml and uv.lock
+- Expand and sort justfile workflows, including lint groups, setup-tools, Semgrep checks, and coverage recipes
+- Add citation/reference metadata and README sections for contributing, citation, references, and AI tooling disclosure
+- Document Rust/tooling workflow in docs/dev/rust.md and update AGENTS.md guidance
 
 ## [0.2.0] - 2026-04-06
 
+markov-chain-monte-carlo v0.2.0
+
 ### Added
 
-- `Sampler<S, T, P, R>` ergonomic wrapper that bundles a `Chain` with its target, proposal, and RNG
-  - `step()` / `run(n)` for clone-based proposals
-  - `step_mut()` / `run_mut(n)` for in-place proposals
-  - `Iterator` implementation (clone-based path) for composability with `.take(n)` etc.
-  - `into_chain()` to recover the inner chain
-- `Chain::log_prob()`, `Chain::accepted()`, `Chain::rejected()` accessor methods (fields now private)
-- `Chain::total_steps()` convenience method
-- `Chain::reset_counters()` for post-burn-in measurement
-- `McmcError::InfiniteInitialLogProb` and `McmcError::InfiniteProposedLogProb` error variants for +∞ detection
-- `McmcError` now implements `Copy`
-- `#[must_use]` on `Chain`, `Sampler`, and all query methods
-- `Chain::state()`, `Chain::replace_state()`, `Chain::into_state()` accessor methods (field now private)
-- `#[non_exhaustive]` on `McmcError` for forward-compatible error variants
-- `Debug` implementation for `Sampler` (prints chain state)
-- `publish-check` justfile recipe for crates.io metadata validation
-- `iterator_sampling` example demonstrating `Sampler`'s `Iterator` impl with `.take(n)` and `.by_ref()`
-- Doctest for `Iterator::next` on `Sampler`
-- Doctests for all public `Chain` methods
-- Display tests for all `McmcError` variants
-- Asymmetric proposal tests (non-zero `log_q_ratio`)
-- Edge-case tests for `-∞` and `+∞` log-probabilities
-
-### Changed
-
-- **Breaking:** All `Chain` fields are now private (use accessor methods: `state()`, `log_prob()`, `accepted()`, `rejected()`)
-- **Breaking:** `Sampler` added to `prelude`
-- Split crate into modules: `chain`, `error`, `sampler`, `traits`
-- Examples (`normal_1d`, `ising_1d`) updated to use `Sampler` with `reset_counters()`
-- `justfile` recipes sorted lexicographically; `examples` and `validate-examples` now include `ising_1d`
+- Sampler<S, T, P, R> ergonomic wrapper with run/run_mut/Iterator
+- Chain fields now private (accessor methods: state(), log_prob(), accepted(), rejected())
+- +∞ detection (InfiniteInitialLogProb, InfiniteProposedLogProb, InfiniteLogQRatio)
+- McmcError implements Copy, #[non_exhaustive]
+- Split crate into modules: chain, error, sampler, traits
+- iterator_sampling example, doctests on all public methods
+- publish-check justfile recipe
 
 ## [0.1.0] - 2026-03-24
 
-First usable release of the MCMC framework.
+v0.1.0: first usable release
 
 ### Added
 
-- `Target<S>` trait for target distributions (log-probability)
-- `Proposal<S>` trait for clone-based proposal distributions (requires `S: Clone`)
-- `ProposalMut<S>` trait for in-place mutation with rollback via associated `Undo` type
-- `Chain<S>` with `step` (clone-based) and `step_mut` (in-place) Metropolis–Hastings methods
-- `McmcError` with NaN detection for log-probabilities and proposal ratios
-- Automatic state rollback on rejection and NaN errors in `step_mut`
-- Seeded RNG support for reproducible simulations
-- `prelude` module for convenient imports
-- `normal_1d` example: sampling from a standard normal distribution
-- `ising_1d` example: 1-D Ising model using `ProposalMut` with spin flip undo tokens
-- Property-based tests for MH invariants (log_prob consistency, step/step_mut equivalence, counts)
-- CI workflows (GitHub Actions), clippy linting, codecov, dependency auditing
-
-## [0.0.1] - 2026-03-22
-
-### Added
-
-- Initial crate scaffold with `State`, `Target`, `Proposal`, `Chain` types
-- Basic Metropolis–Hastings `step` method
-- `normal_1d` example
-- CI/CD infrastructure
+- ProposalMut<S> trait for in-place mutation with rollback
+- Chain::step_mut for zero-copy Metropolis-Hastings
+- Proposal<S> (clone-based) and Target<S> traits
+- NaN detection with automatic state rollback
+- Seeded RNG support
+- Examples: normal_1d, ising_1d
+- Property-based tests for MH invariants
 
 [Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/acgetchell/markov-chain-monte-carlo/releases/tag/v0.0.1
+[0.1.0]: https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.1.0

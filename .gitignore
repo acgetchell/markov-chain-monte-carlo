@@ -2,3 +2,5 @@
 /coverage
 /.venv
 /.codex
+__pycache__/
+*.egg-info/

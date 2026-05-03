@@ -169,3 +169,131 @@ rules:
     patterns:
       - pattern-regex: '^\s*use\s+markov_chain_monte_carlo::(chain|error|sampler|traits)::'
       - pattern-not-regex: '^\s*use\s+markov_chain_monte_carlo::prelude::'
+
+  - id: mcmc.python.no-broad-exception
+    languages:
+      - python
+    severity: WARNING
+    message: "Catch a specific exception type instead of broad Exception."
+    metadata:
+      category: maintainability
+      rationale: >-
+        Python tooling should surface expected failure modes explicitly instead
+        of swallowing unrelated errors.
+    paths:
+      include:
+        - "/scripts/**/*.py"
+      exclude:
+        - "/tests/semgrep/**"
+    pattern-regex: '^\s*except\s+Exception(?:\s+as\s+\w+)?\s*:'
+
+  - id: mcmc.python.no-raw-exception-in-tests
+    languages:
+      - python
+    severity: WARNING
+    message: "Raise a specific exception type in Python tests instead of raw Exception."
+    metadata:
+      category: maintainability
+      rationale: "Typed exceptions make test failures and expected errors easier to diagnose."
+    paths:
+      include:
+        - "/scripts/tests/**/*.py"
+      exclude:
+        - "/tests/semgrep/**"
+    pattern: raise Exception(...)
+
+  - id: mcmc.python.no-adhoc-completedprocess-mock
+    languages:
+      - python
+    severity: WARNING
+    message: "Use subprocess.CompletedProcess[str] instead of ad hoc Mock stdout/returncode objects."
+    metadata:
+      category: maintainability
+      rationale: >-
+        Command-wrapper tests should use the real subprocess result shape so
+        mocks stay aligned with production subprocess APIs.
+    paths:
+      include:
+        - "/scripts/tests/**/*.py"
+      exclude:
+        - "/tests/semgrep/**"
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  $PROC = Mock(...)
+                  ...
+                  $PROC.stdout = ...
+              - pattern: |
+                  $PROC = unittest.mock.Mock(...)
+                  ...
+                  $PROC.stdout = ...
+              - pattern: |
+                  $PROC = mock.Mock(...)
+                  ...
+                  $PROC.stdout = ...
+              - pattern: |
+                  $PROC = MagicMock(...)
+                  ...
+                  $PROC.stdout = ...
+              - pattern: |
+                  $PROC = unittest.mock.MagicMock(...)
+                  ...
+                  $PROC.stdout = ...
+              - pattern: |
+                  $PROC = mock.MagicMock(...)
+                  ...
+                  $PROC.stdout = ...
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  $PROC = Mock(...)
+                  ...
+                  $PROC.returncode = ...
+              - pattern: |
+                  $PROC = unittest.mock.Mock(...)
+                  ...
+                  $PROC.returncode = ...
+              - pattern: |
+                  $PROC = mock.Mock(...)
+                  ...
+                  $PROC.returncode = ...
+              - pattern: |
+                  $PROC = MagicMock(...)
+                  ...
+                  $PROC.returncode = ...
+              - pattern: |
+                  $PROC = unittest.mock.MagicMock(...)
+                  ...
+                  $PROC.returncode = ...
+              - pattern: |
+                  $PROC = mock.MagicMock(...)
+                  ...
+                  $PROC.returncode = ...
+      - pattern: Mock(..., stdout=..., ...)
+      - pattern: unittest.mock.Mock(..., stdout=..., ...)
+      - pattern: mock.Mock(..., stdout=..., ...)
+      - pattern: MagicMock(..., stdout=..., ...)
+      - pattern: unittest.mock.MagicMock(..., stdout=..., ...)
+      - pattern: mock.MagicMock(..., stdout=..., ...)
+      - pattern: Mock(..., returncode=..., ...)
+      - pattern: unittest.mock.Mock(..., returncode=..., ...)
+      - pattern: mock.Mock(..., returncode=..., ...)
+      - pattern: MagicMock(..., returncode=..., ...)
+      - pattern: unittest.mock.MagicMock(..., returncode=..., ...)
+      - pattern: mock.MagicMock(..., returncode=..., ...)
+
+  - id: mcmc.python.no-untyped-defs-in-scripts
+    languages:
+      - python
+    severity: WARNING
+    message: "Add an explicit return annotation to script functions."
+    metadata:
+      category: maintainability
+      rationale: "Typed script helpers are easier for ty and reviewers to reason about."
+    paths:
+      include:
+        - "/scripts/**/*.py"
+      exclude:
+        - "/tests/semgrep/**"
+    pattern-regex: '^( {0,4}|\t)(async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\([^#\n]*\)\s*:'

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "incremental": false,
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-0.21.1.wasm"
+  ],
+  "includes": [
+    "**/*.md"
+  ],
+  "excludes": [
+    "**/target",
+    "CHANGELOG.md"
+  ],
+  "markdown": {
+    "emphasisKind": "asterisks",
+    "lineWidth": 120,
+    "textWrap": "never"
+  }
+}

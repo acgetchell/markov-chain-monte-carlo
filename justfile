@@ -28,6 +28,16 @@ _ensure-cargo-llvm-cov:
         exit 1
     fi
 
+_ensure-dprint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v dprint >/dev/null || { echo "❌ 'dprint' not found. Install: cargo install dprint"; exit 1; }
+
+_ensure-git-cliff:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v git-cliff >/dev/null || { echo "❌ 'git-cliff' not found. Install: cargo install git-cliff"; exit 1; }
+
 _ensure-jq:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -67,10 +77,6 @@ action-lint: _ensure-actionlint
         echo "No workflow files found to lint."
     fi
 
-# Build
-build:
-    cargo build
-
 # Benchmarks
 bench:
     cargo bench --bench stepping
@@ -79,8 +85,26 @@ bench:
 bench-compile:
     cargo bench --no-run
 
+# Build
+build:
+    cargo build
+
+# Changelog generation (git-cliff + post-processing)
+changelog: _ensure-git-cliff python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GIT_CLIFF_OFFLINE=true git-cliff -o CHANGELOG.md
+    uv run postprocess-changelog
+
+# Prepend unreleased changes to CHANGELOG.md for the given version
+changelog-unreleased version: _ensure-git-cliff python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GIT_CLIFF_OFFLINE=true git-cliff --unreleased --tag {{version}} --prepend CHANGELOG.md
+    uv run postprocess-changelog
+
 # Non-mutating validation gate
-check: fmt-check clippy yaml-lint action-lint toml-fmt-check toml-lint spell-check semgrep semgrep-test
+check: fmt-check clippy python-check yaml-lint action-lint toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
@@ -88,7 +112,7 @@ check-fast:
     cargo check
 
 # CI simulation: comprehensive validation
-ci: check bench-compile doc test examples validate-examples
+ci: check bench-compile doc test-all examples validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
@@ -133,7 +157,7 @@ examples:
     cargo run --quiet --example iterator_sampling
 
 # Fix (mutating): apply formatters
-fix: fmt toml-fmt
+fix: fmt markdown-fix python-fix toml-fmt
     @echo "✅ Fixes applied!"
 
 # Rust formatting
@@ -151,16 +175,20 @@ help-workflows:
     @echo "  just ci             # Full CI simulation, including benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
+    @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
+    @echo "  just changelog-unreleased <ver>  # Prepend unreleased changes for a version"
+    @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo ""
     @echo "Quality groups:"
     @echo "  just lint           # All linting (code + docs + config)"
-    @echo "  just lint-code      # Rust + Semgrep checks"
+    @echo "  just lint-code      # Rust + Python + Semgrep checks"
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions"
-    @echo "  just lint-docs      # Spell check"
+    @echo "  just lint-docs      # Markdown format check + spell check"
+    @echo "  just python-check   # Ruff + Ty checks for Python tooling"
     @echo ""
     @echo "Testing:"
     @echo "  just test           # Lib + doc tests"
-    @echo "  just test-all       # Lib + doc + integration tests"
+    @echo "  just test-all       # Lib + doc + integration + Python tooling tests"
     @echo "  just bench          # Run Criterion benchmarks"
     @echo "  just bench-compile  # Compile benchmarks without measuring"
     @echo "  just coverage       # Generate and open HTML coverage report"
@@ -170,11 +198,19 @@ help-workflows:
 # All linting: code + documentation + configuration
 lint: lint-code lint-docs lint-config
 
-lint-code: fmt-check clippy semgrep semgrep-test
+lint-code: fmt-check clippy python-check semgrep semgrep-test
 
 lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint
 
-lint-docs: spell-check
+lint-docs: markdown-check spell-check
+
+markdown-check: _ensure-dprint
+    dprint check
+
+markdown-fix: _ensure-dprint
+    dprint fmt
+
+markdown-lint: markdown-check
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 publish-check: _ensure-jq
@@ -238,7 +274,23 @@ publish-check: _ensure-jq
     echo ""
     echo "✅ Publish check passed!"
 
-# Repository-owned Semgrep rules for project-specific Rust diagnostics.
+python-check: python-typecheck
+    uv run ruff format --check scripts/
+    uv run ruff check scripts/
+
+python-fix: python-sync
+    uv run ruff check scripts/ --fix
+    uv run ruff format scripts/
+
+python-lint: python-check
+
+python-sync: _ensure-uv
+    uv sync --group dev
+
+python-typecheck: python-sync
+    uv run ty check scripts/
+
+# Repository-owned Semgrep rules for project-specific diagnostics.
 semgrep: _ensure-uv
     uv run semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml .
 
@@ -248,6 +300,7 @@ semgrep-test: _ensure-uv
     cd tests/semgrep
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml src/project_rules/rust_style.rs
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml examples/deep_import.rs
+    uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
 setup: setup-tools
 
@@ -263,17 +316,23 @@ setup-tools:
 
     if have brew; then
         echo "Ensuring Homebrew tools..."
-        brew install actionlint jq taplo uv yamllint || true
+        brew install actionlint dprint git-cliff jq taplo uv yamllint || true
         echo ""
     else
         echo "Homebrew not found; skipping brew-managed tools."
-        echo "Install manually if missing: actionlint jq taplo uv yamllint"
+        echo "Install manually if missing: actionlint dprint jq taplo uv yamllint"
         echo ""
     fi
 
     echo "Ensuring cargo tools..."
     if ! have cargo-llvm-cov; then
         cargo install --locked cargo-llvm-cov --version {{cargo_llvm_cov_version}}
+    fi
+    if ! have dprint; then
+        cargo install --locked dprint
+    fi
+    if ! have git-cliff; then
+        cargo install --locked git-cliff
     fi
     if ! have typos; then
         cargo install --locked typos-cli
@@ -292,7 +351,7 @@ setup-tools:
 
     echo "Verifying required commands..."
     missing=0
-    for cmd in actionlint cargo-llvm-cov jq taplo typos uv yamllint; do
+    for cmd in actionlint cargo-llvm-cov dprint git-cliff jq taplo typos uv yamllint; do
         if have "$cmd"; then
             echo "  ✓ $cmd"
         else
@@ -310,6 +369,10 @@ setup-tools:
 
     uv run semgrep --version >/dev/null
     echo "  ✓ semgrep (uv)"
+    uv run ruff --version >/dev/null
+    echo "  ✓ ruff (uv)"
+    uv run ty --version >/dev/null
+    echo "  ✓ ty (uv)"
 
     echo ""
     echo "✅ Tooling setup complete."
@@ -317,18 +380,29 @@ setup-tools:
 spell-check: _ensure-typos
     typos --config typos.toml --force-exclude .
 
+# Create an annotated git tag from the CHANGELOG.md section for the given version
+tag version: python-sync
+    uv run tag-release {{version}}
+
+# Recreate an existing tag from the CHANGELOG.md section for the given version
+tag-force version: python-sync
+    uv run tag-release {{version}} --force
+
 # Testing
 test:
     cargo test --lib --verbose
     cargo test --doc --verbose
 
-# All tests (lib + doc + integration)
-test-all: test test-integration
+# All tests (lib + doc + integration + Python tooling)
+test-all: test test-integration test-python
     @echo "✅ All tests passed"
 
 # Integration tests
 test-integration:
     cargo test --tests --verbose
+
+test-python: python-sync
+    uv run pytest -q
 
 toml-fmt: _ensure-taplo
     #!/usr/bin/env bash
