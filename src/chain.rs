@@ -138,6 +138,7 @@ impl<E: Error + 'static> Error for DelayedStepError<E> {
 }
 
 /// A single MCMC chain.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug)]
 #[must_use]
 pub struct Chain<S> {
@@ -709,6 +710,7 @@ mod tests {
 
     // --- Test fixtures ---
 
+    #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
     #[derive(Clone, Debug, PartialEq)]
     struct Scalar(f64);
 
@@ -762,6 +764,48 @@ mod tests {
             (chain2.log_prob() - (-0.5)).abs() < 1e-12,
             "log_prob at 1 should be -0.5"
         );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_checkpoint_resumes_sampling() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        chain.step(&Normal, &FixedProposal(0.0), &mut rng).unwrap();
+
+        let checkpoint = serde_json::to_string(&chain).unwrap();
+        let mut restored: Chain<Scalar> = serde_json::from_str(&checkpoint).unwrap();
+
+        assert_eq!(restored.state(), &Scalar(0.0));
+        assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+        assert_eq!(restored.accepted(), 1);
+        assert_eq!(restored.rejected(), 0);
+        assert_eq!(restored.total_steps(), 1);
+
+        restored
+            .step(&Normal, &FixedProposal(100.0), &mut rng)
+            .unwrap();
+
+        assert_eq!(restored.total_steps(), 2);
+        assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_allows_nonserializable_state() {
+        struct NonSerializableState(f64);
+
+        struct NonSerializableTarget;
+        impl Target<NonSerializableState> for NonSerializableTarget {
+            fn log_prob(&self, state: &NonSerializableState) -> f64 {
+                -0.5 * state.0 * state.0
+            }
+        }
+
+        let chain = Chain::new(NonSerializableState(1.0), &NonSerializableTarget).unwrap();
+
+        assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+        assert_eq!(chain.total_steps(), 0);
     }
 
     // --- acceptance_rate ---

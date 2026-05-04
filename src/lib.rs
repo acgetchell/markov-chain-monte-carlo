@@ -44,6 +44,29 @@
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
 //!
+//! Enable the optional `serde` feature to serialize and deserialize
+//! [`Chain<S>`] when `S` implements serde's traits.  [`Sampler`] also derives
+//! serialization when all stored handles support it, but the portable
+//! checkpoint for resuming a run is the owned [`Chain<S>`]; targets, proposals,
+//! and RNG streams are reconstructed by the caller.
+//!
+//! ```
+//! # #[cfg(feature = "serde")] {
+//! use markov_chain_monte_carlo::prelude::*;
+//!
+//! struct Normal;
+//! impl Target<f64> for Normal {
+//!     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
+//! }
+//!
+//! let chain = Chain::new(1.0, &Normal)?;
+//! let checkpoint = serde_json::to_string(&chain)?;
+//! let restored: Chain<f64> = serde_json::from_str(&checkpoint)?;
+//! assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+//! # }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
 //! # Example
 //!
 //! Sample from a standard normal distribution using Metropolis–Hastings:
@@ -445,6 +468,8 @@ mod public_api_smoke_tests {
     use core::convert::Infallible;
 
     use rand::{Rng, rngs::StdRng};
+    #[cfg(feature = "serde")]
+    use serde_json::{Error as JsonError, json, to_value};
 
     use super::{
         BinningAnalysis, BinningEstimate, Chain, DelayedStep, McmcError, Observable,
@@ -453,6 +478,7 @@ mod public_api_smoke_tests {
         prelude::{self, by_value, delayed, in_place},
     };
 
+    #[cfg_attr(feature = "serde", derive(serde::Serialize))]
     struct Smoke;
 
     impl Target<f64> for Smoke {
@@ -558,5 +584,28 @@ mod public_api_smoke_tests {
         let _: Option<
             delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
         > = None;
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn sampler_serializes_handles() -> Result<(), JsonError> {
+        let target = Smoke;
+        let proposal = Smoke;
+        let mut rng = Smoke;
+        let Ok(chain) = Chain::new(1.0, &target) else {
+            unreachable!("Smoke target always returns a finite log-probability");
+        };
+        let sampler = Sampler::new(chain, &target, proposal, &mut rng);
+
+        let checkpoint = to_value(&sampler)?;
+
+        assert_eq!(checkpoint["chain"]["state"], json!(1.0));
+        assert_eq!(checkpoint["chain"]["log_prob"], json!(0.0));
+        assert_eq!(checkpoint["chain"]["accepted"], json!(0));
+        assert_eq!(checkpoint["chain"]["rejected"], json!(0));
+        assert!(checkpoint.get("target").is_some());
+        assert!(checkpoint.get("proposal").is_some());
+        assert!(checkpoint.get("rng").is_some());
+        Ok(())
     }
 }
