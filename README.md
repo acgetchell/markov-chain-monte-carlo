@@ -40,6 +40,7 @@ This crate provides the sampler mechanics; proposal correctness, ergodicity, con
 - [📚 Citation](#-citation)
 - [🔎 References](#-references)
 - [🤖 AI Agents](#-ai-agents)
+- [📜 License](#-license)
 
 ## 🚀 Quick start
 
@@ -569,7 +570,7 @@ The long-term architecture separates:
 
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide (project layout, development workflow, code style, testing, documentation generation via `cargo-rdme`, performance/benchmarking, and the release process). AI assistants should follow [`AGENTS.md`](AGENTS.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide (project layout, development workflow, code style, testing, documentation generation via `cargo-rdme`, performance/benchmarking, and the release process). Community expectations live in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). AI assistants should follow [`AGENTS.md`](AGENTS.md).
 
 Quick local workflow: run `just setup` once, then run `just check` before opening a pull request. For the full command list, run `just --list`.
 
@@ -590,6 +591,10 @@ Portions of this library were developed with the assistance of AI tools includin
 All code was written and/or reviewed and validated by the author.
 
 For tool citation metadata, see the [AI-assisted development tools](REFERENCES.md#ai-assisted-development-tools) section of `REFERENCES.md`.
+
+## 📜 License
+
+This project is licensed under the [BSD 3-Clause License](LICENSE).
 
 [ChatGPT]: https://openai.com/chatgpt
 [Claude]: https://www.anthropic.com/claude

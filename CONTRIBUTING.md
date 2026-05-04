@@ -428,10 +428,10 @@ Avoid Markdown headings (`#` through `###`) in the body — they conflict with c
 
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
-1. Update version in `Cargo.toml` and `CITATION.cff`.
-2. **Run `just docs-readme`** so the README's marker region is in sync with the latest `lib.rs //!`.
-3. **Run `just check`** to confirm `cargo rdme --check` (and everything else) passes.
-4. Regenerate `CHANGELOG.md` for the new tag: `just changelog-unreleased v0.X.Y`.
+1. Update version metadata in `Cargo.toml`, `CITATION.cff`, and `pyproject.toml`; refresh `Cargo.lock` and `uv.lock`.
+2. Regenerate `CHANGELOG.md` for the new tag: `just changelog-unreleased v0.X.Y`.
+3. **Run `just docs-readme`** so the README's marker region is in sync with the latest `lib.rs //!`.
+4. **Run `just check`** to confirm `cargo rdme --check` (and everything else) passes.
 5. Commit and push the version bumps.
 6. Tag the release: `just tag v0.X.Y`.
 7. Publish to crates.io.

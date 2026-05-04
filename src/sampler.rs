@@ -370,7 +370,7 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
         step_once: impl FnMut(&mut Self) -> Result<(), E>,
         emit: impl FnMut(&Self) -> Result<(), E>,
     ) -> ThinnedRunResult<(), E> {
-        let _ = thinned_capacity::<E>(steps, thin_interval)?;
+        validate_thin_interval(thin_interval)?;
         self.run_thinning_loop(steps, thin_interval, step_once, emit)
     }
 
@@ -1172,15 +1172,15 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     where
         S: Clone,
     {
-        let mut samples =
-            SampleBuffer::with_capacity(thinned_capacity::<McmcError>(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step_mut().map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(self.chain.state().clone());
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| {
+                sampler.step_mut()?;
+                Ok(())
+            },
+            |sampler| Ok(sampler.chain.state().clone()),
+        )
     }
 
     /// Perform one in-place step and observe the resulting chain state.
@@ -1312,15 +1312,15 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         thin_interval: usize,
         observable: &mut O,
     ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
-        let mut samples =
-            SampleBuffer::with_capacity(thinned_capacity::<McmcError>(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step_mut().map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(observable.observe(self.chain.state()));
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| {
+                sampler.step_mut()?;
+                Ok(())
+            },
+            |sampler| Ok(observable.observe(sampler.chain.state())),
+        )
     }
 
     /// Run in-place steps and stream observations into an accumulator.
@@ -1435,19 +1435,19 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        validate_thin_interval(thin_interval)?;
-        for step in 1..=steps {
-            self.step_mut()
-                .map_err(ObservedStreamError::Step)
-                .map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
+        self.run_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| {
+                sampler.step_mut().map_err(ObservedStreamError::Step)?;
+                Ok(())
+            },
+            |sampler| {
                 accumulator
-                    .try_push(observable.observe(self.chain.state()))
+                    .try_push(observable.observe(sampler.chain.state()))
                     .map_err(ObservedStreamError::Accumulation)
-                    .map_err(ThinningError::Run)?;
-            }
-        }
-        Ok(())
+            },
+        )
     }
 
     /// Perform one in-place step and fallibly observe the resulting state.
@@ -3032,7 +3032,7 @@ mod tests {
         };
         let mut stats = OnlineStats::new();
 
-        let result = sampler.run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats);
+        let result = sampler.run_observing_into_with_thinning(5, 1, &mut coordinate, &mut stats);
 
         assert!(matches!(
             result,

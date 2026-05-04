@@ -33,6 +33,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CITATION.cff
+├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
 ├── Cargo.lock
 ├── Cargo.toml

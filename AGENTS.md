@@ -61,7 +61,7 @@ Examples of breaking changes include removing or renaming public API items, chan
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, TOML, Markdown, spell check, Semgrep, Semgrep rule tests, cargo-rdme README drift check)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **YAML**: Use `just yaml-lint`
@@ -85,6 +85,7 @@ just setup            # Install/verify external dev tools
 just test             # Lib + doc tests (fast)
 just test-all         # All tests (lib + doc + integration + Python tooling)
 just examples         # Run all examples
+just docs-readme      # Regenerate README API section from src/lib.rs //!
 ```
 
 For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).
@@ -162,7 +163,7 @@ Rules:
 - The `<!-- dprint-ignore-* -->` markers exist because dprint's markdown formatter (`textWrap = "never"`) would otherwise rewrap the cargo-rdme region and re-introduce drift.
 - The README should remain a useful GitHub landing page, not just a docs.rs mirror. Keep hand-written, short, scannable sections **before** the cargo-rdme block for the pitch, pre-release/status note, concise table of contents when the README is long, installation, MSRV, Cargo features, a minimal quick start, and a "which API should I choose?" guide. Treat the marker region as the detailed API guide.
 - For long READMEs, maintain a hand-written `## Contents` section before `## 🚀 Quick start`. Include the major landing-page sections and the main generated API-guide subsections, but do not enumerate every generated paragraph. When changing README headings or `src/lib.rs //!` headings that render into the API guide, update this table of contents in the same change.
-- Content **outside** the markers (landing sections before the generated block; Examples directory, Documentation, Ecosystem, Contributing, Citation, References, AI Agents, License after it) is hand-written and may be edited normally. Keep it concise and avoid duplicating long-form details that already live in `//!`.
+- Content **outside** the markers (landing sections before the generated block; Examples directory, Documentation, Ecosystem, Contributing, Citation, References, AI Agents, License) is hand-written and may be edited normally. Keep it concise and avoid duplicating long-form details that already live in `//!`.
 
 The `lib.rs //!` block is the canonical long-form crate documentation. It should still lead with short, scannable sections (pitch → use-cases → `# Features`) before deeper contract content (`# Scientific basis and scope`, `# Numerical semantics`, validation hierarchy, worked examples).
 

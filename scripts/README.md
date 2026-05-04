@@ -17,7 +17,7 @@ Changelog entries are generated from local git metadata:
 - tagged historical releases use annotated tag notes when those notes contain release bullets
 - release-prep commits and CI/action dependency churn are filtered out
 
-Put user-facing release-note bullets in squash commit bodies or annotated tag messages. Details that appear only in a hand-edited changelog cannot be recovered by the generator later.
+Put user-facing release-note bullets in squash commit bodies or annotated tag messages. Do not hand-edit generated changelog content; details that appear only in old manual changelog edits cannot be recovered by the generator later.
 
 ## Release Tags
 

@@ -2,13 +2,12 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "markov-chain-monte-carlo: A composable MCMC framework for Rust"
-version: "0.2.0"
+version: "0.2.1"
 url: "https://github.com/acgetchell/markov-chain-monte-carlo"
 repository-code: "https://github.com/acgetchell/markov-chain-monte-carlo"
 authors:
   - family-names: "Getchell"
     given-names: "Adam"
-    email: "adam@adamgetchell.org"
     orcid: "https://orcid.org/0000-0002-0797-0021"
 keywords:
   - "markov-chain-monte-carlo"
@@ -18,8 +17,8 @@ keywords:
   - "sampling"
 abstract: >-
   markov-chain-monte-carlo is a Rust library providing composable
-  Metropolis-Hastings sampling over arbitrary state spaces, with clone-based
-  and in-place proposal models, log-space transition handling, rollback on
-  invalid proposal states, seeded reproducibility, and ergonomic sampler
-  utilities.
+  Metropolis-Hastings sampling over arbitrary state spaces, with by-value,
+  in-place, and delayed-commit proposal APIs, log-space transition handling,
+  observable measurement utilities, streaming statistics, checkpointing, and
+  proposal-validation diagnostics.
 license: BSD-3-Clause
