@@ -33,7 +33,7 @@ Use `ProposalMut<S>` when cloning the full state is expensive. The proposal muta
 
 Useful checks:
 
-- Verify `propose_mut(None)` paths leave the state unchanged.
+- Verify that `propose_mut` returning `None` instead of `Option<Undo>::Some` leaves the state unchanged.
 - Verify `undo` restores the exact previous state for every successful proposal.
 - Test invalid log-probability and invalid log-ratio paths.
 - Use `verify_detailed_balance_mut` on small representative states that implement `Clone + PartialEq`.

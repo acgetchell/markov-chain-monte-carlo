@@ -44,6 +44,22 @@
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
 //!
+//! # Proposal validation
+//!
+//! The [`verify_detailed_balance`] family of helpers gives proposal authors a
+//! test-facing diagnostic for representative discrete transitions.  Use
+//! [`verify_detailed_balance`] for by-value [`Proposal`] implementations,
+//! [`verify_detailed_balance_mut`] for rollback-based [`ProposalMut`]
+//! implementations, and [`verify_detailed_balance_delayed`] for
+//! [`DelayedProposal`] plans.  The companion batch helpers collect all
+//! per-transition failures in a [`DetailedBalanceBatchReport`], which is useful
+//! when checking a small graph, move table, or list of local states.
+//!
+//! These helpers are empirical diagnostics for exact endpoint hits, not a proof
+//! of ergodicity or convergence.  They are intended for tests, examples, and
+//! proposal-development checks over discrete or otherwise exactly comparable
+//! states.
+//!
 //! Enable the optional `serde` feature to serialize and deserialize
 //! [`Chain<S>`] when `S` implements serde's traits.  [`Sampler`] also derives
 //! serialization when all stored handles support it, but the portable
@@ -479,7 +495,10 @@ pub mod prelude {
     /// Prelude for proposal validation and detailed-balance diagnostics.
     ///
     /// This imports the target and proposal traits plus the public
-    /// detailed-balance helpers, without importing sampler execution types.
+    /// [`crate::verify_detailed_balance`] helpers, without importing sampler
+    /// execution types.  Use this prelude in tests, examples, and benchmarks
+    /// that validate proposal kernels with [`crate::DetailedBalanceConfig`] and
+    /// inspect [`crate::DetailedBalanceReport`] values.
     pub mod testing {
         pub use crate::{
             DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,

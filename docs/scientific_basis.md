@@ -13,8 +13,8 @@ alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
 The `Target<S>` implementation supplies `log pi(s)` up to an additive constant. The proposal implementation supplies either symmetric proposals or an explicit log proposal ratio through:
 
 - `Proposal::log_q_ratio(current, proposed)`
-- `ProposalMut::log_q_ratio(proposed_state, undo_token)`
-- `DelayedProposal::log_q_ratio(current_state, plan)`
+- `ProposalMut::log_q_ratio(state, token)`
+- `DelayedProposal::log_q_ratio(state, plan) -> Result<f64, Self::Error>`
 
 These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities, site counts, reverse-site counts, and invalid-move handling.
 

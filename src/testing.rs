@@ -1,4 +1,18 @@
-//! Testing and validation helpers.
+//! Test-facing diagnostics for proposal validation.
+//!
+//! This module provides empirical detailed-balance checks for proposal
+//! implementations over discrete or otherwise exactly comparable endpoint
+//! states.  The helpers are designed for tests, examples, and proposal
+//! development: they repeatedly sample a representative transition in both
+//! directions, estimate the Metropolis-Hastings transition flow, and return a
+//! [`DetailedBalanceReport`] or typed [`DetailedBalanceError`].
+//!
+//! Use [`verify_detailed_balance`] for by-value [`Proposal`] implementations,
+//! [`verify_detailed_balance_mut`] for rollback-based [`ProposalMut`]
+//! implementations, and [`verify_detailed_balance_delayed`] for
+//! [`DelayedProposal`] plans.  Batch helpers return
+//! [`DetailedBalanceBatchReport`] so callers can inspect every failed
+//! transition instead of stopping at the first violation.
 
 use core::convert::Infallible;
 use std::error::Error;
@@ -93,6 +107,8 @@ pub struct DetailedBalanceReport {
 impl DetailedBalanceReport {
     /// Return true when the absolute residual is within `tolerance`.
     ///
+    /// # Examples
+    ///
     /// ```
     /// use markov_chain_monte_carlo::DetailedBalanceReport;
     ///
@@ -120,6 +136,8 @@ impl DetailedBalanceReport {
     }
 
     /// Approximate normal z-score for the observed log residual.
+    ///
+    /// # Examples
     ///
     /// ```
     /// use markov_chain_monte_carlo::DetailedBalanceReport;
@@ -340,6 +358,8 @@ pub struct DetailedBalanceBatchReport<E = Infallible> {
 impl<E> DetailedBalanceBatchReport<E> {
     /// Return true when every transition passed.
     ///
+    /// # Examples
+    ///
     /// ```
     /// use markov_chain_monte_carlo::DetailedBalanceBatchReport;
     ///
@@ -379,6 +399,8 @@ pub struct DetailedBalanceDelayedTransition<'a, S, Plan> {
 /// discrete, quantized, or otherwise exactly comparable state spaces.  For
 /// continuous proposals, exact hits are usually too rare; use a coarsened state
 /// representation or a domain-specific diagnostic instead.
+///
+/// # Examples
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::testing::*;
@@ -443,6 +465,8 @@ where
 ///
 /// This is useful for checking a small grid, graph edge list, or representative
 /// set of local moves without stopping on the first failed transition.
+///
+/// # Examples
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::testing::*;
@@ -522,6 +546,8 @@ where
 /// probability by combining exact endpoint hits with each hit's undo-token-based
 /// log q-ratio.
 ///
+/// # Examples
+///
 /// ```
 /// use markov_chain_monte_carlo::prelude::testing::*;
 /// use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -589,6 +615,8 @@ where
 }
 
 /// Verify many in-place transitions and return every transition violation.
+///
+/// # Examples
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::testing::*;
@@ -686,6 +714,8 @@ where
 /// direction, or the estimated detailed-balance residual exceeds the configured
 /// tolerance.
 ///
+/// # Examples
+///
 /// ```
 /// use core::convert::Infallible;
 /// use markov_chain_monte_carlo::prelude::testing::*;
@@ -782,6 +812,8 @@ where
 ///
 /// Each [`DetailedBalanceDelayedTransition`] supplies endpoint states and the
 /// forward/reverse plan predicates for that concrete transition.
+///
+/// # Examples
 ///
 /// ```
 /// use core::convert::Infallible;
@@ -1417,6 +1449,7 @@ const fn usize_to_f64(value: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
+    use std::error::Error as _;
 
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -1436,6 +1469,20 @@ mod tests {
         }
     }
 
+    struct OneImpossibleEndpoint;
+    impl Target<bool> for OneImpossibleEndpoint {
+        fn log_prob(&self, state: &bool) -> f64 {
+            if *state { f64::NEG_INFINITY } else { 0.0 }
+        }
+    }
+
+    struct NanOnTrue;
+    impl Target<bool> for NanOnTrue {
+        fn log_prob(&self, state: &bool) -> f64 {
+            if *state { f64::NAN } else { 0.0 }
+        }
+    }
+
     struct Flip;
     impl Proposal<bool> for Flip {
         fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
@@ -1451,6 +1498,17 @@ mod tests {
 
         fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
             1.0
+        }
+    }
+
+    struct InfiniteLogQ;
+    impl Proposal<bool> for InfiniteLogQ {
+        fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
+            !current
+        }
+
+        fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
+            f64::INFINITY
         }
     }
 
@@ -1492,6 +1550,38 @@ mod tests {
 
         fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
             1.0
+        }
+    }
+
+    struct InfiniteLogQMut;
+    impl ProposalMut<bool> for InfiniteLogQMut {
+        type Undo = bool;
+
+        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+            let old = *state;
+            *state = !*state;
+            Some(old)
+        }
+
+        fn undo(&self, state: &mut bool, token: bool) {
+            *state = token;
+        }
+
+        fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
+            f64::INFINITY
+        }
+    }
+
+    struct NoMoveMut;
+    impl ProposalMut<bool> for NoMoveMut {
+        type Undo = bool;
+
+        fn propose_mut<R: Rng + ?Sized>(&self, _: &mut bool, _: &mut R) -> Option<bool> {
+            None
+        }
+
+        fn undo(&self, state: &mut bool, token: bool) {
+            *state = token;
         }
     }
 
@@ -1609,6 +1699,86 @@ mod tests {
         }
     }
 
+    struct InfiniteLogQDelayed;
+    impl DelayedProposal<bool> for InfiniteLogQDelayed {
+        type Plan = bool;
+        type Info = bool;
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &bool,
+            _: &mut R,
+        ) -> Result<Option<bool>, Infallible> {
+            Ok(Some(!*state))
+        }
+
+        fn proposed_log_prob<T: Target<bool>>(
+            &self,
+            _: &bool,
+            plan: &bool,
+            target: &T,
+        ) -> Result<f64, Infallible> {
+            Ok(target.log_prob(plan))
+        }
+
+        fn log_q_ratio(&self, _: &bool, _: &bool) -> Result<f64, Infallible> {
+            Ok(f64::INFINITY)
+        }
+
+        fn info(&self, plan: &bool) -> bool {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut bool,
+            plan: bool,
+            _: &mut R,
+        ) -> Result<(), Infallible> {
+            *state = plan;
+            Ok(())
+        }
+    }
+
+    struct NoPlanDelayed;
+    impl DelayedProposal<bool> for NoPlanDelayed {
+        type Plan = bool;
+        type Info = bool;
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _: &bool,
+            _: &mut R,
+        ) -> Result<Option<bool>, Infallible> {
+            Ok(None)
+        }
+
+        fn proposed_log_prob<T: Target<bool>>(
+            &self,
+            _: &bool,
+            plan: &bool,
+            target: &T,
+        ) -> Result<f64, Infallible> {
+            Ok(target.log_prob(plan))
+        }
+
+        fn info(&self, plan: &bool) -> bool {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut bool,
+            plan: bool,
+            _: &mut R,
+        ) -> Result<(), Infallible> {
+            *state = plan;
+            Ok(())
+        }
+    }
+
     struct ReverseFailingDelayed {
         failure: DelayedFailure,
     }
@@ -1675,6 +1845,152 @@ mod tests {
         }
     }
 
+    /// Build a minimal report with a configurable standard error for helper API tests.
+    fn report_with_standard_error(log_balance_standard_error: f64) -> DetailedBalanceReport {
+        DetailedBalanceReport {
+            samples: 128,
+            forward_hits: 64,
+            reverse_hits: 64,
+            forward_log_proposal: 0.0,
+            reverse_log_proposal: 0.0,
+            forward_log_transition: 0.0,
+            reverse_log_transition: 0.0,
+            log_balance_residual: 0.0,
+            log_balance_standard_error,
+        }
+    }
+
+    #[test]
+    fn default_config_and_report_helpers_cover_public_contract() {
+        let config = DetailedBalanceConfig::default();
+        assert_eq!(config.samples, 10_000);
+        assert_eq!(config.tolerance.to_bits(), 0.1_f64.to_bits());
+        assert_eq!(config.min_hits, 30);
+
+        let report = report_with_standard_error(0.0);
+        assert!(report.is_within_tolerance(0.0));
+        assert_eq!(report.z_score(), None);
+
+        let batch = DetailedBalanceBatchReport::<Infallible> {
+            reports: vec![report],
+            failures: Vec::new(),
+        };
+        assert!(batch.is_success());
+    }
+
+    #[test]
+    fn report_rejects_invalid_tolerances() {
+        let report = report_with_standard_error(1.0);
+
+        assert!(!report.is_within_tolerance(f64::NAN));
+        assert!(!report.is_within_tolerance(-1.0));
+        assert!(!report.is_within_tolerance(f64::INFINITY));
+    }
+
+    #[test]
+    fn display_and_source_explain_detailed_balance_errors() {
+        let report = report_with_standard_error(1.0);
+        assert_eq!(DetailedBalanceDirection::Forward.to_string(), "forward");
+        assert_eq!(DetailedBalanceDirection::Reverse.to_string(), "reverse");
+        assert_eq!(DetailedBalanceState::Current.to_string(), "current");
+        assert_eq!(DetailedBalanceState::Proposed.to_string(), "proposed");
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidSamples { samples: 0 }.to_string(),
+            "invalid sample count 0: expected at least 1"
+        );
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidTolerance {
+                tolerance: f64::NAN
+            }
+            .to_string(),
+            "invalid detailed-balance tolerance NaN: expected a finite nonnegative value"
+        );
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidMinHits {
+                min_hits: 2,
+                samples: 1,
+            }
+            .to_string(),
+            "invalid minimum hit count 2: expected 1..=1"
+        );
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidTargetLogProb {
+                state: DetailedBalanceState::Current,
+                log_prob: f64::NAN,
+            }
+            .to_string(),
+            "current target log-probability is NaN: expected finite or -infinity"
+        );
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidLogQRatio {
+                direction: DetailedBalanceDirection::Forward,
+                log_q_ratio: f64::INFINITY,
+            }
+            .to_string(),
+            "forward proposal log q-ratio is inf: expected finite or -infinity"
+        );
+        assert_eq!(
+            DetailedBalanceError::<DelayedFailure>::InvalidLogAcceptanceRatio {
+                direction: DetailedBalanceDirection::Reverse,
+                log_acceptance_ratio: f64::NAN,
+            }
+            .to_string(),
+            "reverse log acceptance ratio is NaN: expected a non-NaN value"
+        );
+        assert_eq!(
+            DetailedBalanceError::InsufficientHits::<DelayedFailure> {
+                direction: DetailedBalanceDirection::Forward,
+                hits: 0,
+                min_hits: 1,
+            }
+            .to_string(),
+            "insufficient forward proposal hits: observed 0, expected at least 1"
+        );
+        assert_eq!(
+            DetailedBalanceError::Violation::<DelayedFailure> {
+                residual: 2.0,
+                tolerance: 1.0,
+                report,
+            }
+            .to_string(),
+            "detailed-balance residual 2 exceeds tolerance 1"
+        );
+
+        let plan_error = DetailedBalanceError::Plan {
+            direction: DetailedBalanceDirection::Forward,
+            source: DelayedFailure::Plan,
+        };
+        assert_eq!(
+            plan_error.to_string(),
+            "forward delayed proposal planning failed: plan failed"
+        );
+        assert_eq!(
+            plan_error.source().map(ToString::to_string),
+            Some(String::from("plan failed"))
+        );
+        assert_eq!(
+            DetailedBalanceError::ProposedLogProb {
+                direction: DetailedBalanceDirection::Forward,
+                source: DelayedFailure::ProposedLogProb,
+            }
+            .to_string(),
+            "forward delayed proposal log-probability evaluation failed: proposed log-probability failed"
+        );
+        assert_eq!(
+            DetailedBalanceError::LogQRatio {
+                direction: DetailedBalanceDirection::Forward,
+                source: DelayedFailure::LogQRatio,
+            }
+            .to_string(),
+            "forward delayed proposal ratio evaluation failed: log q-ratio failed"
+        );
+        assert!(
+            DetailedBalanceError::<DelayedFailure>::InvalidSamples { samples: 0 }
+                .source()
+                .is_none()
+        );
+    }
+
     #[test]
     fn verifies_symmetric_two_state_transition() {
         let mut rng = StdRng::seed_from_u64(42);
@@ -1691,7 +2007,11 @@ mod tests {
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
         assert!(report.is_within_tolerance(1e-12));
-        assert!(report.z_score().is_some_and(|score| score.abs() < 1e-6));
+        if let Some(score) = report.z_score() {
+            assert!(score.abs() < 1e-6);
+        } else {
+            panic!("z_score returned None (standard error == 0.0) for report: {report:?}");
+        }
     }
 
     #[test]
@@ -1857,6 +2177,151 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_target_log_probabilities() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let err =
+            verify_detailed_balance(&true, &false, &NanOnTrue, &Flip, &mut rng, small_config())
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InvalidTargetLogProb {
+                state: DetailedBalanceState::Current,
+                log_prob,
+            } if log_prob.is_nan()
+        ));
+
+        let err =
+            verify_detailed_balance(&false, &true, &NanOnTrue, &Flip, &mut rng, small_config())
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InvalidTargetLogProb {
+                state: DetailedBalanceState::Proposed,
+                log_prob,
+            } if log_prob.is_nan()
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_proposal_log_ratios() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let err = verify_detailed_balance(
+            &false,
+            &true,
+            &TwoStateTarget,
+            &InfiniteLogQ,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InvalidLogQRatio {
+                direction: DetailedBalanceDirection::Forward,
+                log_q_ratio,
+            } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
+        ));
+
+        let err = verify_detailed_balance_mut(
+            &false,
+            &true,
+            &TwoStateTarget,
+            &InfiniteLogQMut,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InvalidLogQRatio {
+                direction: DetailedBalanceDirection::Forward,
+                log_q_ratio,
+            } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
+        ));
+
+        let mut proposal = InfiniteLogQDelayed;
+        let err = verify_detailed_balance_delayed(
+            &false,
+            &true,
+            &TwoStateTarget,
+            &mut proposal,
+            &mut rng,
+            small_config(),
+            (|plan| *plan, |plan| !*plan),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InvalidLogQRatio {
+                direction: DetailedBalanceDirection::Forward,
+                log_q_ratio,
+            } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
+        ));
+    }
+
+    #[test]
+    fn accepts_balanced_zero_flow_with_infinite_uncertainty() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let report = verify_detailed_balance(
+            &false,
+            &true,
+            &OneImpossibleEndpoint,
+            &Flip,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap();
+
+        assert_eq!(report.forward_hits, 128);
+        assert_eq!(report.reverse_hits, 128);
+        assert!(report.log_balance_residual.abs() < f64::EPSILON);
+        assert!(report.log_balance_standard_error.is_infinite());
+        assert_eq!(report.z_score(), None);
+    }
+
+    #[test]
+    fn none_proposals_report_insufficient_hits() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let err = verify_detailed_balance_mut(
+            &false,
+            &true,
+            &TwoStateTarget,
+            &NoMoveMut,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InsufficientHits {
+                direction: DetailedBalanceDirection::Forward,
+                hits: 0,
+                min_hits: 1,
+            }
+        ));
+
+        let mut proposal = NoPlanDelayed;
+        let err = verify_detailed_balance_delayed(
+            &false,
+            &true,
+            &TwoStateTarget,
+            &mut proposal,
+            &mut rng,
+            small_config(),
+            (|plan| *plan, |plan| !*plan),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DetailedBalanceError::InsufficientHits {
+                direction: DetailedBalanceDirection::Forward,
+                hits: 0,
+                min_hits: 1,
+            }
+        ));
+    }
+
+    #[test]
     fn delayed_reports_reverse_plan_errors() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = ReverseFailingDelayed {
@@ -1999,6 +2464,26 @@ mod tests {
     }
 
     #[test]
+    fn mutable_batch_reports_all_failures() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let pairs = [(false, true), (true, false)];
+        let batch = verify_detailed_balance_mut_many(
+            pairs.iter().map(|(current, proposed)| (current, proposed)),
+            &TwoStateTarget,
+            &BadLogQMut,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap();
+
+        assert!(!batch.is_success());
+        assert_eq!(batch.reports.len(), 0);
+        assert_eq!(batch.failures.len(), 2);
+        assert_eq!(batch.failures[0].index, 0);
+        assert_eq!(batch.failures[1].index, 1);
+    }
+
+    #[test]
     fn delayed_batch_reports_successes() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedFlip;
@@ -2022,6 +2507,42 @@ mod tests {
 
         assert!(batch.is_success());
         assert_eq!(batch.reports.len(), 1);
+    }
+
+    #[test]
+    fn delayed_batch_reports_failures() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = FailingDelayed {
+            failure: DelayedFailure::Plan,
+        };
+        let forward = |plan: &bool| *plan;
+        let reverse = |plan: &bool| !*plan;
+        let transitions = [DetailedBalanceDelayedTransition {
+            current: &false,
+            proposed: &true,
+            forward_plan_matches: &forward,
+            reverse_plan_matches: &reverse,
+        }];
+        let batch = verify_detailed_balance_delayed_many(
+            transitions,
+            &TwoStateTarget,
+            &mut proposal,
+            &mut rng,
+            small_config(),
+        )
+        .unwrap();
+
+        assert!(!batch.is_success());
+        assert_eq!(batch.reports.len(), 0);
+        assert_eq!(batch.failures.len(), 1);
+        assert_eq!(batch.failures[0].index, 0);
+        assert!(matches!(
+            batch.failures[0].error,
+            DetailedBalanceError::Plan {
+                direction: DetailedBalanceDirection::Forward,
+                source: DelayedFailure::Plan,
+            }
+        ));
     }
 
     #[test]
