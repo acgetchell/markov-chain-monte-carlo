@@ -28,6 +28,15 @@ _ensure-cargo-llvm-cov:
         exit 1
     fi
 
+_ensure-cargo-rdme:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! cargo rdme --version >/dev/null 2>&1; then
+        echo "❌ 'cargo-rdme' not found. Install with:"
+        echo "   cargo install --locked cargo-rdme"
+        exit 1
+    fi
+
 _ensure-dprint:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -104,7 +113,7 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     uv run postprocess-changelog
 
 # Non-mutating validation gate
-check: fmt-check clippy python-check yaml-lint action-lint toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check: fmt-check clippy python-check yaml-lint action-lint toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test docs-readme-check
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
@@ -150,6 +159,14 @@ default:
 doc:
     cargo doc --no-deps --document-private-items
 
+# Regenerate README.md API section from src/lib.rs //! (mutating).
+docs-readme: _ensure-cargo-rdme
+    cargo rdme --force
+
+# Verify README.md API section matches src/lib.rs //! (non-mutating).
+docs-readme-check: _ensure-cargo-rdme
+    cargo rdme --check
+
 # Examples
 examples:
     cargo run --quiet --example detailed_balance
@@ -158,7 +175,7 @@ examples:
     cargo run --quiet --example iterator_sampling
 
 # Fix (mutating): apply formatters
-fix: fmt markdown-fix python-fix toml-fmt
+fix: fmt markdown-fix python-fix toml-fmt docs-readme
     @echo "✅ Fixes applied!"
 
 # Rust formatting
@@ -184,7 +201,7 @@ help-workflows:
     @echo "  just lint           # All linting (code + docs + config)"
     @echo "  just lint-code      # Rust + Python + Semgrep checks"
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions"
-    @echo "  just lint-docs      # Markdown format check + spell check"
+    @echo "  just lint-docs      # Markdown, spell, and README drift checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
     @echo ""
     @echo "Testing:"
@@ -203,7 +220,7 @@ lint-code: fmt-check clippy python-check semgrep semgrep-test
 
 lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint
 
-lint-docs: markdown-check spell-check
+lint-docs: markdown-check spell-check docs-readme-check
 
 markdown-check: _ensure-dprint
     dprint check
@@ -358,6 +375,9 @@ setup-tools:
     if ! have cargo-llvm-cov; then
         cargo install --locked cargo-llvm-cov --version {{cargo_llvm_cov_version}}
     fi
+    if ! cargo rdme --version >/dev/null 2>&1; then
+        cargo install --locked cargo-rdme
+    fi
     if ! have dprint; then
         cargo install --locked dprint
     fi
@@ -389,6 +409,12 @@ setup-tools:
             missing=1
         fi
     done
+    if cargo rdme --version >/dev/null 2>&1; then
+        echo "  ✓ cargo-rdme"
+    else
+        echo "  ✗ cargo-rdme"
+        missing=1
+    fi
 
     if [ "$missing" -ne 0 ]; then
         echo ""

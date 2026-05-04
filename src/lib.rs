@@ -3,14 +3,91 @@
 //! 🚧 **Pre-release (0.x)** — This crate is under active development and
 //! not yet ready for production use. APIs may change without notice.
 //!
-//! This crate aims to provide a composable, zero-cost abstraction for MCMC
-//! methods over arbitrary state spaces, including discrete and combinatorial
-//! systems (e.g., triangulations).
+//! `markov-chain-monte-carlo` provides a small, explicit Metropolis-Hastings
+//! toolkit for scientific Rust projects. It is designed for ordinary numeric
+//! states, large combinatorial state spaces, and proposal implementations that
+//! need rollback-safe mutation or delayed commits.  The crate aims to provide
+//! a composable, zero-cost abstraction for MCMC methods over arbitrary state
+//! spaces, including discrete and combinatorial systems (e.g., triangulations).
+//!
+//! Use this crate when you want:
+//!
+//! - A generic Metropolis-Hastings chain over user-defined state spaces
+//! - By-value, in-place, and delayed-commit proposal APIs
+//! - Log-space acceptance calculations with NaN/+infinity checks
+//! - Observable measurement APIs for collecting derived quantities
+//! - Streaming means, variances, and binning error estimates
+//! - Thinning helpers for long sampler runs
+//! - Optional `serde` checkpointing for chains and sampler handles
+//! - Detailed-balance diagnostics for proposal development
 //!
 //! [`Target::log_prob`] should return an unnormalized natural log-probability
 //! or log-density.  Additive constants are fine because Metropolis-Hastings
 //! only uses differences, but arbitrary scores or logits will sample a
 //! different distribution.
+//!
+//! # Features
+//!
+//! - `Target<S>` for unnormalized log probabilities or log densities
+//! - `Proposal<S>` for simple by-value proposals
+//! - `ProposalMut<S>` for in-place mutation with rollback tokens
+//! - `DelayedProposal<S>` for accept-before-mutation workflows with concrete
+//!   plans
+//! - `Chain<S>` with by-value, in-place, and delayed step methods
+//! - `Sampler<S, T, P, R>` for ergonomic bulk runs and iterator-based sampling
+//! - Observables, fallible observations, and sample buffers
+//! - Online statistics and binning analysis for correlated samples
+//! - Thinned run and observation helpers
+//! - Optional `serde` feature for checkpointing
+//! - Detailed-balance checks for by-value, in-place, and delayed proposals
+//!
+//! # Scientific basis and scope
+//!
+//! This crate implements Metropolis-Hastings sampling for user-defined state
+//! spaces.  The transition rule uses target log-probability differences and
+//! proposal probability ratios:
+//!
+//! ```text
+//! alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
+//! ```
+//!
+//! The library is built around the standard MCMC contract:
+//!
+//! - `Target<S>` returns an unnormalized natural log probability, log
+//!   density, or negative action.
+//! - Proposal implementations must describe the same concrete transition in
+//!   both the generated move and `log_q_ratio`.
+//! - Detailed balance, or a valid Metropolis-Hastings correction, is a
+//!   property of the user-provided target+proposal pair.
+//! - Irreducibility, aperiodicity, burn-in, autocorrelation, and convergence
+//!   are domain-specific analysis questions.
+//!
+//! What the crate provides:
+//!
+//! - Log-space acceptance calculations to avoid underflow in tail
+//!   probabilities.
+//! - Explicit rejection of `NaN` and positive-infinite log probabilities or
+//!   proposal ratios.
+//! - Rollback-safe in-place proposals for large states where cloning is
+//!   expensive.
+//! - Delayed-commit proposals for workflows that need to score a concrete
+//!   move before mutating state.
+//! - Empirical detailed-balance checks for representative discrete
+//!   transitions.
+//! - Streaming statistics and binning analysis for correlated-sample
+//!   uncertainty estimates.
+//!
+//! What the crate does not prove:
+//!
+//! - That a proposal is ergodic on a domain-specific state space.
+//! - That a chain has mixed enough for a given scientific observable.
+//! - That a triangulation, graph, or other combinatorial state satisfies
+//!   external validity constraints.
+//! - That a chosen model is scientifically appropriate for a downstream
+//!   study.
+//!
+//! For a fuller discussion, see
+//! [docs/scientific_basis.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md).
 //!
 //! # Numerical semantics
 //!

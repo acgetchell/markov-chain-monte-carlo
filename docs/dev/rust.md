@@ -16,6 +16,7 @@ just test-all         # Lib + doc + integration + Python tooling tests
 just bench-compile    # Compile Criterion benchmarks without measuring
 just bench            # Criterion benchmarks
 just examples         # Run all examples
+just docs-readme      # Regenerate README API section from src/lib.rs //!
 ```
 
 ## Validation
@@ -24,15 +25,16 @@ just examples         # Run all examples
 
 - `just fmt-check` - Rust formatting check
 - `just clippy` - Clippy with `pedantic`, `nursery`, and `cargo` warnings
+- `just python-check` - Ruff formatting/linting and Ty type checking for Python tooling
 - `just yaml-lint` - YAML validation through `yamllint`
 - `just action-lint` - GitHub Actions validation through `actionlint`
 - `just toml-fmt-check` - TOML formatting check through Taplo
 - `just toml-lint` - TOML validation through Taplo
 - `just markdown-check` - Markdown formatting check through dprint
 - `just spell-check` - Spellcheck through `typos`
-- `just python-check` - Ruff formatting/linting and Ty type checking for Python tooling
 - `just semgrep` - Repository-owned Rust and Python policy rules
 - `just semgrep-test` - Tests for the repository-owned Semgrep rules
+- `just docs-readme-check` - README API-guide drift check through `cargo-rdme`
 
 For cross-repo muscle memory, the same checks are also available through grouped lint aliases:
 
@@ -49,6 +51,7 @@ Run `just setup` or `just setup-tools` to install and verify external tools:
 
 - `actionlint`
 - `cargo-llvm-cov`
+- `cargo-rdme`
 - `dprint`
 - `git-cliff`
 - `jq`
@@ -137,4 +140,4 @@ Keep these checks focused. Avoid broad community rule packs unless they prove lo
 
 ## Publishing
 
-Before publishing, prefer updating documentation first. Doc-only changes still require a version bump on crates.io.
+Before publishing, prefer updating documentation first. Doc-only changes still require a version bump on crates.io. Release version updates should keep `Cargo.toml`, `Cargo.lock`, `CITATION.cff`, `pyproject.toml`, and `uv.lock` in sync.

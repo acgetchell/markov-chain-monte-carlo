@@ -33,7 +33,7 @@ Small release-critical fixes are acceptable if they are discovered during valida
 git checkout -b release/$TAG
 ```
 
-### 2. Bump the Cargo version
+### 2. Bump package and citation versions
 
 Preferred, if `cargo-edit` is installed:
 
@@ -43,10 +43,16 @@ cargo set-version "$VERSION"
 
 Alternatively, edit `Cargo.toml` manually and update the package `version`.
 
-Then refresh the lockfile/build metadata:
+Also update release metadata that duplicates the package version:
+
+- `CITATION.cff` `version`
+- `pyproject.toml` project `version`
+
+Then refresh lockfiles/build metadata:
 
 ```bash
 cargo check
+uv sync --group dev
 ```
 
 ### 3. Generate the changelog
@@ -57,7 +63,7 @@ Generate a release section from commits since the previous tag:
 just changelog-unreleased "$TAG"
 ```
 
-Review `CHANGELOG.md` and lightly edit the generated section if needed for clarity. Keep the Keep a Changelog headings intact.
+Review `CHANGELOG.md` for accuracy. Do not hand-edit generated changelog content; if a release note is wrong, fix the source commit message, `cliff.toml`, or the changelog post-processing helper, then regenerate.
 
 The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not recoverable from local git history.
 
@@ -66,10 +72,18 @@ For a patch release, keep the notes focused on fixes, dependency updates, toolin
 Review version references:
 
 ```bash
-rg -n '\bv?[0-9]+\.[0-9]+\.[0-9]+\b' README.md docs/ Cargo.toml CHANGELOG.md
+git grep -nE '\bv?[0-9]+\.[0-9]+\.[0-9]+\b' -- README.md docs/ Cargo.toml Cargo.lock CITATION.cff pyproject.toml uv.lock CHANGELOG.md
 ```
 
-### 4. Validate locally
+### 4. Regenerate the README API guide
+
+The README API guide is generated from `src/lib.rs` `//!` by `cargo-rdme`. Regenerate it before validation so the marker region and docs.rs landing page source stay in sync:
+
+```bash
+just docs-readme
+```
+
+### 5. Validate locally
 
 Run the normal release validation gates:
 
@@ -79,9 +93,9 @@ just ci
 just publish-check
 ```
 
-`just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
+`just fix` reruns formatters and README generation. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, Semgrep checks, and `cargo rdme --check`. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
 
-### 5. Commit, push, and open the PR
+### 6. Commit, push, and open the PR
 
 Review the diff carefully:
 
@@ -128,9 +142,10 @@ cargo publish --locked
 
 - Do not tag or publish until the release PR has merged.
 - Keep release PRs small: version, changelog, docs, and release-critical fixes.
-- `just changelog` regenerates the full changelog from local git history.
+- `just changelog` regenerates the full changelog from local git history; do not hand-edit generated changelog content.
 - `just changelog-unreleased <tag>` prepends only the unreleased section for a release PR.
 - `cliff.toml` skips release-prep commits, filters CI/action dependency churn, and keeps Rust-library dependency bumps concise.
 - `just tag <tag>` creates the annotated release tag from the matching `CHANGELOG.md` section.
+- `just docs-readme` regenerates the README API guide from `src/lib.rs` `//!`; `just check` and `just ci` verify it with `cargo rdme --check`.
 - Run `just ci` before handing off a release PR.
 - Run `just publish-check` before publishing.

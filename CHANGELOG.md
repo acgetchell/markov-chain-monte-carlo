@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Document chain checkpointing as the portable resume path
   - Add serde-gated tests for checkpoint roundtrip, resumed sampling, sampler serialization, and non-serializable state construction
   - Mark serde checkpointing as complete in the README
+- Add detailed-balance proposal diagnostics [#43](https://github.com/acgetchell/markov-chain-monte-carlo/pull/43) [`cefc035`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/cefc0356ed29f6a273271230f6b59ffbd5f0886c)
+
+  - Add detailed-balance verification APIs for by-value, in-place, delayed, and batch proposal checks.
+  - Add typed reports and errors, scoped testing prelude exports, public doctests, and a runnable detailed_balance example.
+  - Document proposal validation, scientific basis, roadmap, and refreshed README usage guidance.
+  - Add Semgrep guardrails and fixtures to keep examples, benches, and doctests on typed errors.
+  - Improve git-cliff and agent commit guidance, then regenerate CHANGELOG.md.
+  - Bump serde_json dev-dependency to 1.0.149.
 
 ### Fixed
 
