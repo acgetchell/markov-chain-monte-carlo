@@ -28,7 +28,7 @@ When generating commit messages:
 2. Use conventional commits: `<type>: <summary>`
 3. Valid types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `style`, `ci`, `build`
 4. Include bullet-point body describing key changes
-5. Include test results
+5. Do not include test commands, validation results, or `Tests:` sections unless the user explicitly asks for them
 6. Present inside a code block so the user can commit manually
 
 #### Changelog-Aware Body Text
@@ -39,9 +39,9 @@ Commit subjects and bodies feed `CHANGELOG.md` through `git-cliff`. Write them a
 - The type determines the changelog section (`feat` -> Added, `fix` -> Fixed, `refactor`/`test`/`style` -> Changed, `perf` -> Performance, `docs` -> Documentation, `build`/`chore`/`ci` -> Maintenance).
 - Include PR references as `(#N)` in the subject when known; `git-cliff` auto-links them.
 - Body text appears as indented supporting detail under the changelog bullet.
-- Avoid Markdown headings `#` through `###` in the body because they conflict with changelog release and section headings. Use plain labels such as `Tests:` instead.
+- Avoid Markdown headings `#` through `###` in the body because they conflict with changelog release and section headings. Use plain labels such as `Refs:` or `Migration:` instead.
 - Keep body text as plain prose or simple bullet lists. Avoid deep nesting.
-- Include only release-note-worthy implementation details; avoid dumping internal command output.
+- Include only release-note-worthy implementation details; avoid dumping internal command output or validation summaries.
 
 #### Breaking Changes
 

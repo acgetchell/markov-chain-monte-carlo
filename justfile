@@ -201,7 +201,7 @@ help-workflows:
     @echo "  just lint           # All linting (code + docs + config)"
     @echo "  just lint-code      # Rust + Python + Semgrep checks"
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions"
-    @echo "  just lint-docs      # Markdown format check + spell check"
+    @echo "  just lint-docs      # Markdown, spell, and README drift checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
     @echo ""
     @echo "Testing:"
@@ -220,7 +220,7 @@ lint-code: fmt-check clippy python-check semgrep semgrep-test
 
 lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint
 
-lint-docs: markdown-check spell-check
+lint-docs: markdown-check spell-check docs-readme-check
 
 markdown-check: _ensure-dprint
     dprint check

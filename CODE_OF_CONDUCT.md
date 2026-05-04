@@ -85,8 +85,10 @@ Unacceptable behavior includes:
 If you experience or witness behavior that doesn't align with these principles, you have several options:
 
 1. **Address it directly** (if you feel comfortable) - Sometimes a gentle, respectful conversation can resolve misunderstandings
-2. **Contact the [maintainer][maintainer]** - Reach out privately to discuss the situation
+2. **Contact the maintainer privately via the [private reporting form][private-report]** - Use this channel for non-public conduct concerns
 3. **Open a GitHub issue** - For public discussions about community behavior or policy
+
+Reports sent through the private reporting form will be treated confidentially and will not be posted publicly.
 
 ### What to Expect
 
@@ -139,7 +141,7 @@ These principles are adapted from the [UC Davis Principles of Community][uc-davi
 ---
 
 [mcmc-lib]: https://github.com/acgetchell/markov-chain-monte-carlo
-[maintainer]: https://github.com/acgetchell
+[private-report]: https://github.com/acgetchell/markov-chain-monte-carlo/security/advisories/new
 [uc-davis-principles]: https://principles.ucdavis.edu/
 
 Last updated: May 2026

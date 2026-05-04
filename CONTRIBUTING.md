@@ -208,7 +208,7 @@ The crate forbids `unsafe_code` and warns on `missing_docs`; broken intra-doc li
 ### API Style
 
 - **Prefer borrowed APIs by default.** Take references (`&T`, `&mut T`, `&[T]`) and return borrowed views when possible. Take ownership or return `Vec` only when required.
-- **Log-space numerics.** Targets and proposal ratios cross the API boundary as `f64` log weights. `NaN` and `+∞` are explicit error conditions ([`McmcError`]); `-∞` is a legal "impossible state" marker.
+- **Log-space numerics.** Targets and proposal ratios cross the API boundary as `f64` log weights. `NaN` and `+∞` are explicit error conditions ([`McmcError`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/enum.McmcError.html)); `-∞` is a legal "impossible state" marker.
 - **Rollback safety.** `ProposalMut::propose_mut` must pair with `undo` so that a rejected mutation leaves state observably unchanged. `DelayedProposal::commit` errors are reserved for genuinely exceptional failures applying an already-accepted concrete move.
 - **Detailed balance.** New proposal kinds should ship with a `verify_detailed_balance*` test for representative discrete transitions.
 
@@ -368,7 +368,6 @@ Optional body explaining the change in plain prose.
 - specific change
 - another specific change
 
-Tests: short note about test impact, if relevant
 Refs: #123
 ```
 
@@ -383,7 +382,9 @@ Valid `<type>` values:
 
 Breaking changes use bang notation (`feat!: remove deprecated API`) or a `BREAKING CHANGE:` footer trailer so `git-cliff` detects them.
 
-Avoid Markdown headings (`#` through `###`) in the body — they conflict with changelog section headings. Use plain labels like `Tests:` instead.
+Avoid Markdown headings (`#` through `###`) in the body — they conflict with changelog section headings. Use plain labels like `Refs:` or `Migration:` instead.
+
+Do not include test commands, validation results, or `Tests:` sections in commit messages unless explicitly requested. Put validation summaries in PR descriptions or review notes instead.
 
 ### Pull Request Checklist
 

@@ -1588,23 +1588,19 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         thin_interval: usize,
         observable: &mut O,
     ) -> TryThinnedObservedRunResult<O::Output, McmcError, O::Error> {
-        let mut samples = SampleBuffer::with_capacity(thinned_capacity::<
-            ObservedStepError<McmcError, O::Error>,
-        >(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step_mut()
-                .map_err(ObservedStepError::Step)
-                .map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(
-                    observable
-                        .try_observe(self.chain.state())
-                        .map_err(ObservedStepError::Observation)
-                        .map_err(ThinningError::Run)?,
-                );
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| {
+                sampler.step_mut().map_err(ObservedStepError::Step)?;
+                Ok(())
+            },
+            |sampler| {
+                observable
+                    .try_observe(sampler.chain.state())
+                    .map_err(ObservedStepError::Observation)
+            },
+        )
     }
 
     /// Run in-place steps and stream fallible observations into an accumulator.
@@ -3032,6 +3028,8 @@ mod tests {
         };
         let mut stats = OnlineStats::new();
 
+        // Interval 1 would emit every successful step; NanLogQProposal fails
+        // the first step, proving the step error is reported before emission.
         let result = sampler.run_observing_into_with_thinning(5, 1, &mut coordinate, &mut stats);
 
         assert!(matches!(
