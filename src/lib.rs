@@ -44,6 +44,22 @@
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
 //!
+//! # Proposal validation
+//!
+//! The [`verify_detailed_balance`] family of helpers gives proposal authors a
+//! test-facing diagnostic for representative discrete transitions.  Use
+//! [`verify_detailed_balance`] for by-value [`Proposal`] implementations,
+//! [`verify_detailed_balance_mut`] for rollback-based [`ProposalMut`]
+//! implementations, and [`verify_detailed_balance_delayed`] for
+//! [`DelayedProposal`] plans.  The companion batch helpers collect all
+//! per-transition failures in a [`DetailedBalanceBatchReport`], which is useful
+//! when checking a small graph, move table, or list of local states.
+//!
+//! These helpers are empirical diagnostics for exact endpoint hits, not a proof
+//! of ergodicity or convergence.  They are intended for tests, examples, and
+//! proposal-development checks over discrete or otherwise exactly comparable
+//! states.
+//!
 //! Enable the optional `serde` feature to serialize and deserialize
 //! [`Chain<S>`] when `S` implements serde's traits.  [`Sampler`] also derives
 //! serialization when all stored handles support it, but the portable
@@ -59,12 +75,14 @@
 //!     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
 //! }
 //!
-//! let chain = Chain::new(1.0, &Normal)?;
+//! let Ok(chain) = Chain::new(1.0, &Normal) else {
+//!     unreachable!("normal target returns a finite log probability");
+//! };
 //! let checkpoint = serde_json::to_string(&chain)?;
 //! let restored: Chain<f64> = serde_json::from_str(&checkpoint)?;
 //! assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
 //! # }
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # Ok::<(), serde_json::Error>(())
 //! ```
 //!
 //! # Example
@@ -321,6 +339,7 @@
 //! `Sampler` can also stream observations directly into these accumulators:
 //!
 //! ```
+//! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::by_value::*;
 //! use rand::{Rng, SeedableRng, rngs::StdRng};
 //!
@@ -333,14 +352,14 @@
 //! #     }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let chain = Chain::new(0.0, &T)?;
+//! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
 //! let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
 //! let mut coordinate = |state: &f64| *state;
 //! let mut stats = OnlineStats::new();
 //!
 //! sampler.run_observing_into(4, &mut coordinate, &mut stats)?;
 //! assert_eq!(stats.count(), 4);
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
 //! ```
 
 mod chain;
@@ -348,6 +367,7 @@ mod error;
 mod observable;
 mod sampler;
 mod statistics;
+mod testing;
 mod traits;
 
 pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
@@ -365,6 +385,13 @@ pub use sampler::{
     TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
+pub use testing::{
+    DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
+    DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
+    DetailedBalanceState, verify_detailed_balance, verify_detailed_balance_delayed,
+    verify_detailed_balance_delayed_many, verify_detailed_balance_many,
+    verify_detailed_balance_mut, verify_detailed_balance_mut_many,
+};
 pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 
 /// Convenience re-exports for common usage.
@@ -394,6 +421,7 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// use markov_chain_monte_carlo::prelude::by_value::Proposal;
 /// use markov_chain_monte_carlo::prelude::delayed as delayed_prelude;
 /// use markov_chain_monte_carlo::prelude::in_place as in_place_prelude;
+/// use markov_chain_monte_carlo::prelude::testing as testing_prelude;
 ///
 /// fn needs_by_value<T: Target<f64>, P: Proposal<f64>>(_: &T, _: &P) {}
 /// fn accepts_chain(_: &Chain<f64>) {}
@@ -406,6 +434,8 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 ///     T: delayed_prelude::Target<f64>,
 ///     P: delayed_prelude::DelayedProposal<f64>,
 /// >(_: &T, _: &P) {}
+/// fn needs_testing<T: testing_prelude::Target<f64>>(_: &T) {}
+/// let _: Option<testing_prelude::DetailedBalanceConfig> = None;
 /// ```
 pub mod prelude {
     pub use crate::{
@@ -461,6 +491,24 @@ pub mod prelude {
             TryThinnedObservedRunResult,
         };
     }
+
+    /// Prelude for proposal validation and detailed-balance diagnostics.
+    ///
+    /// This imports the target and proposal traits plus the public
+    /// [`crate::verify_detailed_balance`] helpers, without importing sampler
+    /// execution types.  Use this prelude in tests, examples, and benchmarks
+    /// that validate proposal kernels with [`crate::DetailedBalanceConfig`] and
+    /// inspect [`crate::DetailedBalanceReport`] values.
+    pub mod testing {
+        pub use crate::{
+            DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
+            DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
+            DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, Proposal,
+            ProposalMut, Target, verify_detailed_balance, verify_detailed_balance_delayed,
+            verify_detailed_balance_delayed_many, verify_detailed_balance_many,
+            verify_detailed_balance_mut, verify_detailed_balance_mut_many,
+        };
+    }
 }
 
 #[cfg(test)]
@@ -472,10 +520,12 @@ mod public_api_smoke_tests {
     use serde_json::{Error as JsonError, json, to_value};
 
     use super::{
-        BinningAnalysis, BinningEstimate, Chain, DelayedStep, McmcError, Observable,
-        ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
-        StatisticsError, Step, Target, ThinningError,
-        prelude::{self, by_value, delayed, in_place},
+        BinningAnalysis, BinningEstimate, Chain, DelayedStep, DetailedBalanceBatchReport,
+        DetailedBalanceConfig, DetailedBalanceDelayedTransition, DetailedBalanceDirection,
+        DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
+        McmcError, Observable, ObservedDelayedStep, OnlineStats, Proposal, ProposalMut,
+        SampleBuffer, Sampler, StatisticsError, Step, Target, ThinningError,
+        prelude::{self, by_value, delayed, in_place, testing},
     };
 
     #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -543,12 +593,16 @@ mod public_api_smoke_tests {
         fn needs_by_value<P: by_value::Proposal<f64>>() {}
         fn needs_in_place<P: in_place::ProposalMut<f64>>() {}
         fn needs_delayed<P: delayed::DelayedProposal<f64>>() {}
+        fn needs_testing_target<T: testing::Target<f64>>() {}
+        fn needs_testing_proposal<P: testing::Proposal<f64>>() {}
         fn needs_observable<O: Observable<f64, Output = f64>>(_: &mut O) {}
 
         needs_target::<Smoke>();
         needs_by_value::<Smoke>();
         needs_in_place::<Smoke>();
         needs_delayed::<Smoke>();
+        needs_testing_target::<Smoke>();
+        needs_testing_proposal::<Smoke>();
 
         let mut observable = |state: &f64| *state;
         needs_observable(&mut observable);
@@ -565,6 +619,14 @@ mod public_api_smoke_tests {
         let _: Option<BinningEstimate> = None;
         let _: Option<OnlineStats> = None;
         let _: Option<StatisticsError> = None;
+        let _: Option<DetailedBalanceConfig> = None;
+        let _: Option<DetailedBalanceDirection> = None;
+        let _: Option<DetailedBalanceError> = None;
+        let _: Option<DetailedBalanceFailure> = None;
+        let _: Option<DetailedBalanceDelayedTransition<'_, f64, ()>> = None;
+        let _: Option<DetailedBalanceBatchReport> = None;
+        let _: Option<DetailedBalanceReport> = None;
+        let _: Option<DetailedBalanceState> = None;
         let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
         let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
         let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
@@ -572,6 +634,9 @@ mod public_api_smoke_tests {
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
+        let _: Option<testing::DetailedBalanceConfig> = None;
+        let _: Option<testing::DetailedBalanceError> = None;
+        let _: Option<testing::DetailedBalanceReport> = None;
         let _: Option<
             prelude::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
         > = None;

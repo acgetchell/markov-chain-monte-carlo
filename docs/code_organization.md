@@ -24,8 +24,12 @@ markov-chain-monte-carlo/
 │   ├── dev/
 │   │   └── rust.md
 │   ├── code_organization.md
-│   └── RELEASING.md
+│   ├── proposal_validation.md
+│   ├── RELEASING.md
+│   ├── roadmap.md
+│   └── scientific_basis.md
 ├── examples/
+│   ├── detailed_balance.rs
 │   ├── ising_1d.rs
 │   ├── iterator_sampling.rs
 │   └── normal_1d.rs
@@ -41,6 +45,8 @@ markov-chain-monte-carlo/
 │   ├── lib.rs
 │   ├── observable.rs
 │   ├── sampler.rs
+│   ├── statistics.rs
+│   ├── testing.rs
 │   └── traits.rs
 ├── tests/
 │   ├── proptest_chain.rs
@@ -128,10 +134,27 @@ This module owns:
 
 Use `Sampler` for workflow ergonomics; use `Chain` for the core transition logic.
 
+### `src/statistics.rs`
+
+Defines streaming statistics helpers for post-processing observed samples:
+
+- `OnlineStats` for one-pass means and variances
+- `BinningAnalysis` and `BinningEstimate` for correlated-sample uncertainty estimates
+- `StatisticsError` for invalid inputs and insufficient data
+
+Statistics helpers are ordinary public API, but they should stay independent of chain mutation and proposal mechanics.
+
+### `src/testing.rs`
+
+Contains test-facing validation utilities for proposal development.
+
+Detailed-balance helpers empirically check discrete by-value, in-place, and delayed proposal transitions by sampling forward/reverse moves and comparing estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday sampling imports.
+
 ## Examples
 
 Examples demonstrate complete, runnable sampling workflows:
 
+- `examples/detailed_balance.rs` shows by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` shows a simple by-value random-walk sampler.
 - `examples/ising_1d.rs` shows in-place mutation with rollback.
 - `examples/iterator_sampling.rs` shows the by-value `Sampler` iterator API.

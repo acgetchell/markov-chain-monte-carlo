@@ -9,38 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- add DelayedProposal for accept-before-mutation workflows
-- add Step/DelayedStep telemetry and orthogonal DelayedStepError variants
-- implement Chain::step_delayed with no-plan, rejection, acceptance, and commit-failure handling
-- extend Sampler with delayed stepping and generic proposal-handle storage
-- add focused by-value, in-place, and delayed prelude modules
-- update doctests, examples, README snippets, and property-test imports
-- add tests for delayed acceptance, rejection, no-plan, invalid numerics, proposal-stage errors, commit atomicity, and run_delayed error stopping
-- add Observable and TryObservable traits for infallible and fallible measurements
-- add ObservedStepError to keep sampling and observation failures orthogonal
-- add SampleBuffer for collected observation outputs
-- integrate observing APIs across by-value, in-place, and delayed Sampler paths
-- expose minimal workflow preludes for by-value, in-place, and delayed usage
-- add doctests, unit tests, and documentation for the new measurement APIs
-- simplify bounds, imports, and test names across touched code
-- Add OnlineStats and BinningAnalysis for streaming mean, variance, standard error, and blocked autocorrelation-aware estimates
-- Add StatisticsError variants for invalid samples and non-finite accumulator state
-- Add TryAccumulator and ObservedStreamError for streaming observations into fallible sinks
-- Add sampler APIs for streaming by-value, in-place, and delayed observations into accumulators
-- Export new statistics and streaming types through minimal workflow preludes
-- Document usage in README and doctests
-- Ignore local .codex workspace metadata
+- Add delayed-commit proposal API [#36](https://github.com/acgetchell/markov-chain-monte-carlo/pull/36) [`65445f4`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/65445f4e48143a47a217f573bc82c37421092a3d)
+
+  - add DelayedProposal for accept-before-mutation workflows
+  - add Step/DelayedStep telemetry and orthogonal DelayedStepError variants
+  - implement Chain::step_delayed with no-plan, rejection, acceptance, and commit-failure handling
+  - extend Sampler with delayed stepping and generic proposal-handle storage
+  - add focused by-value, in-place, and delayed prelude modules
+  - update doctests, examples, README snippets, and property-test imports
+  - add tests for delayed acceptance, rejection, no-plan, invalid numerics, proposal-stage errors, commit atomicity, and run_delayed error stopping
+- Add observable measurement framework [#37](https://github.com/acgetchell/markov-chain-monte-carlo/pull/37) [`82cbaf5`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/82cbaf58a71e1355e370eee43450d22f8c02df91)
+
+  - add Observable and TryObservable traits for infallible and fallible measurements
+  - add ObservedStepError to keep sampling and observation failures orthogonal
+  - add SampleBuffer for collected observation outputs
+  - integrate observing APIs across by-value, in-place, and delayed Sampler paths
+  - expose minimal workflow preludes for by-value, in-place, and delayed usage
+  - add doctests, unit tests, and documentation for the new measurement APIs
+  - simplify bounds, imports, and test names across touched code
+- Add streaming statistics and error bars [#38](https://github.com/acgetchell/markov-chain-monte-carlo/pull/38) [`4575047`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/457504708de375dc23ea86de56505c2cdf67419d)
+
+  - Add OnlineStats and BinningAnalysis for streaming mean, variance, standard error, and blocked autocorrelation-aware estimates
+  - Add StatisticsError variants for invalid samples and non-finite accumulator state
+  - Add TryAccumulator and ObservedStreamError for streaming observations into fallible sinks
+  - Add sampler APIs for streaming by-value, in-place, and delayed observations into accumulators
+  - Export new statistics and streaming types through minimal workflow preludes
+  - Document usage in README and doctests
+  - Ignore local .codex workspace metadata
+- Add sampler thinning support [#40](https://github.com/acgetchell/markov-chain-monte-carlo/pull/40) [`c03d07e`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/c03d07e8bec3e9b5e67c22273689971f60fad85a)
+
+  - add typed ThinningError and thinned result aliases
+  - add state-collecting thinning APIs for by-value, in-place, and delayed samplers
+  - add observing, streaming, and fallible thinning variants across sampler workflows
+  - re-export thinning types through the public API and appropriate preludes
+  - document thinning behavior in README and public doctests
+  - cover zero intervals, interval > steps boundaries, and thinned observation behavior
+- Add serde checkpointing support [#41](https://github.com/acgetchell/markov-chain-monte-carlo/pull/41) [`d976bc6`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d976bc67f3373cf2ead697508c127b5ae205d2bc)
+
+  - Add optional `serde` feature and derive serialization for `Chain<S>`
+  - Derive `Serialize` for `Sampler` when stored handles support it
+  - Document chain checkpointing as the portable resume path
+  - Add serde-gated tests for checkpoint roundtrip, resumed sampling, sampler serialization, and non-serializable state construction
+  - Mark serde checkpointing as complete in the README
 
 ### Fixed
 
-- keep Metropolis-Hastings acceptance decisions in log space
-- explicitly reject arithmetic-created NaN acceptance ratios
-- document log_prob semantics and numerical behavior at the crate level
-- strengthen ProposalMut::propose_mut(None) contract
-- remove unnecessary S: Clone bound from by-value Proposal APIs
-- make Sampler chain storage private and expose chain_ref/chain_mut accessors
-- update examples, README, and organization docs for by-value proposal wording
-- add tests for extreme log-domain acceptance, no-move rollback, state-dependent log_q_ratio, and -inf edge cases
+- Harden MCMC acceptance and proposal invariants [#35](https://github.com/acgetchell/markov-chain-monte-carlo/pull/35) [`8ad2703`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/8ad27038dd9c79380ac1d77d35834b481bb51a85)
+
+  - keep Metropolis-Hastings acceptance decisions in log space
+  - explicitly reject arithmetic-created NaN acceptance ratios
+  - document log_prob semantics and numerical behavior at the crate level
+  - strengthen ProposalMut::propose_mut(None) contract
+  - remove unnecessary S: Clone bound from by-value Proposal APIs
+  - make Sampler chain storage private and expose chain_ref/chain_mut accessors
+  - update examples, README, and organization docs for by-value proposal wording
+  - add tests for extreme log-domain acceptance, no-move rollback, state-dependent log_q_ratio, and -inf edge cases
+
+### Maintenance
+
+- Add changelog and Python tooling [#39](https://github.com/acgetchell/markov-chain-monte-carlo/pull/39) [`02deb42`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/02deb4291f2bc89311cdb5c254aa284d81ddc4bb)
+
+  - add git-cliff changelog generation with post-processing and release tag helpers
+  - add Ruff, Ty, Pytest, and dprint configuration for repository tooling
+  - wire Python, Markdown, and Semgrep checks into justfile workflows
+  - add Python Semgrep rules and fixtures for script/test hygiene
+  - update release, tooling, code organization, README, references, and agent docs
+  - regenerate CHANGELOG.md from local git history
 
 ## [0.2.1] - 2026-04-30
 
@@ -50,20 +84,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- Add docs/code_organization.md with the crate layout, module responsibilities, testing structure, and development conventions
-- Add docs/RELEASING.md with the simplified manual release workflow for this crate
-- Link the new developer docs from README.md
-- Record the documentation additions in CHANGELOG.md
+- Add release and code organization guides [`8f0282a`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/8f0282a0b054660856c8f18e9de4768ea7694e1d)
+
+  - Add docs/code_organization.md with the crate layout, module responsibilities, testing structure, and development conventions
+  - Add docs/RELEASING.md with the simplified manual release workflow for this crate
+  - Link the new developer docs from README.md
+  - Record the documentation additions in CHANGELOG.md
 
 ### Maintenance
 
-- Update Rust toolchain/MSRV to 1.95.0
-- Replace tarpaulin coverage with cargo-llvm-cov for local HTML and CI Cobertura reports
-- Add CodeRabbit, CodeQL, Codecov, Codacy/OpenGrep, Taplo, rustfmt, clippy, typos, and Semgrep configuration
-- Add uv-managed Semgrep tooling with pyproject.toml and uv.lock
-- Expand and sort justfile workflows, including lint groups, setup-tools, Semgrep checks, and coverage recipes
-- Add citation/reference metadata and README sections for contributing, citation, references, and AI tooling disclosure
-- Document Rust/tooling workflow in docs/dev/rust.md and update AGENTS.md guidance
+- Upgrade Rust tooling and validation workflows [#32](https://github.com/acgetchell/markov-chain-monte-carlo/pull/32) [`8194a00`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/8194a006e9c81a953549de5caa4194cd34a38dc2)
+
+  - Update Rust toolchain/MSRV to 1.95.0
+  - Replace tarpaulin coverage with cargo-llvm-cov for local HTML and CI Cobertura reports
+  - Add CodeRabbit, CodeQL, Codecov, Codacy/OpenGrep, Taplo, rustfmt, clippy, typos, and Semgrep configuration
+  - Add uv-managed Semgrep tooling with pyproject.toml and uv.lock
+  - Expand and sort justfile workflows, including lint groups, setup-tools, Semgrep checks, and coverage recipes
+  - Add citation/reference metadata and README sections for contributing, citation, references, and AI tooling disclosure
+  - Document Rust/tooling workflow in docs/dev/rust.md and update AGENTS.md guidance
 
 ## [0.2.0] - 2026-04-06
 

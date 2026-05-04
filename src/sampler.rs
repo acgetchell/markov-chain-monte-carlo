@@ -361,6 +361,51 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     pub fn into_chain(self) -> Chain<S> {
         self.chain
     }
+
+    /// Run the shared validate/step/modulo-gate loop for thinned methods.
+    fn run_thinning_core<E>(
+        &mut self,
+        steps: usize,
+        thin_interval: usize,
+        step_once: impl FnMut(&mut Self) -> Result<(), E>,
+        emit: impl FnMut(&Self) -> Result<(), E>,
+    ) -> ThinnedRunResult<(), E> {
+        let _ = thinned_capacity::<E>(steps, thin_interval)?;
+        self.run_thinning_loop(steps, thin_interval, step_once, emit)
+    }
+
+    /// Collect samples from the shared thinning loop into a [`SampleBuffer`].
+    fn collect_with_thinning_core<O, E>(
+        &mut self,
+        steps: usize,
+        thin_interval: usize,
+        step_once: impl FnMut(&mut Self) -> Result<(), E>,
+        mut emit: impl FnMut(&Self) -> Result<O, E>,
+    ) -> ThinnedRunResult<SampleBuffer<O>, E> {
+        let mut samples = SampleBuffer::with_capacity(thinned_capacity::<E>(steps, thin_interval)?);
+        self.run_thinning_loop(steps, thin_interval, step_once, |sampler| {
+            samples.push(emit(sampler)?);
+            Ok(())
+        })?;
+        Ok(samples)
+    }
+
+    /// Execute already-validated thinned stepping.
+    fn run_thinning_loop<E>(
+        &mut self,
+        steps: usize,
+        thin_interval: usize,
+        mut step_once: impl FnMut(&mut Self) -> Result<(), E>,
+        mut emit: impl FnMut(&Self) -> Result<(), E>,
+    ) -> ThinnedRunResult<(), E> {
+        for step in 1..=steps {
+            step_once(self).map_err(ThinningError::Run)?;
+            if step % thin_interval == 0 {
+                emit(self).map_err(ThinningError::Run)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 // --- By-value stepping ---
@@ -458,7 +503,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     ///
     /// let states = sampler.run_with_thinning(5, 2)?;
@@ -466,7 +511,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let err = sampler.run_with_thinning(1, 0).unwrap_err();
     /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
     /// # Errors
@@ -481,15 +526,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     where
         S: Clone,
     {
-        let mut samples =
-            SampleBuffer::with_capacity(thinned_capacity::<McmcError>(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step().map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(self.chain.state().clone());
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(steps, thin_interval, Self::step, |sampler| {
+            Ok(sampler.chain.state().clone())
+        })
     }
 
     /// Perform one by-value step and observe the resulting chain state.
@@ -594,7 +633,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &Flat)?;
+    /// let chain = Chain::new(0, &Flat).map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &i32| *state;
     ///
@@ -605,7 +644,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///     .run_observing_with_thinning(1, 0, &mut coordinate)
     ///     .unwrap_err();
     /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
     /// # Errors
@@ -618,15 +657,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: usize,
         observable: &mut O,
     ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
-        let mut samples =
-            SampleBuffer::with_capacity(thinned_capacity::<McmcError>(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step().map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(observable.observe(self.chain.state()));
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(steps, thin_interval, Self::step, |sampler| {
+            Ok(observable.observe(sampler.chain.state()))
+        })
     }
 
     /// Run by-value steps and stream observations into an accumulator.
@@ -694,6 +727,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// [`run_observing_with_thinning`](Self::run_observing_with_thinning).
     ///
     /// ```
+    /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -709,7 +743,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &Flat)?;
+    /// let chain = Chain::new(0, &Flat)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
@@ -717,7 +753,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// sampler.run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
     /// assert_eq!(sampler.chain_ref().total_steps(), 5);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -735,19 +771,16 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        validate_thin_interval(thin_interval)?;
-        for step in 1..=steps {
-            self.step()
-                .map_err(ObservedStreamError::Step)
-                .map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
+        self.run_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| sampler.step().map_err(ObservedStreamError::Step),
+            |sampler| {
                 accumulator
-                    .try_push(observable.observe(self.chain.state()))
+                    .try_push(observable.observe(sampler.chain.state()))
                     .map_err(ObservedStreamError::Accumulation)
-                    .map_err(ThinningError::Run)?;
-            }
-        }
-        Ok(())
+            },
+        )
     }
 
     /// Perform one by-value step and fallibly observe the resulting state.
@@ -857,13 +890,15 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &Flat)?;
+    /// let chain = Chain::new(0, &Flat)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_observing_with_thinning(5, 2, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStepError<McmcError, Infallible>>>(())
     /// ```
     ///
     /// # Errors
@@ -877,23 +912,16 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: usize,
         observable: &mut O,
     ) -> TryThinnedObservedRunResult<O::Output, McmcError, O::Error> {
-        let mut samples = SampleBuffer::with_capacity(thinned_capacity::<
-            ObservedStepError<McmcError, O::Error>,
-        >(steps, thin_interval)?);
-        for step in 1..=steps {
-            self.step()
-                .map_err(ObservedStepError::Step)
-                .map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                samples.push(
-                    observable
-                        .try_observe(self.chain.state())
-                        .map_err(ObservedStepError::Observation)
-                        .map_err(ThinningError::Run)?,
-                );
-            }
-        }
-        Ok(samples)
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| sampler.step().map_err(ObservedStepError::Step),
+            |sampler| {
+                observable
+                    .try_observe(sampler.chain.state())
+                    .map_err(ObservedStepError::Observation)
+            },
+        )
     }
 
     /// Run by-value steps and stream fallible observations into an accumulator.
@@ -970,14 +998,16 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &Flat)?;
+    /// let chain = Chain::new(0, &Flat)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
     /// sampler.try_run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -995,23 +1025,19 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        validate_thin_interval(thin_interval)?;
-        for step in 1..=steps {
-            self.step()
-                .map_err(ObservedStreamError::Step)
-                .map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
+        self.run_thinning_core(
+            steps,
+            thin_interval,
+            |sampler| sampler.step().map_err(ObservedStreamError::Step),
+            |sampler| {
                 let sample = observable
-                    .try_observe(self.chain.state())
-                    .map_err(ObservedStreamError::Observation)
-                    .map_err(ThinningError::Run)?;
+                    .try_observe(sampler.chain.state())
+                    .map_err(ObservedStreamError::Observation)?;
                 accumulator
                     .try_push(sample)
                     .map_err(ObservedStreamError::Accumulation)
-                    .map_err(ThinningError::Run)?;
-            }
-        }
-        Ok(())
+            },
+        )
     }
 }
 
@@ -1123,7 +1149,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     ///
     /// let states = sampler.run_mut_with_thinning(5, 2)?;
@@ -1131,7 +1157,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let err = sampler.run_mut_with_thinning(1, 0).unwrap_err();
     /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
     /// # Errors
@@ -1267,13 +1293,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
     /// # Errors
@@ -1361,6 +1387,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// [`run_mut_observing_with_thinning`](Self::run_mut_observing_with_thinning).
     ///
     /// ```
+    /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -1381,14 +1408,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
     ///
     /// sampler.run_mut_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -1537,13 +1566,15 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
     ///
     /// let samples = sampler.try_run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStepError<McmcError, Infallible>>>(())
     /// ```
     ///
     /// # Errors
@@ -1658,14 +1689,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let chain = Chain::new(S(0), &Flat)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
     ///
     /// sampler.try_run_mut_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -1903,7 +1936,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &target)?;
+    /// let chain = Chain::new(S(0), &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     ///
     /// let states = sampler.run_delayed_with_thinning(5, 2)?;
@@ -1911,7 +1946,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// let err = sampler.run_delayed_with_thinning(1, 0).unwrap_err();
     /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<DelayedStepError<Infallible>>>(())
     /// ```
     ///
     /// # Errors
@@ -2084,13 +2119,15 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<DelayedStepError<Infallible>>>(())
     /// ```
     ///
     /// # Errors
@@ -2203,14 +2240,17 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
     /// sampler.run_delayed_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -2370,13 +2410,16 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStepError<DelayedStepError<Infallible>, Infallible>>>(())
     /// ```
     ///
     /// # Errors
@@ -2496,14 +2539,17 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let target = Flat;
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &target)?;
+    /// let chain = Chain::new(0, &target)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
     /// sampler.try_run_delayed_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), ThinningError<ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>>(())
     /// ```
     ///
     /// # Errors
@@ -2807,6 +2853,21 @@ mod tests {
     }
 
     #[test]
+    fn run_with_thinning_reports_step_error_without_collecting() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+
+        let result = sampler.run_with_thinning(5, 2);
+
+        assert!(matches!(
+            result,
+            Err(ThinningError::Run(McmcError::NanLogQRatio))
+        ));
+        assert_eq!(sampler.chain_ref().total_steps(), 0);
+    }
+
+    #[test]
     fn run_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
@@ -2955,6 +3016,31 @@ mod tests {
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
         ));
+        assert_eq!(stats.count(), 0);
+        assert_eq!(sampler.chain_ref().total_steps(), 0);
+    }
+
+    #[test]
+    fn run_observing_into_with_thinning_reports_step_error_without_accumulating() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut observed = false;
+        let mut coordinate = |state: &Scalar| {
+            observed = true;
+            state.0
+        };
+        let mut stats = OnlineStats::new();
+
+        let result = sampler.run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats);
+
+        assert!(matches!(
+            result,
+            Err(ThinningError::Run(ObservedStreamError::Step(
+                McmcError::NanLogQRatio
+            )))
+        ));
+        assert!(!observed);
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }

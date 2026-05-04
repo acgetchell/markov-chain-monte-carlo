@@ -119,6 +119,45 @@ rules:
               ...
           }
 
+  - id: mcmc.rust.no-box-dyn-error-in-examples-benches
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use a concrete crate error in examples and benchmarks instead of dynamic error erasure."
+    metadata:
+      category: maintainability
+      rationale: "Examples and benchmarks should model typed error handling that users can copy."
+    paths:
+      include:
+        - "/examples/**/*.rs"
+        - "/benches/**/*.rs"
+    patterns:
+      - pattern-regex: >-
+          ^[ \t]*[^\n]*(\bBox\s*<\s*dyn\s+(std::error::)?Error\b|&\s*dyn\s+(std::error::)?Error\b|\banyhow::Error\b)
+      - pattern-not-regex: '^[ \t]*(//|///|/\*|\*)'
+
+  - id: mcmc.rust.no-box-dyn-error-in-doctests
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use concrete error types in doctests instead of Box<dyn Error> or other dynamic error erasure."
+    metadata:
+      category: maintainability
+      rationale: "Doctests are public examples and should model typed, copyable error handling."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    patterns:
+      - pattern-either:
+          - pattern-regex: >-
+              ^\s*(//!|///).*dyn\s+(std::error::)?Error
+          - pattern-regex: >-
+              ^\s*(//!|///).*anyhow::Error
+          - pattern-regex: >-
+              (?s)/\*\*.*?(Box\s*<\s*dyn\s+(std::error::)?Error|&\s*dyn\s+(std::error::)?Error|anyhow::Error).*?\*/
+          - pattern-regex: >-
+              (?s)/\*!.*?(Box\s*<\s*dyn\s+(std::error::)?Error|&\s*dyn\s+(std::error::)?Error|anyhow::Error).*?\*/
+
   - id: mcmc.rust.no-clippy-allow-lints
     languages:
       - rust

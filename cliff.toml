@@ -29,14 +29,14 @@ body = """
     {% for group, commits in commits | group_by(attribute="group") %}
         ### {{ group | upper_first }}
         {% for commit in commits %}
-            {%- if commit.body and group != "Dependencies" %}
-                {{ commit.body | trim }}
-            {%- else %}
             - {% if commit.breaking %}[**breaking**] {% endif %}\
                 {{ commit.message | split(pat="\n") | first | upper_first | trim }} \
                 [`{{ commit.id | truncate(length=7, end="") }}`]\
                 (https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
                 /commit/{{ commit.id }})
+            {%- if commit.body and group != "Dependencies" %}
+
+            {{ commit.body | indent(prefix="  ", first=true) }}
             {%- endif %}
         {%- endfor %}
     {% endfor %}\n
@@ -82,6 +82,9 @@ topo_order = false
 sort_commits = "oldest"
 
 # Link (#N) references to GitHub PRs before rendering.
+# NOTE: The repo path is hardcoded here because commit_preprocessors run before
+# Tera template rendering, so {{ remote.github.owner }} variables are not
+# available. The body/footer templates above do use the remote.github variables.
 commit_preprocessors = [
     { pattern = '(?m)^Closes #\d+\n\n', replace = "" },
     { pattern = '\(#(\d+)\)', replace = '[#${1}](https://github.com/acgetchell/markov-chain-monte-carlo/pull/${1})' },
@@ -94,9 +97,9 @@ commit_parsers = [
     { message = "(?i)^(chore: |Changed: )?prepare v[0-9]", skip = true },
 
     # Dependency bumps: keep Rust library dependencies, skip CI/action noise.
-    { message = "^chore\\(deps\\): bump (rand|proptest)\\b", group = "Dependencies" },
+    { message = "^chore\\(deps\\): bump (rand|proptest|serde|serde_json)\\b", group = "Dependencies" },
     { message = "^chore\\(deps\\): bump ", skip = true },
-    { message = "(?i)^bump (rand|proptest)\\b", group = "Dependencies" },
+    { message = "(?i)^bump (rand|proptest|serde|serde_json)\\b", group = "Dependencies" },
     { message = "(?i)^bump ", skip = true },
 
     # Conventional commit types
@@ -107,13 +110,18 @@ commit_parsers = [
     { message = "^docs?", group = "Documentation" },
     { message = "^test", group = "Changed" },
     { message = "^style", group = "Changed" },
+    { message = "^build", group = "Maintenance" },
 
     # Non-conventional patterns used in project history
     { message = "(?i)^add", group = "Added" },
     { message = "(?i)^support", group = "Added" },
+    { message = "(?i)^implement", group = "Added" },
+    { message = "(?i)^deprecate", group = "Deprecated" },
     { message = "(?i)^remove", group = "Removed" },
     { message = "(?i)^delete", group = "Removed" },
     { message = "(?i)^change", group = "Changed" },
+    { message = "(?i)^update", group = "Changed" },
+    { message = "(?i)^fix", group = "Fixed" },
 
     # Chore / CI
     { message = "^chore|^ci", group = "Maintenance" },
