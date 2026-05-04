@@ -278,7 +278,7 @@ The long-term architecture separates:
 - [ ] Parallel chains
 - [ ] Additional diagnostics (ESS, R-hat, autocorrelation reports)
 - [ ] Learned proposals (ML integration)
-- [ ] `serde` feature for chain checkpointing
+- [x] `serde` feature for chain checkpointing
 
 ## Contributing
 

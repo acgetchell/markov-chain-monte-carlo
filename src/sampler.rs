@@ -178,6 +178,7 @@ fn thinned_capacity<E>(steps: usize, thin_interval: usize) -> Result<usize, Thin
 /// assert!(sampler.chain_ref().acceptance_rate() > 0.0);
 /// # Ok::<(), McmcError>(())
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[must_use]
 pub struct Sampler<'a, S, T, P, R: ?Sized> {
     /// The MCMC chain being sampled.
