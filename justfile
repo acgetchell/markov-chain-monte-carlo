@@ -152,6 +152,7 @@ doc:
 
 # Examples
 examples:
+    cargo run --quiet --example detailed_balance
     cargo run --quiet --example normal_1d
     cargo run --quiet --example ising_1d
     cargo run --quiet --example iterator_sampling
@@ -298,8 +299,37 @@ semgrep-test: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
     cd tests/semgrep
-    uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml src/project_rules/rust_style.rs
+
+    expect_semgrep_count() {
+        local expected="$1"
+        local rule="$2"
+        local target="$3"
+        local json
+        local count
+
+        json="$(uv run semgrep scan --metrics off --json --quiet --strict --config ../../semgrep.yaml "$target")"
+        count="$(printf '%s\n' "$json" | { grep -o "\"check_id\":\"$rule\"" || true; } | wc -l | tr -d '[:space:]')"
+
+        if [[ "$count" != "$expected" ]]; then
+            echo "expected $expected findings for $rule in $target, got $count" >&2
+            exit 1
+        fi
+    }
+
+    expect_semgrep_count 2 mcmc.rust.no-stdio-diagnostics-in-src src/project_rules/rust_style.rs
+    expect_semgrep_count 1 mcmc.rust.no-nonfinite-unwrap-defaults src/project_rules/rust_style.rs
+    expect_semgrep_count 3 mcmc.rust.no-production-unwrap-panic src/project_rules/rust_style.rs
+    expect_semgrep_count 1 mcmc.rust.no-box-dyn-error-in-src src/project_rules/rust_style.rs
+    expect_semgrep_count 1 mcmc.rust.no-clippy-allow-lints src/project_rules/rust_style.rs
+    expect_semgrep_count 1 mcmc.rust.expect-requires-reason src/project_rules/rust_style.rs
+
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml examples/deep_import.rs
+    expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-examples-benches examples/erased_error.rs
+    expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches examples/typed_error.rs
+    expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-examples-benches benches/erased_error.rs
+    expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches benches/typed_error.rs
+    expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/erased_error.rs
+    expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/typed_error.rs
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
 setup: setup-tools
@@ -447,6 +477,11 @@ toml-lint: _ensure-taplo
 validate-examples:
     #!/usr/bin/env bash
     set -euo pipefail
+    output=$(cargo run --quiet --example detailed_balance)
+    echo "$output"
+    echo "$output" | grep -q "Detailed balance checks passed" || { echo "❌ detailed_balance: Missing success marker"; exit 1; }
+    echo "$output" | grep -q "by-value residual" || { echo "❌ detailed_balance: Missing by-value residual"; exit 1; }
+    echo "✅ detailed_balance validated"
     output=$(cargo run --quiet --example normal_1d)
     echo "$output"
     echo "$output" | grep -q "Sample mean" || { echo "❌ normal_1d: Missing sample mean"; exit 1; }

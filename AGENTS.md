@@ -20,15 +20,37 @@ When making changes in this repo, prioritize (in order):
 - Suggest git commands that modify version control state for the user to run manually
 - When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`, e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`. If an environment requires an owner/tool prefix, keep this structure after the prefix, e.g. `codex/ci/312-rust-tooling`.
 
-### Commit Messages
+### Commit Message Generation
 
-When user requests commit message generation:
+When generating commit messages:
 
 1. Run `git --no-pager diff --cached --stat`
-2. Generate conventional commit format: `<type>: <brief summary>`
-3. Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `style`, `ci`, `build`
-4. Include body with organized bullet points and test results
-5. Present in code block (no language) - user will commit manually
+2. Use conventional commits: `<type>: <summary>`
+3. Valid types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `style`, `ci`, `build`
+4. Include bullet-point body describing key changes
+5. Include test results
+6. Present inside a code block so the user can commit manually
+
+#### Changelog-Aware Body Text
+
+Commit subjects and bodies feed `CHANGELOG.md` through `git-cliff`. Write them as clean, readable release-note prose:
+
+- Keep the subject line concise; it becomes the primary changelog bullet.
+- The type determines the changelog section (`feat` -> Added, `fix` -> Fixed, `refactor`/`test`/`style` -> Changed, `perf` -> Performance, `docs` -> Documentation, `build`/`chore`/`ci` -> Maintenance).
+- Include PR references as `(#N)` in the subject when known; `git-cliff` auto-links them.
+- Body text appears as indented supporting detail under the changelog bullet.
+- Avoid Markdown headings `#` through `###` in the body because they conflict with changelog release and section headings. Use plain labels such as `Tests:` instead.
+- Keep body text as plain prose or simple bullet lists. Avoid deep nesting.
+- Include only release-note-worthy implementation details; avoid dumping internal command output.
+
+#### Breaking Changes
+
+Breaking changes must use one of these conventional commit markers so `git-cliff` can detect them:
+
+- Bang notation: `feat!: remove deprecated API`
+- Footer trailer: `BREAKING CHANGE: <description>`
+
+Examples of breaking changes include removing or renaming public API items, changing default behavior, bumping MSRV, altering serialized checkpoint formats, changing numerical semantics, or changing acceptance/error behavior.
 
 ### Code Quality
 
@@ -91,15 +113,18 @@ When creating or updating issues:
 ## Code structure (big picture)
 
 - This is a single Rust *library crate* (no `src/main.rs`). The crate root is `src/lib.rs`.
-- The MCMC framework is split across four modules, all re-exported from `src/lib.rs`:
+- The MCMC framework is split across focused modules, all re-exported from `src/lib.rs`:
   - `src/error.rs` — `McmcError`: error type for NaN/+∞ detection in log-probabilities and proposal ratios
+  - `src/observable.rs` — observation traits and buffers for measuring derived quantities while sampling
   - `src/traits.rs` — `Target<S>`, `Proposal<S>` (clone-based), `ProposalMut<S>` (in-place with rollback)
   - `src/chain.rs` — `Chain<S>`: Metropolis–Hastings chain with `step` (clone-based) and `step_mut` (in-place)
   - `src/sampler.rs` — `Sampler<S,T,P,R>`: ergonomic wrapper bundling a chain with its target, proposal, and RNG; provides `run`/`run_mut` for bulk sampling and implements `Iterator` for the clone-based path
+  - `src/statistics.rs` — streaming summary statistics and binning analysis helpers
+  - `src/testing.rs` — test-facing detailed-balance verification helpers
   - `prelude` module in `src/lib.rs`: convenience re-exports (`Chain`, `McmcError`, `Proposal`, `ProposalMut`, `Sampler`, `Target`)
 - Rust tests are inline `#[cfg(test)]` modules in each source file.
 - The `justfile` defines all dev workflows (see `just --list`).
-- Examples live in `examples/` (e.g. `normal_1d.rs`, `ising_1d.rs`).
+- Examples live in `examples/` (e.g. `normal_1d.rs`, `ising_1d.rs`, `detailed_balance.rs`).
 
 ## Publishing note
 

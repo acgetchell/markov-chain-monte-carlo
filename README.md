@@ -8,38 +8,77 @@ A composable **Markov Chain Monte Carlo (MCMC)** framework for arbitrary state s
 
 See [CHANGELOG.md](CHANGELOG.md) for release history. Citation metadata and background references are available in [CITATION.cff](CITATION.cff) and [REFERENCES.md](REFERENCES.md).
 
----
+## Introduction
 
-## Overview
+`markov-chain-monte-carlo` provides a small, explicit Metropolis-Hastings toolkit for scientific Rust projects. It is designed for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need rollback-safe mutation or delayed commits.
 
-This crate provides:
+Use this crate when you want:
 
-- A generic Metropolis–Hastings implementation
-- Three proposal models:
-  - **`Proposal<S>`** — by-value proposals for simple/small state spaces
-  - **`ProposalMut<S>`** — in-place mutation with rollback, for large combinatorial state spaces (triangulations, graphs) where cloning is expensive
-  - **`DelayedProposal<S>`** — accept-before-mutation proposals with concrete plans and failure-atomic commits
-- `Chain<S>` with `step` (by-value), `step_mut` (in-place), and `step_delayed` (accept-before-mutation) methods
-- `Sampler<S, T, P, R>` — ergonomic wrapper that bundles a chain with its target, proposal, and RNG; supports `run(n)` / `run_mut(n)` for bulk sampling and implements `Iterator`
-- `Observable<S>` and `SampleBuffer<T>` for computing and collecting derived measurements during sampling
-- `OnlineStats` and `BinningAnalysis` for streaming means, variances, and autocorrelation-corrected error estimates
-- NaN and +∞ detection with automatic state rollback on error
-- Chain statistics: `acceptance_rate()`, `total_steps()`, `reset_counters()`
-- Seeded RNG support for reproducible simulations
+- A generic Metropolis-Hastings chain over user-defined state spaces
+- By-value, in-place, and delayed-commit proposal APIs
+- Log-space acceptance calculations with NaN/+infinity checks
+- Observable measurement APIs for collecting derived quantities
+- Streaming means, variances, and binning error estimates
+- Thinning helpers for long sampler runs
+- Optional `serde` checkpointing for chains and sampler handles
+- Detailed-balance diagnostics for proposal development
 
-The design emphasizes:
+## Features
 
-- Zero-cost abstractions
-- Log-space numerical stability
-- Extensibility for research and experimentation
+- [x] `Target<S>` for unnormalized log probabilities or log densities
+- [x] `Proposal<S>` for simple by-value proposals
+- [x] `ProposalMut<S>` for in-place mutation with rollback tokens
+- [x] `DelayedProposal<S>` for accept-before-mutation workflows with concrete plans
+- [x] `Chain<S>` with by-value, in-place, and delayed step methods
+- [x] `Sampler<S, T, P, R>` for ergonomic bulk runs and iterator-based sampling
+- [x] Observables, fallible observations, and sample buffers
+- [x] Online statistics and binning analysis for correlated samples
+- [x] Thinned run and observation helpers
+- [x] Optional `serde` feature for checkpointing
+- [x] Detailed-balance checks for by-value, in-place, and delayed proposals
 
-For independent parallel chains, give each worker its own `Chain`, proposal state, and RNG stream. The crate keeps parallelism explicit so simulations can control reproducibility and random-stream splitting.
+## Scientific Basis and Scope
 
----
+This crate implements Metropolis-Hastings sampling for user-defined state spaces. The transition rule uses target log-probability differences and proposal probability ratios:
 
-## Quick Start
+```text
+alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
+```
 
-### Clone-based (simple states)
+The library is built around the standard MCMC contract:
+
+- `Target<S>` returns an unnormalized natural log probability, log density, or negative action.
+- Proposal implementations must describe the same concrete transition in both the generated move and `log_q_ratio`.
+- Detailed balance, or a valid Metropolis-Hastings correction, is a property of the user-provided target+proposal pair.
+- Irreducibility, aperiodicity, burn-in, autocorrelation, and convergence are domain-specific analysis questions.
+
+What the crate provides:
+
+- Log-space acceptance calculations to avoid underflow in tail probabilities.
+- Explicit rejection of `NaN` and positive-infinite log probabilities or proposal ratios.
+- Rollback-safe in-place proposals for large states where cloning is expensive.
+- Delayed-commit proposals for workflows that need to score a concrete move before mutating state.
+- Empirical detailed-balance checks for representative discrete transitions.
+- Streaming statistics and binning analysis for correlated-sample uncertainty estimates.
+
+What the crate does not prove:
+
+- That a proposal is ergodic on a domain-specific state space.
+- That a chain has mixed enough for a given scientific observable.
+- That a triangulation, graph, or other combinatorial state satisfies external validity constraints.
+- That a chosen model is scientifically appropriate for a downstream study.
+
+For a fuller discussion, see [docs/scientific_basis.md](docs/scientific_basis.md).
+
+## Quickstart
+
+Add the crate:
+
+```bash
+cargo add markov-chain-monte-carlo
+```
+
+Sample a one-dimensional standard normal target with a symmetric random-walk proposal:
 
 ```rust
 use markov_chain_monte_carlo::prelude::by_value::*;
@@ -48,14 +87,16 @@ use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 #[derive(Clone)]
 struct Scalar(f64);
 
-struct Normal;
-impl Target<Scalar> for Normal {
+struct StandardNormal;
+impl Target<Scalar> for StandardNormal {
     fn log_prob(&self, state: &Scalar) -> f64 {
         -0.5 * state.0 * state.0
     }
 }
 
-struct RandomWalk { width: f64 }
+struct RandomWalk {
+    width: f64,
+}
 impl Proposal<Scalar> for RandomWalk {
     fn propose<R: Rng + ?Sized>(&self, current: &Scalar, rng: &mut R) -> Scalar {
         Scalar(current.0 + rng.random_range(-self.width..self.width))
@@ -63,242 +104,95 @@ impl Proposal<Scalar> for RandomWalk {
 }
 
 fn main() -> Result<(), McmcError> {
+    let target = StandardNormal;
+    let proposal = RandomWalk { width: 1.0 };
     let mut rng = StdRng::seed_from_u64(42);
-    let mut chain = Chain::new(Scalar(0.0), &Normal)?;
 
-    for _ in 0..1000 {
-        chain.step(&Normal, &RandomWalk { width: 1.0 }, &mut rng)?;
-    }
+    let chain = Chain::new(Scalar(5.0), &target)?;
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
 
-    assert!(chain.acceptance_rate() > 0.2);
-    Ok(())
-}
-```
-
-### Using `Sampler` (ergonomic wrapper)
-
-```rust
-use markov_chain_monte_carlo::prelude::by_value::*;
-use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
-
-# #[derive(Clone)] struct Scalar(f64);
-# struct Normal;
-# impl Target<Scalar> for Normal {
-#     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
-# }
-# struct RandomWalk;
-# impl Proposal<Scalar> for RandomWalk {
-#     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
-#         Scalar(c.0 + r.random_range(-1.0..1.0))
-#     }
-# }
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let chain = Chain::new(Scalar(0.0), &Normal)?;
-    let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
-
-    // Burn-in
-    sampler.run(1000)?;
+    sampler.run(1_000)?;
     sampler.chain_mut().reset_counters();
 
-    // Production
-    sampler.run(10_000)?;
+    let samples = sampler.run(10_000)?;
+    assert_eq!(samples.len(), 10_000);
     assert!(sampler.chain_ref().acceptance_rate() > 0.0);
     Ok(())
 }
 ```
 
-### Measuring observables during sampling
+## Examples
 
-```rust
-use markov_chain_monte_carlo::prelude::by_value::*;
-use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+Complete runnable examples live in [`examples/`](examples/):
 
-# #[derive(Clone)] struct Scalar(f64);
-# struct Normal;
-# impl Target<Scalar> for Normal {
-#     fn log_prob(&self, s: &Scalar) -> f64 { -0.5 * s.0 * s.0 }
-# }
-# struct RandomWalk;
-# impl Proposal<Scalar> for RandomWalk {
-#     fn propose<R: Rng + ?Sized>(&self, c: &Scalar, r: &mut R) -> Scalar {
-#         Scalar(c.0 + r.random_range(-1.0..1.0))
-#     }
-# }
-fn main() -> Result<(), McmcError> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let chain = Chain::new(Scalar(0.0), &Normal)?;
-    let mut sampler = Sampler::new(chain, &Normal, &RandomWalk, &mut rng);
-    let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
+- [`examples/normal_1d.rs`](examples/normal_1d.rs) — by-value random-walk sampler for a normal target
+- [`examples/ising_1d.rs`](examples/ising_1d.rs) — in-place spin-flip proposals for a non-`Clone` Ising state
+- [`examples/iterator_sampling.rs`](examples/iterator_sampling.rs) — `Sampler` as an iterator
+- [`examples/detailed_balance.rs`](examples/detailed_balance.rs) — by-value, in-place, delayed, and batch detailed-balance checks
 
-    let measurements: SampleBuffer<f64> = sampler.run_observing(10_000, &mut energy)?;
-    assert_eq!(measurements.len(), 10_000);
-    Ok(())
-}
+Run them with:
+
+```bash
+just examples
 ```
 
-### Streaming statistics and error bars
+## Validation and Diagnostics
 
-```rust
-use markov_chain_monte_carlo::prelude::*;
+The crate exposes test-facing and analysis-facing tools for scientific workflows:
 
-fn main() {
-    let measurements = [1.0, 2.0, 3.0, 4.0];
+- `McmcError` rejects invalid `NaN` and positive-infinite log probabilities or proposal ratios
+- `ProposalMut` rollback and `DelayedProposal` commit contracts keep rejected or failed moves from corrupting chain state
+- `Observable`, `TryObservable`, and `SampleBuffer` measure derived quantities during sampling
+- `OnlineStats` and `BinningAnalysis` support streaming estimates and correlated-sample error bars
+- `verify_detailed_balance*` helpers empirically test proposal kernels for representative discrete transitions
 
-    let mut stats = OnlineStats::new();
-    stats.extend(measurements);
-    assert_eq!(stats.mean(), Some(2.5));
+These tools are diagnostics, not proofs. Domain-specific state validity, irreducibility, and mixing behavior remain the caller's responsibility.
 
-    let mut bins = BinningAnalysis::new();
-    bins.extend(measurements);
-    assert!(bins.standard_error().is_some());
-}
-```
+For proposal-specific testing patterns, see the [proposal validation guide](docs/proposal_validation.md).
 
-For long sampler runs, stream measurements directly into an accumulator instead of collecting a `SampleBuffer`:
+## Documentation
 
-```rust
-use markov_chain_monte_carlo::prelude::by_value::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+- [docs.rs API documentation](https://docs.rs/markov-chain-monte-carlo)
+- [Scientific basis and scope](docs/scientific_basis.md)
+- [Proposal validation guide](docs/proposal_validation.md)
+- [Roadmap](docs/roadmap.md)
+- [Code organization guide](docs/code_organization.md)
+- [Rust development workflow](docs/dev/rust.md)
+- [Release process](docs/RELEASING.md)
 
-# struct T;
-# impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
-# struct P;
-# impl Proposal<f64> for P {
-#     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-#         current + 1.0
-#     }
-# }
-fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-    let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
-    let mut coordinate = |state: &f64| *state;
-    let mut stats = OnlineStats::new();
+## Ecosystem
 
-    sampler.run_observing_into(10_000, &mut coordinate, &mut stats)?;
-    assert_eq!(stats.count(), 10_000);
-    Ok(())
-}
-```
-
-Sampler methods also support thinning. The chain still advances on every step, but cloned states or observable outputs are collected only after every k-th completed step:
-
-```rust
-use markov_chain_monte_carlo::prelude::by_value::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
-
-# struct T;
-# impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
-# struct P;
-# impl Proposal<f64> for P {
-#     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-#         current + 1.0
-#     }
-# }
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let chain = Chain::new(0.0, &T)?;
-    let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
-    let mut coordinate = |state: &f64| *state;
-
-    let samples = sampler.run_observing_with_thinning(10_000, 10, &mut coordinate)?;
-    assert_eq!(samples.len(), 1_000);
-    assert_eq!(sampler.chain_ref().total_steps(), 10_000);
-    Ok(())
-}
-```
-
-### In-place mutation (combinatorial states)
-
-```rust
-use markov_chain_monte_carlo::prelude::in_place::*;
-use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
-
-struct SpinChain { spins: Vec<i8> }  // not Clone
-
-struct Ising;
-impl Target<SpinChain> for Ising {
-    fn log_prob(&self, state: &SpinChain) -> f64 {
-        state.spins.windows(2)
-            .map(|w| f64::from(w[0]) * f64::from(w[1]))
-            .sum()
-    }
-}
-
-struct SpinFlip;
-impl ProposalMut<SpinChain> for SpinFlip {
-    type Undo = usize;  // which site was flipped
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
-        if state.spins.is_empty() { return None; }
-        let idx = rng.random_range(0..state.spins.len());
-        state.spins[idx] *= -1;
-        Some(idx)
-    }
-    fn undo(&self, state: &mut SpinChain, idx: usize) {
-        state.spins[idx] *= -1;
-    }
-}
-
-fn main() -> Result<(), McmcError> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let mut chain = Chain::new(SpinChain { spins: vec![1; 20] }, &Ising)?;
-
-    for _ in 0..1000 {
-        chain.step_mut(&Ising, &SpinFlip, &mut rng)?;
-    }
-
-    assert!(chain.acceptance_rate() > 0.0);
-    Ok(())
-}
-```
-
----
-
-## Relationship to Other Crates
-
-This crate is part of a broader ecosystem:
+This crate is part of a broader Rust ecosystem for computational geometry and simulation:
 
 - [`causal-triangulations`](https://crates.io/crates/causal-triangulations) — CDT physics and simulation
-- [`delaunay`](https://crates.io/crates/delaunay) — geometric primitives
-- [`la-stack`](https://crates.io/crates/la-stack) — linear algebra
+- [`delaunay`](https://crates.io/crates/delaunay) — geometric primitives and triangulations
+- [`la-stack`](https://crates.io/crates/la-stack) — fixed-size linear algebra
 
 The long-term architecture separates:
 
-- **Geometry** (triangulations)
-- **Sampling** (this crate)
-- **Physics** (CDT, actions, observables)
-
----
-
-## Planned Features
-
-- [ ] Adaptive Metropolis–Hastings
-- [ ] Simulated annealing / tempering
-- [ ] Parallel chains
-- [ ] Additional diagnostics (ESS, R-hat, autocorrelation reports)
-- [ ] Learned proposals (ML integration)
-- [x] `serde` feature for chain checkpointing
+- **Geometry**: triangulations and geometric predicates
+- **Sampling**: this crate
+- **Physics**: CDT actions, observables, and domain-specific dynamics
 
 ## Contributing
 
 A short local workflow:
 
 ```bash
-just setup        # Install/verify dev tools
-just check        # Run non-mutating validation
-just fix          # Apply formatters/auto-fixes
-just ci           # Run the full local CI simulation
-just changelog    # Regenerate CHANGELOG.md from local git history
+just setup         # Install/verify dev tools
+just check         # Run non-mutating validation
+just fix           # Apply formatters/auto-fixes
+just ci            # Run the full local CI simulation
+just changelog     # Regenerate CHANGELOG.md from local git history
 just bench-compile # Compile Criterion benchmarks without measuring
-just bench        # Run Criterion benchmarks
+just bench         # Run Criterion benchmarks
 ```
 
-For the full command list, run `just --list`. Development tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md), code layout is summarized in [`docs/code_organization.md`](docs/code_organization.md), release steps live in [`docs/RELEASING.md`](docs/RELEASING.md), and AI assistants should follow [`AGENTS.md`](AGENTS.md).
+For the full command list, run `just --list`. AI assistants should follow [`AGENTS.md`](AGENTS.md).
 
 ## Citation
 
-If you use this crate in academic work or downstream research software, please cite it using [`CITATION.cff`](CITATION.cff) or GitHub's "Cite this repository" feature. A Zenodo DOI can be added after an archived tagged release.
+If you use this crate in academic work or downstream research software, please cite it using [`CITATION.cff`](CITATION.cff) or GitHub's "Cite this repository" feature.
 
 ## References
 
@@ -307,8 +201,6 @@ For canonical background references for Metropolis-Hastings, MCMC, and the examp
 ## AI Agents
 
 This repository contains an `AGENTS.md` file, which defines the canonical rules and invariants for AI coding assistants and autonomous agents working on this codebase.
-
-AI tools are expected to read and follow `AGENTS.md` when proposing or applying changes.
 
 Portions of this library were developed with the assistance of AI tools including [ChatGPT], [Claude], [Codex], and [CodeRabbit].
 
