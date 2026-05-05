@@ -16,7 +16,6 @@ just test-all         # Lib + doc + integration + Python tooling tests
 just bench-compile    # Compile Criterion benchmarks without measuring
 just bench            # Criterion benchmarks
 just examples         # Run all examples
-just docs-readme      # Regenerate README API section from src/lib.rs //!
 ```
 
 ## Validation
@@ -34,7 +33,6 @@ just docs-readme      # Regenerate README API section from src/lib.rs //!
 - `just spell-check` - Spellcheck through `typos`
 - `just semgrep` - Repository-owned Rust and Python policy rules
 - `just semgrep-test` - Tests for the repository-owned Semgrep rules
-- `just docs-readme-check` - README API-guide drift check through `cargo-rdme`
 
 For cross-repo muscle memory, the same checks are also available through grouped lint aliases:
 
@@ -51,7 +49,6 @@ Run `just setup` or `just setup-tools` to install and verify external tools:
 
 - `actionlint`
 - `cargo-llvm-cov`
-- `cargo-rdme`
 - `dprint`
 - `git-cliff`
 - `jq`

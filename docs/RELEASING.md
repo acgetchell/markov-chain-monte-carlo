@@ -75,15 +75,7 @@ Review version references:
 git grep -nE '\bv?[0-9]+\.[0-9]+\.[0-9]+\b' -- README.md docs/ Cargo.toml Cargo.lock CITATION.cff pyproject.toml uv.lock CHANGELOG.md
 ```
 
-### 4. Regenerate the README API guide
-
-The README API guide is generated from `src/lib.rs` `//!` by `cargo-rdme`. Regenerate it before validation so the marker region and docs.rs landing page source stay in sync:
-
-```bash
-just docs-readme
-```
-
-### 5. Validate locally
+### 4. Validate locally
 
 Run the normal release validation gates:
 
@@ -93,9 +85,9 @@ just ci
 just publish-check
 ```
 
-`just fix` reruns formatters and README generation. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, Semgrep checks, and `cargo rdme --check`. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
+`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
 
-### 6. Commit, push, and open the PR
+### 5. Commit, push, and open the PR
 
 Review the diff carefully:
 
@@ -146,6 +138,5 @@ cargo publish --locked
 - `just changelog-unreleased <tag>` prepends only the unreleased section for a release PR.
 - `cliff.toml` skips release-prep commits, filters CI/action dependency churn, and keeps Rust-library dependency bumps concise.
 - `just tag <tag>` creates the annotated release tag from the matching `CHANGELOG.md` section.
-- `just docs-readme` regenerates the README API guide from `src/lib.rs` `//!`; `just check` and `just ci` verify it with `cargo rdme --check`.
 - Run `just ci` before handing off a release PR.
 - Run `just publish-check` before publishing.

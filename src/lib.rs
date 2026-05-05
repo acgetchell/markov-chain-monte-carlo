@@ -1,28 +1,32 @@
-//! Markov Chain Monte Carlo (MCMC) framework.
+#![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]
+
+//! ---
+//! # Documentation map
 //!
-//! `markov-chain-monte-carlo` provides small, explicit Metropolis-Hastings
-//! tools for Rust projects with user-defined state spaces, proposal mechanisms,
-//! and measurement workflows.
+//! The README above is included verbatim and serves as the user-facing
+//! introduction to the crate: overview, feature list, installation, quick-start
+//! example, API selection, examples, project links, citation, and contribution
+//! pointers.
 //!
-//! Use this crate when you need ordinary by-value proposals, rollback-safe
-//! mutation for large states, delayed commits, validated checkpoint restores, or
-//! streaming observables for long sampler runs.
+//! Everything below this line specifies the semantic and API contract of the
+//! `markov-chain-monte-carlo` crate. It is intended for users who need deeper
+//! detail about Metropolis-Hastings correctness, numerical behavior, proposal
+//! workflows, checkpoints, observables, and streaming statistics.
 //!
-//! # Features
+//! This crate's documentation is intentionally layered by audience and intent:
 //!
-//! - Generic `Chain<S>` and `Sampler` APIs over user-defined state spaces.
-//! - By-value, in-place, and delayed-commit proposal workflows.
-//! - Log-space acceptance with typed errors for invalid target or proposal
-//!   values.
-//! - Optional `serde` checkpoint serialization with validated restore flows.
-//! - Observables, thinning helpers, streaming statistics, and proposal
-//!   diagnostics.
+//! - **README.md** (included above):
+//!   user-facing overview, feature list, and quick-start examples.
+//! - **Crate-level documentation (`lib.rs`)** (this document):
+//!   the programming contract of the sampler APIs, including acceptance
+//!   semantics, proposal responsibilities, checkpoint restore behavior, and
+//!   measurement utilities.
+//! - **`docs/scientific_basis.md`**:
+//!   deeper discussion of the Metropolis-Hastings contract and scope.
+//! - **`docs/proposal_validation.md`**:
+//!   proposal-author testing patterns and `verify_detailed_balance*` usage.
 //!
-//! This API guide documents the crate's Metropolis-Hastings contracts,
-//! numerical semantics, proposal workflows, sampler helpers, observables, and
-//! streaming statistics. For installation, feature selection, and a concise
-//! orientation to the crate, see the hand-written sections at the top of the
-//! repository README.
+//! # API contract
 //!
 //! [`Target::log_prob`] should return an unnormalized natural log-probability
 //! or log-density.  Additive constants are fine because Metropolis-Hastings
@@ -156,46 +160,6 @@
 //! );
 //! # }
 //! # Ok::<(), serde_json::Error>(())
-//! ```
-//!
-//! # Example
-//!
-//! Sample from a standard normal distribution using Metropolis–Hastings:
-//!
-//! ```
-//! use markov_chain_monte_carlo::prelude::by_value::*;
-//! use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
-//!
-//! #[derive(Clone)]
-//! struct Scalar(f64);
-//!
-//! struct Normal;
-//! impl Target<Scalar> for Normal {
-//!     fn log_prob(&self, state: &Scalar) -> f64 {
-//!         -0.5 * state.0 * state.0
-//!     }
-//! }
-//!
-//! struct RandomWalk { width: f64 }
-//! impl Proposal<Scalar> for RandomWalk {
-//!     fn propose<R: Rng + ?Sized>(&self, current: &Scalar, rng: &mut R) -> Scalar {
-//!         let delta: f64 = rng.random_range(-self.width..self.width);
-//!         Scalar(current.0 + delta)
-//!     }
-//! }
-//!
-//! fn main() -> Result<(), McmcError> {
-//!     let mut rng = StdRng::seed_from_u64(42);
-//!     let mut chain = Chain::new(Scalar(0.0), &Normal)?;
-//!     let proposal = RandomWalk { width: 1.0 };
-//!
-//!     for _ in 0..1000 {
-//!         chain.step(&Normal, &proposal, &mut rng)?;
-//!     }
-//!
-//!     assert!(chain.acceptance_rate() > 0.2);
-//!     Ok(())
-//! }
 //! ```
 //!
 //! # In-place mutation with rollback
