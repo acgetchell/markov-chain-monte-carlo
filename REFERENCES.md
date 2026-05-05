@@ -2,9 +2,10 @@
 
 ## How to cite this library
 
-If you use this library in your research or project, please cite it using the information in [CITATION.cff](CITATION.cff). This file contains structured citation metadata that can be processed by GitHub and other platforms.
+If you use this library in your research or project, please cite the Zenodo DOI and the structured metadata in [CITATION.cff](CITATION.cff). This file can be processed by GitHub and other citation platforms.
 
-A Zenodo DOI can be added for an archived tagged release.
+- DOI: <https://doi.org/10.5281/zenodo.20033111>
+- Citation metadata: [CITATION.cff](CITATION.cff)
 
 ## Background references
 

@@ -253,7 +253,7 @@ def create_tag(tag_version: str, *, force: bool = False) -> None:
     # Create annotated tag
     label = "reference" if is_truncated else "full changelog"
     print(f"{_BLUE}Creating annotated tag '{tag_version}' with {label} content...{_RESET}")
-    run_git_command_with_input(["tag", "-a", tag_version, "-F", "-"], input_data=tag_message)
+    run_git_command_with_input(["tag", "-a", tag_version, "-F", "-", "--cleanup=verbatim"], input_data=tag_message)
 
     # Success
     print(f"{_GREEN}✓ Successfully created tag '{tag_version}'{_RESET}")

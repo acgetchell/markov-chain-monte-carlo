@@ -137,31 +137,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-04-06
 
-markov-chain-monte-carlo v0.2.0
-
 ### Added
 
-- Sampler<S, T, P, R> ergonomic wrapper with run/run_mut/Iterator
-- Chain fields now private (accessor methods: state(), log_prob(), accepted(), rejected())
-- +∞ detection (InfiniteInitialLogProb, InfiniteProposedLogProb, InfiniteLogQRatio)
-- McmcError implements Copy, #[non_exhaustive]
-- Split crate into modules: chain, error, sampler, traits
-- iterator_sampling example, doctests on all public methods
-- publish-check justfile recipe
+- Add Sampler API and split into modules [#9](https://github.com/acgetchell/markov-chain-monte-carlo/pull/9) [`d32c9cc`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d32c9cc1271f1c3d138c6155b6b34315482885f7)
+
+  * feat: add Sampler API and split into modules
+
+  - Add `Sampler<S, T, P, R>` ergonomic wrapper bundling Chain + target +
+    proposal + RNG with `step()`/`run()`, `step_mut()`/`run_mut()`, and
+    `Iterator` impl for the clone-based path
+  - Split crate into modules: `chain`, `error`, `sampler`, `traits`
+  - Make Chain bookkeeping fields private; add `log_prob()`, `accepted()`,
+    `rejected()`, `total_steps()`, `reset_counters()` accessors
+  - Add `McmcError::InfiniteInitialLogProb` and `InfiniteProposedLogProb`
+    for +∞ detection with automatic rollback
+  - Derive `Copy` on `McmcError`; add `#[must_use]` on `Chain`, `Sampler`,
+    and all query methods
+  - Add asymmetric proposal tests, -∞/+∞ edge-case tests, error Display
+    tests, and doctests for all public Chain/Sampler methods
+  - Update examples to use `Sampler` with `reset_counters()` for
+    production-only acceptance rates
+  - Add `ising_1d` to justfile `examples` and `validate-examples` recipes
+  - Update README, CHANGELOG, and crate-level docs
+
+  * Changed: encapsulate Chain state and provide accessor methods
+
+  Make the final public field in Chain private to ensure internal
+  consistency between the state and its cached log-probability. Add
+  state(), state_mut(), and into_state() accessors. Update examples and
+  tests to use the new API. Also mark McmcError as non-exhaustive and
+  implement Debug for Sampler.
+
+  * feat: harden API with safe state replacement, +∞ log q-ratio detection, and Debug
+
+  - Replace `state_mut()` with `replace_state()` that recomputes and
+    validates `log_prob`, preventing stale-cache bugs
+  - Add `into_state()` to consume the chain and recover the state
+  - Add `McmcError::InfiniteLogQRatio` for +∞ log q-ratio detection,
+    completing the symmetric NaN/+∞ error matrix for all computed values
+  - Add `+∞` checks on `log_q_ratio` in both `step` and `step_mut`
+    (with rollback in the mut path)
+  - Implement `Debug` for `Sampler` (prints chain state)
+  - Add tests for all new error paths, accessors, and Debug output
+
+### Dependencies
+
+- Bump proptest in the dependencies group [#6](https://github.com/acgetchell/markov-chain-monte-carlo/pull/6) [`a5c29af`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/a5c29af3588d6f38f18a9f7a9349903147bdcaf4)
 
 ## [0.1.0] - 2026-03-24
 
-v0.1.0: first usable release
-
 ### Added
 
-- ProposalMut<S> trait for in-place mutation with rollback
-- Chain::step_mut for zero-copy Metropolis-Hastings
-- Proposal<S> (clone-based) and Target<S> traits
-- NaN detection with automatic state rollback
-- Seeded RNG support
-- Examples: normal_1d, ising_1d
-- Property-based tests for MH invariants
+- Add GitHub Actions CI/CD workflows and justfile linting recipes [`51b5377`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/51b53775026f736e7359d601558842f70cbc526c)
+- Add cargo-tarpaulin coverage recipes and CI linting dependencies [`74c7db5`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/74c7db5e46031cfe142c4b619592f7bb2dfd886d)
+
+  Introduce coverage analysis using cargo-tarpaulin with recipes for local
+  HTML reports and CI XML output. Update the CI workflow to install
+  required linting tools on Linux and macOS runners and reorganize the
+  justfile for better logical grouping.
+- Add CI tooling, error handling, prelude, and project infrastruc… [#2](https://github.com/acgetchell/markov-chain-monte-carlo/pull/2) [`6584b92`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/6584b9257b3a0e0cf92f31347ca2536be8fe2444)
+
+  * feat: add CI tooling, error handling, prelude, and project infrastructure
+
+  - Add McmcError enum with NaN detection for log-probabilities and
+    proposal ratios; Chain::new and Chain::step now return Result
+  - Add prelude module for convenience re-exports
+  - Simplify trait bounds: remove unnecessary State bounds from Target,
+    Proposal, and Chain struct definition
+  - Add rust-toolchain.toml pinned to MSRV 1.94.0
+  - Add BSD-3-Clause LICENSE and update Cargo.toml
+  - Add README badges (crates.io, docs.rs, CI, codecov, audit, clippy)
+  - Add AGENTS.md with project guidance for AI assistants
+  - Add doc test with full Metropolis–Hastings example
+  - Install yamllint in CI workflow for Linux/macOS; keep actionlint
+    as local-only recipe
+  - Add coverage and coverage-ci justfile recipes
+
+  * chore: minor project hygiene fixes
+
+  - Add /coverage to .gitignore
+  - Consolidate duplicate editing tools policy in AGENTS.md
+  - Wire validate-examples into `just ci`
+  - Remove redundant "cargo" component from rust-toolchain.toml
+  - Link to crates instead of repos in README.md
+- Add in-place mutation API (ProposalMut) for non-Clone state spaces [#4](https://github.com/acgetchell/markov-chain-monte-carlo/pull/4) [`ada42eb`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ada42eb1d5c5719aebd4a8ccbe4bf7e1d907a8e6)
+
+  * feat: add in-place mutation API (ProposalMut) for non-Clone state spaces
+
+  API changes:
+  - Remove State marker trait; Chain<S> now works with any S
+  - Add ProposalMut<S> trait with associated Undo type for cheap rollback
+  - Add Chain::step_mut for zero-copy Metropolis-Hastings
+  - Move Clone bound from State to Proposal<S> and Chain::step
+
+  New files:
+  - examples/ising_1d.rs: 1-D Ising model demonstrating ProposalMut
+  - tests/proptest_chain.rs: property-based tests for MH invariants
+    (log_prob consistency, step/step_mut equivalence, counts invariant)
+
+### Changed
+
+- Initial commit: scaffold MCMC crate [`5d7f706`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/5d7f706da2d7c41af619a2f5669cdcd56dae94ba)
 
 [0.3.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1

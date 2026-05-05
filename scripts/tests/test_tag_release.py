@@ -244,7 +244,8 @@ class TestCreateTag:
 
         mock_git_input.assert_called_once()
         call_args = mock_git_input.call_args
-        assert call_args[0][0] == ["tag", "-a", "v1.0.0", "-F", "-"]
+        assert call_args[0][0] == ["tag", "-a", "v1.0.0", "-F", "-", "--cleanup=verbatim"]
+        assert "### Added" in call_args[1]["input_data"]
         assert "Something new" in call_args[1]["input_data"]
 
     @patch("tag_release.run_git_command_with_input")
