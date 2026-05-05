@@ -417,12 +417,19 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// [`McmcError::InfiniteCurrentLogProb`] if the target returns NaN or +∞
     /// for the chain's current state.
     ///
-    /// ```
+    /// ```should_panic
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
-    /// # struct T;
-    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// struct NanTarget;
+    /// impl Target<f64> for NanTarget {
+    ///     fn log_prob(&self, _: &f64) -> f64 {
+    ///         f64::NAN
+    ///     }
+    /// }
+    ///
+    /// # struct ValidTarget;
+    /// # impl Target<f64> for ValidTarget { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
@@ -430,11 +437,34 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0.0, &T)?;
-    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    /// let chain = Chain::new(0.0, &ValidTarget).unwrap();
+    /// // This will return Err(McmcError::NanCurrentLogProb)
+    /// let sampler = Sampler::new(chain, &NanTarget, &P, &mut rng).unwrap();
+    /// ```
     ///
-    /// assert_eq!(sampler.chain_ref().total_steps(), 0);
-    /// # Ok::<(), McmcError>(())
+    /// ```should_panic
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct InfTarget;
+    /// impl Target<f64> for InfTarget {
+    ///     fn log_prob(&self, _: &f64) -> f64 {
+    ///         f64::INFINITY
+    ///     }
+    /// }
+    ///
+    /// # struct ValidTarget;
+    /// # impl Target<f64> for ValidTarget { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &ValidTarget).unwrap();
+    /// // This will return Err(McmcError::InfiniteCurrentLogProb)
+    /// let sampler = Sampler::new(chain, &InfTarget, &P, &mut rng).unwrap();
     /// ```
     pub fn new(
         mut chain: Chain<S>,
