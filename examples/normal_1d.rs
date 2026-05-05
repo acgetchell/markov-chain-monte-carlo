@@ -42,7 +42,7 @@ fn main() -> Result<(), McmcError> {
     let target = StandardNormal;
     let proposal = RandomWalk { width: 1.0 };
     let chain = Chain::new(Scalar(5.0), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
 
     println!("Sampling N(0,1) with Metropolis–Hastings (seed={seed})");
     println!("Initial state: x = {:.3}", sampler.chain_ref().state().0);
@@ -56,7 +56,7 @@ fn main() -> Result<(), McmcError> {
     );
 
     // Reset counters so acceptance rate reflects production only
-    sampler.chain_mut().reset_counters();
+    sampler.reset_counters();
 
     // Collect samples
     let n_samples = 10_000;

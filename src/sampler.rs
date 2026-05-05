@@ -167,11 +167,11 @@ fn thinned_capacity<E>(steps: usize, thin_interval: usize) -> Result<usize, Thin
 ///
 /// let mut rng = StdRng::seed_from_u64(42);
 /// let chain = Chain::new(Scalar(0.0), &Normal)?;
-/// let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+/// let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
 ///
 /// // Burn-in
 /// sampler.run(1000)?;
-/// sampler.chain_mut().reset_counters();
+/// sampler.reset_counters();
 ///
 /// // Production sampling
 /// sampler.run(10_000)?;
@@ -198,40 +198,11 @@ impl<S: fmt::Debug, T, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
 
 // --- Construction and decomposition (no trait bounds) ---
 
-impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
-    /// Create a new sampler from its components.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::prelude::by_value::*;
-    /// use rand::{Rng, SeedableRng, rngs::StdRng};
-    ///
-    /// # struct T;
-    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
-    /// # struct P;
-    /// # impl Proposal<f64> for P {
-    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
-    /// #     }
-    /// # }
-    /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0.0, &T)?;
-    /// let sampler = Sampler::new(chain, &T, &P, &mut rng);
-    ///
-    /// assert_eq!(sampler.chain_ref().total_steps(), 0);
-    /// # Ok::<(), McmcError>(())
-    /// ```
-    pub const fn new(chain: Chain<S>, target: &'a T, proposal: P, rng: &'a mut R) -> Self {
-        Self {
-            chain,
-            target,
-            proposal,
-            rng,
-        }
-    }
-
+impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// Shared reference to the inner chain.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -245,48 +216,19 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(1.0, &T)?;
-    /// let sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     ///
-    /// assert!((*sampler.chain_ref().state() - 1.0).abs() < f64::EPSILON);
+    /// assert_relative_eq!(*sampler.chain_ref().state(), 1.0);
     /// # Ok::<(), McmcError>(())
     /// ```
     pub const fn chain_ref(&self) -> &Chain<S> {
         &self.chain
     }
 
-    /// Mutable reference to the inner chain.
-    ///
-    /// This permits operations such as [`Chain::reset_counters`] or
-    /// [`Chain::replace_state`] without exposing `Sampler`'s fields as part of
-    /// its public representation.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::prelude::by_value::*;
-    /// use rand::{Rng, SeedableRng, rngs::StdRng};
-    ///
-    /// # struct T;
-    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
-    /// # struct P;
-    /// # impl Proposal<f64> for P {
-    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
-    /// #     }
-    /// # }
-    /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(1.0, &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
-    ///
-    /// sampler.chain_mut().replace_state(2.0, &T)?;
-    /// assert!((*sampler.chain_ref().state() - 2.0).abs() < f64::EPSILON);
-    /// # Ok::<(), McmcError>(())
-    /// ```
-    pub const fn chain_mut(&mut self) -> &mut Chain<S> {
-        &mut self.chain
-    }
-
     /// Shared reference to the stored proposal handle.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -302,9 +244,9 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// let proposal = Walk { width: 1.0 };
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T)?;
-    /// let sampler = Sampler::new(chain, &T, &proposal, &mut rng);
+    /// let sampler = Sampler::new(chain, &T, &proposal, &mut rng)?;
     ///
-    /// assert!((sampler.proposal_ref().width - 1.0).abs() < f64::EPSILON);
+    /// assert_relative_eq!(sampler.proposal_ref().width, 1.0);
     /// # Ok::<(), McmcError>(())
     /// ```
     #[must_use]
@@ -315,6 +257,7 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// Mutable reference to the stored proposal handle.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -329,10 +272,10 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, Walk { width: 1.0 }, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, Walk { width: 1.0 }, &mut rng)?;
     /// sampler.proposal_mut().width = 0.5;
     ///
-    /// assert!((sampler.proposal_ref().width - 0.5).abs() < f64::EPSILON);
+    /// assert_relative_eq!(sampler.proposal_ref().width, 0.5);
     /// # Ok::<(), McmcError>(())
     /// ```
     pub const fn proposal_mut(&mut self) -> &mut P {
@@ -342,6 +285,7 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// Consume the sampler and return the inner chain.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{SeedableRng, rngs::StdRng};
     ///
@@ -353,13 +297,45 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(1.0_f64, &T)?;
-    /// let sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let chain = sampler.into_chain();
-    /// assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+    /// assert_relative_eq!(chain.log_prob(), -0.5, epsilon = 1e-12);
     /// # Ok::<(), McmcError>(())
     /// ```
     pub fn into_chain(self) -> Chain<S> {
         self.chain
+    }
+
+    /// Reset acceptance and rejection counters on the inner chain.
+    ///
+    /// Useful after burn-in to measure the acceptance rate of the production
+    /// phase only.
+    ///
+    /// ```
+    /// use approx::assert_relative_eq;
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, _: &f64) -> f64 { 0.0 } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &T)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    ///
+    /// sampler.run(4)?;
+    /// sampler.reset_counters();
+    ///
+    /// assert_eq!(sampler.chain_ref().total_steps(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub const fn reset_counters(&mut self) {
+        self.chain.reset_counters();
     }
 
     /// Run the shared validate/step/modulo-gate loop for thinned methods.
@@ -408,6 +384,112 @@ impl<'a, S, T, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     }
 }
 
+impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
+    /// Create a new sampler from its components.
+    ///
+    /// The sampler refreshes the chain's cached log-probability from the
+    /// stored target. This prevents pairing a valid chain with a different
+    /// target and silently continuing from a stale cache.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &T)?;
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// assert_eq!(sampler.chain_ref().total_steps(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McmcError::NanCurrentLogProb`] or
+    /// [`McmcError::InfiniteCurrentLogProb`] if the target returns NaN or +∞
+    /// for the chain's current state.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &T)?;
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// assert_eq!(sampler.chain_ref().total_steps(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn new(
+        mut chain: Chain<S>,
+        target: &'a T,
+        proposal: P,
+        rng: &'a mut R,
+    ) -> Result<Self, McmcError> {
+        chain.refresh_current_log_prob(target)?;
+        Ok(Self {
+            chain,
+            target,
+            proposal,
+            rng,
+        })
+    }
+
+    /// Replace the sampler's current chain state using the sampler target.
+    ///
+    /// This keeps the chain's cached log-probability synchronized with the
+    /// target that subsequent sampler steps will use.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McmcError::NanReplacementLogProb`] or
+    /// [`McmcError::InfiniteReplacementLogProb`] if the sampler target returns
+    /// NaN or +∞ for `new_state`.
+    ///
+    /// ```
+    /// use approx::assert_relative_eq;
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
+    /// # struct P;
+    /// # impl Proposal<f64> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
+    /// #         current + 1.0
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0.0, &T)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// sampler.replace_state(2.0)?;
+    ///
+    /// assert_eq!(*sampler.chain_ref().state(), 2.0);
+    /// assert_relative_eq!(sampler.chain_ref().log_prob(), -2.0, epsilon = 1e-12);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn replace_state(&mut self, new_state: S) -> Result<(), McmcError> {
+        self.chain.replace_state(new_state, self.target)
+    }
+}
+
 // --- By-value stepping ---
 
 impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
@@ -430,7 +512,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// sampler.step()?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
@@ -462,7 +544,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     ///
     /// sampler.run(1000)?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
@@ -504,7 +586,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     ///
     /// let states = sampler.run_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -551,7 +633,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let mut energy = |state: &f64| 0.5 * state * state;
     ///
     /// let measurement = sampler.step_observing(&mut energy)?;
@@ -588,7 +670,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_observing(128, &mut coordinate)?;
@@ -634,7 +716,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -686,7 +768,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| state.0;
     /// let mut stats = OnlineStats::new();
     ///
@@ -746,7 +828,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -803,7 +885,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut finite = |state: &f64| {
     ///     if state.is_finite() { Ok(*state) } else { Err("non-finite") }
     /// };
@@ -843,7 +925,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut nonnegative = |state: &f64| {
     ///     if *state >= 0.0 { Ok(*state) } else { Err("negative state") }
     /// };
@@ -893,7 +975,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -940,7 +1022,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut nonnegative = |state: &f64| {
     ///     if *state >= 0.0 { Ok(*state) } else { Err("negative state") }
     /// };
@@ -1001,7 +1083,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
@@ -1066,7 +1148,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let accepted = sampler.step_mut()?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
@@ -1105,7 +1187,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(Spins(vec![1; 20]), &Ising)?;
-    /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng).unwrap();
     ///
     /// sampler.run_mut(1000)?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
@@ -1150,7 +1232,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     ///
     /// let states = sampler.run_mut_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -1204,7 +1286,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let (_accepted, sample) = sampler.step_mut_observing(&mut coordinate)?;
@@ -1243,7 +1325,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_mut_observing(16, &mut coordinate)?;
@@ -1294,7 +1376,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -1346,7 +1428,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| state.0;
     /// let mut bins = BinningAnalysis::new();
     ///
@@ -1411,7 +1493,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
     ///
@@ -1469,7 +1551,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1513,7 +1595,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1569,7 +1651,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
     ///
     /// let samples = sampler.try_run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -1622,7 +1704,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1688,7 +1770,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
     ///
@@ -1789,7 +1871,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = MoveRight;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(-1, &target)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     ///
     /// let step = sampler.step_delayed()?;
     /// assert!(step.accepted);
@@ -1860,7 +1942,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     ///
     /// sampler.run_delayed(3)?;
     /// assert_eq!(*sampler.chain_ref().state(), 3);
@@ -1935,7 +2017,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(S(0), &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     ///
     /// let states = sampler.run_delayed_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -1994,7 +2076,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let (_step, sample) = sampler.step_delayed_observing(&mut coordinate)?;
@@ -2066,7 +2148,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing(3, &mut coordinate)?;
@@ -2118,7 +2200,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -2176,7 +2258,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -2240,7 +2322,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -2305,7 +2387,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(*state) } else { Err("not positive") }
     /// };
@@ -2355,7 +2437,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(*state) } else { Err("not positive") }
     /// };
@@ -2410,7 +2492,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -2474,7 +2556,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(f64::from(*state)) } else { Err("not positive") }
     /// };
@@ -2539,7 +2621,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
@@ -2613,7 +2695,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, 
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(Val(0.0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng);
+    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng).unwrap();
     ///
     /// // Take exactly 100 steps using iterator
     /// let errors: Vec<_> = sampler.by_ref().take(100).filter_map(Result::err).collect();
@@ -2630,9 +2712,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, 
 mod tests {
     use core::convert::Infallible;
 
+    use approx::assert_relative_eq;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
     use super::*;
     use crate::{BinningAnalysis, OnlineStats, StatisticsError};
-    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     // --- Shared fixtures ---
 
@@ -2730,13 +2814,19 @@ mod tests {
         Chain::new(MutScalar(initial), &Normal).unwrap()
     }
 
+    macro_rules! sampler {
+        ($($arg:tt)*) => {
+            Sampler::new($($arg)*).unwrap()
+        };
+    }
+
     // --- Construction ---
 
     #[test]
     fn new_and_into_chain() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
-        let sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let chain = sampler.into_chain();
         assert_eq!(chain.state, Scalar(1.0));
     }
@@ -2745,18 +2835,81 @@ mod tests {
     fn accessors_expose_components() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, Walk { width: 1.0 }, &mut rng);
 
         assert_eq!(sampler.chain_ref().state(), &Scalar(1.0));
-        sampler
-            .chain_mut()
-            .replace_state(Scalar(2.0), &Normal)
-            .unwrap();
+        sampler.replace_state(Scalar(2.0)).unwrap();
         assert_eq!(sampler.chain_ref().state(), &Scalar(2.0));
 
-        assert!((sampler.proposal_ref().width - 1.0).abs() < f64::EPSILON);
+        assert_relative_eq!(sampler.proposal_ref().width, 1.0);
         sampler.proposal_mut().width = 0.5;
-        assert!((sampler.proposal_ref().width - 0.5).abs() < f64::EPSILON);
+        assert_relative_eq!(sampler.proposal_ref().width, 0.5);
+    }
+
+    #[test]
+    fn new_recomputes_chain_log_prob_from_sampler_target() {
+        struct ShiftedNormal;
+        impl Target<Scalar> for ShiftedNormal {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                -0.5 * (state.0 - 10.0) * (state.0 - 10.0)
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        assert_relative_eq!(chain.log_prob(), -0.5, epsilon = 1e-12);
+
+        let sampler = sampler!(chain, &ShiftedNormal, &Walk { width: 1.0 }, &mut rng);
+
+        assert_relative_eq!(sampler.chain_ref().log_prob(), -40.5, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn new_rejects_invalid_current_log_prob() {
+        struct NanTarget;
+        impl Target<Scalar> for NanTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::NAN
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let result = Sampler::new(chain, &NanTarget, &Walk { width: 1.0 }, &mut rng);
+
+        assert!(matches!(result, Err(McmcError::NanCurrentLogProb)));
+    }
+
+    #[test]
+    fn new_rejects_infinite_current_log_prob() {
+        struct InfTarget;
+        impl Target<Scalar> for InfTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::INFINITY
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let result = Sampler::new(chain, &InfTarget, &Walk { width: 1.0 }, &mut rng);
+
+        assert!(matches!(result, Err(McmcError::InfiniteCurrentLogProb)));
+    }
+
+    #[test]
+    fn new_rejects_invalid_current_log_prob_without_reusing_cache() {
+        struct NanTarget;
+        impl Target<Scalar> for NanTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::NAN
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let result = Sampler::new(chain, &NanTarget, &Walk { width: 1.0 }, &mut rng);
+
+        assert!(matches!(result, Err(McmcError::NanCurrentLogProb)));
     }
 
     // --- Debug ---
@@ -2765,7 +2918,7 @@ mod tests {
     fn debug_output_contains_chain() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
-        let sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let debug = format!("{sampler:?}");
         assert!(debug.contains("Sampler"));
         assert!(debug.contains("chain"));
@@ -2796,7 +2949,7 @@ mod tests {
     fn step_advances_chain() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         sampler.step().unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 1);
@@ -2806,7 +2959,7 @@ mod tests {
     fn run_n_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         sampler.run(500).unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 500);
@@ -2815,7 +2968,7 @@ mod tests {
     #[test]
     fn run_with_thinning_collects_every_kth_state() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
 
         let states = sampler.run_with_thinning(5, 2).unwrap();
 
@@ -2826,7 +2979,7 @@ mod tests {
     #[test]
     fn run_with_thinning_skips_collection_when_interval_exceeds_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
 
         let states = sampler.run_with_thinning(3, 4).unwrap();
 
@@ -2837,7 +2990,7 @@ mod tests {
     #[test]
     fn run_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
 
         let result = sampler.run_with_thinning(5, 0);
 
@@ -2852,7 +3005,7 @@ mod tests {
     fn run_with_thinning_reports_step_error_without_collecting() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
 
         let result = sampler.run_with_thinning(5, 2);
 
@@ -2867,7 +3020,7 @@ mod tests {
     fn run_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
 
         let measurements = sampler.run_observing(25, &mut energy).unwrap();
@@ -2881,7 +3034,7 @@ mod tests {
     fn run_observing_into_streams_to_online_stats() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &Scalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -2897,7 +3050,7 @@ mod tests {
     #[test]
     fn run_observing_with_thinning_collects_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut calls = 0;
         let mut coordinate = |state: &Scalar| {
             calls += 1;
@@ -2916,7 +3069,7 @@ mod tests {
     #[test]
     fn run_observing_with_thinning_skips_observation_when_interval_exceeds_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut calls = 0;
         let mut coordinate = |state: &Scalar| {
             calls += 1;
@@ -2935,7 +3088,7 @@ mod tests {
     #[test]
     fn run_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &Scalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -2950,7 +3103,7 @@ mod tests {
     #[test]
     fn try_run_observing_with_thinning_observes_only_thinned_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut calls = 0;
         let mut observable = |_state: &Scalar| {
             calls += 1;
@@ -2972,7 +3125,7 @@ mod tests {
     #[test]
     fn try_run_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &Scalar| Ok::<f64, ObservationFailure>(state.0);
         let mut stats = OnlineStats::new();
 
@@ -2987,7 +3140,7 @@ mod tests {
     #[test]
     fn run_observing_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &Scalar| state.0;
 
         let result = sampler.run_observing_with_thinning(5, 0, &mut coordinate);
@@ -3002,7 +3155,7 @@ mod tests {
     #[test]
     fn run_observing_into_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &Scalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -3020,7 +3173,7 @@ mod tests {
     fn run_observing_into_with_thinning_reports_step_error_without_accumulating() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
         let mut observed = false;
         let mut coordinate = |state: &Scalar| {
             observed = true;
@@ -3047,7 +3200,7 @@ mod tests {
     fn try_run_observing_reports_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut calls = 0;
         let mut observable = |state: &Scalar| {
             calls += 1;
@@ -3071,7 +3224,7 @@ mod tests {
     fn try_run_observing_into_stops_on_observation_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut calls = 0;
         let mut observable = |state: &Scalar| {
             calls += 1;
@@ -3097,7 +3250,7 @@ mod tests {
     fn run_observing_into_reports_accumulation_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
         let mut invalid = |_state: &Scalar| f64::NAN;
         let mut stats = OnlineStats::new();
 
@@ -3117,7 +3270,7 @@ mod tests {
     fn run_observing_into_reports_step_error_without_accumulating() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
         let mut observed = false;
         let mut observable = |state: &Scalar| {
             observed = true;
@@ -3139,7 +3292,7 @@ mod tests {
     fn try_run_observing_into_reports_step_error_without_accumulating() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
         let mut observed = false;
         let mut observable = |state: &Scalar| {
             observed = true;
@@ -3161,7 +3314,7 @@ mod tests {
     fn try_step_observing_skips_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &NanLogQProposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
         let mut observed = false;
         let mut observable = |state: &Scalar| {
             observed = true;
@@ -3183,7 +3336,7 @@ mod tests {
     fn step_mut_advances_chain() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
 
         sampler.step_mut().unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 1);
@@ -3193,7 +3346,7 @@ mod tests {
     fn run_mut_n_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
 
         sampler.run_mut(500).unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 500);
@@ -3202,7 +3355,7 @@ mod tests {
     #[test]
     fn run_mut_with_thinning_collects_every_kth_state() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3218,7 +3371,7 @@ mod tests {
     #[test]
     fn run_mut_with_thinning_skips_collection_when_interval_exceeds_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3234,7 +3387,7 @@ mod tests {
     #[test]
     fn run_mut_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3254,7 +3407,7 @@ mod tests {
     fn run_mut_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
 
         let measurements = sampler.run_mut_observing(25, &mut coordinate).unwrap();
@@ -3267,7 +3420,7 @@ mod tests {
     fn run_mut_observing_into_streams_to_binning_analysis() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
         let mut bins = BinningAnalysis::new();
 
@@ -3283,7 +3436,7 @@ mod tests {
     #[test]
     fn run_mut_observing_with_thinning_collects_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3307,7 +3460,7 @@ mod tests {
     #[test]
     fn run_mut_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3327,7 +3480,7 @@ mod tests {
     #[test]
     fn try_run_mut_observing_with_thinning_observes_only_thinned_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3354,7 +3507,7 @@ mod tests {
     #[test]
     fn try_run_mut_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3374,7 +3527,7 @@ mod tests {
     #[test]
     fn run_mut_observing_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(
+        let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
             &MutWalk { width: 1.0 },
@@ -3395,7 +3548,7 @@ mod tests {
     fn try_step_mut_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
 
         let (_accepted, sample) = sampler.try_step_mut_observing(&mut coordinate).unwrap();
@@ -3408,7 +3561,7 @@ mod tests {
     fn try_run_mut_observing_errors() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut observable = |_state: &MutScalar| Err::<f64, _>(ObservationFailure::Failed);
 
         let result = sampler.try_run_mut_observing(1, &mut observable);
@@ -3424,7 +3577,7 @@ mod tests {
     fn try_run_mut_observing_into_streams_successes() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
         let mut stats = OnlineStats::new();
 
@@ -3440,7 +3593,7 @@ mod tests {
     fn try_run_mut_observing_into_reports_accumulation_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
         let mut invalid = |_state: &MutScalar| Ok::<f64, ObservationFailure>(f64::INFINITY);
         let mut stats = OnlineStats::new();
 
@@ -3538,7 +3691,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
 
         let step = sampler.step_delayed().unwrap();
 
@@ -3552,7 +3705,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
 
         sampler.run_delayed(10).unwrap();
 
@@ -3564,7 +3717,7 @@ mod tests {
     fn run_delayed_with_thinning_collects_every_kth_state() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
 
         let states = sampler.run_delayed_with_thinning(6, 2).unwrap();
 
@@ -3576,7 +3729,7 @@ mod tests {
     fn run_delayed_with_thinning_skips_collection_when_interval_exceeds_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
 
         let states = sampler.run_delayed_with_thinning(3, 4).unwrap();
 
@@ -3588,7 +3741,7 @@ mod tests {
     fn run_delayed_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
 
         let result = sampler.run_delayed_with_thinning(5, 0);
 
@@ -3604,7 +3757,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
 
         let measurements = sampler.run_delayed_observing(5, &mut coordinate).unwrap();
@@ -3618,7 +3771,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -3635,7 +3788,7 @@ mod tests {
     fn run_delayed_observing_with_thinning_collects_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
         let mut calls = 0;
         let mut coordinate = |state: &MutScalar| {
             calls += 1;
@@ -3655,7 +3808,7 @@ mod tests {
     fn run_delayed_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -3672,7 +3825,7 @@ mod tests {
     fn run_delayed_observing_into_with_thinning_reports_zero_interval() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
         let mut stats = OnlineStats::new();
 
@@ -3692,7 +3845,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
 
         let measurements = sampler
@@ -3707,7 +3860,7 @@ mod tests {
     fn try_run_delayed_observing_with_thinning_observes_only_thinned_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
         let mut calls = 0;
         let mut observable = |_state: &MutScalar| {
             calls += 1;
@@ -3730,7 +3883,7 @@ mod tests {
     fn try_run_delayed_observing_into_with_thinning_streams_every_kth_step() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
         let mut stats = OnlineStats::new();
 
@@ -3748,7 +3901,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
         let mut observable = |_state: &MutScalar| Err::<f64, _>(ObservationFailure::Failed);
 
         let result = sampler.try_run_delayed_observing(1, &mut observable);
@@ -3765,7 +3918,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = DelayedToZero;
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
         let mut calls = 0;
         let mut observable = |state: &MutScalar| {
             calls += 1;
@@ -3843,7 +3996,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
         let mut proposal = StopAfterFirstDelayed { calls: 0 };
-        let mut sampler = Sampler::new(chain, &Normal, &mut proposal, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
 
         let result = sampler.run_delayed(3);
 
@@ -3861,7 +4014,7 @@ mod tests {
     fn iterator_take_n() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         // Use Iterator::take for burn-in
         for result in sampler.by_ref().take(200) {
@@ -3874,7 +4027,7 @@ mod tests {
     fn iterator_is_infinite() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut sampler = Sampler::new(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
         // next() always returns Some
         assert!(sampler.next().is_some());
@@ -3899,7 +4052,7 @@ mod tests {
         // Sampler
         let chain2 = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        let mut sampler = sampler!(chain2, &Normal, &proposal, &mut rng2);
         sampler.run(steps).unwrap();
 
         assert_eq!(chain.state, *sampler.chain_ref().state());
@@ -3922,7 +4075,7 @@ mod tests {
         // Sampler
         let chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(42);
-        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        let mut sampler = sampler!(chain2, &Normal, &proposal, &mut rng2);
         sampler.run_mut(steps).unwrap();
 
         assert_eq!(chain.state, *sampler.chain_ref().state());

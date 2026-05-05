@@ -1,45 +1,15 @@
 //! Markov Chain Monte Carlo (MCMC) framework.
 //!
-//! 🚧 **Pre-release (0.x)** — This crate is under active development and
-//! not yet ready for production use. APIs may change without notice.
-//!
-//! `markov-chain-monte-carlo` provides a small, explicit Metropolis-Hastings
-//! toolkit for scientific Rust projects. It is designed for ordinary numeric
-//! states, large combinatorial state spaces, and proposal implementations that
-//! need rollback-safe mutation or delayed commits.  The crate aims to provide
-//! a composable, zero-cost abstraction for MCMC methods over arbitrary state
-//! spaces, including discrete and combinatorial systems (e.g., triangulations).
-//!
-//! Use this crate when you want:
-//!
-//! - A generic Metropolis-Hastings chain over user-defined state spaces
-//! - By-value, in-place, and delayed-commit proposal APIs
-//! - Log-space acceptance calculations with NaN/+infinity checks
-//! - Observable measurement APIs for collecting derived quantities
-//! - Streaming means, variances, and binning error estimates
-//! - Thinning helpers for long sampler runs
-//! - Optional `serde` checkpointing for chains and sampler handles
-//! - Detailed-balance diagnostics for proposal development
+//! This API guide documents the crate's Metropolis-Hastings contracts,
+//! numerical semantics, proposal workflows, sampler helpers, observables, and
+//! streaming statistics. For installation, feature selection, and a concise
+//! orientation to the crate, see the hand-written sections at the top of the
+//! repository README.
 //!
 //! [`Target::log_prob`] should return an unnormalized natural log-probability
 //! or log-density.  Additive constants are fine because Metropolis-Hastings
 //! only uses differences, but arbitrary scores or logits will sample a
 //! different distribution.
-//!
-//! # Features
-//!
-//! - `Target<S>` for unnormalized log probabilities or log densities
-//! - `Proposal<S>` for simple by-value proposals
-//! - `ProposalMut<S>` for in-place mutation with rollback tokens
-//! - `DelayedProposal<S>` for accept-before-mutation workflows with concrete
-//!   plans
-//! - `Chain<S>` with by-value, in-place, and delayed step methods
-//! - `Sampler<S, T, P, R>` for ergonomic bulk runs and iterator-based sampling
-//! - Observables, fallible observations, and sample buffers
-//! - Online statistics and binning analysis for correlated samples
-//! - Thinned run and observation helpers
-//! - Optional `serde` feature for checkpointing
-//! - Detailed-balance checks for by-value, in-place, and delayed proposals
 //!
 //! # Scientific basis and scope
 //!
@@ -137,14 +107,16 @@
 //! proposal-development checks over discrete or otherwise exactly comparable
 //! states.
 //!
-//! Enable the optional `serde` feature to serialize and deserialize
-//! [`Chain<S>`] when `S` implements serde's traits.  [`Sampler`] also derives
-//! serialization when all stored handles support it, but the portable
-//! checkpoint for resuming a run is the owned [`Chain<S>`]; targets, proposals,
-//! and RNG streams are reconstructed by the caller.
+//! Enable the optional `serde` feature to serialize [`Chain<S>`] checkpoints
+//! when `S` implements serde's traits.  Restore checkpoint data with
+//! [`Chain::from_checkpoint`] so the cached log-probability is recomputed from
+//! the target used for resumed sampling.  [`Sampler`] also derives
+//! serialization when all stored handles support it, but targets, proposals,
+//! and RNG streams are reconstructed by the caller for portable resumes.
 //!
 //! ```
 //! # #[cfg(feature = "serde")] {
+//! use approx::assert_relative_eq;
 //! use markov_chain_monte_carlo::prelude::*;
 //!
 //! struct Normal;
@@ -152,12 +124,17 @@
 //!     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
 //! }
 //!
-//! let Ok(chain) = Chain::new(1.0, &Normal) else {
-//!     unreachable!("normal target returns a finite log probability");
-//! };
+//! let chain = Chain::new(1.0, &Normal)
+//!     .expect("normal target returns a finite log probability");
 //! let checkpoint = serde_json::to_string(&chain)?;
-//! let restored: Chain<f64> = serde_json::from_str(&checkpoint)?;
-//! assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+//! let checkpoint: ChainCheckpoint<f64> = serde_json::from_str(&checkpoint)?;
+//! let restored = Chain::from_checkpoint(checkpoint, &Normal)
+//!     .expect("normal target returns a finite checkpoint log probability");
+//! assert_relative_eq!(
+//!     restored.log_prob(),
+//!     Normal.log_prob(restored.state()),
+//!     epsilon = 1e-12
+//! );
 //! # }
 //! # Ok::<(), serde_json::Error>(())
 //! ```
@@ -353,11 +330,11 @@
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
 //! let chain = Chain::new(Scalar(0.0), &Normal)?;
-//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
 //!
 //! // Burn-in
 //! sampler.run(1000)?;
-//! sampler.chain_mut().reset_counters();
+//! sampler.reset_counters();
 //!
 //! // Production
 //! sampler.run(10_000)?;
@@ -387,7 +364,7 @@
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
 //! let chain = Chain::new(Scalar(0.0), &Normal)?;
-//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
 //! let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
 //!
 //! let samples: SampleBuffer<f64> = sampler.run_observing(256, &mut energy)?;
@@ -430,7 +407,7 @@
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
 //! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
 //! let mut coordinate = |state: &f64| *state;
 //! let mut stats = OnlineStats::new();
 //!
@@ -447,7 +424,7 @@ mod statistics;
 mod testing;
 mod traits;
 
-pub use chain::{Chain, DelayedStep, DelayedStepError, Step};
+pub use chain::{Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step};
 pub use error::McmcError;
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
@@ -476,16 +453,11 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// The top-level prelude contains only the shared sampling foundation:
 ///
 /// ```
-/// use std::convert::Infallible;
-///
 /// use markov_chain_monte_carlo::prelude::*;
 ///
 /// fn accepts_target<T: Target<f64>>(_: &T) {}
 /// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
 /// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
-/// fn accepts_delayed_stream_result(
-///     _: TryObservedDelayedIntoRunResult<Infallible, StatisticsError, StatisticsError>,
-/// ) {}
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
@@ -516,13 +488,11 @@ pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
 /// ```
 pub mod prelude {
     pub use crate::{
-        BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
-        ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
-        StatisticsError, Target, ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult,
-        ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
-        TryObservedDelayedIntoRunResult, TryObservedIntoRunResult,
-        TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
-        TryThinnedObservedRunResult,
+        BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
+        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
+        Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
+        ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -531,10 +501,10 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
-            ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
-            StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError,
-            TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
+            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, Proposal,
+            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
+            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
             TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
@@ -545,11 +515,12 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, McmcError, Observable, ObservedIntoRunResult,
-            ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
-            Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
-            ThinningError, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
-            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
+            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
+            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
+            TryObservable, TryObservedIntoRunResult, TryThinnedObservedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 
@@ -559,12 +530,12 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, DelayedProposal, DelayedStep,
-            DelayedStepError, Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
-            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedDelayedIntoRunResult,
-            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
-            TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
+            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedProposal, DelayedStep,
+            DelayedStepError, McmcError, Observable, ObservedDelayedIntoRunResult,
+            ObservedDelayedStep, ObservedDelayedStepResult, ObservedStepError, ObservedStreamError,
+            OnlineStats, SampleBuffer, Sampler, StatisticsError, Target,
+            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
+            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
             TryThinnedObservedRunResult,
         };
     }
@@ -597,11 +568,12 @@ mod public_api_smoke_tests {
     use serde_json::{Error as JsonError, json, to_value};
 
     use super::{
-        BinningAnalysis, BinningEstimate, Chain, DelayedStep, DetailedBalanceBatchReport,
-        DetailedBalanceConfig, DetailedBalanceDelayedTransition, DetailedBalanceDirection,
-        DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
-        McmcError, Observable, ObservedDelayedStep, OnlineStats, Proposal, ProposalMut,
-        SampleBuffer, Sampler, StatisticsError, Step, Target, ThinningError,
+        BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedStep,
+        DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
+        DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure,
+        DetailedBalanceReport, DetailedBalanceState, McmcError, Observable, ObservedDelayedStep,
+        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, Target,
+        ThinningError,
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
@@ -685,6 +657,7 @@ mod public_api_smoke_tests {
         needs_observable(&mut observable);
 
         let _: Option<Chain<f64>> = None;
+        let _: Option<ChainCheckpoint<f64>> = None;
         let _: Option<Step<()>> = None;
         let _: Option<DelayedStep<()>> = None;
         let _: Option<McmcError> = None;
@@ -711,18 +684,10 @@ mod public_api_smoke_tests {
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
+        let _: Option<delayed::McmcError> = None;
         let _: Option<testing::DetailedBalanceConfig> = None;
         let _: Option<testing::DetailedBalanceError> = None;
         let _: Option<testing::DetailedBalanceReport> = None;
-        let _: Option<
-            prelude::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
-        > = None;
-        let _: Option<
-            by_value::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
-        > = None;
-        let _: Option<
-            in_place::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
-        > = None;
         let _: Option<
             delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
         > = None;
@@ -737,12 +702,13 @@ mod public_api_smoke_tests {
         let Ok(chain) = Chain::new(1.0, &target) else {
             unreachable!("Smoke target always returns a finite log-probability");
         };
-        let sampler = Sampler::new(chain, &target, proposal, &mut rng);
+        let Ok(sampler) = Sampler::new(chain, &target, proposal, &mut rng) else {
+            unreachable!("Smoke target always returns a finite current log-probability");
+        };
 
         let checkpoint = to_value(&sampler)?;
 
         assert_eq!(checkpoint["chain"]["state"], json!(1.0));
-        assert_eq!(checkpoint["chain"]["log_prob"], json!(0.0));
         assert_eq!(checkpoint["chain"]["accepted"], json!(0));
         assert_eq!(checkpoint["chain"]["rejected"], json!(0));
         assert!(checkpoint.get("target").is_some());

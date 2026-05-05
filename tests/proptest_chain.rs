@@ -5,6 +5,7 @@
 
 use core::convert::Infallible;
 
+use approx::relative_eq;
 use markov_chain_monte_carlo::prelude::by_value::Proposal;
 use markov_chain_monte_carlo::prelude::delayed::DelayedProposal;
 use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
@@ -122,7 +123,7 @@ proptest! {
 
         let expected = Normal.log_prob(chain.state());
         prop_assert!(
-            (chain.log_prob() - expected).abs() < 1e-12,
+            relative_eq!(chain.log_prob(), expected, epsilon = 1e-12),
             "log_prob {:.15} != target {:.15} after {} steps",
             chain.log_prob(), expected, steps,
         );
@@ -146,7 +147,7 @@ proptest! {
 
         let expected = Normal.log_prob(chain.state());
         prop_assert!(
-            (chain.log_prob() - expected).abs() < 1e-12,
+            relative_eq!(chain.log_prob(), expected, epsilon = 1e-12),
             "log_prob {:.15} != target {:.15} after {} steps",
             chain.log_prob(), expected, steps,
         );
@@ -181,7 +182,7 @@ proptest! {
             "Final states diverged after {} steps", steps,
         );
         prop_assert!(
-            (chain_clone.log_prob() - chain_mut.log_prob()).abs() < 1e-12,
+            relative_eq!(chain_clone.log_prob(), chain_mut.log_prob(), epsilon = 1e-12),
             "log_prob diverged: clone={:.15}, mut={:.15}",
             chain_clone.log_prob(), chain_mut.log_prob(),
         );
@@ -219,7 +220,7 @@ proptest! {
             "Final states diverged after {} steps", steps,
         );
         prop_assert!(
-            (chain_clone.log_prob() - chain_delayed.log_prob()).abs() < 1e-12,
+            relative_eq!(chain_clone.log_prob(), chain_delayed.log_prob(), epsilon = 1e-12),
             "log_prob diverged: clone={:.15}, delayed={:.15}",
             chain_clone.log_prob(), chain_delayed.log_prob(),
         );
@@ -296,7 +297,7 @@ proptest! {
         // Sampler
         let chain2 = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(seed);
-        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2).unwrap();
         sampler.run(steps as usize).unwrap();
 
         prop_assert_eq!(chain.state(), sampler.chain_ref().state());
@@ -325,7 +326,7 @@ proptest! {
         // Sampler
         let chain2 = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(seed);
-        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2);
+        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2).unwrap();
         sampler.run_mut(steps as usize).unwrap();
 
         prop_assert_eq!(chain.state(), sampler.chain_ref().state());

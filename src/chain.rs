@@ -1,10 +1,14 @@
 //! MCMC chain implementation.
 
+use core::hint::cold_path;
+
 use std::error::Error;
 use std::fmt;
 
 use rand::distr::Open01;
 use rand::{Rng, RngExt};
+#[cfg(feature = "serde")]
+use serde::{Serialize, Serializer};
 
 use crate::{DelayedProposal, McmcError, Proposal, ProposalMut, Target};
 
@@ -17,6 +21,7 @@ fn accept_from_log_uniform(log_alpha: f64, log_u: f64) -> bool {
     // NaN can arise from valid inputs such as -inf - (-inf); treat that as a
     // zero acceptance probability instead of relying on float comparison quirks.
     if log_alpha.is_nan() {
+        cold_path();
         false
     } else if log_alpha >= 0.0 {
         true
@@ -41,9 +46,11 @@ fn accept_log_alpha<R: Rng + ?Sized>(log_alpha: f64, rng: &mut R) -> bool {
 /// with the proposal-specific `McmcError` variants.
 fn check_proposed_log_prob(log_prob: f64) -> Result<(), McmcError> {
     if log_prob.is_nan() {
+        cold_path();
         return Err(McmcError::NanProposedLogProb);
     }
     if log_prob == f64::INFINITY {
+        cold_path();
         return Err(McmcError::InfiniteProposedLogProb);
     }
     Ok(())
@@ -55,9 +62,11 @@ fn check_proposed_log_prob(log_prob: f64) -> Result<(), McmcError> {
 /// implementation while preserving identical NaN and `+inf` error semantics.
 fn check_log_q_ratio(log_q: f64) -> Result<(), McmcError> {
     if log_q.is_nan() {
+        cold_path();
         return Err(McmcError::NanLogQRatio);
     }
     if log_q == f64::INFINITY {
+        cold_path();
         return Err(McmcError::InfiniteLogQRatio);
     }
     Ok(())
@@ -83,6 +92,111 @@ pub struct Step<I> {
 
 /// Telemetry for a delayed-commit Metropolis-Hastings step.
 pub type DelayedStep<I> = Step<I>;
+
+/// Portable checkpoint data for a [`Chain`].
+///
+/// A checkpoint stores the chain state and counters, but deliberately does not
+/// store the cached log-probability. Restore checkpoints with
+/// [`Chain::from_checkpoint`] so the cache is recomputed from the target that
+/// will be used for resumed sampling.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct ChainCheckpoint<S> {
+    /// Current state.
+    state: S,
+    /// Number of accepted moves.
+    accepted: usize,
+    /// Number of rejected moves.
+    rejected: usize,
+}
+
+impl<S> ChainCheckpoint<S> {
+    /// Create a checkpoint from owned state and counters.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new(1.0_f64, 2, 3);
+    ///
+    /// assert_eq!(*checkpoint.state(), 1.0);
+    /// assert_eq!(checkpoint.accepted(), 2);
+    /// assert_eq!(checkpoint.rejected(), 3);
+    /// assert_eq!(checkpoint.total_steps(), 5);
+    /// ```
+    pub const fn new(state: S, accepted: usize, rejected: usize) -> Self {
+        Self {
+            state,
+            accepted,
+            rejected,
+        }
+    }
+
+    /// Shared reference to the checkpointed state.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new("state", 0, 0);
+    /// assert_eq!(checkpoint.state(), &"state");
+    /// ```
+    #[must_use]
+    pub const fn state(&self) -> &S {
+        &self.state
+    }
+
+    /// Number of accepted moves in the checkpoint.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new((), 7, 11);
+    /// assert_eq!(checkpoint.accepted(), 7);
+    /// ```
+    #[must_use]
+    pub const fn accepted(&self) -> usize {
+        self.accepted
+    }
+
+    /// Number of rejected moves in the checkpoint.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new((), 7, 11);
+    /// assert_eq!(checkpoint.rejected(), 11);
+    /// ```
+    #[must_use]
+    pub const fn rejected(&self) -> usize {
+        self.rejected
+    }
+
+    /// Total number of counted steps in the checkpoint.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new((), 7, 11);
+    /// assert_eq!(checkpoint.total_steps(), 18);
+    /// ```
+    #[must_use]
+    pub const fn total_steps(&self) -> usize {
+        self.accepted.saturating_add(self.rejected)
+    }
+
+    /// Consume the checkpoint into its raw parts.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// let checkpoint = ChainCheckpoint::new("state", 7, 11);
+    /// assert_eq!(checkpoint.into_parts(), ("state", 7, 11));
+    /// ```
+    #[must_use]
+    pub fn into_parts(self) -> (S, usize, usize) {
+        (self.state, self.accepted, self.rejected)
+    }
+}
 
 /// Errors from a delayed-commit Metropolis-Hastings step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +252,6 @@ impl<E: Error + 'static> Error for DelayedStepError<E> {
 }
 
 /// A single MCMC chain.
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug)]
 #[must_use]
 pub struct Chain<S> {
@@ -152,17 +265,28 @@ pub struct Chain<S> {
     rejected: usize,
 }
 
+#[cfg(feature = "serde")]
+impl<S: Serialize> Serialize for Chain<S> {
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+    where
+        Ser: Serializer,
+    {
+        self.checkpoint().serialize(serializer)
+    }
+}
+
 impl<S> Chain<S> {
     /// Create a new chain from an initial state.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::*;
     ///
     /// # struct T;
     /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// let chain = Chain::new(1.0_f64, &T)?;
     /// assert_eq!(chain.accepted(), 0);
-    /// assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+    /// assert_relative_eq!(chain.log_prob(), -0.5, epsilon = 1e-12);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -174,9 +298,11 @@ impl<S> Chain<S> {
     pub fn new<T: Target<S>>(initial: S, target: &T) -> Result<Self, McmcError> {
         let log_prob = target.log_prob(&initial);
         if log_prob.is_nan() {
+            cold_path();
             return Err(McmcError::NanInitialLogProb);
         }
         if log_prob == f64::INFINITY {
+            cold_path();
             return Err(McmcError::InfiniteInitialLogProb);
         }
         Ok(Self {
@@ -185,6 +311,78 @@ impl<S> Chain<S> {
             accepted: 0,
             rejected: 0,
         })
+    }
+
+    /// Restore a chain from checkpoint data and a target distribution.
+    ///
+    /// The checkpoint does not contain a cached log-probability. This method
+    /// recomputes the cache from `target` and preserves the checkpointed
+    /// counters.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McmcError::NanCheckpointLogProb`] or
+    /// [`McmcError::InfiniteCheckpointLogProb`] if the target's
+    /// log-probability for the checkpoint state is NaN or +∞.
+    ///
+    /// ```
+    /// use approx::assert_relative_eq;
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// struct Normal;
+    /// impl Target<f64> for Normal {
+    ///     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
+    /// }
+    ///
+    /// let checkpoint = ChainCheckpoint::new(2.0, 7, 11);
+    /// let chain = Chain::from_checkpoint(checkpoint, &Normal)?;
+    ///
+    /// assert_eq!(*chain.state(), 2.0);
+    /// assert_relative_eq!(chain.log_prob(), -2.0, epsilon = 1e-12);
+    /// assert_eq!(chain.total_steps(), 18);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn from_checkpoint<T: Target<S>>(
+        checkpoint: ChainCheckpoint<S>,
+        target: &T,
+    ) -> Result<Self, McmcError> {
+        let (state, accepted, rejected) = checkpoint.into_parts();
+        let log_prob = target.log_prob(&state);
+        if log_prob.is_nan() {
+            cold_path();
+            return Err(McmcError::NanCheckpointLogProb);
+        }
+        if log_prob == f64::INFINITY {
+            cold_path();
+            return Err(McmcError::InfiniteCheckpointLogProb);
+        }
+        Ok(Self {
+            state,
+            log_prob,
+            accepted,
+            rejected,
+        })
+    }
+
+    /// Refresh the cached log-probability for the current state.
+    ///
+    /// This is used when a chain is paired with a sampler target, so resumed or
+    /// transferred chains do not continue sampling from a stale cache.
+    pub(crate) fn refresh_current_log_prob<T: Target<S>>(
+        &mut self,
+        target: &T,
+    ) -> Result<(), McmcError> {
+        let log_prob = target.log_prob(&self.state);
+        if log_prob.is_nan() {
+            cold_path();
+            return Err(McmcError::NanCurrentLogProb);
+        }
+        if log_prob == f64::INFINITY {
+            cold_path();
+            return Err(McmcError::InfiniteCurrentLogProb);
+        }
+        self.log_prob = log_prob;
+        Ok(())
     }
 
     /// Perform a single Metropolis–Hastings step with a by-value proposal.
@@ -240,9 +438,9 @@ impl<S> Chain<S> {
         if accept {
             self.state = proposed;
             self.log_prob = log_prob_new;
-            self.accepted += 1;
+            self.accepted = self.accepted.saturating_add(1);
         } else {
-            self.rejected += 1;
+            self.rejected = self.rejected.saturating_add(1);
         }
         Ok(())
     }
@@ -291,7 +489,7 @@ impl<S> Chain<S> {
         rng: &mut R,
     ) -> Result<bool, McmcError> {
         let Some(token) = proposal.propose_mut(&mut self.state, rng) else {
-            self.rejected += 1;
+            self.rejected = self.rejected.saturating_add(1);
             return Ok(false);
         };
 
@@ -313,10 +511,10 @@ impl<S> Chain<S> {
 
         if accept {
             self.log_prob = log_prob_new;
-            self.accepted += 1;
+            self.accepted = self.accepted.saturating_add(1);
         } else {
             proposal.undo(&mut self.state, token);
-            self.rejected += 1;
+            self.rejected = self.rejected.saturating_add(1);
         }
         Ok(accept)
     }
@@ -418,7 +616,7 @@ impl<S> Chain<S> {
             .propose_plan(&self.state, rng)
             .map_err(DelayedStepError::Plan)?
         else {
-            self.rejected += 1;
+            self.rejected = self.rejected.saturating_add(1);
             return Ok(Step {
                 accepted: false,
                 proposed: false,
@@ -448,7 +646,7 @@ impl<S> Chain<S> {
                 .commit(&mut self.state, plan, rng)
                 .map_err(DelayedStepError::Commit)?;
             self.log_prob = log_prob_new;
-            self.accepted += 1;
+            self.accepted = self.accepted.saturating_add(1);
             Ok(Step {
                 accepted: true,
                 proposed: true,
@@ -458,7 +656,7 @@ impl<S> Chain<S> {
                 log_alpha: Some(log_alpha),
             })
         } else {
-            self.rejected += 1;
+            self.rejected = self.rejected.saturating_add(1);
             Ok(Step {
                 accepted: false,
                 proposed: true,
@@ -473,12 +671,13 @@ impl<S> Chain<S> {
     /// Shared reference to the current state.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::*;
     ///
     /// # struct T;
     /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// let chain = Chain::new(1.0_f64, &T)?;
-    /// assert!((*chain.state() - 1.0).abs() < f64::EPSILON);
+    /// assert_relative_eq!(*chain.state(), 1.0);
     /// # Ok::<(), McmcError>(())
     /// ```
     #[must_use]
@@ -499,14 +698,15 @@ impl<S> Chain<S> {
     /// error).
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::*;
     ///
     /// # struct T;
     /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// let mut chain = Chain::new(0.0_f64, &T)?;
     /// chain.replace_state(2.0, &T)?;
-    /// assert!((*chain.state() - 2.0).abs() < f64::EPSILON);
-    /// assert!((chain.log_prob() - (-2.0)).abs() < 1e-12);
+    /// assert_relative_eq!(*chain.state(), 2.0);
+    /// assert_relative_eq!(chain.log_prob(), -2.0, epsilon = 1e-12);
     /// # Ok::<(), McmcError>(())
     /// ```
     pub fn replace_state<T: Target<S>>(
@@ -516,9 +716,11 @@ impl<S> Chain<S> {
     ) -> Result<(), McmcError> {
         let lp = target.log_prob(&new_state);
         if lp.is_nan() {
+            cold_path();
             return Err(McmcError::NanReplacementLogProb);
         }
         if lp == f64::INFINITY {
+            cold_path();
             return Err(McmcError::InfiniteReplacementLogProb);
         }
         self.state = new_state;
@@ -529,13 +731,14 @@ impl<S> Chain<S> {
     /// Consume the chain and return the state.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::*;
     ///
     /// # struct T;
     /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// let chain = Chain::new(3.0_f64, &T)?;
     /// let state = chain.into_state();
-    /// assert!((state - 3.0).abs() < f64::EPSILON);
+    /// assert_relative_eq!(state, 3.0);
     /// # Ok::<(), McmcError>(())
     /// ```
     #[must_use]
@@ -543,9 +746,52 @@ impl<S> Chain<S> {
         self.state
     }
 
+    /// Borrow checkpoint data for serialization without cloning the state.
+    ///
+    /// Use [`into_checkpoint`](Self::into_checkpoint) when an owned checkpoint
+    /// is needed.
+    ///
+    /// ```
+    /// use approx::assert_relative_eq;
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<String> for T { fn log_prob(&self, _: &String) -> f64 { 0.0 } }
+    /// let chain = Chain::new(String::from("state"), &T)?;
+    /// let checkpoint = chain.checkpoint();
+    ///
+    /// assert_eq!(checkpoint.state().as_str(), "state");
+    /// assert_eq!(checkpoint.total_steps(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub const fn checkpoint(&self) -> ChainCheckpoint<&S> {
+        ChainCheckpoint::new(&self.state, self.accepted, self.rejected)
+    }
+
+    /// Consume the chain into an owned checkpoint.
+    ///
+    /// Restore the returned checkpoint with [`from_checkpoint`](Self::from_checkpoint)
+    /// and the target that will be used for resumed sampling.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::*;
+    ///
+    /// # struct T;
+    /// # impl Target<String> for T { fn log_prob(&self, _: &String) -> f64 { 0.0 } }
+    /// let chain = Chain::new(String::from("state"), &T)?;
+    /// let checkpoint = chain.into_checkpoint();
+    ///
+    /// assert_eq!(checkpoint.into_parts(), (String::from("state"), 0, 0));
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn into_checkpoint(self) -> ChainCheckpoint<S> {
+        ChainCheckpoint::new(self.state, self.accepted, self.rejected)
+    }
+
     /// Current log-probability of the chain state.
     ///
     /// ```
+    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::*;
     ///
     /// # struct T;
@@ -553,7 +799,7 @@ impl<S> Chain<S> {
     /// #     fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x }
     /// # }
     /// let chain = Chain::new(1.0_f64, &T)?;
-    /// assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+    /// assert_relative_eq!(chain.log_prob(), -0.5, epsilon = 1e-12);
     /// # Ok::<(), McmcError>(())
     /// ```
     #[must_use]
@@ -619,7 +865,7 @@ impl<S> Chain<S> {
     /// ```
     #[must_use]
     pub const fn total_steps(&self) -> usize {
-        self.accepted + self.rejected
+        self.accepted.saturating_add(self.rejected)
     }
 
     /// Acceptance rate of the chain.
@@ -653,7 +899,7 @@ impl<S> Chain<S> {
         reason = "acceptance counts won't exceed 2^52"
     )]
     pub fn acceptance_rate(&self) -> f64 {
-        let total = self.accepted + self.rejected;
+        let total = self.accepted.saturating_add(self.rejected);
         if total == 0 {
             0.0
         } else {
@@ -705,8 +951,10 @@ impl<S> Chain<S> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use approx::assert_relative_eq;
     use rand::{SeedableRng, rngs::StdRng};
+
+    use super::*;
 
     // --- Test fixtures ---
 
@@ -754,16 +1002,10 @@ mod tests {
     #[test]
     fn new_initial_log_prob() {
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        assert!(
-            (chain.log_prob()).abs() < 1e-12,
-            "log_prob at 0 should be 0.0"
-        );
+        assert_relative_eq!(chain.log_prob(), 0.0, epsilon = 1e-12);
 
         let chain2 = Chain::new(Scalar(1.0), &Normal).unwrap();
-        assert!(
-            (chain2.log_prob() - (-0.5)).abs() < 1e-12,
-            "log_prob at 1 should be -0.5"
-        );
+        assert_relative_eq!(chain2.log_prob(), -0.5, epsilon = 1e-12);
     }
 
     #[cfg(feature = "serde")]
@@ -774,10 +1016,15 @@ mod tests {
         chain.step(&Normal, &FixedProposal(0.0), &mut rng).unwrap();
 
         let checkpoint = serde_json::to_string(&chain).unwrap();
-        let mut restored: Chain<Scalar> = serde_json::from_str(&checkpoint).unwrap();
+        let checkpoint: ChainCheckpoint<Scalar> = serde_json::from_str(&checkpoint).unwrap();
+        let mut restored = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
 
         assert_eq!(restored.state(), &Scalar(0.0));
-        assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+        assert_relative_eq!(
+            restored.log_prob(),
+            Normal.log_prob(restored.state()),
+            epsilon = 1e-12
+        );
         assert_eq!(restored.accepted(), 1);
         assert_eq!(restored.rejected(), 0);
         assert_eq!(restored.total_steps(), 1);
@@ -787,7 +1034,54 @@ mod tests {
             .unwrap();
 
         assert_eq!(restored.total_steps(), 2);
-        assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+        assert_relative_eq!(
+            restored.log_prob(),
+            Normal.log_prob(restored.state()),
+            epsilon = 1e-12
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_checkpoint_does_not_trust_cached_log_prob() {
+        let checkpoint = r#"{"state":2.0,"log_prob":1000.0,"accepted":3,"rejected":4}"#;
+        let checkpoint: ChainCheckpoint<Scalar> = serde_json::from_str(checkpoint).unwrap();
+        let restored = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
+
+        assert_eq!(restored.state(), &Scalar(2.0));
+        assert_relative_eq!(restored.log_prob(), -2.0, epsilon = 1e-12);
+        assert_eq!(restored.accepted(), 3);
+        assert_eq!(restored.rejected(), 4);
+    }
+
+    #[test]
+    fn from_checkpoint_rejects_invalid_target_log_prob() {
+        struct NanTarget;
+        impl Target<Scalar> for NanTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::NAN
+            }
+        }
+
+        let checkpoint = ChainCheckpoint::new(Scalar(0.0), 1, 2);
+        let result = Chain::from_checkpoint(checkpoint, &NanTarget);
+
+        assert!(matches!(result, Err(McmcError::NanCheckpointLogProb)));
+    }
+
+    #[test]
+    fn from_checkpoint_rejects_infinite_target_log_prob() {
+        struct InfTarget;
+        impl Target<Scalar> for InfTarget {
+            fn log_prob(&self, _: &Scalar) -> f64 {
+                f64::INFINITY
+            }
+        }
+
+        let checkpoint = ChainCheckpoint::new(Scalar(0.0), 1, 2);
+        let result = Chain::from_checkpoint(checkpoint, &InfTarget);
+
+        assert!(matches!(result, Err(McmcError::InfiniteCheckpointLogProb)));
     }
 
     #[cfg(feature = "serde")]
@@ -804,7 +1098,7 @@ mod tests {
 
         let chain = Chain::new(NonSerializableState(1.0), &NonSerializableTarget).unwrap();
 
-        assert!((chain.log_prob() - (-0.5)).abs() < 1e-12);
+        assert_relative_eq!(chain.log_prob(), -0.5, epsilon = 1e-12);
         assert_eq!(chain.total_steps(), 0);
     }
 
@@ -813,7 +1107,7 @@ mod tests {
     #[test]
     fn acceptance_rate_zero_steps() {
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        assert!((chain.acceptance_rate()).abs() < f64::EPSILON);
+        assert_relative_eq!(chain.acceptance_rate(), 0.0);
     }
 
     #[test]
@@ -1087,10 +1381,7 @@ mod tests {
         }
         let mean = sum / f64::from(n);
 
-        assert!(
-            mean.abs() < 0.1,
-            "Sample mean {mean} should be near 0 for standard normal"
-        );
+        assert_relative_eq!(mean, 0.0, epsilon = 0.1);
 
         let rate = chain.acceptance_rate();
         assert!(
@@ -1105,10 +1396,7 @@ mod tests {
     fn symmetric_proposal_zero_log_q() {
         let proposal = RandomWalk { width: 1.0 };
         let ratio = proposal.log_q_ratio(&Scalar(0.0), &Scalar(1.0));
-        assert!(
-            ratio.abs() < f64::EPSILON,
-            "Symmetric proposal should have log_q_ratio = 0"
-        );
+        assert_relative_eq!(ratio, 0.0);
     }
 
     // =====================================================================
@@ -1212,10 +1500,7 @@ mod tests {
 
         assert!(!accepted, "Should return false when proposal returns None");
         assert_eq!(chain.state, MutScalar(1.0), "State should be unchanged");
-        assert!(
-            (chain.log_prob() - log_prob).abs() < f64::EPSILON,
-            "Cached log_prob should remain synchronized after no-move proposal"
-        );
+        assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
     }
@@ -1236,10 +1521,7 @@ mod tests {
             MutScalar(1.0),
             "ProposalMut::propose_mut(None) must leave state unchanged"
         );
-        assert!(
-            (chain.log_prob() - log_prob).abs() < f64::EPSILON,
-            "Cached log_prob should remain synchronized after internally rolled-back no-move"
-        );
+        assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
     }
@@ -1393,10 +1675,7 @@ mod tests {
         }
         let mean = sum / f64::from(n);
 
-        assert!(
-            mean.abs() < 0.1,
-            "Sample mean {mean} should be near 0 for standard normal"
-        );
+        assert_relative_eq!(mean, 0.0, epsilon = 0.1);
 
         let rate = chain.acceptance_rate();
         assert!(
@@ -1427,10 +1706,7 @@ mod tests {
     fn symmetric_proposal_mut_zero_log_q() {
         let proposal = FixedMutProposal(0.0);
         let ratio = proposal.log_q_ratio(&MutScalar(1.0), &2.0);
-        assert!(
-            ratio.abs() < f64::EPSILON,
-            "Default ProposalMut log_q_ratio should be 0"
-        );
+        assert_relative_eq!(ratio, 0.0);
     }
 
     // =====================================================================
@@ -1574,7 +1850,7 @@ mod tests {
         assert!(step.accepted);
         assert!(step.proposed);
         assert_eq!(step.info, Some(0.0));
-        assert!((step.log_prob_before - (-2.0)).abs() < 1e-12);
+        assert_relative_eq!(step.log_prob_before, -2.0, epsilon = 1e-12);
         assert_eq!(step.log_prob_after, Some(0.0));
         assert_eq!(step.log_alpha, Some(2.0));
         assert_eq!(chain.state, MutScalar(0.0));
@@ -1595,7 +1871,7 @@ mod tests {
         assert!(!step.accepted);
         assert!(step.proposed);
         assert_eq!(step.info, Some(100.0));
-        assert!(step.log_prob_before.abs() < f64::EPSILON);
+        assert_relative_eq!(step.log_prob_before, 0.0);
         assert_eq!(step.log_prob_after, None);
         assert_eq!(step.log_alpha, Some(-5000.0));
         assert_eq!(chain.state, MutScalar(0.0));
@@ -1617,7 +1893,7 @@ mod tests {
         assert!(!step.accepted);
         assert!(!step.proposed);
         assert_eq!(step.info, None);
-        assert!((step.log_prob_before - log_prob).abs() < f64::EPSILON);
+        assert_relative_eq!(step.log_prob_before, log_prob);
         assert_eq!(step.log_prob_after, None);
         assert_eq!(step.log_alpha, None);
         assert_eq!(chain.state, MutScalar(1.0));
@@ -1816,7 +2092,7 @@ mod tests {
             Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
         ));
         assert_eq!(chain.state, MutScalar(2.0));
-        assert!((chain.log_prob() - log_prob).abs() < f64::EPSILON);
+        assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 0);
     }
@@ -1876,7 +2152,7 @@ mod tests {
             Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
         ));
         assert_eq!(chain.state, MutScalar(2.0));
-        assert!((chain.log_prob() - log_prob).abs() < f64::EPSILON);
+        assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 0);
     }
@@ -1888,10 +2164,7 @@ mod tests {
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         chain.replace_state(Scalar(2.0), &Normal).unwrap();
         assert_eq!(chain.state, Scalar(2.0));
-        assert!(
-            (chain.log_prob() - (-2.0)).abs() < 1e-12,
-            "log_prob should be recomputed after replace_state"
-        );
+        assert_relative_eq!(chain.log_prob(), -2.0, epsilon = 1e-12);
     }
 
     #[test]
@@ -1947,7 +2220,7 @@ mod tests {
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 0);
         assert_eq!(chain.total_steps(), 0);
-        assert!((chain.acceptance_rate()).abs() < f64::EPSILON);
+        assert_relative_eq!(chain.acceptance_rate(), 0.0);
     }
 
     #[test]
@@ -1962,6 +2235,22 @@ mod tests {
         }
         assert_eq!(chain.total_steps(), steps);
         assert_eq!(chain.total_steps(), chain.accepted() + chain.rejected());
+    }
+
+    #[test]
+    fn checkpoint_total_steps_saturates_at_usize_max() {
+        let checkpoint = ChainCheckpoint::new((), usize::MAX, 1);
+
+        assert_eq!(checkpoint.total_steps(), usize::MAX);
+    }
+
+    #[test]
+    fn chain_total_steps_saturates_after_checkpoint_restore() {
+        let checkpoint = ChainCheckpoint::new(Scalar(0.0), usize::MAX, 1);
+        let chain = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
+
+        assert_eq!(chain.total_steps(), usize::MAX);
+        assert_relative_eq!(chain.acceptance_rate(), 1.0);
     }
 
     // --- Asymmetric proposal tests ---

@@ -10,7 +10,7 @@ cargo_llvm_cov_version := "0.8.5"
 # Common cargo-llvm-cov arguments for all coverage runs.
 # Excludes examples from reports while allowing tests to exercise library code.
 _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
-  --workspace --lib --tests \
+  --workspace --all-features --lib --tests \
   --verbose'''
 
 # Internal helpers: ensure external tooling is installed
@@ -121,7 +121,7 @@ check-fast:
     cargo check
 
 # CI simulation: comprehensive validation
-ci: check bench-compile doc test-all examples validate-examples
+ci: check bench-compile doc test-all coverage-ci examples validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts

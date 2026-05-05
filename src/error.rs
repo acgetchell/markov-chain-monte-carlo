@@ -15,6 +15,10 @@ pub enum McmcError {
     NanLogQRatio,
     /// Target returned NaN log-probability for a replacement state.
     NanReplacementLogProb,
+    /// Target returned NaN log-probability for a checkpoint state.
+    NanCheckpointLogProb,
+    /// Target returned NaN log-probability for the current chain state.
+    NanCurrentLogProb,
     /// Target returned +∞ log-probability for the initial state.
     ///
     /// This indicates infinite probability, which is invalid for any
@@ -37,6 +41,16 @@ pub enum McmcError {
     /// This indicates infinite probability, which is invalid for any
     /// proper (normalizable) distribution.
     InfiniteReplacementLogProb,
+    /// Target returned +∞ log-probability for a checkpoint state.
+    ///
+    /// This indicates infinite probability, which is invalid for any
+    /// proper (normalizable) distribution.
+    InfiniteCheckpointLogProb,
+    /// Target returned +∞ log-probability for the current chain state.
+    ///
+    /// This indicates infinite probability, which is invalid for any
+    /// proper (normalizable) distribution.
+    InfiniteCurrentLogProb,
 }
 
 impl fmt::Display for McmcError {
@@ -61,6 +75,18 @@ impl fmt::Display for McmcError {
                     "target returned NaN log-probability for a replacement state"
                 )
             }
+            Self::NanCheckpointLogProb => {
+                write!(
+                    f,
+                    "target returned NaN log-probability for a checkpoint state"
+                )
+            }
+            Self::NanCurrentLogProb => {
+                write!(
+                    f,
+                    "target returned NaN log-probability for the current chain state"
+                )
+            }
             Self::InfiniteInitialLogProb => {
                 write!(
                     f,
@@ -78,6 +104,18 @@ impl fmt::Display for McmcError {
                 write!(
                     f,
                     "target returned +inf log-probability for a replacement state"
+                )
+            }
+            Self::InfiniteCheckpointLogProb => {
+                write!(
+                    f,
+                    "target returned +inf log-probability for a checkpoint state"
+                )
+            }
+            Self::InfiniteCurrentLogProb => {
+                write!(
+                    f,
+                    "target returned +inf log-probability for the current chain state"
                 )
             }
         }
@@ -124,6 +162,24 @@ mod tests {
     }
 
     #[test]
+    fn display_nan_checkpoint_log_prob() {
+        let msg = McmcError::NanCheckpointLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned NaN log-probability for a checkpoint state"
+        );
+    }
+
+    #[test]
+    fn display_nan_current_log_prob() {
+        let msg = McmcError::NanCurrentLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned NaN log-probability for the current chain state"
+        );
+    }
+
+    #[test]
     fn display_infinite_initial_log_prob() {
         let msg = McmcError::InfiniteInitialLogProb.to_string();
         assert_eq!(
@@ -153,6 +209,24 @@ mod tests {
         assert_eq!(
             msg,
             "target returned +inf log-probability for a replacement state"
+        );
+    }
+
+    #[test]
+    fn display_infinite_checkpoint_log_prob() {
+        let msg = McmcError::InfiniteCheckpointLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned +inf log-probability for a checkpoint state"
+        );
+    }
+
+    #[test]
+    fn display_infinite_current_log_prob() {
+        let msg = McmcError::InfiniteCurrentLogProb.to_string();
+        assert_eq!(
+            msg,
+            "target returned +inf log-probability for the current chain state"
         );
     }
 

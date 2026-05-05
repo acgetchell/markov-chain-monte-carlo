@@ -271,7 +271,7 @@ fn bench_sampler_runs(c: &mut Criterion) {
         b.iter_batched(
             || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
             |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng).unwrap();
                 sampler.run(black_box(BULK_STEPS)).unwrap();
                 black_box(sampler.chain_ref().state().0);
             },
@@ -288,7 +288,7 @@ fn bench_sampler_runs(c: &mut Criterion) {
                 )
             },
             |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, &spin_proposal, &mut rng);
+                let mut sampler = Sampler::new(chain, &flat, &spin_proposal, &mut rng).unwrap();
                 sampler.run_mut(black_box(BULK_STEPS)).unwrap();
                 black_box(sampler.chain_ref().state().spins[0]);
             },
@@ -306,7 +306,7 @@ fn bench_sampler_runs(c: &mut Criterion) {
                 )
             },
             |(chain, mut delayed, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, &mut delayed, &mut rng);
+                let mut sampler = Sampler::new(chain, &flat, &mut delayed, &mut rng).unwrap();
                 sampler.run_delayed(black_box(BULK_STEPS)).unwrap();
                 black_box(sampler.chain_ref().state().0);
             },
@@ -324,7 +324,7 @@ fn bench_observing(c: &mut Criterion) {
         b.iter_batched(
             || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
             |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng).unwrap();
                 let mut square = |state: &Scalar| state.0 * state.0;
                 let observations = sampler
                     .run_observing(black_box(BULK_STEPS), &mut square)
