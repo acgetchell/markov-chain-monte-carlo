@@ -96,11 +96,11 @@ changelog: _ensure-git-cliff python-sync
     GIT_CLIFF_OFFLINE=true git-cliff -o CHANGELOG.md
     uv run postprocess-changelog
 
-# Prepend unreleased changes to CHANGELOG.md for the given version
+# Regenerate CHANGELOG.md for a release tag before the tag exists
 changelog-unreleased version: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
-    GIT_CLIFF_OFFLINE=true git-cliff --unreleased --tag {{version}} --prepend CHANGELOG.md
+    GIT_CLIFF_OFFLINE=true git-cliff --tag {{version}} -o CHANGELOG.md
     uv run postprocess-changelog
 
 # Non-mutating validation gate
@@ -177,7 +177,7 @@ help-workflows:
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
-    @echo "  just changelog-unreleased <ver>  # Prepend unreleased changes for a version"
+    @echo "  just changelog-unreleased <ver>  # Regenerate CHANGELOG.md for a release tag"
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo ""
     @echo "Quality groups:"

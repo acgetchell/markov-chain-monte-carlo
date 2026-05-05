@@ -57,7 +57,7 @@ uv sync --group dev
 
 ### 3. Generate the changelog
 
-Generate a release section from commits since the previous tag:
+Regenerate `CHANGELOG.md` with the release section for commits since the previous tag:
 
 ```bash
 just changelog-unreleased "$TAG"
@@ -66,6 +66,8 @@ just changelog-unreleased "$TAG"
 Review `CHANGELOG.md` for accuracy. Do not hand-edit generated changelog content; if a release note is wrong, fix the source commit message, `cliff.toml`, or the changelog post-processing helper, then regenerate.
 
 The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not recoverable from local git history.
+
+Pass the tag form, including the leading `v`, so compare links point at the eventual release tag.
 
 For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch release unless they are small and explicitly intended for that patch.
 
@@ -135,7 +137,7 @@ cargo publish --locked
 - Do not tag or publish until the release PR has merged.
 - Keep release PRs small: version, changelog, docs, and release-critical fixes.
 - `just changelog` regenerates the full changelog from local git history; do not hand-edit generated changelog content.
-- `just changelog-unreleased <tag>` prepends only the unreleased section for a release PR.
+- `just changelog-unreleased <tag>` regenerates `CHANGELOG.md` as if `<tag>` were the release tag, without creating the tag.
 - `cliff.toml` skips release-prep commits, filters CI/action dependency churn, and keeps Rust-library dependency bumps concise.
 - `just tag <tag>` creates the annotated release tag from the matching `CHANGELOG.md` section.
 - Run `just ci` before handing off a release PR.
