@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-05-05
 
 ### Added
 
@@ -59,6 +59,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add Semgrep guardrails and fixtures to keep examples, benches, and doctests on typed errors.
   - Improve git-cliff and agent commit guidance, then regenerate CHANGELOG.md.
   - Bump serde_json dev-dependency to 1.0.149.
+- [**breaking**] Validate sampler construction and checkpoint restores [#46](https://github.com/acgetchell/markov-chain-monte-carlo/pull/46) [`e355a6d`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/e355a6de20234ef5b74a61b8fe2a576793fcda7a)
+
+  - Add ChainCheckpoint as the portable restore format and recompute cached log-probabilities through Chain::from_checkpoint.
+  - Make Sampler::new validate the chain against the sampler target and return Result.
+  - Add sampler-level reset and replacement helpers so callers do not need mutable access to the underlying Chain.
+  - Report checkpoint and current-state cache failures with dedicated McmcError variants.
+  - Refresh README organization and run coverage with all crate features enabled in local CI.
+
+### Changed
+
+- Docs/cargo rdme readme refresh [#44](https://github.com/acgetchell/markov-chain-monte-carlo/pull/44) [`0524993`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/052499374aa2e30485c1a429a2d3efd39c31731a)
+
+### Documentation
+
+- Include README in rustdoc [`ac8cd20`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ac8cd2082d5b450099fc4759fdf3004a65f7061c)
+
+  - Use README.md as the user-facing docs.rs landing page through rustdoc inclusion
+  - Remove cargo-rdme generation, CI installation, setup checks, and justfile recipes
+  - Keep src/lib.rs focused on semantic and API contract documentation
+  - Update contributor, release, agent, and development docs for the new documentation layout
 
 ### Fixed
 
@@ -83,6 +103,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - add Python Semgrep rules and fixtures for script/test hygiene
   - update release, tooling, code organization, README, references, and agent docs
   - regenerate CHANGELOG.md from local git history
+
+### Removed
+
+- Remove pre-release warning from README [`d48bb16`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d48bb1604f63cad95020a8f027312c48f902cc3f)
 
 ## [0.2.1] - 2026-04-30
 
@@ -139,7 +163,7 @@ v0.1.0: first usable release
 - Examples: normal_1d, ising_1d
 - Property-based tests for MH invariants
 
-[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...HEAD
+[0.3.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.1.0
