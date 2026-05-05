@@ -171,7 +171,10 @@ impl<S> ChainCheckpoint<S> {
         self.rejected
     }
 
-    /// Total number of counted steps in the checkpoint.
+    /// Total number of counted steps in the checkpoint (`accepted + rejected`).
+    ///
+    /// The sum saturates at [`usize::MAX`] on overflow rather than wrapping or
+    /// panicking.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::*;
@@ -383,6 +386,11 @@ impl<S> Chain<S> {
         }
         self.log_prob = log_prob;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn set_cached_log_prob_for_testing(&mut self, log_prob: f64) {
+        self.log_prob = log_prob;
     }
 
     /// Perform a single Metropolis–Hastings step with a by-value proposal.
@@ -841,6 +849,9 @@ impl<S> Chain<S> {
 
     /// Total number of steps taken (`accepted + rejected`).
     ///
+    /// The sum saturates at [`usize::MAX`] on overflow rather than wrapping or
+    /// panicking.
+    ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
@@ -870,6 +881,11 @@ impl<S> Chain<S> {
 
     /// Acceptance rate of the chain.
     ///
+    /// Returns `accepted / (accepted + rejected)`, or `0.0` when no steps have
+    /// been counted.  The ratio is computed in floating point so very large
+    /// counters preserve the acceptance fraction instead of saturating the
+    /// denominator first.
+    ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
@@ -896,15 +912,12 @@ impl<S> Chain<S> {
     #[must_use]
     #[expect(
         clippy::cast_precision_loss,
-        reason = "acceptance counts won't exceed 2^52"
+        reason = "large acceptance counts are intentionally converted for ratio calculation"
     )]
     pub fn acceptance_rate(&self) -> f64 {
-        let total = self.accepted.saturating_add(self.rejected);
-        if total == 0 {
-            0.0
-        } else {
-            self.accepted as f64 / total as f64
-        }
+        let accepted = self.accepted as f64;
+        let total = accepted + self.rejected as f64;
+        if total == 0.0 { 0.0 } else { accepted / total }
     }
 
     /// Reset acceptance and rejection counters to zero.

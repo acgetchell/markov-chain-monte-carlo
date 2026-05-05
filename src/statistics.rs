@@ -1035,6 +1035,63 @@ mod tests {
     }
 
     #[test]
+    fn online_stats_try_push_rejects_infinite_variance_accumulator_atomically() {
+        let mut stats = OnlineStats::new();
+        stats.try_push(f64::MAX).unwrap();
+
+        assert_eq!(
+            stats.try_push(0.0),
+            Err(StatisticsError::InfiniteVarianceAccumulator)
+        );
+        assert_eq!(stats.count(), 1);
+        assert_eq!(stats.mean(), Some(f64::MAX));
+        assert_eq!(stats.sample_variance(), None);
+    }
+
+    #[test]
+    fn online_stats_try_push_rejects_stale_nan_mean_atomically() {
+        let mut stats = OnlineStats {
+            count: 1,
+            mean: f64::NAN,
+            m2: 0.0,
+        };
+
+        assert_eq!(stats.try_push(1.0), Err(StatisticsError::NanMean));
+        assert_eq!(stats.count, 1);
+        assert!(stats.mean.is_nan());
+        assert_close(stats.m2, 0.0);
+    }
+
+    #[test]
+    fn online_stats_try_push_rejects_stale_nan_variance_accumulator_atomically() {
+        let mut stats = OnlineStats {
+            count: 1,
+            mean: 1.0,
+            m2: f64::NAN,
+        };
+
+        assert_eq!(
+            stats.try_push(2.0),
+            Err(StatisticsError::NanVarianceAccumulator)
+        );
+        assert_eq!(stats.count, 1);
+        assert_close(stats.mean, 1.0);
+        assert!(stats.m2.is_nan());
+    }
+
+    #[test]
+    fn online_stats_try_extend_keeps_prior_successes() {
+        let mut stats = OnlineStats::new();
+
+        assert_eq!(
+            stats.try_extend([1.0, 2.0, f64::NAN, 4.0]),
+            Err(StatisticsError::NanSample)
+        );
+        assert_eq!(stats.count(), 2);
+        assert_eq!(stats.mean(), Some(1.5));
+    }
+
+    #[test]
     fn binning_analysis_builds_power_of_two_levels() {
         let bins: BinningAnalysis = (1..=8).map(f64::from).collect();
         let estimates: Vec<_> = bins.estimates().collect();

@@ -43,7 +43,7 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-config` - JSON, TOML, YAML, and GitHub Actions validation
 - `just lint-docs` - Markdown formatting and spellcheck
 
-`just ci` runs `just check`, benchmark harness compilation, documentation, tests, all-features Cobertura coverage, examples, and deterministic example-output validation.
+`just ci` runs `just check`, benchmark harness compilation, documentation, tests, examples, and deterministic example-output validation.
 
 ## Setup
 

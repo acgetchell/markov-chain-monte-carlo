@@ -1,5 +1,23 @@
 //! Markov Chain Monte Carlo (MCMC) framework.
 //!
+//! `markov-chain-monte-carlo` provides small, explicit Metropolis-Hastings
+//! tools for Rust projects with user-defined state spaces, proposal mechanisms,
+//! and measurement workflows.
+//!
+//! Use this crate when you need ordinary by-value proposals, rollback-safe
+//! mutation for large states, delayed commits, validated checkpoint restores, or
+//! streaming observables for long sampler runs.
+//!
+//! # Features
+//!
+//! - Generic `Chain<S>` and `Sampler` APIs over user-defined state spaces.
+//! - By-value, in-place, and delayed-commit proposal workflows.
+//! - Log-space acceptance with typed errors for invalid target or proposal
+//!   values.
+//! - Optional `serde` checkpoint serialization with validated restore flows.
+//! - Observables, thinning helpers, streaming statistics, and proposal
+//!   diagnostics.
+//!
 //! This API guide documents the crate's Metropolis-Hastings contracts,
 //! numerical semantics, proposal workflows, sampler helpers, observables, and
 //! streaming statistics. For installation, feature selection, and a concise
@@ -126,7 +144,8 @@
 //!
 //! let chain = Chain::new(1.0, &Normal)
 //!     .expect("normal target returns a finite log probability");
-//! let checkpoint = serde_json::to_string(&chain)?;
+//! let checkpoint = chain.checkpoint();
+//! let checkpoint = serde_json::to_string(&checkpoint)?;
 //! let checkpoint: ChainCheckpoint<f64> = serde_json::from_str(&checkpoint)?;
 //! let restored = Chain::from_checkpoint(checkpoint, &Normal)
 //!     .expect("normal target returns a finite checkpoint log probability");

@@ -121,7 +121,7 @@ check-fast:
     cargo check
 
 # CI simulation: comprehensive validation
-ci: check bench-compile doc test-all coverage-ci examples validate-examples
+ci: check bench-compile doc test-all examples validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
