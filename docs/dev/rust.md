@@ -91,7 +91,7 @@ The initial `benches/stepping.rs` suite protects core transition costs:
 
 ## Coverage
 
-Coverage uses `cargo llvm-cov`.
+Coverage uses `cargo llvm-cov` with all crate features enabled.
 
 - Local HTML report: `just coverage`
 - CI Cobertura XML: `just coverage-ci`

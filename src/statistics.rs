@@ -1,5 +1,7 @@
 //! Streaming statistics for MCMC measurements.
 
+use core::hint::cold_path;
+
 use std::error::Error;
 use std::fmt;
 use std::iter;
@@ -70,9 +72,11 @@ impl Error for StatisticsError {}
 /// orthogonal error variants.
 const fn check_sample(sample: f64) -> Result<(), StatisticsError> {
     if sample.is_nan() {
+        cold_path();
         return Err(StatisticsError::NanSample);
     }
     if sample.is_infinite() {
+        cold_path();
         return Err(StatisticsError::InfiniteSample);
     }
     Ok(())
@@ -84,15 +88,19 @@ const fn check_sample(sample: f64) -> Result<(), StatisticsError> {
 /// accumulator state, which makes streaming errors more useful to debug.
 const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
     if stats.mean.is_nan() {
+        cold_path();
         return Err(StatisticsError::NanMean);
     }
     if stats.mean.is_infinite() {
+        cold_path();
         return Err(StatisticsError::InfiniteMean);
     }
     if stats.m2.is_nan() {
+        cold_path();
         return Err(StatisticsError::NanVarianceAccumulator);
     }
     if stats.m2.is_infinite() {
+        cold_path();
         return Err(StatisticsError::InfiniteVarianceAccumulator);
     }
     Ok(())
@@ -104,14 +112,15 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 /// production runs where retaining every measurement would be expensive.
 ///
 /// ```
+/// use approx::assert_relative_eq;
 /// use markov_chain_monte_carlo::OnlineStats;
 ///
 /// let mut stats = OnlineStats::new();
 /// stats.extend([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]);
 ///
 /// assert_eq!(stats.count(), 8);
-/// assert!((stats.mean().unwrap() - 5.0).abs() < 1e-12);
-/// assert!((stats.population_variance().unwrap() - 4.0).abs() < 1e-12);
+/// assert_relative_eq!(stats.mean().unwrap(), 5.0, epsilon = 1e-12);
+/// assert_relative_eq!(stats.population_variance().unwrap(), 4.0, epsilon = 1e-12);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use]
@@ -924,13 +933,12 @@ impl iter::Sum<f64> for BinningAnalysis {
 
 #[cfg(test)]
 mod tests {
+    use approx::assert_relative_eq;
+
     use super::*;
 
     fn assert_close(actual: f64, expected: f64) {
-        assert!(
-            (actual - expected).abs() < 1e-12,
-            "expected {expected}, got {actual}"
-        );
+        assert_relative_eq!(actual, expected, epsilon = 1e-12);
     }
 
     #[test]
@@ -1024,6 +1032,63 @@ mod tests {
         );
         assert_eq!(stats.count(), 1);
         assert_eq!(stats.mean(), Some(f64::MAX));
+    }
+
+    #[test]
+    fn online_stats_try_push_rejects_infinite_variance_accumulator_atomically() {
+        let mut stats = OnlineStats::new();
+        stats.try_push(f64::MAX).unwrap();
+
+        assert_eq!(
+            stats.try_push(0.0),
+            Err(StatisticsError::InfiniteVarianceAccumulator)
+        );
+        assert_eq!(stats.count(), 1);
+        assert_eq!(stats.mean(), Some(f64::MAX));
+        assert_eq!(stats.sample_variance(), None);
+    }
+
+    #[test]
+    fn online_stats_try_push_rejects_stale_nan_mean_atomically() {
+        let mut stats = OnlineStats {
+            count: 1,
+            mean: f64::NAN,
+            m2: 0.0,
+        };
+
+        assert_eq!(stats.try_push(1.0), Err(StatisticsError::NanMean));
+        assert_eq!(stats.count, 1);
+        assert!(stats.mean.is_nan());
+        assert_close(stats.m2, 0.0);
+    }
+
+    #[test]
+    fn online_stats_try_push_rejects_stale_nan_variance_accumulator_atomically() {
+        let mut stats = OnlineStats {
+            count: 1,
+            mean: 1.0,
+            m2: f64::NAN,
+        };
+
+        assert_eq!(
+            stats.try_push(2.0),
+            Err(StatisticsError::NanVarianceAccumulator)
+        );
+        assert_eq!(stats.count, 1);
+        assert_close(stats.mean, 1.0);
+        assert!(stats.m2.is_nan());
+    }
+
+    #[test]
+    fn online_stats_try_extend_keeps_prior_successes() {
+        let mut stats = OnlineStats::new();
+
+        assert_eq!(
+            stats.try_extend([1.0, 2.0, f64::NAN, 4.0]),
+            Err(StatisticsError::NanSample)
+        );
+        assert_eq!(stats.count(), 2);
+        assert_eq!(stats.mean(), Some(1.5));
     }
 
     #[test]

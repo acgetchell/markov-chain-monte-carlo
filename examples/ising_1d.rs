@@ -90,7 +90,7 @@ fn main() -> Result<(), McmcError> {
     let target = Ising { coupling, beta };
     let proposal = SpinFlip;
     let chain = Chain::new(SpinChain::all_up(n_spins), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
 
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
     println!(
@@ -107,7 +107,7 @@ fn main() -> Result<(), McmcError> {
     );
 
     // Reset counters so acceptance rate reflects production only
-    sampler.chain_mut().reset_counters();
+    sampler.reset_counters();
 
     // Collect samples
     let n_samples: u32 = 20_000;

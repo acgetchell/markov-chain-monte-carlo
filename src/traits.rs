@@ -284,8 +284,10 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedProposal<S> for &mut P {
 mod tests {
     use core::convert::Infallible;
 
-    use super::*;
+    use approx::assert_relative_eq;
     use rand::rng;
+
+    use super::*;
 
     // --- Fixtures ---
 
@@ -320,10 +322,7 @@ mod tests {
     fn proposal_default_log_q_zero() {
         let p = SymmetricProposal;
         let ratio = p.log_q_ratio(&Scalar(0.0), &Scalar(1.0));
-        assert!(
-            ratio.abs() < f64::EPSILON,
-            "Default Proposal::log_q_ratio should be 0.0"
-        );
+        assert_relative_eq!(ratio, 0.0);
     }
 
     #[test]
@@ -332,8 +331,8 @@ mod tests {
         let shared = &proposal;
         let proposed = shared.propose(&Scalar(2.0), &mut rng());
 
-        assert!((proposed.0 - 3.0).abs() < f64::EPSILON);
-        assert!(shared.log_q_ratio(&Scalar(2.0), &proposed).abs() < f64::EPSILON);
+        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
     }
 
     #[test]
@@ -343,11 +342,11 @@ mod tests {
         let mut state = Scalar(2.0);
         let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
 
-        assert!((state.0 - 3.0).abs() < f64::EPSILON);
-        assert!(shared.log_q_ratio(&state, &token).abs() < f64::EPSILON);
+        assert_relative_eq!(state.0, 3.0);
+        assert_relative_eq!(shared.log_q_ratio(&state, &token), 0.0);
 
         shared.undo(&mut state, token);
-        assert!((state.0 - 2.0).abs() < f64::EPSILON);
+        assert_relative_eq!(state.0, 2.0);
     }
 
     #[test]
@@ -357,21 +356,18 @@ mod tests {
         let mut state = Scalar(2.0);
         let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
 
-        assert!((state.0 - 3.0).abs() < f64::EPSILON);
-        assert!(shared.log_q_ratio(&state, &token).abs() < f64::EPSILON);
+        assert_relative_eq!(state.0, 3.0);
+        assert_relative_eq!(shared.log_q_ratio(&state, &token), 0.0);
 
         shared.undo(&mut state, token);
-        assert!((state.0 - 2.0).abs() < f64::EPSILON);
+        assert_relative_eq!(state.0, 2.0);
     }
 
     #[test]
     fn proposal_mut_default_log_q_zero() {
         let p = SymmetricMutProposal;
         let ratio = p.log_q_ratio(&Scalar(1.0), &0.0_f64);
-        assert!(
-            ratio.abs() < f64::EPSILON,
-            "Default ProposalMut::log_q_ratio should be 0.0"
-        );
+        assert_relative_eq!(ratio, 0.0);
     }
 
     #[test]
@@ -380,8 +376,8 @@ mod tests {
         let shared = &mut proposal;
         let proposed = shared.propose(&Scalar(2.0), &mut rng());
 
-        assert!((proposed.0 - 3.0).abs() < f64::EPSILON);
-        assert!(shared.log_q_ratio(&Scalar(2.0), &proposed).abs() < f64::EPSILON);
+        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
     }
 
     struct SymmetricDelayedProposal;
@@ -426,10 +422,7 @@ mod tests {
     fn delayed_default_log_q_zero() {
         let p = SymmetricDelayedProposal;
         let ratio = p.log_q_ratio(&Scalar(0.0), &1.0).unwrap();
-        assert!(
-            ratio.abs() < f64::EPSILON,
-            "Default DelayedProposal::log_q_ratio should be 0.0"
-        );
+        assert_relative_eq!(ratio, 0.0);
     }
 
     #[test]
@@ -446,20 +439,18 @@ mod tests {
         let state = Scalar(0.0);
         let plan = shared.propose_plan(&state, &mut rng()).unwrap().unwrap();
 
-        assert!((plan - 1.0).abs() < f64::EPSILON);
-        assert!(
-            (shared
+        assert_relative_eq!(plan, 1.0);
+        assert_relative_eq!(
+            shared
                 .proposed_log_prob(&state, &plan, &ZeroTarget)
-                .unwrap()
-                + 1.0)
-                .abs()
-                < f64::EPSILON
+                .unwrap(),
+            -1.0
         );
-        assert!(shared.log_q_ratio(&state, &plan).unwrap().abs() < f64::EPSILON);
-        assert!((shared.info(&plan) - 1.0).abs() < f64::EPSILON);
+        assert_relative_eq!(shared.log_q_ratio(&state, &plan).unwrap(), 0.0);
+        assert_relative_eq!(shared.info(&plan), 1.0);
 
         let mut committed = Scalar(0.0);
         shared.commit(&mut committed, plan, &mut rng()).unwrap();
-        assert!((committed.0 - 1.0).abs() < f64::EPSILON);
+        assert_relative_eq!(committed.0, 1.0);
     }
 }

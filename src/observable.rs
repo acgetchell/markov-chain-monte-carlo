@@ -392,6 +392,8 @@ impl<'a, T> IntoIterator for &'a SampleBuffer<T> {
 
 #[cfg(test)]
 mod tests {
+    use approx::assert_relative_eq;
+
     use super::*;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -413,7 +415,7 @@ mod tests {
     fn closure_observable_measures_state() {
         let mut squared = |state: &f64| state * state;
 
-        assert!((squared.observe(&3.0) - 9.0).abs() < f64::EPSILON);
+        assert_relative_eq!(squared.observe(&3.0), 9.0);
     }
 
     #[test]

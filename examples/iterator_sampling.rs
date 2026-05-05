@@ -41,7 +41,7 @@ fn main() -> Result<(), McmcError> {
     let target = StandardNormal;
     let proposal = RandomWalk { width: 1.0 };
     let chain = Chain::new(Scalar(5.0), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
+    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
 
     println!("Iterator-based sampling of N(0,1) (seed={seed})");
 
@@ -56,7 +56,7 @@ fn main() -> Result<(), McmcError> {
     println!("Burn-in complete ({burn_in} steps via iterator)");
 
     // Reset counters so acceptance rate reflects production only
-    sampler.chain_mut().reset_counters();
+    sampler.reset_counters();
 
     // Collect samples: use step() when you need to read state between steps.
     // The iterator yields Result<(), McmcError> (not the state), so collecting

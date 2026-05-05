@@ -14,7 +14,7 @@
 //! [`DetailedBalanceBatchReport`] so callers can inspect every failed
 //! transition instead of stopping at the first violation.
 
-use core::convert::Infallible;
+use core::{convert::Infallible, hint::cold_path};
 use std::error::Error;
 use std::fmt;
 
@@ -1133,6 +1133,7 @@ const fn check_log_prob<E>(
     log_prob: f64,
 ) -> Result<(), DetailedBalanceError<E>> {
     if log_prob.is_nan() || log_prob == f64::INFINITY {
+        cold_path();
         Err(DetailedBalanceError::InvalidTargetLogProb { state, log_prob })
     } else {
         Ok(())
@@ -1145,6 +1146,7 @@ const fn check_log_q_ratio<E>(
     log_q_ratio: f64,
 ) -> Result<(), DetailedBalanceError<E>> {
     if log_q_ratio.is_nan() || log_q_ratio == f64::INFINITY {
+        cold_path();
         Err(DetailedBalanceError::InvalidLogQRatio {
             direction,
             log_q_ratio,
@@ -1412,6 +1414,7 @@ fn acceptance_probability<E>(
     log_acceptance_ratio: f64,
 ) -> Result<f64, DetailedBalanceError<E>> {
     if log_acceptance_ratio.is_nan() {
+        cold_path();
         Err(DetailedBalanceError::InvalidLogAcceptanceRatio {
             direction,
             log_acceptance_ratio,
@@ -1451,6 +1454,7 @@ mod tests {
     use core::convert::Infallible;
     use std::error::Error as _;
 
+    use approx::{assert_relative_eq, relative_eq};
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     use super::*;
@@ -2007,11 +2011,10 @@ mod tests {
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
         assert!(report.is_within_tolerance(1e-12));
-        if let Some(score) = report.z_score() {
-            assert!(score.abs() < 1e-6);
-        } else {
+        let Some(score) = report.z_score() else {
             panic!("z_score returned None (standard error == 0.0) for report: {report:?}");
-        }
+        };
+        assert_relative_eq!(score, 0.0, epsilon = 1e-6);
     }
 
     #[test]
@@ -2071,7 +2074,7 @@ mod tests {
                 residual,
                 tolerance: 1e-12,
                 ..
-            } if (residual - 1.0).abs() < 1e-12
+            } if relative_eq!(residual, 1.0, epsilon = 1e-12)
         ));
     }
 
@@ -2094,7 +2097,7 @@ mod tests {
                 residual,
                 tolerance: 1e-12,
                 ..
-            } if (residual - 1.0).abs() < 1e-12
+            } if relative_eq!(residual, 1.0, epsilon = 1e-12)
         ));
     }
 
@@ -2274,7 +2277,7 @@ mod tests {
 
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
-        assert!(report.log_balance_residual.abs() < f64::EPSILON);
+        assert_relative_eq!(report.log_balance_residual, 0.0);
         assert!(report.log_balance_standard_error.is_infinite());
         assert_eq!(report.z_score(), None);
     }

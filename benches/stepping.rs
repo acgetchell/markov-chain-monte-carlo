@@ -268,50 +268,41 @@ fn bench_sampler_runs(c: &mut Criterion) {
     let spin_proposal = SpinFlip;
 
     c.bench_function("sampler/run_by_value_100", |b| {
-        b.iter_batched(
-            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
-                sampler.run(black_box(BULK_STEPS)).unwrap();
-                black_box(sampler.chain_ref().state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler =
+            Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng).unwrap();
+
+        b.iter(|| {
+            sampler.run(black_box(BULK_STEPS)).unwrap();
+            black_box(sampler.chain_ref().state().0);
+        });
     });
 
     c.bench_function("sampler/run_mut_100", |b| {
-        b.iter_batched(
-            || {
-                (
-                    spin_chain(&Alignment { beta: 0.0 }),
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, &spin_proposal, &mut rng);
-                sampler.run_mut(black_box(BULK_STEPS)).unwrap();
-                black_box(sampler.chain_ref().state().spins[0]);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(
+            spin_chain(&Alignment { beta: 0.0 }),
+            &flat,
+            &spin_proposal,
+            &mut rng,
+        )
+        .unwrap();
+
+        b.iter(|| {
+            sampler.run_mut(black_box(BULK_STEPS)).unwrap();
+            black_box(sampler.chain_ref().state().spins[0]);
+        });
     });
 
     c.bench_function("sampler/run_delayed_100", |b| {
-        b.iter_batched(
-            || {
-                (
-                    scalar_chain(&flat),
-                    DelayedWalk { delta: 1.0 },
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(chain, mut delayed, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, &mut delayed, &mut rng);
-                sampler.run_delayed(black_box(BULK_STEPS)).unwrap();
-                black_box(sampler.chain_ref().state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut delayed = DelayedWalk { delta: 1.0 };
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(scalar_chain(&flat), &flat, &mut delayed, &mut rng).unwrap();
+
+        b.iter(|| {
+            sampler.run_delayed(black_box(BULK_STEPS)).unwrap();
+            black_box(sampler.chain_ref().state().0);
+        });
     });
 }
 
@@ -321,18 +312,17 @@ fn bench_observing(c: &mut Criterion) {
     let proposal = RandomWalk { width: 1.0 };
 
     c.bench_function("observing/run_observing_buffer_100", |b| {
-        b.iter_batched(
-            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng);
-                let mut square = |state: &Scalar| state.0 * state.0;
-                let observations = sampler
-                    .run_observing(black_box(BULK_STEPS), &mut square)
-                    .unwrap();
-                black_box(observations.as_slice());
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler =
+            Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng).unwrap();
+        let mut square = |state: &Scalar| state.0 * state.0;
+
+        b.iter(|| {
+            let observations = sampler
+                .run_observing(black_box(BULK_STEPS), &mut square)
+                .unwrap();
+            black_box(observations.as_slice());
+        });
     });
 
     c.bench_function("observing/manual_online_sum_100", |b| {

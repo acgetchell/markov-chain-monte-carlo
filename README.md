@@ -4,23 +4,43 @@
 
 Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need rollback-safe mutation or delayed commits.
 
+## 📐 Introduction
+
+This library implements composable Metropolis-Hastings sampling in Rust for workflows where the state space, proposal mechanism, and measurement strategy are application-specific. The goal is to keep the transition mechanics explicit while supporting cheap cloned states, large rollback-mutable states, delayed-commit proposals, long streaming runs, and proposal diagnostics.
+
+🚧 **Pre-release (0.x)** — This crate is under active development and not yet ready for production use. APIs may change without notice.
+
 Use this crate when you want:
 
 - a generic Metropolis-Hastings chain over user-defined state spaces
 - by-value, in-place, and delayed-commit proposal APIs
 - log-space acceptance calculations with NaN/+infinity checks
 - observable measurement APIs, streaming statistics, and binning error estimates
+- thinning helpers for long sampler runs
+- optional `serde` checkpointing with validated resume flows
 - detailed-balance diagnostics for proposal development
 
 This crate provides the sampler mechanics; proposal correctness, ergodicity, convergence assessment, and scientific model choice remain domain-specific responsibilities.
 
+## ✨ Features
+
+- Generic `Chain<S>` over user-defined state spaces with explicit accepted/rejected counters.
+- Log-space Metropolis-Hastings acceptance with typed errors for NaN and positive-infinite target or proposal values.
+- Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
+- `Sampler` helpers for repeated runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
+- Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
+- `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
+- Optional `serde` support for serializing chains, samplers, and portable checkpoints.
+- Detailed-balance diagnostics for proposal tests on representative discrete transitions.
+
 ## Contents
 
+- [📐 Introduction](#-introduction)
+- [✨ Features](#-features)
 - [🚀 Quick start](#-quick-start)
 - [🧭 Choosing an API](#-choosing-an-api)
 - [📦 Cargo features](#-cargo-features)
 - [📚 API guide](#-api-guide)
-  - [Features](#features)
   - [Scientific basis and scope](#scientific-basis-and-scope)
   - [Numerical semantics](#numerical-semantics)
   - [Long runs and parallelism](#long-runs-and-parallelism)
@@ -107,7 +127,7 @@ fn main() -> Result<(), McmcError> {
 
 ## 📦 Cargo features
 
-- `serde` — enable `serde::Serialize` / `Deserialize` for `Chain` and `Sampler` checkpointing.
+- `serde` — enable `serde::Serialize` for `Chain` and `Sampler`, plus `ChainCheckpoint` serialization/deserialization for validated resume flows.
 
 ## 📚 API guide
 
@@ -118,46 +138,34 @@ fn main() -> Result<(), McmcError> {
 
 Markov Chain Monte Carlo (MCMC) framework.
 
-🚧 **Pre-release (0.x)** — This crate is under active development and
-not yet ready for production use. APIs may change without notice.
+`markov-chain-monte-carlo` provides small, explicit Metropolis-Hastings
+tools for Rust projects with user-defined state spaces, proposal mechanisms,
+and measurement workflows.
 
-`markov-chain-monte-carlo` provides a small, explicit Metropolis-Hastings
-toolkit for scientific Rust projects. It is designed for ordinary numeric
-states, large combinatorial state spaces, and proposal implementations that
-need rollback-safe mutation or delayed commits.  The crate aims to provide
-a composable, zero-cost abstraction for MCMC methods over arbitrary state
-spaces, including discrete and combinatorial systems (e.g., triangulations).
+Use this crate when you need ordinary by-value proposals, rollback-safe
+mutation for large states, delayed commits, validated checkpoint restores, or
+streaming observables for long sampler runs.
 
-Use this crate when you want:
+### Features
 
-- A generic Metropolis-Hastings chain over user-defined state spaces
-- By-value, in-place, and delayed-commit proposal APIs
-- Log-space acceptance calculations with NaN/+infinity checks
-- Observable measurement APIs for collecting derived quantities
-- Streaming means, variances, and binning error estimates
-- Thinning helpers for long sampler runs
-- Optional `serde` checkpointing for chains and sampler handles
-- Detailed-balance diagnostics for proposal development
+- Generic `Chain<S>` and `Sampler` APIs over user-defined state spaces.
+- By-value, in-place, and delayed-commit proposal workflows.
+- Log-space acceptance with typed errors for invalid target or proposal
+  values.
+- Optional `serde` checkpoint serialization with validated restore flows.
+- Observables, thinning helpers, streaming statistics, and proposal
+  diagnostics.
+
+This API guide documents the crate's Metropolis-Hastings contracts,
+numerical semantics, proposal workflows, sampler helpers, observables, and
+streaming statistics. For installation, feature selection, and a concise
+orientation to the crate, see the hand-written sections at the top of the
+repository README.
 
 [`Target::log_prob`] should return an unnormalized natural log-probability
 or log-density.  Additive constants are fine because Metropolis-Hastings
 only uses differences, but arbitrary scores or logits will sample a
 different distribution.
-
-### Features
-
-- `Target<S>` for unnormalized log probabilities or log densities
-- `Proposal<S>` for simple by-value proposals
-- `ProposalMut<S>` for in-place mutation with rollback tokens
-- `DelayedProposal<S>` for accept-before-mutation workflows with concrete
-  plans
-- `Chain<S>` with by-value, in-place, and delayed step methods
-- `Sampler<S, T, P, R>` for ergonomic bulk runs and iterator-based sampling
-- Observables, fallible observations, and sample buffers
-- Online statistics and binning analysis for correlated samples
-- Thinned run and observation helpers
-- Optional `serde` feature for checkpointing
-- Detailed-balance checks for by-value, in-place, and delayed proposals
 
 ### Scientific basis and scope
 
@@ -255,13 +263,15 @@ of ergodicity or convergence.  They are intended for tests, examples, and
 proposal-development checks over discrete or otherwise exactly comparable
 states.
 
-Enable the optional `serde` feature to serialize and deserialize
-[`Chain<S>`] when `S` implements serde's traits.  [`Sampler`] also derives
-serialization when all stored handles support it, but the portable
-checkpoint for resuming a run is the owned [`Chain<S>`]; targets, proposals,
-and RNG streams are reconstructed by the caller.
+Enable the optional `serde` feature to serialize [`Chain<S>`] checkpoints
+when `S` implements serde's traits.  Restore checkpoint data with
+[`Chain::from_checkpoint`] so the cached log-probability is recomputed from
+the target used for resumed sampling.  [`Sampler`] also derives
+serialization when all stored handles support it, but targets, proposals,
+and RNG streams are reconstructed by the caller for portable resumes.
 
 ```rust
+use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::*;
 
 struct Normal;
@@ -269,12 +279,18 @@ impl Target<f64> for Normal {
     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
 }
 
-let Ok(chain) = Chain::new(1.0, &Normal) else {
-    unreachable!("normal target returns a finite log probability");
-};
-let checkpoint = serde_json::to_string(&chain)?;
-let restored: Chain<f64> = serde_json::from_str(&checkpoint)?;
-assert!((restored.log_prob() - Normal.log_prob(restored.state())).abs() < 1e-12);
+let chain = Chain::new(1.0, &Normal)
+    .expect("normal target returns a finite log probability");
+let checkpoint = chain.checkpoint();
+let checkpoint = serde_json::to_string(&checkpoint)?;
+let checkpoint: ChainCheckpoint<f64> = serde_json::from_str(&checkpoint)?;
+let restored = Chain::from_checkpoint(checkpoint, &Normal)
+    .expect("normal target returns a finite checkpoint log probability");
+assert_relative_eq!(
+    restored.log_prob(),
+    Normal.log_prob(restored.state()),
+    epsilon = 1e-12
+);
 ```
 
 ### Example
@@ -457,11 +473,11 @@ use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 let mut rng = StdRng::seed_from_u64(42);
 let chain = Chain::new(Scalar(0.0), &Normal)?;
-let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
 
 // Burn-in
 sampler.run(1000)?;
-sampler.chain_mut().reset_counters();
+sampler.reset_counters();
 
 // Production
 sampler.run(10_000)?;
@@ -479,7 +495,7 @@ use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 let mut rng = StdRng::seed_from_u64(42);
 let chain = Chain::new(Scalar(0.0), &Normal)?;
-let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng);
+let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
 let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
 
 let samples: SampleBuffer<f64> = sampler.run_observing(256, &mut energy)?;
@@ -513,7 +529,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 
 let mut rng = StdRng::seed_from_u64(42);
 let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-let mut sampler = Sampler::new(chain, &T, &P, &mut rng);
+let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
 let mut coordinate = |state: &f64| *state;
 let mut stats = OnlineStats::new();
 
