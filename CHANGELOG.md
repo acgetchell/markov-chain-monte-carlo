@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Maintenance
+
+- Make changelog generation commit-driven [`a0441a1`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/a0441a139e14ff17ce961f2630fb6c60eff7e665)
+
+  - Regenerate release notes from commit ranges instead of annotated tag messages
+  - Preserve Markdown headings when creating annotated release tags
+  - Add Zenodo DOI metadata to the README, references, and citation file
+
 ## [0.3.0] - 2026-05-05
 
 ### Added
@@ -43,10 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - add observing, streaming, and fallible thinning variants across sampler workflows
   - re-export thinning types through the public API and appropriate preludes
   - document thinning behavior in README and public doctests
-  - cover zero intervals, interval > steps boundaries, and thinned observation behavior
+  - cover zero intervals, interval &gt; steps boundaries, and thinned observation behavior
 - Add serde checkpointing support [#41](https://github.com/acgetchell/markov-chain-monte-carlo/pull/41) [`d976bc6`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d976bc67f3373cf2ead697508c127b5ae205d2bc)
 
-  - Add optional `serde` feature and derive serialization for `Chain<S>`
+  - Add optional `serde` feature and derive serialization for `Chain&lt;S&gt;`
   - Derive `Serialize` for `Sampler` when stored handles support it
   - Document chain checkpointing as the portable resume path
   - Add serde-gated tests for checkpoint roundtrip, resumed sampling, sampler serialization, and non-serializable state construction
@@ -143,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   * feat: add Sampler API and split into modules
 
-  - Add `Sampler<S, T, P, R>` ergonomic wrapper bundling Chain + target +
+  - Add `Sampler&lt;S, T, P, R&gt;` ergonomic wrapper bundling Chain + target +
     proposal + RNG with `step()`/`run()`, `step_mut()`/`run_mut()`, and
     `Iterator` impl for the clone-based path
   - Split crate into modules: `chain`, `error`, `sampler`, `traits`
@@ -225,10 +235,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   * feat: add in-place mutation API (ProposalMut) for non-Clone state spaces
 
   API changes:
-  - Remove State marker trait; Chain<S> now works with any S
-  - Add ProposalMut<S> trait with associated Undo type for cheap rollback
+  - Remove State marker trait; Chain&lt;S&gt; now works with any S
+  - Add ProposalMut&lt;S&gt; trait with associated Undo type for cheap rollback
   - Add Chain::step_mut for zero-copy Metropolis-Hastings
-  - Move Clone bound from State to Proposal<S> and Chain::step
+  - Move Clone bound from State to Proposal&lt;S&gt; and Chain::step
 
   New files:
   - examples/ising_1d.rs: 1-D Ising model demonstrating ProposalMut
@@ -239,6 +249,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit: scaffold MCMC crate [`5d7f706`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/5d7f706da2d7c41af619a2f5669cdcd56dae94ba)
 
+[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...v0.2.0

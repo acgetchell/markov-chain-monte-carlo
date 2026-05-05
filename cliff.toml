@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 # Tera template for each release section.
 #
-# Release sections are generated from commit ranges. Annotated tag messages are
-# produced from CHANGELOG.md for GitHub releases and must not become changelog
-# input on the next regeneration.
+# Release sections are generated from commit ranges. Angle brackets in commit
+# text are escaped so Rust generics like Chain<S> do not render as HTML tags on
+# GitHub.
 body = """
 {% if version -%}
     ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -26,13 +26,13 @@ body = """
     ### {{ group | upper_first }}
     {% for commit in commits %}
         - {% if commit.breaking %}[**breaking**] {% endif %}\
-            {{ commit.message | split(pat="\n") | first | upper_first | trim }} \
+            {{ commit.message | split(pat="\n") | first | upper_first | trim | replace(from="<", to="&lt;") | replace(from=">", to="&gt;") }} \
             [`{{ commit.id | truncate(length=7, end="") }}`]\
             (https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
             /commit/{{ commit.id }})
         {%- if commit.body and group != "Dependencies" %}
 
-        {{ commit.body | indent(prefix="  ", first=true) }}
+        {{ commit.body | replace(from="<", to="&lt;") | replace(from=">", to="&gt;") | indent(prefix="  ", first=true) }}
         {%- endif %}
     {%- endfor %}
 {% endfor %}\n
