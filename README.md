@@ -4,8 +4,6 @@
 
 Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need rollback-safe mutation or delayed commits.
 
-🚧 **Pre-release (0.x)** — This crate is under active development and not yet ready for production use. APIs may change without notice.
-
 Use this crate when you want:
 
 - a generic Metropolis-Hastings chain over user-defined state spaces
