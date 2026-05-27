@@ -87,7 +87,7 @@ just ci
 just publish-check
 ```
 
-`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, examples, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
+`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
 
 ### 5. Commit, push, and open the PR
 

@@ -110,6 +110,9 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 ///
 /// `OnlineStats` updates in constant memory and is suitable for long
 /// production runs where retaining every measurement would be expensive.
+/// Use [`try_push`](Self::try_push), [`try_extend`](Self::try_extend), or
+/// [`try_from_iter`](Self::try_from_iter) when non-finite measurements should be
+/// rejected instead of becoming part of the accumulator state.
 ///
 /// ```
 /// use approx::assert_relative_eq;
@@ -145,6 +148,34 @@ impl OnlineStats {
             mean: 0.0,
             m2: 0.0,
         }
+    }
+
+    /// Build an accumulator from finite samples.
+    ///
+    /// Unlike [`FromIterator`], this validates every sample and leaves no
+    /// partially constructed accumulator behind on error.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    ///
+    /// assert_eq!(
+    ///     OnlineStats::try_from_iter([1.0, f64::NAN]),
+    ///     Err(StatisticsError::NanSample)
+    /// );
+    ///
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
+    /// assert_eq!(stats.mean(), Some(2.0));
+    /// # Ok::<(), StatisticsError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
+    /// accumulator update.
+    pub fn try_from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Result<Self, StatisticsError> {
+        let mut stats = Self::new();
+        stats.try_extend(iter)?;
+        Ok(stats)
     }
 
     /// Add one sample to the accumulator.
@@ -557,6 +588,10 @@ impl BinningLevel {
 /// once the estimates plateau, that value is the usual binning estimate for the
 /// standard error of an MCMC mean.
 ///
+/// Use [`try_push`](Self::try_push), [`try_extend`](Self::try_extend), or
+/// [`try_from_iter`](Self::try_from_iter) when non-finite measurements should be
+/// rejected instead of becoming part of the binning hierarchy.
+///
 /// ```
 /// use markov_chain_monte_carlo::BinningAnalysis;
 ///
@@ -574,6 +609,7 @@ impl BinningLevel {
 pub struct BinningAnalysis {
     count: usize,
     levels: Vec<BinningLevel>,
+    staged_levels: Vec<(usize, BinningLevel)>,
 }
 
 impl BinningAnalysis {
@@ -589,7 +625,36 @@ impl BinningAnalysis {
         Self {
             count: 0,
             levels: Vec::new(),
+            staged_levels: Vec::new(),
         }
+    }
+
+    /// Build a binning analysis from finite samples.
+    ///
+    /// Unlike [`FromIterator`], this validates every sample and leaves no
+    /// partially constructed analysis behind on error.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    ///
+    /// assert_eq!(
+    ///     BinningAnalysis::try_from_iter([1.0, f64::INFINITY]),
+    ///     Err(StatisticsError::InfiniteSample)
+    /// );
+    ///
+    /// let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0])?;
+    /// assert_eq!(bins.mean(), Some(2.0));
+    /// # Ok::<(), StatisticsError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
+    /// accumulator update.
+    pub fn try_from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Result<Self, StatisticsError> {
+        let mut analysis = Self::new();
+        analysis.try_extend(iter)?;
+        Ok(analysis)
     }
 
     /// Add one measurement.
@@ -635,10 +700,10 @@ impl BinningAnalysis {
     /// online binning accumulator becomes non-finite while updating.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
         check_sample(sample)?;
-        let staged_levels = self.staged_push(sample)?;
+        self.stage_push(sample)?;
 
         self.count += 1;
-        for (level_index, level) in staged_levels {
+        for (level_index, level) in self.staged_levels.drain(..) {
             if level_index == self.levels.len() {
                 self.levels.push(level);
             } else {
@@ -689,6 +754,7 @@ impl BinningAnalysis {
     pub fn clear(&mut self) {
         self.count = 0;
         self.levels.clear();
+        self.staged_levels.clear();
     }
 
     /// Number of original measurements pushed into the analysis.
@@ -828,8 +894,8 @@ impl BinningAnalysis {
     /// A single sample only touches a prefix of the binning hierarchy.  Staging
     /// that prefix keeps `try_push` failure-atomic without cloning untouched
     /// coarser levels.
-    fn staged_push(&self, sample: f64) -> Result<Vec<(usize, BinningLevel)>, StatisticsError> {
-        let mut staged_levels = Vec::new();
+    fn stage_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
+        self.staged_levels.clear();
         let mut level_index = 0;
         let mut block_mean = sample;
 
@@ -838,10 +904,13 @@ impl BinningAnalysis {
                 .levels
                 .get(level_index)
                 .cloned()
-                .unwrap_or_else(|| self.new_staged_level(level_index, &staged_levels));
+                .unwrap_or_else(|| self.new_staged_level(level_index));
             let next_block_mean = level.push_block_mean(block_mean);
-            level.check()?;
-            staged_levels.push((level_index, level));
+            if let Err(err) = level.check() {
+                self.staged_levels.clear();
+                return Err(err);
+            }
+            self.staged_levels.push((level_index, level));
 
             if let Some(mean) = next_block_mean {
                 block_mean = mean;
@@ -851,21 +920,17 @@ impl BinningAnalysis {
             }
         }
 
-        Ok(staged_levels)
+        Ok(())
     }
 
     /// Create a lazily allocated level without mutating the visible hierarchy.
     ///
     /// This mirrors `ensure_level` for staged updates, deriving the next block
     /// size from either the latest staged level or the existing hierarchy.
-    fn new_staged_level(
-        &self,
-        level_index: usize,
-        staged_levels: &[(usize, BinningLevel)],
-    ) -> BinningLevel {
+    fn new_staged_level(&self, level_index: usize) -> BinningLevel {
         let block_size = if level_index == 0 {
             1
-        } else if let Some((_, previous)) = staged_levels.last() {
+        } else if let Some((_, previous)) = self.staged_levels.last() {
             previous.block_size.saturating_mul(2)
         } else {
             self.levels[level_index - 1].block_size.saturating_mul(2)
@@ -1092,6 +1157,18 @@ mod tests {
     }
 
     #[test]
+    fn online_stats_try_from_iter_validates_all_samples() {
+        let stats = OnlineStats::try_from_iter([1.0, 3.0]).unwrap();
+        assert_eq!(stats.count(), 2);
+        assert_eq!(stats.mean(), Some(2.0));
+
+        assert_eq!(
+            OnlineStats::try_from_iter([1.0, f64::NAN, 3.0]),
+            Err(StatisticsError::NanSample)
+        );
+    }
+
+    #[test]
     fn binning_analysis_builds_power_of_two_levels() {
         let bins: BinningAnalysis = (1..=8).map(f64::from).collect();
         let estimates: Vec<_> = bins.estimates().collect();
@@ -1185,6 +1262,7 @@ mod tests {
         assert_eq!(bins.count(), 1);
         assert_eq!(bins.mean(), Some(f64::MAX));
         assert_eq!(bins.estimates().next().unwrap().block_count(), 1);
+        assert!(bins.staged_levels.is_empty());
     }
 
     #[test]
@@ -1227,5 +1305,23 @@ mod tests {
         );
         assert_eq!(bins.count(), 2);
         assert_eq!(bins.mean(), Some(1.5));
+    }
+
+    #[test]
+    fn binning_analysis_try_from_iter_validates_all_samples() {
+        let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0, 4.0]).unwrap();
+        let estimates: Vec<_> = bins.estimates().collect();
+
+        assert_eq!(bins.count(), 4);
+        assert_eq!(bins.mean(), Some(2.5));
+        assert_eq!(estimates.len(), 3);
+        assert_eq!(estimates[0].block_count(), 4);
+        assert_eq!(estimates[1].block_count(), 2);
+        assert_eq!(estimates[2].block_count(), 1);
+
+        assert_eq!(
+            BinningAnalysis::try_from_iter([1.0, f64::INFINITY, 3.0]),
+            Err(StatisticsError::InfiniteSample)
+        );
     }
 }

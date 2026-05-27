@@ -42,7 +42,7 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-config` - JSON, TOML, YAML, GitHub Actions, and Actions security validation
 - `just lint-docs` - Markdown formatting and spellcheck
 
-`just ci` runs `just check` (including `zizmor`), benchmark harness compilation, documentation, tests, examples, and deterministic example-output validation.
+`just ci` runs `just check` (including `zizmor`), benchmark harness compilation, documentation, tests, and deterministic example-output validation.
 
 ## Setup
 
@@ -73,7 +73,7 @@ Non-Rust tooling uses a 160-column policy: Ruff for Python support scripts, dpri
 - Integration tests through nextest: `just test-integration`
 - Python tooling tests: `just test-python`
 - Single runnable test by name filter: `cargo nextest run chain_samples_near_mode`
-- Examples: `just examples`
+- Examples: `just examples` builds all examples once, then runs the compiled binaries.
 
 ## Benchmarks
 
