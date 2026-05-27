@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Escape changelog angle brackets for GitHub rendering [`82014b4`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/82014b424d0b5be37c93770e2cdd925ba351ca25)
+
+  - Escape generated changelog commit text so Rust generics are not parsed as HTML tags
+  - Regenerate CHANGELOG.md to preserve visible generic type names and version footer links
+
 ### Maintenance
 
 - Make changelog generation commit-driven [`a0441a1`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/a0441a139e14ff17ce961f2630fb6c60eff7e665)
@@ -14,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Regenerate release notes from commit ranges instead of annotated tag messages
   - Preserve Markdown headings when creating annotated release tags
   - Add Zenodo DOI metadata to the README, references, and citation file
+- Harden repository security and tooling validation [#63](https://github.com/acgetchell/markov-chain-monte-carlo/pull/63) [`a861f86`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/a861f863a5acae1d43a0ab006231c4aa949bb390)
+
+  * ci: harden repository security and tooling validation
+
+  - Add zizmor and repository-owned Semgrep SARIF workflows for GitHub Actions and project-rule scanning.
+  - Replace Codacy with local and GitHub-native security signals, including action pinning, allowlist, and version-comment rules.
+  - Run full CI through just across Linux, macOS, and Windows with uv-managed Python tools and pinned Cargo-installed tooling.
+  - Move Rust unit and integration tests to cargo-nextest while keeping doctests on cargo test --doc.
+  - Add a security policy and document the updated setup, line-length, and validation workflow.
+
+  * ci: allow Rust cache action in workflow policy
+
+  - Add swatinem/rust-cache to the repository-owned GitHub Actions allowlist so the Rust toolchain action's cache helper is permitted.
+  - Cover the allowlist entry in the Semgrep workflow policy fixture.
+
+  * ci: simplify Semgrep SARIF concurrency key
 
 ## [0.3.0] - 2026-05-05
 
