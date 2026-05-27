@@ -4,7 +4,8 @@ This guide summarizes practical checks for proposal kernels built on `Proposal`,
 
 ## Why Proposal Validation Matters
 
-Metropolis-Hastings correctness depends on the pair formed by a target distribution and a proposal kernel. The library can apply the acceptance rule, reject invalid floating-point values, and roll back failed moves, but user code still owns the scientific meaning of each proposal.
+Metropolis-Hastings correctness depends on the pair formed by a target distribution and a proposal kernel. The library can apply the acceptance rule, reject
+invalid floating-point values, and roll back failed moves, but user code still owns the scientific meaning of each proposal.
 
 For every proposal family, validate that:
 
@@ -29,7 +30,8 @@ For continuous proposals, exact endpoint hits are usually too rare for the curre
 
 ## In-Place Proposals
 
-Use `ProposalMut<S>` when cloning the full state is expensive. The proposal mutates state and returns an undo token that must restore the exact previous state on rejection.
+Use `ProposalMut<S>` when cloning the full state is expensive. The proposal mutates state and returns an undo token that must restore the exact previous state
+on rejection.
 
 Useful checks:
 
@@ -39,11 +41,13 @@ Useful checks:
 - Use `verify_detailed_balance_mut` on small representative states that implement `Clone + PartialEq`.
 - Use `verify_detailed_balance_mut_many` for batches of local moves.
 
-The detailed-balance helper clones endpoints so it can resample transitions from a clean state. That cloning is intentional test overhead, not a production sampling requirement.
+The detailed-balance helper clones endpoints so it can resample transitions from a clean state. That cloning is intentional test overhead, not a production
+sampling requirement.
 
 ## Delayed Proposals
 
-Use `DelayedProposal<S>` when a concrete move can be planned and scored before mutating state. This is useful for combinatorial systems where rejected moves should avoid mutation entirely.
+Use `DelayedProposal<S>` when a concrete move can be planned and scored before mutating state. This is useful for combinatorial systems where rejected moves
+should avoid mutation entirely.
 
 Useful checks:
 
@@ -53,11 +57,13 @@ Useful checks:
 - Use `verify_detailed_balance_delayed` for a specific planned transition.
 - Use `verify_detailed_balance_delayed_many` for batches.
 
-Delayed detailed-balance checks use plan predicates because plans are the transition descriptors. The helper does not assume endpoint equality is enough to identify a move.
+Delayed detailed-balance checks use plan predicates because plans are the transition descriptors. The helper does not assume endpoint equality is enough to
+identify a move.
 
 ## Continuous Proposals
 
-The current detailed-balance helpers are designed for discrete, quantized, or exactly comparable transitions. Continuous proposals almost never resample the exact same endpoint, so exact-hit diagnostics become uninformative.
+The current detailed-balance helpers are designed for discrete, quantized, or exactly comparable transitions. Continuous proposals almost never resample the
+exact same endpoint, so exact-hit diagnostics become uninformative.
 
 Reasonable follow-up designs include:
 
@@ -66,7 +72,8 @@ Reasonable follow-up designs include:
 - Add kernel-specific diagnostics that sample paired local neighborhoods.
 - Combine analytic proposal-ratio tests with distributional tests over generated deltas.
 
-Continuous-proposal diagnostics should be developed as a separate API so the existing exact-hit helpers stay honest about their assumptions. That follow-up is tracked in [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42).
+Continuous-proposal diagnostics should be developed as a separate API so the existing exact-hit helpers stay honest about their assumptions. That follow-up is
+tracked in [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42).
 
 ## Suggested Test Stack
 

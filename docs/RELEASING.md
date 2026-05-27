@@ -1,6 +1,7 @@
 # Releasing markov-chain-monte-carlo
 
-This guide documents the release flow for this crate. Changelog generation and annotated release tags are automated locally with `git-cliff` plus the Python helpers in `scripts/`.
+This guide documents the release flow for this crate. Changelog generation and annotated release tags are automated locally with `git-cliff` plus the Python
+helpers in `scripts/`.
 
 Applies to versions `vX.Y.Z`. Prefer updating documentation before publishing to crates.io.
 
@@ -23,7 +24,8 @@ git --no-pager status --short
 
 ## Release PR
 
-The release PR should primarily contain version, changelog, and documentation updates. Major behavior or API changes should already be merged before release prep begins.
+The release PR should primarily contain version, changelog, and documentation updates. Major behavior or API changes should already be merged before release
+prep begins.
 
 Small release-critical fixes are acceptable if they are discovered during validation, but keep the PR focused.
 
@@ -63,13 +65,17 @@ Regenerate `CHANGELOG.md` with the release section for commits since the previou
 just changelog-unreleased "$TAG"
 ```
 
-Review `CHANGELOG.md` for accuracy. Do not hand-edit generated changelog content; if a release note is wrong, fix the source commit message, `cliff.toml`, or the changelog post-processing helper, then regenerate.
+Review `CHANGELOG.md` for accuracy. Do not hand-edit generated changelog content; if a release note is wrong, fix the source commit message, `cliff.toml`, or
+the changelog post-processing helper, then regenerate.
 
-The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not recoverable from local git history.
+The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put
+release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not
+recoverable from local git history.
 
 Pass the tag form, including the leading `v`, so compare links point at the eventual release tag.
 
-For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch release unless they are small and explicitly intended for that patch.
+For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch
+release unless they are small and explicitly intended for that patch.
 
 Review version references:
 
@@ -87,7 +93,9 @@ just ci
 just publish-check
 ```
 
-`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, example output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs `cargo publish --locked --allow-dirty --dry-run`.
+`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, example
+output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs
+`cargo publish --locked --allow-dirty --dry-run`.
 
 ### 5. Commit, push, and open the PR
 

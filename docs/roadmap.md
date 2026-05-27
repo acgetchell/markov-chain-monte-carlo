@@ -1,8 +1,11 @@
 # Roadmap
 
-This roadmap records likely directions for the `markov-chain-monte-carlo` crate. It is not a stability promise; release scope depends on scientific need, API maturity, and validation quality.
+This roadmap records likely directions for the `markov-chain-monte-carlo` crate. It is not a stability promise; release scope depends on scientific need, API
+maturity, and validation quality.
 
-Pre-1.0 releases may still revise public APIs when that makes the crate more correct, but patch releases should stay boring: fixes, documentation, and tooling hardening that are compatible with the current minor line. New sampler APIs, changed acceptance semantics, and MSRV bumps belong in minor releases so Cargo users on `0.x` ranges are not surprised by patch updates.
+Pre-1.0 releases may still revise public APIs when that makes the crate more correct, but patch releases should stay boring: fixes, documentation, and tooling
+hardening that are compatible with the current minor line. New sampler APIs, changed acceptance semantics, and MSRV bumps belong in minor releases so Cargo
+users on `0.x` ranges are not surprised by patch updates.
 
 ## Completed
 
@@ -21,7 +24,8 @@ The v0.3.0 milestone made the crate useful as the sampling layer for downstream 
 
 ### v0.4.0 Resumable CDT Integration
 
-The next feature release should focus on downstream sampler integration rather than a grab bag of diagnostics. This is the right place for the Rust 1.96.0 MSRV/toolchain refresh once Rust 1.96.0 is released.
+The next feature release should focus on downstream sampler integration rather than a grab bag of diagnostics. This is the right place for the Rust 1.96.0
+MSRV/toolchain refresh once Rust 1.96.0 is released.
 
 - [#65](https://github.com/acgetchell/markov-chain-monte-carlo/issues/65) - Update Rust toolchain and MSRV to 1.96.0
 - [#60](https://github.com/acgetchell/markov-chain-monte-carlo/issues/60) - Expose resumable sampler state for chunked runs
@@ -32,7 +36,8 @@ The next feature release should focus on downstream sampler integration rather t
 
 ### v0.5.0 Adaptive Diagnostics
 
-After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
+After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
+scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
 
 - [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Adaptive Metropolis-Hastings
 - [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
@@ -42,7 +47,9 @@ After the CDT-facing continuation and acceptance APIs settle, invest in classica
 
 ### v0.6.0 Multi-Chain, Tempering, and Learned Proposals
 
-Multi-chain execution and tempering are natural prerequisites for serious learned-proposal experiments: they provide independent-chain comparison, ensemble diagnostics, and rugged-target baselines. Learned proposals align with near-term AI doctorate work, so they should land while the research context is active rather than being deferred until the end of the pre-1.0 cycle.
+Multi-chain execution and tempering are natural prerequisites for serious learned-proposal experiments: they provide independent-chain comparison, ensemble
+diagnostics, and rugged-target baselines. Learned proposals align with near-term AI doctorate work, so they should land while the research context is active
+rather than being deferred until the end of the pre-1.0 cycle.
 
 - [#12](https://github.com/acgetchell/markov-chain-monte-carlo/issues/12) - Parallel chains
 - [#11](https://github.com/acgetchell/markov-chain-monte-carlo/issues/11) - Simulated annealing / tempering
@@ -56,7 +63,8 @@ Portability work should be done after optional integrations are clearer, so the 
 
 ### v1.0.0 Stabilization
 
-The v1.0.0 release should be about stabilizing the API surface, documentation contract, and compatibility story after the pre-1.0 milestones have shaken out the sampler, diagnostics, and feature-gating design.
+The v1.0.0 release should be about stabilizing the API surface, documentation contract, and compatibility story after the pre-1.0 milestones have shaken out the
+sampler, diagnostics, and feature-gating design.
 
 ## Maintenance Backlog
 
@@ -68,4 +76,5 @@ These issues can land whenever they are useful and do not need to drive the publ
 
 ## Non-Goals
 
-The crate should remain a focused MCMC library rather than becoming a full simulation framework. Domain-specific actions, triangulation validity, geometry kernels, visualization, and physics observables belong in downstream crates.
+The crate should remain a focused MCMC library rather than becoming a full simulation framework. Domain-specific actions, triangulation validity, geometry
+kernels, visualization, and physics observables belong in downstream crates.

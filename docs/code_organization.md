@@ -7,7 +7,8 @@ This document complements two related files:
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — human contributor workflow (setup, tooling, testing, PR process, release).
 - [`AGENTS.md`](../AGENTS.md) — canonical rules for AI assistants (git/edit/validation policy, documentation-generation rules).
 
-For contributor setup, test commands, and external tooling, see `CONTRIBUTING.md`. For agent-specific rules, see `AGENTS.md`. This file is the detailed code/file map: keep ownership and placement guidance here, and keep contributor workflow details elsewhere.
+For contributor setup, test commands, and external tooling, see `CONTRIBUTING.md`. For agent-specific rules, see `AGENTS.md`. This file is the detailed
+code/file map: keep ownership and placement guidance here, and keep contributor workflow details elsewhere.
 
 ## Full checkout tree
 
@@ -32,7 +33,6 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       └── zizmor.yml
 ├── .gitignore
 ├── .taplo.toml
-├── .yamllint
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CITATION.cff
@@ -64,6 +64,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── normal_1d.rs
 ├── justfile
 ├── pyproject.toml
+├── rumdl.toml
 ├── rust-toolchain.toml
 ├── rustfmt.toml
 ├── scripts/
@@ -97,6 +98,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       │   └── typed_error.rs
 │       ├── github-actions/
 │       │   └── workflow_actions.yml
+│       ├── docs/
+│       │   └── check_fix_order.md
 │       ├── scripts/
 │       │   └── tests/
 │       │       └── python_exceptions.py
@@ -119,15 +122,19 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
 - `scripts/` — Python helpers for changelog post-processing and release tagging.
-- Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`, `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
+- Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
+  `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 
 ## Library module file map
 
 ### `src/lib.rs`
 
-The crate root wires the public module layout together. It re-exports the core modules and defines the `prelude` for ergonomic user imports. It includes `README.md` at the top of rustdoc builds with `include_str!`, then appends crate-level `//!` contract documentation for docs.rs (see [`AGENTS.md` § Documentation generation](../AGENTS.md#documentation-generation)).
+The crate root wires the public module layout together. It re-exports the core modules and defines the `prelude` for ergonomic user imports. It includes
+`README.md` at the top of rustdoc builds with `include_str!`, then appends crate-level `//!` contract documentation for docs.rs (see
+[`AGENTS.md` § Documentation generation](../AGENTS.md#documentation-generation)).
 
-Keep `src/lib.rs` small. New public surface should usually live in a focused module first, then be re-exported from the crate root or prelude only when it is part of the intended user API.
+Keep `src/lib.rs` small. New public surface should usually live in a focused module first, then be re-exported from the crate root or prelude only when it is
+part of the intended user API.
 
 ### `src/error.rs`
 
@@ -144,7 +151,8 @@ Defines measurement APIs and collection helpers:
 - `ObservedStepError<StepError, ObservationError>` to keep sampling failures and measurement failures orthogonal
 - `SampleBuffer<T>` for simple in-memory observation collection
 
-Observables are shared across proposal workflows, so the core observable traits, buffer, and ordinary streaming result aliases belong in the shared prelude. Highly specialized workflow result aliases should stay at the crate root unless a prelude needs them for ordinary examples or doctests.
+Observables are shared across proposal workflows, so the core observable traits, buffer, and ordinary streaming result aliases belong in the shared prelude.
+Highly specialized workflow result aliases should stay at the crate root unless a prelude needs them for ordinary examples or doctests.
 
 ### `src/traits.rs`
 
@@ -200,7 +208,9 @@ Statistics helpers are ordinary public API, but they should stay independent of 
 
 Contains test-facing validation utilities for proposal development.
 
-Detailed-balance helpers empirically check discrete by-value, in-place, and delayed proposal transitions by sampling forward/reverse moves and comparing estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday sampling imports.
+Detailed-balance helpers empirically check discrete by-value, in-place, and delayed proposal transitions by sampling forward/reverse moves and comparing
+estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday
+sampling imports.
 
 ## Examples
 
@@ -211,11 +221,13 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/ising_1d.rs` — in-place mutation with rollback.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 
-Keep examples deterministic when possible. The `validate-examples` recipe checks for expected output markers, so example output should remain stable enough for CI validation.
+Keep examples deterministic when possible. The `validate-examples` recipe checks for expected output markers, so example output should remain stable enough for
+CI validation.
 
 ## Benchmarks
 
-Benchmarks live in `benches/` and use Criterion. Keep them deterministic and focused on library invariants rather than distribution convergence. The stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops, and observing overhead.
+Benchmarks live in `benches/` and use Criterion. Keep them deterministic and focused on library invariants rather than distribution convergence. The stepping
+suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops, and observing overhead.
 
 ## See also
 

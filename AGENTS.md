@@ -15,10 +15,12 @@ When making changes in this repo, prioritize (in order):
 ### Git Operations
 
 - **NEVER** run `git commit`, `git push`, `git tag`, or any git commands that modify version control state
-- **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`, `git --no-pager log`, `git --no-pager show`, `git --no-pager blame`) to inspect changes/history
+- **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`, `git --no-pager log`, `git --no-pager show`,
+  `git --no-pager blame`) to inspect changes/history
 - **ALWAYS** use `git --no-pager` when reading git output
 - Suggest git commands that modify version control state for the user to run manually
-- When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`, e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`. If an environment requires an owner/tool prefix, keep this structure after the prefix, e.g. `codex/ci/312-rust-tooling`.
+- When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`, e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`.
+  If an environment requires an owner/tool prefix, keep this structure after the prefix, e.g. `codex/ci/312-rust-tooling`.
 
 ### Commit Message Generation
 
@@ -36,10 +38,12 @@ When generating commit messages:
 Commit subjects and bodies feed `CHANGELOG.md` through `git-cliff`. Write them as clean, readable release-note prose:
 
 - Keep the subject line concise; it becomes the primary changelog bullet.
-- The type determines the changelog section (`feat` -> Added, `fix` -> Fixed, `refactor`/`test`/`style` -> Changed, `perf` -> Performance, `docs` -> Documentation, `build`/`chore`/`ci` -> Maintenance).
+- The type determines the changelog section (`feat` -> Added, `fix` -> Fixed, `refactor`/`test`/`style` -> Changed, `perf` -> Performance, `docs` ->
+  Documentation, `build`/`chore`/`ci` -> Maintenance).
 - Include PR references as `(#N)` in the subject when known; `git-cliff` auto-links them.
 - Body text appears as indented supporting detail under the changelog bullet.
-- Avoid Markdown headings `#` through `###` in the body because they conflict with changelog release and section headings. Use plain labels such as `Refs:` or `Migration:` instead.
+- Avoid Markdown headings `#` through `###` in the body because they conflict with changelog release and section headings. Use plain labels such as `Refs:` or
+  `Migration:` instead.
 - Keep body text as plain prose or simple bullet lists. Avoid deep nesting.
 - Include only release-note-worthy implementation details; avoid dumping internal command output or validation summaries.
 
@@ -50,7 +54,8 @@ Breaking changes must use one of these conventional commit markers so `git-cliff
 - Bang notation: `feat!: remove deprecated API`
 - Footer trailer: `BREAKING CHANGE: <description>`
 
-Examples of breaking changes include removing or renaming public API items, changing default behavior, bumping MSRV, altering serialized checkpoint formats, changing numerical semantics, or changing acceptance/error behavior.
+Examples of breaking changes include removing or renaming public API items, changing default behavior, bumping MSRV, altering serialized checkpoint formats,
+changing numerical semantics, or changing acceptance/error behavior.
 
 ### Code Quality
 
@@ -61,11 +66,12 @@ Examples of breaking changes include removing or renaming public API items, chan
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, Actions security, TOML,
+  Markdown, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **GitHub Actions security**: Validate workflows with `just zizmor` (uses `zizmor`)
-- **YAML**: Use `just yaml-lint`
+- **YAML**: Use `just yaml-check` (uses dprint Pretty YAML)
 - **TOML**: Use `just toml-fmt-check` and `just toml-lint` (uses Taplo)
 - **Spell check**: Use `just spell-check` (uses `typos`)
 - **Project rules**: Use `just semgrep` and `just semgrep-test` (Semgrep is pinned in `pyproject.toml` and run through `uv`)
@@ -73,15 +79,16 @@ Examples of breaking changes include removing or renaming public API items, chan
 
 ### Rust
 
-- Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take ownership or return `Vec`/allocated data when required.
+- Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take
+  ownership or return `Vec`/allocated data when required.
 - Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
 ## Common Commands
 
 ```bash
-just fix              # Apply formatters/auto-fixes (mutating)
 just check            # Lint/validators (non-mutating)
 just ci               # Full CI simulation (checks + tests + examples)
+just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install/verify external dev tools
 just test             # Lib + doc tests (fast)
@@ -116,9 +123,11 @@ When creating or updating issues:
 
 This is a single Rust *library crate* (no `src/main.rs`). The crate root is `src/lib.rs`.
 
-Use [`docs/code_organization.md`](docs/code_organization.md) as the detailed checkout tree and file/module map when deciding where new functions, traits, examples, tests, or docs belong. Keep this section high-level so `AGENTS.md` remains focused on operating rules rather than duplicating the architecture guide.
+Use [`docs/code_organization.md`](docs/code_organization.md) as the detailed checkout tree and file/module map when deciding where new functions, traits,
+examples, tests, or docs belong. Keep this section high-level so `AGENTS.md` remains focused on operating rules rather than duplicating the architecture guide.
 
-When adding, removing, renaming, or moving tracked files or directories, update `docs/code_organization.md` in the same change so its full checkout tree and ownership guidance stay current.
+When adding, removing, renaming, or moving tracked files or directories, update `docs/code_organization.md` in the same change so its full checkout tree and
+ownership guidance stay current.
 
 At a glance:
 
@@ -132,17 +141,23 @@ At a glance:
 
 The repository's docs have overlapping topics but distinct roles. When in doubt, consult the file whose role best matches the task:
 
-- **`AGENTS.md`** (this file) — canonical rules for AI assistants and autonomous tooling: git/edit/validation policy, commit-message format, code-quality rules, documentation-generation rules. Authoritative when rules conflict.
-- **`CONTRIBUTING.md`** — human contributor workflow: prerequisites, `just setup` external tools, high-level repository layout, test categories, code style, performance/benchmarking, PR checklist, release process. Mirrors the human-facing parts of this file.
-- **`docs/code_organization.md`** — full tracked checkout tree, detailed file/module map, and "where does new code go?" guidance for `src/*.rs`, examples, tests, benches, docs, and scripts. Consult when adding a new function/type/trait and unsure which file owns it, and update it whenever tracked files move, appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
-- **`README.md`** — public GitHub/crates.io landing page. It is also included verbatim at the top of docs.rs through `#![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]` in `src/lib.rs`, so keep it concise, user-facing, and suitable for rustdoc rendering.
+- **`AGENTS.md`** (this file) — canonical rules for AI assistants and autonomous tooling: git/edit/validation policy, commit-message format, code-quality rules,
+  documentation-generation rules. Authoritative when rules conflict.
+- **`CONTRIBUTING.md`** — human contributor workflow: prerequisites, `just setup` external tools, high-level repository layout, test categories, code style,
+  performance/benchmarking, PR checklist, release process. Mirrors the human-facing parts of this file.
+- **`docs/code_organization.md`** — full tracked checkout tree, detailed file/module map, and "where does new code go?" guidance for `src/*.rs`, examples,
+  tests, benches, docs, and scripts. Consult when adding a new function/type/trait and unsure which file owns it, and update it whenever tracked files move,
+  appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
+- **`README.md`** — public GitHub/crates.io landing page. It is also included verbatim at the top of docs.rs through
+  `#![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]` in `src/lib.rs`, so keep it concise, user-facing, and suitable for rustdoc rendering.
 - **`docs/scientific_basis.md`** — Metropolis–Hastings contract and scope discussion (extends the `# Scientific basis and scope` section in `lib.rs //!`).
 - **`docs/proposal_validation.md`** — proposal-author testing patterns and `verify_detailed_balance*` usage.
 - **`docs/roadmap.md`** — planned feature work.
 - **`docs/dev/rust.md`** — Rust toolchain notes and tooling deep-dive.
 - **`docs/RELEASING.md`** — release procedure (also referenced from `## Publishing note` below).
 - **`REFERENCES.md`** — academic references and AI-assisted-development tool citations.
-- **`CHANGELOG.md`** — generated by `git-cliff` from commit history; **never hand-edit**. To change changelog content, fix the upstream commit message (see [Commit Message Generation](#commit-message-generation)) or `cliff.toml`.
+- **`CHANGELOG.md`** — generated by `git-cliff` from commit history; **never hand-edit**. To change changelog content, fix the upstream commit message (see
+  [Commit Message Generation](#commit-message-generation)) or `cliff.toml`.
 
 ## Documentation generation
 
@@ -154,15 +169,20 @@ The README is the canonical user-facing introduction and is included verbatim in
 
 Rules:
 
-- Edit `README.md` directly for badges, pitch, installation, quick start, API-choice guidance, examples, ecosystem, contributing, citation, references, and agent guidance.
+- Edit `README.md` directly for badges, pitch, installation, quick start, API-choice guidance, examples, ecosystem, contributing, citation, references, and
+  agent guidance.
 - Keep README examples valid as rustdoc examples because the README is included during `cargo test --doc`.
-- Keep the `src/lib.rs //!` block focused on deeper semantic/API contract material that should appear after the README on docs.rs: Metropolis-Hastings scope, numerical semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
-- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract prose belongs in `src/lib.rs //!`, while landing-page prose belongs in README.
-- For long READMEs, maintain a hand-written `## Contents` section before `## 🚀 Quick start`. Include the major landing-page sections, but do not enumerate every crate-level contract section appended by `src/lib.rs //!`.
+- Keep the `src/lib.rs //!` block focused on deeper semantic/API contract material that should appear after the README on docs.rs: Metropolis-Hastings scope,
+  numerical semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
+- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract prose belongs in
+  `src/lib.rs //!`, while landing-page prose belongs in README.
+- For long READMEs, maintain a hand-written `## Contents` section before `## 🚀 Quick start`. Include the major landing-page sections, but do not enumerate
+  every crate-level contract section appended by `src/lib.rs //!`.
 
 ## Publishing note
 
-- If you publish this crate to crates.io, prefer updating documentation *before* publishing a new version (doc-only changes still require a version bump on crates.io).
+- If you publish this crate to crates.io, prefer updating documentation *before* publishing a new version (doc-only changes still require a version bump on
+  crates.io).
 - Before tagging, run `just check` so README rendering, doctests, Markdown formatting, and the rest of the local validation gate pass.
 
 ## Editing tools policy

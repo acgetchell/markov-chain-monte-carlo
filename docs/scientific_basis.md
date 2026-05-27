@@ -1,6 +1,8 @@
 # Scientific Basis and Scope
 
-This crate implements Metropolis-Hastings sampling primitives for user-defined state spaces. It provides the transition machinery, numerical checks, rollback contracts, diagnostics, and streaming estimators needed for robust scientific code, but the scientific validity of a chain also depends on the caller's target distribution, proposal kernel, state representation, and analysis choices.
+This crate implements Metropolis-Hastings sampling primitives for user-defined state spaces. It provides the transition machinery, numerical checks, rollback
+contracts, diagnostics, and streaming estimators needed for robust scientific code, but the scientific validity of a chain also depends on the caller's target
+distribution, proposal kernel, state representation, and analysis choices.
 
 ## Metropolis-Hastings Contract
 
@@ -10,13 +12,15 @@ For a current state `x` and proposed state `y`, the crate uses the standard Metr
 alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
 ```
 
-The `Target<S>` implementation supplies `log pi(s)` up to an additive constant. The proposal implementation supplies either symmetric proposals or an explicit log proposal ratio through:
+The `Target<S>` implementation supplies `log pi(s)` up to an additive constant. The proposal implementation supplies either symmetric proposals or an explicit
+log proposal ratio through:
 
 - `Proposal::log_q_ratio(current, proposed)`
 - `ProposalMut::log_q_ratio(state, token)`
 - `DelayedProposal::log_q_ratio(state, plan) -> Result<f64, Self::Error>`
 
-These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities, site counts, reverse-site counts, and invalid-move handling.
+These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities,
+site counts, reverse-site counts, and invalid-move handling.
 
 ## What the Crate Checks
 
@@ -40,7 +44,8 @@ The crate includes diagnostics that help users test assumptions:
 - Thinning helpers collect every k-th state or observation while still advancing the chain on every step.
 - Detailed-balance helpers empirically compare forward and reverse transition flows for representative discrete transitions.
 
-Detailed-balance checks are especially useful for new proposal kernels, but they remain empirical tests over selected transitions. Passing them does not establish irreducibility, aperiodicity, or adequate mixing.
+Detailed-balance checks are especially useful for new proposal kernels, but they remain empirical tests over selected transitions. Passing them does not
+establish irreducibility, aperiodicity, or adequate mixing.
 
 ## User Responsibilities
 
@@ -53,7 +58,8 @@ Domain code should still validate:
 - Reproducible random-number seeding and independent streams for parallel chains
 - Scientific interpretation of observables and uncertainty estimates
 
-For constrained triangulations, graphs, or other combinatorial systems, the strongest checks usually combine domain-specific invariant tests with this crate's transition-level diagnostics.
+For constrained triangulations, graphs, or other combinatorial systems, the strongest checks usually combine domain-specific invariant tests with this crate's
+transition-level diagnostics.
 
 ## References
 

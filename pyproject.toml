@@ -36,7 +36,6 @@ dev = [
     "ruff>=0.15.14",
     "semgrep==1.164.0",
     "ty>=0.0.40",
-    "yamllint>=1.38.0",
 ]
 
 [tool.ruff]

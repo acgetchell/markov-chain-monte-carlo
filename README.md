@@ -1,12 +1,25 @@
 # markov-chain-monte-carlo
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20033111.svg)](https://doi.org/10.5281/zenodo.20033111) [![Crates.io](https://img.shields.io/crates/v/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo) [![Downloads](https://img.shields.io/crates/d/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo) [![License](https://img.shields.io/crates/l/markov-chain-monte-carlo.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/LICENSE) [![Docs.rs](https://docs.rs/markov-chain-monte-carlo/badge.svg)](https://docs.rs/markov-chain-monte-carlo) [![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml) [![CodeQL](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml) [![zizmor](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/zizmor.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/zizmor.yml) [![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml) [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo) [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20033111.svg)](https://doi.org/10.5281/zenodo.20033111)
+[![Crates.io](https://img.shields.io/crates/v/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo)
+[![Downloads](https://img.shields.io/crates/d/markov-chain-monte-carlo.svg)](https://crates.io/crates/markov-chain-monte-carlo)
+[![License](https://img.shields.io/crates/l/markov-chain-monte-carlo.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/LICENSE)
+[![Docs.rs](https://docs.rs/markov-chain-monte-carlo/badge.svg)](https://docs.rs/markov-chain-monte-carlo)
+[![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml)
+[![zizmor](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/zizmor.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/zizmor.yml)
+[![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml)
+[![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
+[![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
 
-Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need rollback-safe mutation or delayed commits.
+Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
+rollback-safe mutation or delayed commits.
 
 ## 📐 Introduction
 
-This library implements composable Metropolis-Hastings sampling in Rust for workflows where the state space, proposal mechanism, and measurement strategy are application-specific. The goal is to keep the transition mechanics explicit while supporting cheap cloned states, large rollback-mutable states, delayed-commit proposals, long streaming runs, and proposal diagnostics.
+This library implements composable Metropolis-Hastings sampling in Rust for workflows where the state space, proposal mechanism, and measurement strategy are
+application-specific. The goal is to keep the transition mechanics explicit while supporting cheap cloned states, large rollback-mutable states, delayed-commit
+proposals, long streaming runs, and proposal diagnostics.
 
 🚧 **Pre-release (0.x)** — This crate is under active development and not yet ready for production use. APIs may change without notice.
 
@@ -20,7 +33,8 @@ Use this crate when you want:
 - optional `serde` checkpointing with validated resume flows
 - detailed-balance diagnostics for proposal development
 
-This crate provides the sampler mechanics; proposal correctness, ergodicity, convergence assessment, and scientific model choice remain domain-specific responsibilities.
+This crate provides the sampler mechanics; proposal correctness, ergodicity, convergence assessment, and scientific model choice remain domain-specific
+responsibilities.
 
 ## ✨ Features
 
@@ -122,10 +136,13 @@ fn main() -> Result<(), McmcError> {
 
 Complete runnable examples live in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/main/examples):
 
-- [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/normal_1d.rs) — by-value random-walk sampler for a normal target
-- [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/ising_1d.rs) — in-place spin-flip proposals for a non-`Clone` Ising state
+- [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/normal_1d.rs) — by-value random-walk sampler for a normal
+  target
+- [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/ising_1d.rs) — in-place spin-flip proposals for a
+  non-`Clone` Ising state
 - [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/iterator_sampling.rs) — `Sampler` as an iterator
-- [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed, and batch detailed-balance checks
+- [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed,
+  and batch detailed-balance checks
 
 Run them with:
 
@@ -133,7 +150,8 @@ Run them with:
 just examples
 ```
 
-For proposal-specific testing patterns, see the [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md).
+For proposal-specific testing patterns, see the
+[proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md).
 
 ## 📖 Documentation
 
@@ -163,27 +181,35 @@ The long-term architecture separates:
 
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CONTRIBUTING.md) for the full contributor guide (project layout, development workflow, code style, testing, documentation layout, performance/benchmarking, and the release process). Community expectations live in [`CODE_OF_CONDUCT.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CODE_OF_CONDUCT.md). AI assistants should follow [`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/AGENTS.md).
+See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CONTRIBUTING.md) for the full contributor guide (project layout,
+development workflow, code style, testing, documentation layout, performance/benchmarking, and the release process). Community expectations live in
+[`CODE_OF_CONDUCT.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CODE_OF_CONDUCT.md). AI assistants should follow
+[`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/AGENTS.md).
 
 Quick local workflow: run `just setup` once, then run `just check` before opening a pull request. For the full command list, run `just --list`.
 
 ## 📚 Citation
 
-If you use this crate in academic work or downstream research software, please cite it using [`CITATION.cff`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CITATION.cff) or GitHub's "Cite this repository" feature.
+If you use this crate in academic work or downstream research software, please cite it using
+[`CITATION.cff`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CITATION.cff) or GitHub's "Cite this repository" feature.
 
 ## 🔎 References
 
-For canonical background references for Metropolis-Hastings, MCMC, and the example models, see [`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md).
+For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
+[`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md).
 
 ## 🤖 AI Agents
 
-This repository contains an `AGENTS.md` file, which defines the canonical rules and invariants for AI coding assistants and autonomous agents working on this codebase.
+This repository contains an `AGENTS.md` file, which defines the canonical rules and invariants for AI coding assistants and autonomous agents working on this
+codebase.
 
 Portions of this library were developed with the assistance of AI tools including [ChatGPT], [Claude], [Codex], and [CodeRabbit].
 
 All code was written and/or reviewed and validated by the author.
 
-For tool citation metadata, see the [AI-assisted development tools](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md#ai-assisted-development-tools) section of `REFERENCES.md`.
+For tool citation metadata, see the
+[AI-assisted development tools](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md#ai-assisted-development-tools) section of
+`REFERENCES.md`.
 
 ## 📜 License
 
