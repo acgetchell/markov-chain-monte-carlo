@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - Escape generated changelog commit text so Rust generics are not parsed as HTML tags
   - Regenerate CHANGELOG.md to preserve visible generic type names and version footer links
+- Escape changelog angle brackets for GitHub rendering [`f712f15`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/f712f1515d8a215359a2551c598d8fa0de974ef5)
+
+  Angle brackets in changelog entries, such as Rust generics (`Chain&lt;S&gt;`),
+  were parsed as HTML tags by Markdown renderers like GitHub.
+  This fix escapes those characters during changelog generation,
+  ensuring correct display. The changelog was regenerated,
+  also incorporating repository security enhancements from #63.
 
 ### Maintenance
 
@@ -37,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cover the allowlist entry in the Semgrep workflow policy fixture.
 
   * ci: simplify Semgrep SARIF concurrency key
+- Refresh managed tooling installs [`27bcae6`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/27bcae6faad4e0197241ea0ace49f88cdc65ea25)
+
+  - Replace taiki-e/install-action with cached Cargo installs for audit and coverage workflow tools.
+  - Update uv-managed development tools, including Semgrep, Ruff, Ty, and the workflow uv version.
+  - Refresh the serde_json dev dependency and remove taiki-e from the repository-owned Actions allowlist.
 
 ## [0.3.0] - 2026-05-05
 

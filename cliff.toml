@@ -83,6 +83,8 @@ sort_commits = "oldest"
 # available. The body/footer templates above do use the remote.github variables.
 commit_preprocessors = [
     { pattern = '(?m)^Closes #\d+\n\n', replace = "" },
+    { pattern = 'Rust generics \(``\)', replace = 'Rust generics (`Chain<S>`)' },
+    { pattern = '(?m)^- Update changelog\n?', replace = "" },
     { pattern = '\(#(\d+)\)', replace = '[#${1}](https://github.com/acgetchell/markov-chain-monte-carlo/pull/${1})' },
 ]
 
