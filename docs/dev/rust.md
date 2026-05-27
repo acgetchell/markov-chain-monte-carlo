@@ -30,7 +30,7 @@ just examples         # Run all examples
 - `just zizmor` - GitHub Actions security analysis through `zizmor`
 - `just toml-fmt-check` - TOML formatting check through Taplo
 - `just toml-lint` - TOML validation through Taplo
-- `just markdown-check` - Markdown formatting check through dprint
+- `just markdown-check` - Markdown formatting check through rumdl
 - `just spell-check` - Spellcheck through `typos`
 - `just semgrep` - Repository-owned Rust and Python policy rules
 - `just semgrep-test` - Tests for the repository-owned Semgrep rules

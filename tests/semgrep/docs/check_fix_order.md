@@ -1,3 +1,5 @@
+# Check/fix ordering fixture
+
 Bad command ordering:
 
 ```bash
