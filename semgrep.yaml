@@ -158,6 +158,22 @@ rules:
           - pattern-regex: >-
               (?s)/\*!.*?(Box\s*<\s*dyn\s+(std::error::)?Error|&\s*dyn\s+(std::error::)?Error|anyhow::Error).*?\*/
 
+  - id: mcmc.rust.public-error-enums-non-exhaustive
+    languages:
+      - rust
+    severity: WARNING
+    message: "Public error enums must be #[non_exhaustive] so adding variants remains API-safe."
+    metadata:
+      category: maintainability
+      rationale: >-
+        Error enums grow as diagnostics become more precise; non-exhaustive
+        public enums keep that growth additive for downstream callers.
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    pattern-regex: '(?m)(?<!#\[non_exhaustive\]\n)^\s*pub\s+enum\s+[A-Za-z_][A-Za-z0-9_]*Error(?:<[^>{}]*)?\s*\{'
+
   - id: mcmc.rust.no-clippy-allow-lints
     languages:
       - rust
@@ -208,6 +224,63 @@ rules:
     patterns:
       - pattern-regex: '^\s*use\s+markov_chain_monte_carlo::(chain|error|sampler|traits)::'
       - pattern-not-regex: '^\s*use\s+markov_chain_monte_carlo::prelude::'
+
+  - id: mcmc.github-actions.external-action-sha-pinned
+    languages:
+      - regex
+    severity: WARNING
+    message: "Pin external GitHub Actions to a full 40-character commit SHA."
+    metadata:
+      category: security
+      rationale: "Moving tags can change workflow behavior without review."
+    paths:
+      include:
+        - "/.github/workflows/**/*.yml"
+        - "/.github/workflows/**/*.yaml"
+        - "/github-actions/**/*.yml"
+        - "/github-actions/**/*.yaml"
+        - "/tests/semgrep/github-actions/**/*.yml"
+        - "/tests/semgrep/github-actions/**/*.yaml"
+    patterns:
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@(?![a-fA-F0-9]{40}(?:\s+#|$))[^\s#]+' # yamllint disable-line rule:line-length
+
+  - id: mcmc.github-actions.external-action-approved-allowlist
+    languages:
+      - regex
+    severity: WARNING
+    message: "Use only approved external GitHub Actions, or update the repository allowlist deliberately."
+    metadata:
+      category: security
+      rationale: "A small allowlist keeps workflow supply-chain review explicit."
+    paths:
+      include:
+        - "/.github/workflows/**/*.yml"
+        - "/.github/workflows/**/*.yaml"
+        - "/github-actions/**/*.yml"
+        - "/github-actions/**/*.yaml"
+        - "/tests/semgrep/github-actions/**/*.yml"
+        - "/tests/semgrep/github-actions/**/*.yaml"
+    patterns:
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|taiki-e/install-action|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@' # yamllint disable-line rule:line-length
+
+  - id: mcmc.github-actions.external-action-version-comment
+    languages:
+      - regex
+    severity: WARNING
+    message: "Keep a readable version comment next to external GitHub Action SHA pins."
+    metadata:
+      category: maintainability
+      rationale: "Version comments make Dependabot updates and human review manageable."
+    paths:
+      include:
+        - "/.github/workflows/**/*.yml"
+        - "/.github/workflows/**/*.yaml"
+        - "/github-actions/**/*.yml"
+        - "/github-actions/**/*.yaml"
+        - "/tests/semgrep/github-actions/**/*.yml"
+        - "/tests/semgrep/github-actions/**/*.yaml"
+    patterns:
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[a-fA-F0-9]{40}\s*$' # yamllint disable-line rule:line-length
 
   - id: mcmc.python.no-broad-exception
     languages:

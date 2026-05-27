@@ -21,13 +21,14 @@ jobs:
     name: Code Coverage
     runs-on: ubuntu-latest
     env:
-      CARGO_LLVM_COV_VERSION: "0.8.5"
+      CARGO_LLVM_COV_VERSION: "0.8.7"
       JUST_VERSION: "1.50.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # Needed for Codecov diff analysis
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
@@ -54,7 +55,7 @@ jobs:
           fi
 
           if [ "${installed_version}" != "${CARGO_LLVM_COV_VERSION}" ]; then
-            cargo install cargo-llvm-cov --locked --version "${CARGO_LLVM_COV_VERSION}"
+            cargo install cargo-llvm-cov --locked --force --version "${CARGO_LLVM_COV_VERSION}"
           fi
 
       - name: Install just

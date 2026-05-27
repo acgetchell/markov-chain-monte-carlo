@@ -32,6 +32,23 @@ fn erased_error() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// ruleid: mcmc.rust.public-error-enums-non-exhaustive
+pub enum MissingNonExhaustiveError {
+    InvalidInput,
+}
+
+#[derive(Debug)]
+// ruleid: mcmc.rust.public-error-enums-non-exhaustive
+pub enum DerivedMissingNonExhaustiveError {
+    InvalidInput,
+}
+
+// ok: mcmc.rust.public-error-enums-non-exhaustive
+#[non_exhaustive]
+pub enum ExtensibleError {
+    InvalidInput,
+}
+
 // ruleid: mcmc.rust.no-clippy-allow-lints
 #[allow(clippy::cast_precision_loss)]
 fn clippy_allow(value: usize) -> f64 {

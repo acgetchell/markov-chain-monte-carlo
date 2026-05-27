@@ -31,14 +31,16 @@ py-modules = [ "postprocess_changelog", "subprocess_utils", "tag_release" ]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.1",
+    "actionlint-py==1.7.12.24",
+    "pytest>=9.0.3",
     "ruff>=0.12.11",
     "semgrep==1.161.0",
     "ty>=0.0.8",
+    "yamllint>=1.38.0",
 ]
 
 [tool.ruff]
-line-length = 150
+line-length = 160
 target-version = "py312"
 src = [ "scripts" ]
 
@@ -73,6 +75,24 @@ ignore = [
     "SLF001", # tests may call internal helpers
     "PT019", # @patch decorator params are not pytest fixtures
     "PLC0415", # test helpers may import inside functions
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "postprocess_changelog",
+    "subprocess_utils",
+    "tag_release",
+]
+force-single-line = false
+split-on-trailing-comma = true
+combine-as-imports = true
+order-by-type = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
 ]
 
 [tool.ruff.format]

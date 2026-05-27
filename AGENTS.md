@@ -61,13 +61,15 @@ Examples of breaking changes include removing or renaming public API items, chan
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
+- **GitHub Actions security**: Validate workflows with `just zizmor` (uses `zizmor`)
 - **YAML**: Use `just yaml-lint`
 - **TOML**: Use `just toml-fmt-check` and `just toml-lint` (uses Taplo)
 - **Spell check**: Use `just spell-check` (uses `typos`)
 - **Project rules**: Use `just semgrep` and `just semgrep-test` (Semgrep is pinned in `pyproject.toml` and run through `uv`)
+- **Rust tests**: Runnable Rust unit and integration tests use `cargo nextest` through the `just` recipes; rustdoc doctests remain on `cargo test --doc`
 
 ### Rust
 

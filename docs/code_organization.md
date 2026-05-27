@@ -17,16 +17,19 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 .
 ├── .codecov.yml
 ├── .coderabbit.yml
+├── .config/
+│   └── nextest.toml
 ├── .github/
 │   ├── CODEOWNERS
 │   ├── dependabot.yml
 │   └── workflows/
 │       ├── audit.yml
 │       ├── ci.yml
-│       ├── codacy.yml
 │       ├── codecov.yml
 │       ├── codeql.yml
-│       └── rust-clippy.yml
+│       ├── rust-clippy.yml
+│       ├── semgrep-sarif.yml
+│       └── zizmor.yml
 ├── .gitignore
 ├── .taplo.toml
 ├── .yamllint
@@ -40,6 +43,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── LICENSE
 ├── README.md
 ├── REFERENCES.md
+├── SECURITY.md
 ├── benches/
 │   └── stepping.rs
 ├── cliff.toml
@@ -91,6 +95,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       │   ├── deep_import.rs
 │       │   ├── erased_error.rs
 │       │   └── typed_error.rs
+│       ├── github-actions/
+│       │   └── workflow_actions.yml
 │       ├── scripts/
 │       │   └── tests/
 │       │       └── python_exceptions.py
@@ -113,7 +119,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
 - `scripts/` — Python helpers for changelog post-processing and release tagging.
-- Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`) — build, validation, formatting, release, and project-rule configuration.
+- Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`, `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 
 ## Library module file map
 

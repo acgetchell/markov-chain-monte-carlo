@@ -5,7 +5,13 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-cargo_llvm_cov_version := "0.8.5"
+cargo_nextest_version := "0.9.137"
+cargo_llvm_cov_version := "0.8.7"
+dprint_version := "0.54.0"
+git_cliff_version := "2.13.1"
+taplo_version := "0.10.0"
+typos_version := "1.46.3"
+zizmor_version := "1.25.2"
 
 # Common cargo-llvm-cov arguments for all coverage runs.
 # Excludes examples from reports while allowing tests to exercise library code.
@@ -17,51 +23,115 @@ _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
 _ensure-actionlint:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v actionlint >/dev/null || { echo "❌ 'actionlint' not found. Install: brew install actionlint"; exit 1; }
+    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
+    uv run actionlint -version >/dev/null
 
 _ensure-cargo-llvm-cov:
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! command -v cargo-llvm-cov >/dev/null; then
-        echo "❌ 'cargo-llvm-cov' not found. Install with:"
+    installed_version=""
+    if command -v cargo-llvm-cov >/dev/null; then
+        installed_version="$(cargo llvm-cov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{cargo_llvm_cov_version}}" ]]; then
+        echo "❌ 'cargo-llvm-cov' {{cargo_llvm_cov_version}} not found. Install with:"
         echo "   cargo install --locked cargo-llvm-cov --version {{cargo_llvm_cov_version}}"
+        exit 1
+    fi
+
+_ensure-cargo-nextest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    installed_version=""
+    if cargo nextest --version >/dev/null 2>&1; then
+        installed_version="$(cargo nextest --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{cargo_nextest_version}}" ]]; then
+        echo "❌ 'cargo-nextest' {{cargo_nextest_version}} not found. Install with:"
+        echo "   cargo install --locked cargo-nextest --version {{cargo_nextest_version}}"
         exit 1
     fi
 
 _ensure-dprint:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v dprint >/dev/null || { echo "❌ 'dprint' not found. Install: cargo install dprint"; exit 1; }
+    installed_version=""
+    if command -v dprint >/dev/null; then
+        installed_version="$(dprint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{dprint_version}}" ]]; then
+        echo "❌ 'dprint' {{dprint_version}} not found. Install with:"
+        echo "   cargo install --locked dprint --version {{dprint_version}}"
+        exit 1
+    fi
 
 _ensure-git-cliff:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v git-cliff >/dev/null || { echo "❌ 'git-cliff' not found. Install: cargo install git-cliff"; exit 1; }
+    installed_version=""
+    if command -v git-cliff >/dev/null; then
+        installed_version="$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{git_cliff_version}}" ]]; then
+        echo "❌ 'git-cliff' {{git_cliff_version}} not found. Install with:"
+        echo "   cargo install --locked git-cliff --version {{git_cliff_version}}"
+        exit 1
+    fi
 
 _ensure-jq:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v jq >/dev/null || { echo "❌ 'jq' not found. Install: brew install jq"; exit 1; }
+    command -v jq >/dev/null || { echo "❌ 'jq' not found. Install with your system package manager."; exit 1; }
 
 _ensure-taplo:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v taplo >/dev/null || { echo "❌ 'taplo' not found. Install: brew install taplo or cargo install taplo-cli"; exit 1; }
+    installed_version=""
+    if command -v taplo >/dev/null; then
+        installed_version="$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{taplo_version}}" ]]; then
+        echo "❌ 'taplo' {{taplo_version}} not found. Install with:"
+        echo "   cargo install --locked taplo-cli --version {{taplo_version}}"
+        exit 1
+    fi
 
 _ensure-typos:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v typos >/dev/null || { echo "❌ 'typos' not found. Install: cargo install typos-cli"; exit 1; }
+    installed_version=""
+    if command -v typos >/dev/null; then
+        installed_version="$(typos --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{typos_version}}" ]]; then
+        echo "❌ 'typos' {{typos_version}} not found. Install with:"
+        echo "   cargo install --locked typos-cli --version {{typos_version}}"
+        exit 1
+    fi
 
 _ensure-uv:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install: brew install uv"; exit 1; }
+    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
 
 _ensure-yamllint:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v yamllint >/dev/null || { echo "❌ 'yamllint' not found. Install: brew install yamllint"; exit 1; }
+    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
+    uv run yamllint --version >/dev/null
+
+_ensure-zizmor:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    installed_version=""
+    if command -v zizmor >/dev/null; then
+        installed_version="$(zizmor --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{zizmor_version}}" ]]; then
+        echo "❌ 'zizmor' {{zizmor_version}} not found. Install with:"
+        echo "   cargo install --locked zizmor --version {{zizmor_version}}"
+        exit 1
+    fi
 
 # GitHub Actions workflow validation
 action-lint: _ensure-actionlint
@@ -72,22 +142,22 @@ action-lint: _ensure-actionlint
         files+=("$file")
     done < <(git ls-files -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 actionlint
+        printf '%s\0' "${files[@]}" | xargs -0 uv run actionlint
     else
         echo "No workflow files found to lint."
     fi
 
 # Benchmarks
 bench:
-    cargo bench --bench stepping
+    cargo bench --locked --bench stepping
 
 # Compile benchmark harnesses without running Criterion measurements.
 bench-compile:
-    cargo bench --no-run
+    cargo bench --locked --no-run
 
 # Build
 build:
-    cargo build
+    cargo build --locked
 
 # Changelog generation (git-cliff + post-processing)
 changelog: _ensure-git-cliff python-sync
@@ -104,14 +174,15 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     uv run postprocess-changelog
 
 # Non-mutating validation gate
-check: fmt-check clippy python-check yaml-lint action-lint toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check: fmt-check clippy python-check yaml-lint action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
 check-fast:
-    cargo check
+    cargo check --locked
 
-# CI simulation: comprehensive validation
+# CI simulation: comprehensive validation.
+# Depends on `check`, which includes `zizmor` GitHub Actions security analysis.
 ci: check bench-compile doc test-all examples validate-examples
     @echo "🎯 CI checks complete!"
 
@@ -123,7 +194,7 @@ clean:
 
 # Clippy linting
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+    cargo clippy --locked --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
 # Coverage analysis for local development (HTML output)
 coverage: _ensure-cargo-llvm-cov
@@ -148,14 +219,14 @@ default:
 
 # Documentation
 doc:
-    cargo doc --no-deps --document-private-items
+    cargo doc --locked --no-deps --document-private-items
 
 # Examples
 examples:
-    cargo run --quiet --example detailed_balance
-    cargo run --quiet --example normal_1d
-    cargo run --quiet --example ising_1d
-    cargo run --quiet --example iterator_sampling
+    cargo run --locked --quiet --example detailed_balance
+    cargo run --locked --quiet --example normal_1d
+    cargo run --locked --quiet --example ising_1d
+    cargo run --locked --quiet --example iterator_sampling
 
 # Fix (mutating): apply formatters
 fix: fmt markdown-fix python-fix toml-fmt
@@ -173,7 +244,7 @@ help-workflows:
     @echo "Common Just workflows:"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
-    @echo "  just ci             # Full CI simulation, including benchmark compile"
+    @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
@@ -183,9 +254,10 @@ help-workflows:
     @echo "Quality groups:"
     @echo "  just lint           # All linting (code + docs + config)"
     @echo "  just lint-code      # Rust + Python + Semgrep checks"
-    @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions"
+    @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
     @echo "  just lint-docs      # Markdown and spelling checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
+    @echo "  just zizmor         # GitHub Actions security analysis"
     @echo ""
     @echo "Testing:"
     @echo "  just test           # Lib + doc tests"
@@ -201,7 +273,7 @@ lint: lint-code lint-docs lint-config
 
 lint-code: fmt-check clippy python-check semgrep semgrep-test
 
-lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint
+lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint zizmor
 
 lint-docs: markdown-check spell-check
 
@@ -320,6 +392,7 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 1 mcmc.rust.no-nonfinite-unwrap-defaults src/project_rules/rust_style.rs
     expect_semgrep_count 3 mcmc.rust.no-production-unwrap-panic src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-box-dyn-error-in-src src/project_rules/rust_style.rs
+    expect_semgrep_count 2 mcmc.rust.public-error-enums-non-exhaustive src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-clippy-allow-lints src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.expect-requires-reason src/project_rules/rust_style.rs
 
@@ -330,6 +403,9 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches benches/typed_error.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/erased_error.rs
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/typed_error.rs
+    expect_semgrep_count 1 mcmc.github-actions.external-action-sha-pinned github-actions/workflow_actions.yml
+    expect_semgrep_count 1 mcmc.github-actions.external-action-approved-allowlist github-actions/workflow_actions.yml
+    expect_semgrep_count 1 mcmc.github-actions.external-action-version-comment github-actions/workflow_actions.yml
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
 setup: setup-tools
@@ -344,28 +420,34 @@ setup-tools:
     rustup component add clippy rustfmt rust-docs rust-src llvm-tools-preview
     echo ""
 
-    if have brew; then
-        echo "Ensuring Homebrew tools..."
-        brew install actionlint dprint git-cliff jq taplo uv yamllint || true
-        echo ""
-    else
-        echo "Homebrew not found; skipping brew-managed tools."
-        echo "Install manually if missing: actionlint dprint jq taplo uv yamllint"
-        echo ""
-    fi
-
     echo "Ensuring cargo tools..."
-    if ! have cargo-llvm-cov; then
-        cargo install --locked cargo-llvm-cov --version {{cargo_llvm_cov_version}}
+    cargo_llvm_cov_version="{{cargo_llvm_cov_version}}"
+    if ! have cargo-llvm-cov || [[ "$(cargo llvm-cov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_llvm_cov_version" ]]; then
+        cargo install --locked cargo-llvm-cov --version "$cargo_llvm_cov_version"
     fi
-    if ! have dprint; then
-        cargo install --locked dprint
+    cargo_nextest_version="{{cargo_nextest_version}}"
+    if ! cargo nextest --version >/dev/null 2>&1 || [[ "$(cargo nextest --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_nextest_version" ]]; then
+        cargo install --locked cargo-nextest --version "$cargo_nextest_version"
     fi
-    if ! have git-cliff; then
-        cargo install --locked git-cliff
+    dprint_version="{{dprint_version}}"
+    if ! have dprint || [[ "$(dprint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$dprint_version" ]]; then
+        cargo install --locked dprint --version "$dprint_version"
     fi
-    if ! have typos; then
-        cargo install --locked typos-cli
+    git_cliff_version="{{git_cliff_version}}"
+    if ! have git-cliff || [[ "$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$git_cliff_version" ]]; then
+        cargo install --locked git-cliff --version "$git_cliff_version"
+    fi
+    taplo_version="{{taplo_version}}"
+    if ! have taplo || [[ "$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$taplo_version" ]]; then
+        cargo install --locked taplo-cli --version "$taplo_version"
+    fi
+    typos_version="{{typos_version}}"
+    if ! have typos || [[ "$(typos --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$typos_version" ]]; then
+        cargo install --locked typos-cli --version "$typos_version"
+    fi
+    zizmor_version="{{zizmor_version}}"
+    if ! have zizmor || [[ "$(zizmor --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$zizmor_version" ]]; then
+        cargo install --locked zizmor --version "$zizmor_version"
     fi
     echo ""
 
@@ -381,7 +463,7 @@ setup-tools:
 
     echo "Verifying required commands..."
     missing=0
-    for cmd in actionlint cargo-llvm-cov dprint git-cliff jq taplo typos uv yamllint; do
+    for cmd in cargo-llvm-cov dprint git-cliff jq taplo typos uv zizmor; do
         if have "$cmd"; then
             echo "  ✓ $cmd"
         else
@@ -395,7 +477,17 @@ setup-tools:
         echo "Fix the installs above and re-run: just setup-tools"
         exit 1
     fi
+    if cargo nextest --version >/dev/null 2>&1; then
+        echo "  ✓ cargo nextest"
+    else
+        echo "  ✗ cargo nextest"
+        exit 1
+    fi
 
+    uv run actionlint -version >/dev/null
+    echo "  ✓ actionlint (uv)"
+    uv run yamllint --version >/dev/null
+    echo "  ✓ yamllint (uv)"
     uv run semgrep --version >/dev/null
     echo "  ✓ semgrep (uv)"
     uv run ruff --version >/dev/null
@@ -417,18 +509,22 @@ tag version: python-sync
 tag-force version: python-sync
     uv run tag-release {{version}} --force
 
-# Testing
-test:
-    cargo test --lib --verbose
-    cargo test --doc --verbose
+# Testing: runnable Rust tests use nextest; rustdoc doctests remain on cargo test.
+test: test-lib test-doc
+
+test-lib: _ensure-cargo-nextest
+    cargo nextest run --locked --lib --verbose
+
+test-doc:
+    cargo test --locked --doc --verbose
 
 # All tests (lib + doc + integration + Python tooling)
 test-all: test test-integration test-python
     @echo "✅ All tests passed"
 
 # Integration tests
-test-integration:
-    cargo test --tests --verbose
+test-integration: _ensure-cargo-nextest
+    cargo nextest run --locked --test '*' --verbose
 
 test-python: python-sync
     uv run pytest -q
@@ -476,22 +572,22 @@ toml-lint: _ensure-taplo
 validate-examples:
     #!/usr/bin/env bash
     set -euo pipefail
-    output=$(cargo run --quiet --example detailed_balance)
+    output=$(cargo run --locked --quiet --example detailed_balance)
     echo "$output"
     echo "$output" | grep -q "Detailed balance checks passed" || { echo "❌ detailed_balance: Missing success marker"; exit 1; }
     echo "$output" | grep -q "by-value residual" || { echo "❌ detailed_balance: Missing by-value residual"; exit 1; }
     echo "✅ detailed_balance validated"
-    output=$(cargo run --quiet --example normal_1d)
+    output=$(cargo run --locked --quiet --example normal_1d)
     echo "$output"
     echo "$output" | grep -q "Sample mean" || { echo "❌ normal_1d: Missing sample mean"; exit 1; }
     echo "$output" | grep -q "Acceptance rate" || { echo "❌ normal_1d: Missing acceptance rate"; exit 1; }
     echo "✅ normal_1d validated"
-    output=$(cargo run --quiet --example ising_1d)
+    output=$(cargo run --locked --quiet --example ising_1d)
     echo "$output"
     echo "$output" | grep -q "<m>" || { echo "❌ ising_1d: Missing magnetization"; exit 1; }
     echo "$output" | grep -q "acceptance rate" || { echo "❌ ising_1d: Missing acceptance rate"; exit 1; }
     echo "✅ ising_1d validated"
-    output=$(cargo run --quiet --example iterator_sampling)
+    output=$(cargo run --locked --quiet --example iterator_sampling)
     echo "$output"
     echo "$output" | grep -q "Sample mean" || { echo "❌ iterator_sampling: Missing sample mean"; exit 1; }
     echo "$output" | grep -q "Acceptance rate" || { echo "❌ iterator_sampling: Missing acceptance rate"; exit 1; }
@@ -520,7 +616,11 @@ yaml-lint: _ensure-yamllint
     done < <(git ls-files -z '*.yml' '*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
         echo "🔍 yamllint (${#files[@]} files)"
-        yamllint --strict -c .yamllint "${files[@]}"
+        uv run yamllint --strict -c .yamllint "${files[@]}"
     else
         echo "No YAML files found to lint."
     fi
+
+# GitHub Actions security analysis
+zizmor: _ensure-zizmor
+    zizmor .github
