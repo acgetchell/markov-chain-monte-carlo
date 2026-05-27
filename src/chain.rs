@@ -74,6 +74,7 @@ fn check_log_q_ratio(log_q: f64) -> Result<(), McmcError> {
 
 /// Telemetry for a single Metropolis-Hastings step.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 #[must_use]
 pub struct Step<I> {
     /// Whether the move was accepted and committed.

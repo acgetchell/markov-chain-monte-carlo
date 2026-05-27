@@ -12,6 +12,7 @@ git_cliff_version := "2.13.1"
 taplo_version := "0.10.0"
 typos_version := "1.46.3"
 zizmor_version := "1.25.2"
+example_names := "detailed_balance normal_1d ising_1d iterator_sampling"
 
 # Common cargo-llvm-cov arguments for all coverage runs.
 # Excludes examples from reports while allowing tests to exercise library code.
@@ -183,7 +184,7 @@ check-fast:
 
 # CI simulation: comprehensive validation.
 # Depends on `check`, which includes `zizmor` GitHub Actions security analysis.
-ci: check bench-compile doc test-all examples validate-examples
+ci: check bench-compile doc test-all validate-examples
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
@@ -222,11 +223,19 @@ doc:
     cargo doc --locked --no-deps --document-private-items
 
 # Examples
-examples:
-    cargo run --locked --quiet --example detailed_balance
-    cargo run --locked --quiet --example normal_1d
-    cargo run --locked --quiet --example ising_1d
-    cargo run --locked --quiet --example iterator_sampling
+_build-examples:
+    cargo build --locked --examples
+
+examples: _build-examples
+    #!/usr/bin/env bash
+    set -euo pipefail
+    suffix=""
+    if [[ "${OS:-}" == "Windows_NT" ]]; then
+        suffix=".exe"
+    fi
+    for example in {{example_names}}; do
+        "target/debug/examples/${example}${suffix}"
+    done
 
 # Fix (mutating): apply formatters
 fix: fmt markdown-fix python-fix toml-fmt
@@ -569,29 +578,35 @@ toml-lint: _ensure-taplo
     fi
 
 # Validate example output (seeded, deterministic)
-validate-examples:
+validate-examples: _build-examples
     #!/usr/bin/env bash
     set -euo pipefail
-    output=$(cargo run --locked --quiet --example detailed_balance)
-    echo "$output"
-    echo "$output" | grep -q "Detailed balance checks passed" || { echo "❌ detailed_balance: Missing success marker"; exit 1; }
-    echo "$output" | grep -q "by-value residual" || { echo "❌ detailed_balance: Missing by-value residual"; exit 1; }
-    echo "✅ detailed_balance validated"
-    output=$(cargo run --locked --quiet --example normal_1d)
-    echo "$output"
-    echo "$output" | grep -q "Sample mean" || { echo "❌ normal_1d: Missing sample mean"; exit 1; }
-    echo "$output" | grep -q "Acceptance rate" || { echo "❌ normal_1d: Missing acceptance rate"; exit 1; }
-    echo "✅ normal_1d validated"
-    output=$(cargo run --locked --quiet --example ising_1d)
-    echo "$output"
-    echo "$output" | grep -q "<m>" || { echo "❌ ising_1d: Missing magnetization"; exit 1; }
-    echo "$output" | grep -q "acceptance rate" || { echo "❌ ising_1d: Missing acceptance rate"; exit 1; }
-    echo "✅ ising_1d validated"
-    output=$(cargo run --locked --quiet --example iterator_sampling)
-    echo "$output"
-    echo "$output" | grep -q "Sample mean" || { echo "❌ iterator_sampling: Missing sample mean"; exit 1; }
-    echo "$output" | grep -q "Acceptance rate" || { echo "❌ iterator_sampling: Missing acceptance rate"; exit 1; }
-    echo "✅ iterator_sampling validated"
+
+    example_binary() {
+        local example="$1"
+        local suffix=""
+        if [[ "${OS:-}" == "Windows_NT" ]]; then
+            suffix=".exe"
+        fi
+        printf 'target/debug/examples/%s%s' "$example" "$suffix"
+    }
+
+    validate_example() {
+        local example="$1"
+        shift
+        local output
+        output=$("$(example_binary "$example")")
+        echo "$output"
+        for marker in "$@"; do
+            echo "$output" | grep -q "$marker" || { echo "❌ ${example}: Missing marker '${marker}'"; exit 1; }
+        done
+        echo "✅ ${example} validated"
+    }
+
+    validate_example detailed_balance "Detailed balance checks passed" "by-value residual"
+    validate_example normal_1d "Sample mean" "Acceptance rate"
+    validate_example ising_1d "<m>" "acceptance rate"
+    validate_example iterator_sampling "Sample mean" "Acceptance rate"
 
 validate-json: _ensure-jq
     #!/usr/bin/env bash

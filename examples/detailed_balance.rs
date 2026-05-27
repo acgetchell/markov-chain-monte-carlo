@@ -78,11 +78,7 @@ impl DelayedProposal<bool> for DelayedFlip {
 
 fn main() -> Result<(), DetailedBalanceError> {
     let target = TwoStateTarget;
-    let config = DetailedBalanceConfig {
-        samples: 256,
-        tolerance: 1e-10,
-        min_hits: 1,
-    };
+    let config = DetailedBalanceConfig::new(256, 1e-10, 1);
 
     let mut rng = StdRng::seed_from_u64(42);
     let by_value = verify_detailed_balance(&false, &true, &target, &Flip, &mut rng, config)?;
@@ -102,12 +98,9 @@ fn main() -> Result<(), DetailedBalanceError> {
 
     let forward = |plan: &bool| *plan;
     let reverse = |plan: &bool| !*plan;
-    let delayed_transitions = [DetailedBalanceDelayedTransition {
-        current: &false,
-        proposed: &true,
-        forward_plan_matches: &forward,
-        reverse_plan_matches: &reverse,
-    }];
+    let delayed_transitions = [DetailedBalanceDelayedTransition::new(
+        &false, &true, &forward, &reverse,
+    )];
     let mut rng = StdRng::seed_from_u64(42);
     let mut delayed_proposal = DelayedFlip;
     let delayed = verify_detailed_balance_delayed_many(
