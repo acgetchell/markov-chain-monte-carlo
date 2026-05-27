@@ -1,6 +1,8 @@
 name: CI
+
 permissions:
   contents: read
+
 concurrency:
   group: >
     ci-${{ github.workflow }}-${{
@@ -21,18 +23,19 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  ACTIONLINT_VERSION: "1.7.12"
+  CARGO_NEXTEST_VERSION: "0.9.137"
   DPRINT_VERSION: "0.54.0"
-  JUST_VERSION: "1.50.0"
+  JUST_VERSION: "1.51.0"
   TAPLO_VERSION: "0.10.0"
-  TYPOS_VERSION: "1.45.2"
+  TYPOS_VERSION: "1.46.3"
   UV_VERSION: "0.11.8"
+  ZIZMOR_VERSION: "1.25.2"
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false # Continue other jobs if one fails
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest
@@ -47,133 +50,48 @@ jobs:
             target: x86_64-pc-windows-msvc
 
     steps:
+      - name: Disable Git autocrlf on Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
           target: ${{ matrix.target }}
-          cache: true # Built-in caching
+          cache: true
           # toolchain, components, etc. are specified in rust-toolchain.toml
 
-      - name: Install just
-        if: matrix.os != 'windows-latest'
-        uses: taiki-e/install-action@213ccc1a076163c093f914550b94feb90fab916d # v2.79.2
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          tool: just@${{ env.JUST_VERSION }}
-
-      - name: Install dprint
-        if: matrix.os != 'windows-latest'
-        uses: taiki-e/install-action@213ccc1a076163c093f914550b94feb90fab916d # v2.79.2
-        with:
-          tool: dprint@${{ env.DPRINT_VERSION }}
-
-      - name: Install yamllint (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y yamllint
-
-      - name: Install yamllint (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install yamllint
-
-      - name: Install actionlint (Linux/macOS)
-        if: matrix.os != 'windows-latest'
-        run: |
-          set -euo pipefail
-
-          # actionlint is published as prebuilt binaries (Go), not a Rust crate.
-          # Install directly from rhysd/actionlint releases to avoid cargo-binstall fallback failures.
-          # Verify SHA256 checksums from the upstream release for supply-chain hardening.
-          OS="$(uname -s)"
-          ARCH="$(uname -m)"
-
-          case "$OS" in
-            Linux) ACTIONLINT_OS="linux" ;;
-            Darwin) ACTIONLINT_OS="darwin" ;;
-            *)
-              echo "Unsupported OS for actionlint: $OS" >&2
-              exit 1
-              ;;
-          esac
-
-          case "$ARCH" in
-            x86_64|amd64) ACTIONLINT_ARCH="amd64" ;;
-            arm64|aarch64) ACTIONLINT_ARCH="arm64" ;;
-            *)
-              echo "Unsupported architecture for actionlint: $ARCH" >&2
-              exit 1
-              ;;
-          esac
-
-          verify_sha256() {
-            local checksum_file="$1"
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum -c "$checksum_file"
-            else
-              shasum -a 256 -c "$checksum_file"
-            fi
-          }
-
-          VERSION="${ACTIONLINT_VERSION}"
-          TARBALL="actionlint_${VERSION}_${ACTIONLINT_OS}_${ACTIONLINT_ARCH}.tar.gz"
-          CHECKSUMS_FILE="actionlint_${VERSION}_checksums.txt"
-          BASE_URL="https://github.com/rhysd/actionlint/releases/download/v${VERSION}"
-
-          tmpdir="$(mktemp -d)"
-          trap 'rm -rf "$tmpdir"' EXIT
-
-          curl -fsSL "${BASE_URL}/${TARBALL}" -o "$tmpdir/$TARBALL"
-          curl -fsSL "${BASE_URL}/${CHECKSUMS_FILE}" -o "$tmpdir/$CHECKSUMS_FILE"
-
-          orig_dir="$PWD"
-          cd "$tmpdir"
-          grep -F "  $TARBALL" "$CHECKSUMS_FILE" > checksum.txt
-          verify_sha256 checksum.txt
-          cd "$orig_dir"
-
-          tar -xzf "$tmpdir/$TARBALL" -C "$tmpdir"
-
-          actionlint_path="$(find "$tmpdir" -type f -name actionlint | head -n 1)"
-          if [[ -z "$actionlint_path" ]]; then
-            echo "actionlint binary not found in $TARBALL" >&2
-            exit 1
-          fi
-
-          sudo install -m 0755 "$actionlint_path" /usr/local/bin/actionlint
-
-      - name: actionlint -version
-        if: matrix.os != 'windows-latest'
-        run: actionlint -version
+          python-version: "3.12"
 
       - name: Install uv
-        if: matrix.os != 'windows-latest'
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
 
-      - name: Install taplo
-        if: matrix.os != 'windows-latest'
-        uses: taiki-e/install-action@213ccc1a076163c093f914550b94feb90fab916d # v2.79.2
-        with:
-          tool: taplo-cli@${{ env.TAPLO_VERSION }}
+      - name: Sync Python tooling
+        run: uv sync --locked --group dev
 
-      - name: Install typos-cli
-        if: matrix.os != 'windows-latest'
-        uses: taiki-e/install-action@213ccc1a076163c093f914550b94feb90fab916d # v2.79.2
-        with:
-          tool: typos-cli@${{ env.TYPOS_VERSION }}
-
-      - name: Run CI checks (Linux/macOS)
-        if: matrix.os != 'windows-latest'
-        run: just ci
-
-      - name: Build and test (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Install cargo-managed tools
+        shell: bash
         run: |
-          cargo build --verbose --all-targets
-          cargo test --lib --verbose
-          cargo test --doc --verbose
-          cargo test --tests --verbose
-          cargo test --examples --verbose
+          set -euo pipefail
+          cargo install --locked just --version "${JUST_VERSION}"
+          cargo install --locked dprint --version "${DPRINT_VERSION}"
+          cargo install --locked taplo-cli --version "${TAPLO_VERSION}"
+          cargo install --locked typos-cli --version "${TYPOS_VERSION}"
+          cargo install --locked zizmor --version "${ZIZMOR_VERSION}"
+          cargo install --locked cargo-nextest --version "${CARGO_NEXTEST_VERSION}"
+
+      - name: Run CI checks
+        run: just ci

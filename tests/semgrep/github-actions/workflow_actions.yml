@@ -1,0 +1,42 @@
+name: GitHub Actions policy fixtures
+
+on:
+  workflow_dispatch:
+
+jobs:
+  action-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Non-SHA external action
+        # ruleid: mcmc.github-actions.external-action-sha-pinned
+        uses: actions/checkout@v6
+
+      - name: Unapproved external action
+        # ruleid: mcmc.github-actions.external-action-approved-allowlist
+        uses: untrusted/example-action@0123456789abcdef0123456789abcdef01234567 # v1.2.3
+
+      - name: Missing version comment
+        # ruleid: mcmc.github-actions.external-action-version-comment
+        uses: actions/cache@0123456789abcdef0123456789abcdef01234567
+
+      - name: Approved pinned action
+        # ok: mcmc.github-actions.external-action-sha-pinned
+        # ok: mcmc.github-actions.external-action-approved-allowlist
+        # ok: mcmc.github-actions.external-action-version-comment
+        uses: actions/upload-artifact@0123456789abcdef0123456789abcdef01234567 # v7.0.1
+
+      - name: Approved Rust cache action
+        # ok: mcmc.github-actions.external-action-sha-pinned
+        # ok: mcmc.github-actions.external-action-approved-allowlist
+        # ok: mcmc.github-actions.external-action-version-comment
+        uses: swatinem/rust-cache@0123456789abcdef0123456789abcdef01234567 # v2.8.1
+
+      - name: Local action
+        # ok: mcmc.github-actions.external-action-sha-pinned
+        # ok: mcmc.github-actions.external-action-approved-allowlist
+        uses: ./local-action
+
+      - name: Docker action
+        # ok: mcmc.github-actions.external-action-sha-pinned
+        # ok: mcmc.github-actions.external-action-approved-allowlist
+        uses: docker://alpine:3.20

@@ -36,7 +36,7 @@ Before you begin, ensure you have:
 1. **Rust 1.95.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
-4. **uv** (Python tooling): `brew install uv` or see [astral.sh/uv][uv]
+4. **uv** (Python tooling): install from [astral.sh/uv][uv]
 
 ### Quick Start
 
@@ -97,15 +97,17 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 
 `just setup` installs and verifies the external tools the project relies on:
 
-- [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter
+- [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter, installed through `actionlint-py` in the uv dev environment
 - [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) — coverage reports
+- [cargo-nextest](https://nexte.st/) — Rust unit and integration test runner
 - [dprint](https://dprint.dev/) — markdown formatter
 - [git-cliff](https://git-cliff.org/) — changelog generation
 - [jq](https://jqlang.github.io/jq/) — JSON validator
 - [taplo](https://taplo.tamasfe.dev/) — TOML formatter / linter
 - [typos](https://github.com/crate-ci/typos) — spell checker
 - [uv](https://docs.astral.sh/uv/) — Python package and tool runner (used for `semgrep`, `ruff`, `ty`, and the changelog/tagging Python helpers in `scripts/`)
-- [yamllint](https://yamllint.readthedocs.io/) — YAML linter
+- [yamllint](https://yamllint.readthedocs.io/) — YAML linter, installed in the uv dev environment
+- [zizmor](https://github.com/zizmorcore/zizmor) — GitHub Actions security analyzer
 
 If anything is missing after `just setup`, the recipe prints what's still missing and how to install it.
 
@@ -221,7 +223,7 @@ The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They co
 - **Library tests** — inline `#[cfg(test)] mod tests` in each source file:
 
   ```bash
-  cargo test --lib
+  cargo nextest run --lib
   ```
 
 - **Doctests** — examples in `///` and `//!` doc comments:
@@ -233,7 +235,7 @@ The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They co
 - **Integration tests** — `tests/` directory:
 
   ```bash
-  cargo test --tests
+  cargo nextest run --tests
   ```
 
 - **Python tooling tests** — `pytest` over the `scripts/` helpers:
@@ -248,7 +250,7 @@ The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They co
   cargo bench --no-run
   ```
 
-`just test` runs lib + doc; `just test-all` adds integration and Python tests.
+`just test` runs library tests through nextest plus rustdoc doctests through `cargo test --doc`; `just test-all` adds integration and Python tests.
 
 ### Property-Based Tests
 
@@ -380,7 +382,7 @@ Do not include test commands, validation results, or `Tests:` sections in commit
 - [ ] Doctests pass (`cargo test --doc`)
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
-- [ ] `just check` passes (`fmt`, `clippy`, `python-check`, `yaml-lint`, `action-lint`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `semgrep`, `semgrep-test`)
+- [ ] `just check` passes (`fmt`, `clippy`, `python-check`, `yaml-lint`, `action-lint`, `zizmor`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `semgrep`, `semgrep-test`)
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions
