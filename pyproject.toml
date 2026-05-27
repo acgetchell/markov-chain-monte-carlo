@@ -33,9 +33,9 @@ py-modules = [ "postprocess_changelog", "subprocess_utils", "tag_release" ]
 dev = [
     "actionlint-py==1.7.12.24",
     "pytest>=9.0.3",
-    "ruff>=0.12.11",
-    "semgrep==1.161.0",
-    "ty>=0.0.8",
+    "ruff>=0.15.14",
+    "semgrep==1.164.0",
+    "ty>=0.0.40",
     "yamllint>=1.38.0",
 ]
 

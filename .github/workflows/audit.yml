@@ -39,10 +39,25 @@ jobs:
           key: advisory-db-${{ github.ref_name }}-v1
           restore-keys: advisory-db-
 
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@213ccc1a076163c093f914550b94feb90fab916d # v2.79.2
+      - name: Cache cargo-audit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          tool: cargo-audit@${{ env.CARGO_AUDIT_VERSION }}
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}
+          restore-keys: |
+            cargo-audit-${{ runner.os }}-
+
+      - name: Install cargo-audit
+        run: |
+          installed_version=""
+          if command -v cargo-audit &> /dev/null; then
+            installed_version="$(cargo audit --version)"
+            installed_version="${installed_version#cargo-audit }"
+          fi
+
+          if [ "${installed_version}" != "${CARGO_AUDIT_VERSION}" ]; then
+            cargo install --locked --force cargo-audit --version "${CARGO_AUDIT_VERSION}"
+          fi
 
       - name: Run cargo audit
         run: |
