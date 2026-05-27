@@ -2,7 +2,7 @@ name: Repository Rule SARIF
 
 concurrency:
   group: >
-    semgrep-sarif-${{ github.workflow }}-${{
+    semgrep-sarif-${{
       github.event_name == 'pull_request' &&
       github.event.pull_request.number ||
       github.ref
