@@ -37,23 +37,15 @@ jobs:
         with:
           cache: true # toolchain/components are specified in rust-toolchain.toml
 
-      - name: Cache clippy tools
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Install clippy-sarif
+        uses: taiki-e/cache-cargo-install-action@417450f3c33ee20393705369577571770643d4c7 # v3.0.7
         with:
-          path: |
-            ~/.cargo/bin/clippy-sarif
-            ~/.cargo/bin/sarif-fmt
-          key: clippy-sarif-${{ runner.os }}-${{ env.CLIPPY_SARIF_VERSION }}-sarif-fmt-${{ env.SARIF_FMT_VERSION }}
+          tool: clippy-sarif@${{ env.CLIPPY_SARIF_VERSION }}
 
-      - name: Install clippy-sarif tools
-        run: |
-          if ! command -v clippy-sarif &> /dev/null; then
-            cargo install clippy-sarif --locked --version "${CLIPPY_SARIF_VERSION}"
-          fi
-
-          if ! command -v sarif-fmt &> /dev/null; then
-            cargo install sarif-fmt --locked --version "${SARIF_FMT_VERSION}"
-          fi
+      - name: Install sarif-fmt
+        uses: taiki-e/cache-cargo-install-action@417450f3c33ee20393705369577571770643d4c7 # v3.0.7
+        with:
+          tool: sarif-fmt@${{ env.SARIF_FMT_VERSION }}
 
       - name: Run clippy with SARIF output
         run: |

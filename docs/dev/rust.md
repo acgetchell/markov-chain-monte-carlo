@@ -136,8 +136,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.coderabbit.yml` configures CodeRabbit to use focused Rust, Actions, secret-scan, and Semgrep checks.
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
-- `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows, with Cargo-installed CI tools cached through
-  `taiki-e/cache-cargo-install-action`.
+- `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
+- PR-running workflows cache Cargo-installed CI, coverage, and SARIF helper tools through `taiki-e/cache-cargo-install-action`.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.
