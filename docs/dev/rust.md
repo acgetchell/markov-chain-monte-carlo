@@ -8,6 +8,9 @@ This repository is a single Rust library crate using Rust 1.95.0 and edition 202
 just check            # Non-mutating validation gate
 just check-fast       # Fast compile check
 just ci               # Full CI simulation
+just ci-rust          # Rust correctness subset
+just ci-portability   # Portability subset
+just ci-repository-tooling  # Repository tooling subset
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # All lint groups
 just setup            # Install/verify external dev tools
@@ -42,7 +45,18 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-config` - JSON, TOML, YAML, GitHub Actions, and Actions security validation
 - `just lint-docs` - Markdown formatting and spellcheck
 
-`just ci` runs `just check` (including `zizmor`), benchmark harness compilation, documentation, tests, and deterministic example-output validation.
+`just ci` remains the comprehensive local and GitHub Actions entrypoint. It runs repository tooling checks, Python support-script tests, Rust correctness
+checks, documentation, library tests, doctests, integration tests, deterministic example-output validation, and benchmark harness compilation.
+
+The full command is factored into named subsets so CI-shape trade-offs are explicit and easy to time without changing coverage:
+
+- `just ci-rust` - Rust formatting, Clippy, documentation, library tests, doctests, integration tests, and deterministic example-output validation.
+- `just ci-portability` - fast compile checking, library tests, doctests, integration tests, and deterministic example-output validation for platform smoke
+  checks.
+- `just ci-repository-tooling` - Python, YAML, GitHub Actions, TOML, Markdown, spelling, Semgrep, Semgrep rule tests, and Python support-script tests.
+
+The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
+comprehensive validation gate.
 
 ## Setup
 
@@ -85,7 +99,8 @@ Benchmarks use Criterion and are intentionally deterministic. Run all benchmarks
 just bench
 ```
 
-The full CI simulation (`just ci`) compiles benchmark harnesses with `just bench-compile`, but it does not run Criterion measurements.
+The full CI simulation (`just ci`) compiles benchmark harnesses with `just bench-compile`, but it does not run Criterion measurements. Benchmark harness
+compilation uses all crate features so optional feature paths stay covered.
 
 The initial `benches/stepping.rs` suite protects core transition costs:
 
@@ -121,6 +136,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.coderabbit.yml` configures CodeRabbit to use focused Rust, Actions, secret-scan, and Semgrep checks.
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
+- `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
+- PR-running workflows cache Cargo-installed CI, coverage, and SARIF helper tools through `taiki-e/cache-cargo-install-action`.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.

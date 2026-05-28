@@ -162,7 +162,7 @@ bench:
 
 # Compile benchmark harnesses without running Criterion measurements.
 bench-compile:
-    cargo bench --locked --no-run
+    cargo bench --locked --all-features --no-run
 
 # Build
 build:
@@ -182,17 +182,37 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     GIT_CLIFF_OFFLINE=true git-cliff --tag {{version}} -o CHANGELOG.md
     uv run postprocess-changelog
 
+# Rust validation that is meaningful for source portability and user-facing API correctness.
+check-rust: fmt-check clippy
+    @echo "✅ Rust checks complete!"
+
+# Repository tooling that does not need to be repeated across operating systems.
+check-repository-tooling: python-check yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+    @echo "✅ Repository tooling checks complete!"
+
 # Non-mutating validation gate
-check: fmt-check clippy python-check yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check: check-rust check-repository-tooling
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
 check-fast:
     cargo check --locked
 
+# CI subset for Rust correctness.
+ci-rust: check-rust doc test test-integration validate-examples
+    @echo "✅ Rust CI checks complete!"
+
+# CI subset for macOS and Windows portability confidence.
+ci-portability: check-fast test test-integration validate-examples
+    @echo "✅ Portability CI checks complete!"
+
+# CI subset for repository tooling and support-script tests.
+ci-repository-tooling: check-repository-tooling test-python
+    @echo "✅ Repository tooling CI checks complete!"
+
 # CI simulation: comprehensive validation.
-# Depends on `check`, which includes `zizmor` GitHub Actions security analysis.
-ci: check bench-compile doc test-all validate-examples
+# Depends on repository tooling, including `zizmor` GitHub Actions security analysis.
+ci: ci-repository-tooling ci-rust bench-compile
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
@@ -261,6 +281,9 @@ help-workflows:
     @echo "Common Just workflows:"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
+    @echo "  just ci-rust        # Rust correctness subset for CI-shape timing"
+    @echo "  just ci-portability # Portability subset for CI-shape timing"
+    @echo "  just ci-repository-tooling # Repository tooling subset for CI-shape timing"
     @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
