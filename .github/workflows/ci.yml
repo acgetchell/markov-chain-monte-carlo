@@ -26,6 +26,7 @@ env:
   CARGO_NEXTEST_VERSION: "0.9.137"
   DPRINT_VERSION: "0.54.0"
   JUST_VERSION: "1.51.0"
+  RUMDL_VERSION: "0.2.3"
   TAPLO_VERSION: "0.10.0"
   TYPOS_VERSION: "1.46.3"
   UV_VERSION: "0.11.16"
@@ -88,6 +89,7 @@ jobs:
           set -euo pipefail
           cargo install --locked just --version "${JUST_VERSION}"
           cargo install --locked dprint --version "${DPRINT_VERSION}"
+          cargo install --locked rumdl --version "${RUMDL_VERSION}"
           cargo install --locked taplo-cli --version "${TAPLO_VERSION}"
           cargo install --locked typos-cli --version "${TYPOS_VERSION}"
           cargo install --locked zizmor --version "${ZIZMOR_VERSION}"

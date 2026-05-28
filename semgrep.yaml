@@ -242,7 +242,7 @@ rules:
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@(?![a-fA-F0-9]{40}(?:\s+#|$))[^\s#]+' # yamllint disable-line rule:line-length
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@(?![a-fA-F0-9]{40}(?:\s+#|$))[^\s#]+'
 
   - id: mcmc.github-actions.external-action-approved-allowlist
     languages:
@@ -261,7 +261,7 @@ rules:
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|swatinem/rust-cache|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@' # yamllint disable-line rule:line-length
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|swatinem/rust-cache|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@'
 
   - id: mcmc.github-actions.external-action-version-comment
     languages:
@@ -280,7 +280,27 @@ rules:
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[a-fA-F0-9]{40}\s*$' # yamllint disable-line rule:line-length
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[a-fA-F0-9]{40}\s*$'
+
+  - id: mcmc.docs.check-before-fix-command-order
+    languages:
+      - regex
+    severity: WARNING
+    message: "Document non-mutating check commands before mutating fix commands."
+    metadata:
+      category: maintainability
+      rationale: "Contributor docs and help text should present validation before mutation."
+    paths:
+      include:
+        - "/AGENTS.md"
+        - "/CONTRIBUTING.md"
+        - "/README.md"
+        - "/docs/**/*.md"
+        - "/justfile"
+        - "/tests/semgrep/docs/**/*.md"
+    pattern-either:
+      - pattern-regex: '(?ms)\bjust\s+fix\b[^\n]*(?:\n[^\n]*){0,4}\bjust\s+check\b'
+      - pattern-regex: '(?ms)\bjust\s+([A-Za-z0-9_]+)-fix\b[^\n]*(?:\n[^\n]*){0,4}\bjust\s+\1-check\b'
 
   - id: mcmc.python.no-broad-exception
     languages:

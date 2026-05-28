@@ -1,6 +1,7 @@
 # Contributing to markov-chain-monte-carlo
 
-Thank you for your interest in contributing to the [**markov-chain-monte-carlo**][mcmc-lib] crate! This document is a practical guide for contributors. AI agents and autonomous tooling should follow [`AGENTS.md`](AGENTS.md), which is the canonical rule set; this file mirrors the human-facing parts of those rules.
+Thank you for your interest in contributing to the [**markov-chain-monte-carlo**][mcmc-lib] crate! This document is a practical guide for contributors. AI
+agents and autonomous tooling should follow [`AGENTS.md`](AGENTS.md), which is the canonical rule set; this file mirrors the human-facing parts of those rules.
 
 ## Table of Contents
 
@@ -47,7 +48,8 @@ Before you begin, ensure you have:
    cd markov-chain-monte-carlo
    ```
 
-2. **Setup the development environment** (installs / verifies external tools — see [Development Environment Setup](#development-environment-setup) for what gets installed):
+2. **Setup the development environment** (installs / verifies external tools — see [Development Environment Setup](#development-environment-setup) for what gets
+   installed):
 
    ```bash
    just setup
@@ -76,9 +78,9 @@ Before you begin, ensure you have:
 6. **Code-quality checks**:
 
    ```bash
-   just fix             # Apply formatters / auto-fixes (mutating)
    just check           # Run all non-mutating linters / validators
    just ci              # Full local CI simulation (mirrors .github/workflows/ci.yml)
+   just fix             # Apply formatters / auto-fixes (mutating)
    ```
 
 ## Development Environment Setup
@@ -100,20 +102,21 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 - [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter, installed through `actionlint-py` in the uv dev environment
 - [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) — coverage reports
 - [cargo-nextest](https://nexte.st/) — Rust unit and integration test runner
-- [dprint](https://dprint.dev/) — markdown formatter
+- [dprint](https://dprint.dev/) — YAML formatter
 - [git-cliff](https://git-cliff.org/) — changelog generation
 - [jq](https://jqlang.github.io/jq/) — JSON validator
+- [rumdl](https://rumdl.dev/) — Markdown formatter / linter
 - [taplo](https://taplo.tamasfe.dev/) — TOML formatter / linter
 - [typos](https://github.com/crate-ci/typos) — spell checker
 - [uv](https://docs.astral.sh/uv/) — Python package and tool runner (used for `semgrep`, `ruff`, `ty`, and the changelog/tagging Python helpers in `scripts/`)
-- [yamllint](https://yamllint.readthedocs.io/) — YAML linter, installed in the uv dev environment
 - [zizmor](https://github.com/zizmorcore/zizmor) — GitHub Actions security analyzer
 
 If anything is missing after `just setup`, the recipe prints what's still missing and how to install it.
 
 ## Project Structure
 
-This crate is a single Rust library (no `src/main.rs`). The detailed file/module map lives in [`docs/code_organization.md`](docs/code_organization.md); use it when asking, "I'm adding a new function/type/trait, which file owns it?"
+This crate is a single Rust library (no `src/main.rs`). The detailed file/module map lives in [`docs/code_organization.md`](docs/code_organization.md); use it
+when asking, "I'm adding a new function/type/trait, which file owns it?"
 
 At a high level:
 
@@ -122,9 +125,11 @@ At a high level:
 - `tests/` and `benches/` contain integration validation and Criterion benchmarks.
 - `docs/` contains topic guides such as scientific scope, proposal validation, roadmap, release, and Rust tooling notes.
 - `scripts/` contains Python helpers for changelog and release workflows.
-- Root configuration files (`justfile`, `Cargo.toml`, `rust-toolchain.toml`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`) define automation, build metadata, validation, formatting, and release behavior.
+- Root configuration files (`justfile`, `Cargo.toml`, `rust-toolchain.toml`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`) define automation, build
+  metadata, validation, formatting, and release behavior.
 
-This file (`CONTRIBUTING.md`) covers contributor workflow and tooling. [`docs/code_organization.md`](docs/code_organization.md) covers the narrower architectural placement question.
+This file (`CONTRIBUTING.md`) covers contributor workflow and tooling. [`docs/code_organization.md`](docs/code_organization.md) covers the narrower
+architectural placement question.
 
 ## Development Workflow
 
@@ -136,9 +141,9 @@ This project uses [Just] as the primary task automation tool. The justfile defin
 
 ```bash
 just setup           # Install / verify external dev tools
-just fix             # Apply formatters / auto-fixes (mutating)
 just check           # Run linters / validators (non-mutating)
 just ci              # Full local CI simulation (mirrors .github/workflows/ci.yml)
+just fix             # Apply formatters / auto-fixes (mutating)
 just test            # Lib + doc tests (fast)
 just test-all        # All tests (lib + doc + integration + Python tooling)
 just examples        # Run all examples
@@ -167,8 +172,8 @@ just help-workflows  # Detailed workflow guidance
 
    ```bash
    # edit code and docs
-   just fix             # apply formatters
    just test            # quick: lib + doc tests
+   just fix             # apply formatters
    ```
 
 3. **Pre-push validation:**
@@ -207,14 +212,19 @@ The crate forbids `unsafe_code` and warns on `missing_docs`; broken intra-doc li
 
 ### API Style
 
-- **Prefer borrowed APIs by default.** Take references (`&T`, `&mut T`, `&[T]`) and return borrowed views when possible. Take ownership or return `Vec` only when required.
-- **Log-space numerics.** Targets and proposal ratios cross the API boundary as `f64` log weights. `NaN` and `+∞` are explicit error conditions ([`McmcError`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/enum.McmcError.html)); `-∞` is a legal "impossible state" marker.
-- **Rollback safety.** `ProposalMut::propose_mut` must pair with `undo` so that a rejected mutation leaves state observably unchanged. `DelayedProposal::commit` errors are reserved for genuinely exceptional failures applying an already-accepted concrete move.
+- **Prefer borrowed APIs by default.** Take references (`&T`, `&mut T`, `&[T]`) and return borrowed views when possible. Take ownership or return `Vec` only
+  when required.
+- **Log-space numerics.** Targets and proposal ratios cross the API boundary as `f64` log weights. `NaN` and `+∞` are explicit error conditions
+  ([`McmcError`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/enum.McmcError.html)); `-∞` is a legal "impossible state" marker.
+- **Rollback safety.** `ProposalMut::propose_mut` must pair with `undo` so that a rejected mutation leaves state observably unchanged. `DelayedProposal::commit`
+  errors are reserved for genuinely exceptional failures applying an already-accepted concrete move.
 - **Detailed balance.** New proposal kinds should ship with a `verify_detailed_balance*` test for representative discrete transitions.
 
 ### Project-Specific Semgrep Rules
 
-The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They cover things like avoiding `stdio` diagnostics in `src/`, banning `Box<dyn Error>` in `src/`/examples/benches/doctests, requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run them with `just semgrep` and `just semgrep-test`.
+The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They cover things like avoiding `stdio` diagnostics in `src/`, banning `Box<dyn Error>`
+in `src/`/examples/benches/doctests, requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run them with `just semgrep` and
+`just semgrep-test`.
 
 ## Testing
 
@@ -265,7 +275,8 @@ For numerical/statistical invariants, use [proptest](https://docs.rs/proptest/) 
 
 ## Documentation
 
-This crate carries a layered documentation set: a README landing page that is included at the top of docs.rs, a long-form `//!` block appended below it on docs.rs, per-topic docs under `docs/`, and academic references in `REFERENCES.md`.
+This crate carries a layered documentation set: a README landing page that is included at the top of docs.rs, a long-form `//!` block appended below it on
+docs.rs, per-topic docs under `docs/`, and academic references in `REFERENCES.md`.
 
 ### Documentation Layout
 
@@ -277,10 +288,13 @@ This crate carries a layered documentation set: a README landing page that is in
 
 Rules:
 
-- Edit `README.md` directly for the public landing page: badges, pitch/status, install snippet, MSRV, Cargo features, minimal quick start, API-choice guide, examples, docs, contributing, citation, and ecosystem links.
+- Edit `README.md` directly for the public landing page: badges, pitch/status, install snippet, MSRV, Cargo features, minimal quick start, API-choice guide,
+  examples, docs, contributing, citation, and ecosystem links.
 - Keep README code examples valid as doctests. The README is included during `cargo test --doc`.
-- Keep `src/lib.rs //!` focused on deeper semantic/API contract material that should appear below the README on docs.rs: Metropolis-Hastings scope, numerical semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
-- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract/API prose should live in `src/lib.rs //!`, while landing-page prose belongs in README.
+- Keep `src/lib.rs //!` focused on deeper semantic/API contract material that should appear below the README on docs.rs: Metropolis-Hastings scope, numerical
+  semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
+- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract/API prose should live in
+  `src/lib.rs //!`, while landing-page prose belongs in README.
 
 For the full agent-facing rule set, see the `## Documentation generation` section of [`AGENTS.md`](AGENTS.md).
 
@@ -303,7 +317,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc       # fail on rustdoc warnings
 Long-form discussion lives under `docs/`. Update these alongside code changes that affect them.
 
 - [`docs/code_organization.md`](docs/code_organization.md) — per-module "where does new code go?" guidance for `src/*.rs`
-- [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion (extends the `# Scientific basis and scope` section in `lib.rs //!`)
+- [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion (extends the `# Scientific basis and scope` section
+  in `lib.rs //!`)
 - [`docs/proposal_validation.md`](docs/proposal_validation.md) — proposal-author testing patterns and `verify_detailed_balance*` usage
 - [`docs/roadmap.md`](docs/roadmap.md) — planned feature work
 - [`docs/dev/rust.md`](docs/dev/rust.md) — Rust toolchain notes and tooling deep-dive
@@ -372,7 +387,8 @@ Breaking changes use bang notation (`feat!: remove deprecated API`) or a `BREAKI
 
 Avoid Markdown headings (`#` through `###`) in the body — they conflict with changelog section headings. Use plain labels like `Refs:` or `Migration:` instead.
 
-Do not include test commands, validation results, or `Tests:` sections in commit messages unless explicitly requested. Put validation summaries in PR descriptions or review notes instead.
+Do not include test commands, validation results, or `Tests:` sections in commit messages unless explicitly requested. Put validation summaries in PR
+descriptions or review notes instead.
 
 ### Pull Request Checklist
 
@@ -382,7 +398,8 @@ Do not include test commands, validation results, or `Tests:` sections in commit
 - [ ] Doctests pass (`cargo test --doc`)
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
-- [ ] `just check` passes (`fmt`, `clippy`, `python-check`, `yaml-lint`, `action-lint`, `zizmor`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `semgrep`, `semgrep-test`)
+- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `yaml-check`, `action-lint`, `zizmor`, `toml-fmt-check`, `toml-lint`, `markdown-check`,
+      `spell-check`, `semgrep`, `semgrep-test`)
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions
@@ -440,7 +457,8 @@ This project follows [Semantic Versioning](https://semver.org/):
 - **`AGENTS.md`** — canonical rules for AI assistants (mirrors a subset here)
 - **`just help-workflows`** — local workflow guidance
 
-For mathematical / statistical questions about the underlying algorithms (Metropolis–Hastings, detailed balance, autocorrelation analysis), see the references cited from [`docs/scientific_basis.md`](docs/scientific_basis.md) and [`REFERENCES.md`](REFERENCES.md).
+For mathematical / statistical questions about the underlying algorithms (Metropolis–Hastings, detailed balance, autocorrelation analysis), see the references
+cited from [`docs/scientific_basis.md`](docs/scientific_basis.md) and [`REFERENCES.md`](REFERENCES.md).
 
 ---
 

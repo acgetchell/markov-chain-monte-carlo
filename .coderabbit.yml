@@ -80,7 +80,7 @@ reviews:
     actionlint:
       enabled: true
     yamllint:
-      enabled: true
+      enabled: false
     semgrep:
       enabled: true
       config_file: semgrep.yaml

@@ -9,6 +9,7 @@ cargo_nextest_version := "0.9.137"
 cargo_llvm_cov_version := "0.8.7"
 dprint_version := "0.54.0"
 git_cliff_version := "2.13.1"
+rumdl_version := "0.2.3"
 taplo_version := "0.10.0"
 typos_version := "1.46.3"
 zizmor_version := "1.25.2"
@@ -84,6 +85,19 @@ _ensure-jq:
     set -euo pipefail
     command -v jq >/dev/null || { echo "❌ 'jq' not found. Install with your system package manager."; exit 1; }
 
+_ensure-rumdl:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    installed_version=""
+    if command -v rumdl >/dev/null; then
+        installed_version="$(rumdl --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{rumdl_version}}" ]]; then
+        echo "❌ 'rumdl' {{rumdl_version}} not found. Install with:"
+        echo "   cargo install --locked rumdl --version {{rumdl_version}}"
+        exit 1
+    fi
+
 _ensure-taplo:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -114,12 +128,6 @@ _ensure-uv:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
-
-_ensure-yamllint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
-    uv run yamllint --version >/dev/null
 
 _ensure-zizmor:
     #!/usr/bin/env bash
@@ -175,7 +183,7 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     uv run postprocess-changelog
 
 # Non-mutating validation gate
-check: fmt-check clippy python-check yaml-lint action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check: fmt-check clippy python-check yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
@@ -238,7 +246,7 @@ examples: _build-examples
     done
 
 # Fix (mutating): apply formatters
-fix: fmt markdown-fix python-fix toml-fmt
+fix: fmt markdown-fix yaml-fix python-fix toml-fix
     @echo "✅ Fixes applied!"
 
 # Rust formatting
@@ -282,15 +290,41 @@ lint: lint-code lint-docs lint-config
 
 lint-code: fmt-check clippy python-check semgrep semgrep-test
 
-lint-config: validate-json toml-lint toml-fmt-check yaml-lint action-lint zizmor
+lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmor
 
 lint-docs: markdown-check spell-check
 
-markdown-check: _ensure-dprint
-    dprint check
+markdown-check: _ensure-rumdl
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        case "$file" in
+            CHANGELOG.md) continue ;;
+        esac
+        files+=("$file")
+    done < <(git ls-files -z '*.md')
+    if [ "${#files[@]}" -gt 0 ]; then
+        printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check
+    else
+        echo "No Markdown files found to check."
+    fi
 
-markdown-fix: _ensure-dprint
-    dprint fmt
+markdown-fix: _ensure-rumdl
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        case "$file" in
+            CHANGELOG.md) continue ;;
+        esac
+        files+=("$file")
+    done < <(git ls-files -z '*.md')
+    if [ "${#files[@]}" -gt 0 ]; then
+        printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check --fix
+    else
+        echo "No Markdown files found to format."
+    fi
 
 markdown-lint: markdown-check
 
@@ -415,6 +449,7 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 1 mcmc.github-actions.external-action-sha-pinned github-actions/workflow_actions.yml
     expect_semgrep_count 1 mcmc.github-actions.external-action-approved-allowlist github-actions/workflow_actions.yml
     expect_semgrep_count 1 mcmc.github-actions.external-action-version-comment github-actions/workflow_actions.yml
+    expect_semgrep_count 2 mcmc.docs.check-before-fix-command-order docs/check_fix_order.md
     uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
 setup: setup-tools
@@ -450,6 +485,10 @@ setup-tools:
     if ! have taplo || [[ "$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$taplo_version" ]]; then
         cargo install --locked taplo-cli --version "$taplo_version"
     fi
+    rumdl_version="{{rumdl_version}}"
+    if ! have rumdl || [[ "$(rumdl --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$rumdl_version" ]]; then
+        cargo install --locked rumdl --version "$rumdl_version"
+    fi
     typos_version="{{typos_version}}"
     if ! have typos || [[ "$(typos --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$typos_version" ]]; then
         cargo install --locked typos-cli --version "$typos_version"
@@ -472,7 +511,7 @@ setup-tools:
 
     echo "Verifying required commands..."
     missing=0
-    for cmd in cargo-llvm-cov dprint git-cliff jq taplo typos uv zizmor; do
+    for cmd in cargo-llvm-cov dprint git-cliff jq rumdl taplo typos uv zizmor; do
         if have "$cmd"; then
             echo "  ✓ $cmd"
         else
@@ -495,8 +534,6 @@ setup-tools:
 
     uv run actionlint -version >/dev/null
     echo "  ✓ actionlint (uv)"
-    uv run yamllint --version >/dev/null
-    echo "  ✓ yamllint (uv)"
     uv run semgrep --version >/dev/null
     echo "  ✓ semgrep (uv)"
     uv run ruff --version >/dev/null
@@ -577,6 +614,8 @@ toml-lint: _ensure-taplo
         echo "No TOML files found to lint."
     fi
 
+toml-fix: toml-fmt
+
 # Validate example output (seeded, deterministic)
 validate-examples: _build-examples
     #!/usr/bin/env bash
@@ -621,8 +660,8 @@ validate-json: _ensure-jq
         echo "No JSON files found to validate."
     fi
 
-# YAML lint
-yaml-lint: _ensure-yamllint
+# YAML formatting check
+yaml-check: _ensure-dprint
     #!/usr/bin/env bash
     set -euo pipefail
     files=()
@@ -630,11 +669,26 @@ yaml-lint: _ensure-yamllint
         files+=("$file")
     done < <(git ls-files -z '*.yml' '*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
-        echo "🔍 yamllint (${#files[@]} files)"
-        uv run yamllint --strict -c .yamllint "${files[@]}"
+        printf '%s\0' "${files[@]}" | xargs -0 dprint check
     else
-        echo "No YAML files found to lint."
+        echo "No YAML files found to check."
     fi
+
+# YAML formatting
+yaml-fix: _ensure-dprint
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        files+=("$file")
+    done < <(git ls-files -z '*.yml' '*.yaml')
+    if [ "${#files[@]}" -gt 0 ]; then
+        printf '%s\0' "${files[@]}" | xargs -0 dprint fmt
+    else
+        echo "No YAML files found to format."
+    fi
+
+yaml-lint: yaml-check
 
 # GitHub Actions security analysis
 zizmor: _ensure-zizmor

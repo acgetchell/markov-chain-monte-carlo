@@ -26,4 +26,5 @@ For numerical correctness issues that are not security-sensitive, open a normal 
 
 ## Security Checks
 
-This project uses GitHub CodeQL, Dependabot security updates, secret scanning with push protection, `cargo audit`, zizmor, Clippy SARIF analysis, and repository-owned Semgrep rules.
+This project uses GitHub CodeQL, Dependabot security updates, secret scanning with push protection, `cargo audit`, zizmor, Clippy SARIF analysis, and
+repository-owned Semgrep rules.
