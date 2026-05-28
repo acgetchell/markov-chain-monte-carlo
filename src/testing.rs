@@ -1309,7 +1309,8 @@ impl TransitionEstimate {
     fn push(&mut self, acceptance_probability: f64) {
         self.hits += 1;
         self.weight_sum += acceptance_probability;
-        self.weight_square_sum += acceptance_probability * acceptance_probability;
+        self.weight_square_sum =
+            acceptance_probability.mul_add(acceptance_probability, self.weight_square_sum);
     }
 
     /// Estimate the log proposal probability from exact endpoint hits.
@@ -1557,7 +1558,7 @@ const fn usize_to_f64(value: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use std::error::Error as _;
+    use std::{assert_matches, error::Error as _};
 
     use approx::{assert_relative_eq, relative_eq};
     use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -2169,14 +2170,14 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::Violation {
                 residual,
                 tolerance: 1e-12,
                 ..
             } if relative_eq!(residual, 1.0, epsilon = 1e-12)
-        ));
+        );
     }
 
     #[test]
@@ -2192,14 +2193,14 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::Violation {
                 residual,
                 tolerance: 1e-12,
                 ..
             } if relative_eq!(residual, 1.0, epsilon = 1e-12)
-        ));
+        );
     }
 
     #[test]
@@ -2219,13 +2220,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::Plan {
                 direction: DetailedBalanceDirection::Forward,
                 source: DelayedFailure::Plan,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2245,13 +2246,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::ProposedLogProb {
                 direction: DetailedBalanceDirection::Forward,
                 source: DelayedFailure::ProposedLogProb,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2271,13 +2272,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::LogQRatio {
                 direction: DetailedBalanceDirection::Forward,
                 source: DelayedFailure::LogQRatio,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2286,24 +2287,24 @@ mod tests {
         let err =
             verify_detailed_balance(&true, &false, &NanOnTrue, &Flip, &mut rng, small_config())
                 .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidTargetLogProb {
                 state: DetailedBalanceState::Current,
                 log_prob,
             } if log_prob.is_nan()
-        ));
+        );
 
         let err =
             verify_detailed_balance(&false, &true, &NanOnTrue, &Flip, &mut rng, small_config())
                 .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidTargetLogProb {
                 state: DetailedBalanceState::Proposed,
                 log_prob,
             } if log_prob.is_nan()
-        ));
+        );
     }
 
     #[test]
@@ -2318,13 +2319,13 @@ mod tests {
             small_config(),
         )
         .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidLogQRatio {
                 direction: DetailedBalanceDirection::Forward,
                 log_q_ratio,
             } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
-        ));
+        );
 
         let err = verify_detailed_balance_mut(
             &false,
@@ -2335,13 +2336,13 @@ mod tests {
             small_config(),
         )
         .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidLogQRatio {
                 direction: DetailedBalanceDirection::Forward,
                 log_q_ratio,
             } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
-        ));
+        );
 
         let mut proposal = InfiniteLogQDelayed;
         let err = verify_detailed_balance_delayed(
@@ -2354,13 +2355,13 @@ mod tests {
             (|plan| *plan, |plan| !*plan),
         )
         .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidLogQRatio {
                 direction: DetailedBalanceDirection::Forward,
                 log_q_ratio,
             } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
-        ));
+        );
     }
 
     #[test]
@@ -2395,14 +2396,14 @@ mod tests {
             small_config(),
         )
         .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InsufficientHits {
                 direction: DetailedBalanceDirection::Forward,
                 hits: 0,
                 min_hits: 1,
             }
-        ));
+        );
 
         let mut proposal = NoPlanDelayed;
         let err = verify_detailed_balance_delayed(
@@ -2415,14 +2416,14 @@ mod tests {
             (|plan| *plan, |plan| !*plan),
         )
         .unwrap_err();
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InsufficientHits {
                 direction: DetailedBalanceDirection::Forward,
                 hits: 0,
                 min_hits: 1,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2442,13 +2443,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::Plan {
                 direction: DetailedBalanceDirection::Reverse,
                 source: DelayedFailure::Plan,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2468,13 +2469,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::ProposedLogProb {
                 direction: DetailedBalanceDirection::Reverse,
                 source: DelayedFailure::ProposedLogProb,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2494,13 +2495,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::LogQRatio {
                 direction: DetailedBalanceDirection::Reverse,
                 source: DelayedFailure::LogQRatio,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2516,14 +2517,14 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InsufficientHits {
                 direction: DetailedBalanceDirection::Forward,
                 hits: 0,
                 min_hits: 1,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2539,13 +2540,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidLogAcceptanceRatio {
                 direction: DetailedBalanceDirection::Forward,
                 log_acceptance_ratio,
             } if log_acceptance_ratio.is_nan()
-        ));
+        );
     }
 
     #[test]
@@ -2634,13 +2635,13 @@ mod tests {
         assert_eq!(batch.reports.len(), 0);
         assert_eq!(batch.failures.len(), 1);
         assert_eq!(batch.failures[0].index, 0);
-        assert!(matches!(
+        assert_matches!(
             batch.failures[0].error,
             DetailedBalanceError::Plan {
                 direction: DetailedBalanceDirection::Forward,
                 source: DelayedFailure::Plan,
             }
-        ));
+        );
     }
 
     #[test]
@@ -2655,10 +2656,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(
-            err,
-            DetailedBalanceError::InvalidSamples { samples: 0 }
-        ));
+        assert_matches!(err, DetailedBalanceError::InvalidSamples { samples: 0 });
     }
 
     #[test]
@@ -2666,55 +2664,52 @@ mod tests {
         let err: DetailedBalanceError =
             validate_config(DetailedBalanceConfig::new(0, 0.0, 1)).unwrap_err();
 
-        assert!(matches!(
-            err,
-            DetailedBalanceError::InvalidSamples { samples: 0 }
-        ));
+        assert_matches!(err, DetailedBalanceError::InvalidSamples { samples: 0 });
 
         let err =
             validate_config::<Infallible>(DetailedBalanceConfig::new(1, -1.0, 1)).unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidTolerance { tolerance }
                 if tolerance.to_bits() == (-1.0_f64).to_bits()
-        ));
+        );
 
         let err =
             validate_config::<Infallible>(DetailedBalanceConfig::new(1, f64::NAN, 1)).unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidTolerance { tolerance } if tolerance.is_nan()
-        ));
+        );
 
         let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, f64::INFINITY, 1))
             .unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidTolerance { tolerance }
                 if tolerance.is_infinite() && tolerance.is_sign_positive()
-        ));
+        );
 
         let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, 0.0, 0)).unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidMinHits {
                 min_hits: 0,
                 samples: 1,
             }
-        ));
+        );
 
         let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, 0.0, 2)).unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             DetailedBalanceError::InvalidMinHits {
                 min_hits: 2,
                 samples: 1,
             }
-        ));
+        );
     }
 }

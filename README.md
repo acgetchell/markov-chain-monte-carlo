@@ -77,7 +77,7 @@ Enable checkpoint serialization when needed:
 cargo add markov-chain-monte-carlo --features serde
 ```
 
-Rust 1.95.0 or newer is required.
+Rust 1.96.0 or newer is required.
 
 Minimal by-value Metropolis-Hastings sampler:
 

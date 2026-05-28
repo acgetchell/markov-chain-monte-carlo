@@ -34,7 +34,7 @@ This project is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The comm
 
 Before you begin, ensure you have:
 
-1. **Rust 1.95.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
+1. **Rust 1.96.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
 4. **uv** (Python tooling): install from [astral.sh/uv][uv]
@@ -89,9 +89,9 @@ Before you begin, ensure you have:
 
 This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.toml). When you enter the project directory, `rustup` will automatically:
 
-- install the correct Rust version (1.95.0) if you don't have it
+- install the correct Rust version (1.96.0) if you don't have it
 - switch to the pinned version for this project
-- install required components (clippy, rustfmt, rust-docs, rust-src, llvm-tools-preview)
+- install required components (clippy, rustfmt, rust-docs, rust-std, rust-src, rust-analyzer)
 
 **No manual toolchain setup is needed** — just have `rustup` installed ([rustup.rs][rustup]).
 
@@ -196,7 +196,7 @@ just help-workflows  # Detailed workflow guidance
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.95.0 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.96.0 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
@@ -342,6 +342,9 @@ Performance guidelines:
 - be honest about what hot-path work crosses the API boundary as log weights vs. internal exact arithmetic
 
 Coverage:
+
+`just setup` and the Codecov workflow install `llvm-tools-preview` because `cargo-llvm-cov` needs the LLVM coverage tools. The pinned toolchain keeps
+that coverage-only component out of the default `rustup` install path.
 
 ```bash
 just coverage        # local HTML report (target/llvm-cov/html/index.html)

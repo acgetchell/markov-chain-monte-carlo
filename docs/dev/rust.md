@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.95.0 and edition 2024.
+This repository is a single Rust library crate using Rust 1.96.0 and edition 2024.
 
 ## Core Commands
 
@@ -113,6 +113,8 @@ The initial `benches/stepping.rs` suite protects core transition costs:
 ## Coverage
 
 Coverage uses `cargo llvm-cov` with all crate features enabled.
+`just setup` and the Codecov workflow install `llvm-tools-preview`, which provides the LLVM coverage tools used by `cargo-llvm-cov`. It stays out of
+`rust-toolchain.toml` because normal build, lint, doc, and test workflows do not need it.
 
 - Local HTML report: `just coverage`
 - CI Cobertura XML: `just coverage-ci`
