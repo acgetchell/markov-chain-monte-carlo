@@ -100,9 +100,16 @@ jobs:
           tool: rumdl@${{ env.RUMDL_VERSION }}
 
       - name: Install taplo
+        id: install-taplo
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}
         uses: taiki-e/cache-cargo-install-action@417450f3c33ee20393705369577571770643d4c7 # v3.0.7
         with:
           tool: taplo-cli@${{ env.TAPLO_VERSION }}
+
+      - name: Install taplo on Windows after cached install failure
+        if: matrix.os == 'windows-latest' && steps.install-taplo.outcome == 'failure'
+        shell: pwsh
+        run: cargo install --locked taplo-cli --version $env:TAPLO_VERSION
 
       - name: Install typos
         uses: taiki-e/cache-cargo-install-action@417450f3c33ee20393705369577571770643d4c7 # v3.0.7
