@@ -25,7 +25,7 @@ The v0.3.0 milestone made the crate useful as the sampling layer for downstream 
 ### v0.4.0 Resumable CDT Integration
 
 The next feature release should focus on downstream sampler integration rather than a grab bag of diagnostics. This is the right place for the Rust 1.96.0
-MSRV/toolchain refresh once Rust 1.96.0 is released.
+MSRV/toolchain refresh.
 
 - [#65](https://github.com/acgetchell/markov-chain-monte-carlo/issues/65) - Update Rust toolchain and MSRV to 1.96.0
 - [#60](https://github.com/acgetchell/markov-chain-monte-carlo/issues/60) - Expose resumable sampler state for chunked runs

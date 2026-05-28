@@ -64,8 +64,9 @@ fn main() -> Result<(), McmcError> {
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
         sampler.step()?;
-        sum += sampler.chain_ref().state().0;
-        sum_sq += sampler.chain_ref().state().0 * sampler.chain_ref().state().0;
+        let sample = sampler.chain_ref().state().0;
+        sum += sample;
+        sum_sq = sample.mul_add(sample, sum_sq);
     }
 
     let mean = sum / f64::from(n_samples);

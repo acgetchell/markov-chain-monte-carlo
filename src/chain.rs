@@ -965,6 +965,8 @@ impl<S> Chain<S> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use approx::assert_relative_eq;
     use rand::{SeedableRng, rngs::StdRng};
 
@@ -1080,7 +1082,7 @@ mod tests {
         let checkpoint = ChainCheckpoint::new(Scalar(0.0), 1, 2);
         let result = Chain::from_checkpoint(checkpoint, &NanTarget);
 
-        assert!(matches!(result, Err(McmcError::NanCheckpointLogProb)));
+        assert_matches!(result, Err(McmcError::NanCheckpointLogProb));
     }
 
     #[test]
@@ -1095,7 +1097,7 @@ mod tests {
         let checkpoint = ChainCheckpoint::new(Scalar(0.0), 1, 2);
         let result = Chain::from_checkpoint(checkpoint, &InfTarget);
 
-        assert!(matches!(result, Err(McmcError::InfiniteCheckpointLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteCheckpointLogProb));
     }
 
     #[cfg(feature = "serde")]
@@ -1197,7 +1199,7 @@ mod tests {
             }
         }
         let result = Chain::new(Scalar(0.0), &NanTarget);
-        assert!(matches!(result, Err(McmcError::NanInitialLogProb)));
+        assert_matches!(result, Err(McmcError::NanInitialLogProb));
     }
 
     #[test]
@@ -1217,7 +1219,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step(&NanAtOrigin, &proposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::NanProposedLogProb)));
+        assert_matches!(result, Err(McmcError::NanProposedLogProb));
     }
 
     #[test]
@@ -1235,7 +1237,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step(&Normal, &NanProposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::NanLogQRatio)));
+        assert_matches!(result, Err(McmcError::NanLogQRatio));
     }
 
     #[test]
@@ -1247,7 +1249,7 @@ mod tests {
             }
         }
         let result = Chain::new(Scalar(0.0), &InfTarget);
-        assert!(matches!(result, Err(McmcError::InfiniteInitialLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteInitialLogProb));
     }
 
     #[test]
@@ -1267,7 +1269,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step(&InfAtOrigin, &proposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::InfiniteProposedLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteProposedLogProb));
     }
 
     #[test]
@@ -1285,7 +1287,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step(&Normal, &InfQProposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::InfiniteLogQRatio)));
+        assert_matches!(result, Err(McmcError::InfiniteLogQRatio));
     }
 
     #[test]
@@ -1313,7 +1315,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_mut(&Normal, &InfQMutProposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::InfiniteLogQRatio)));
+        assert_matches!(result, Err(McmcError::InfiniteLogQRatio));
         assert_eq!(
             chain.state,
             MutScalar(1.0),
@@ -1338,7 +1340,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_mut(&InfAtOrigin, &proposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::InfiniteProposedLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteProposedLogProb));
         assert_eq!(
             chain.state,
             MutScalar(1.0),
@@ -1559,7 +1561,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_mut(&NanAtOrigin, &proposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::NanProposedLogProb)));
+        assert_matches!(result, Err(McmcError::NanProposedLogProb));
         assert_eq!(
             chain.state,
             MutScalar(1.0),
@@ -1592,7 +1594,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_mut(&Normal, &NanQProposal, &mut rng);
-        assert!(matches!(result, Err(McmcError::NanLogQRatio)));
+        assert_matches!(result, Err(McmcError::NanLogQRatio));
         assert_eq!(
             chain.state,
             MutScalar(1.0),
@@ -1934,10 +1936,10 @@ mod tests {
 
         let result = chain.step_delayed(&NanAtOrigin, &mut proposal, &mut rng);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Mcmc(McmcError::NanProposedLogProb))
-        ));
+        );
         assert_eq!(chain.state, MutScalar(1.0));
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 0);
@@ -1962,10 +1964,10 @@ mod tests {
 
         let result = chain.step_delayed(&InfAtOrigin, &mut proposal, &mut rng);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Mcmc(McmcError::InfiniteProposedLogProb))
-        ));
+        );
         assert_eq!(chain.state, MutScalar(1.0));
     }
 
@@ -1980,18 +1982,15 @@ mod tests {
 
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
 
-        assert!(matches!(
-            result,
-            Err(DelayedStepError::Mcmc(McmcError::NanLogQRatio))
-        ));
+        assert_matches!(result, Err(DelayedStepError::Mcmc(McmcError::NanLogQRatio)));
         assert_eq!(chain.state, MutScalar(1.0));
 
         proposal.log_q = Ok(f64::INFINITY);
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Mcmc(McmcError::InfiniteLogQRatio))
-        ));
+        );
         assert_eq!(chain.state, MutScalar(1.0));
     }
 
@@ -2005,28 +2004,28 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Plan(DelayedFixtureError::Plan))
-        ));
+        );
 
         proposal.plan_error = None;
         proposal.score_error = Some(DelayedFixtureError::Score);
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::ProposedLogProb(
                 DelayedFixtureError::Score
             ))
-        ));
+        );
 
         proposal.score_error = None;
         proposal.log_q = Err(DelayedFixtureError::Ratio);
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::LogQRatio(DelayedFixtureError::Ratio))
-        ));
+        );
     }
 
     #[test]
@@ -2056,10 +2055,7 @@ mod tests {
     #[test]
     fn delayed_error_sources() {
         let mcmc: DelayedStepError<DelayedFixtureError> = McmcError::NanLogQRatio.into();
-        assert!(matches!(
-            mcmc,
-            DelayedStepError::Mcmc(McmcError::NanLogQRatio)
-        ));
+        assert_matches!(mcmc, DelayedStepError::Mcmc(McmcError::NanLogQRatio));
         assert_eq!(
             mcmc.source().map(ToString::to_string),
             Some("proposal returned NaN log q-ratio".to_owned())
@@ -2101,10 +2097,10 @@ mod tests {
 
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
-        ));
+        );
         assert_eq!(chain.state, MutScalar(2.0));
         assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
@@ -2161,10 +2157,10 @@ mod tests {
 
         let result = chain.step_delayed(&Normal, &mut proposal, &mut rng);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
-        ));
+        );
         assert_eq!(chain.state, MutScalar(2.0));
         assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
@@ -2191,7 +2187,7 @@ mod tests {
         }
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &NanTarget);
-        assert!(matches!(result, Err(McmcError::NanReplacementLogProb)));
+        assert_matches!(result, Err(McmcError::NanReplacementLogProb));
         // State should be unchanged on error
         assert_eq!(chain.state, Scalar(1.0));
     }
@@ -2206,7 +2202,7 @@ mod tests {
         }
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &InfTarget);
-        assert!(matches!(result, Err(McmcError::InfiniteReplacementLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteReplacementLogProb));
         assert_eq!(chain.state, Scalar(1.0));
     }
 

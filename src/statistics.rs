@@ -206,7 +206,7 @@ impl OnlineStats {
         let delta = sample - self.mean;
         self.mean += delta / count_as_f64(self.count);
         let delta_after = sample - self.mean;
-        self.m2 += delta * delta_after;
+        self.m2 = delta.mul_add(delta_after, self.m2);
     }
 
     /// Add one finite sample to the accumulator.
@@ -1058,6 +1058,25 @@ mod tests {
         assert_close(stats.sample_variance().unwrap(), 32.0 / 7.0);
         assert_close(stats.population_std_dev().unwrap(), 2.0);
         assert_close(stats.standard_error().unwrap(), (4.0_f64 / 7.0).sqrt());
+    }
+
+    #[test]
+    fn online_stats_pins_fused_variance_update() {
+        let stats: OnlineStats = [1.0, 1.0e12, -1.0e12, 3.5, -2.25, 8.125]
+            .into_iter()
+            .collect();
+
+        assert_eq!(stats.count(), 6);
+        assert_eq!(stats.mean.to_bits(), 0x3ffb_aaa0_0000_0000);
+        assert_eq!(stats.m2.to_bits(), 0x44fa_7843_79d9_9db4);
+        assert_eq!(
+            stats.population_variance().unwrap().to_bits(),
+            0x44d1_a582_513b_be78
+        );
+        assert_eq!(
+            stats.sample_variance().unwrap().to_bits(),
+            0x44d5_2d02_c7e1_4af6
+        );
     }
 
     #[test]

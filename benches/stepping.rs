@@ -332,7 +332,8 @@ fn bench_observing(c: &mut Criterion) {
                 let mut sum = 0.0;
                 for _ in 0..black_box(BULK_STEPS) {
                     chain.step(&target, &proposal, &mut rng).unwrap();
-                    sum += chain.state().0 * chain.state().0;
+                    let sample = chain.state().0;
+                    sum = sample.mul_add(sample, sum);
                 }
                 black_box(sum);
             },

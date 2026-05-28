@@ -598,6 +598,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// `thin_interval = 2` collects states after steps 2 and 4.
     ///
     /// ```
+    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -622,7 +623,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
     ///
     /// let err = sampler.run_with_thinning(1, 0).unwrap_err();
-    /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
+    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
     /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
@@ -730,6 +731,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// `thin_interval = 2` observes after steps 2 and 4.
     ///
     /// ```
+    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -755,7 +757,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let err = sampler
     ///     .run_observing_with_thinning(1, 0, &mut coordinate)
     ///     .unwrap_err();
-    /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
+    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
     /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
@@ -1240,6 +1242,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// divisible by `thin_interval`.
     ///
     /// ```
+    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -1268,7 +1271,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
     ///
     /// let err = sampler.run_mut_with_thinning(1, 0).unwrap_err();
-    /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
+    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
     /// # Ok::<(), ThinningError<McmcError>>(())
     /// ```
     ///
@@ -1994,6 +1997,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// divisible by `thin_interval`.
     ///
     /// ```
+    /// # use std::assert_matches;
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::delayed::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -2052,7 +2056,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
     ///
     /// let err = sampler.run_delayed_with_thinning(1, 0).unwrap_err();
-    /// assert!(matches!(err, ThinningError::InvalidInterval { thin_interval: 0 }));
+    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
     /// # Ok::<(), ThinningError<DelayedStepError<Infallible>>>(())
     /// ```
     ///
@@ -2730,6 +2734,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, 
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
+    use std::assert_matches;
 
     use approx::assert_relative_eq;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -2896,7 +2901,7 @@ mod tests {
         let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = Sampler::new(chain, &NanTarget, &Walk { width: 1.0 }, &mut rng);
 
-        assert!(matches!(result, Err(McmcError::NanCurrentLogProb)));
+        assert_matches!(result, Err(McmcError::NanCurrentLogProb));
     }
 
     #[test]
@@ -2912,7 +2917,7 @@ mod tests {
         let chain = Chain::new(Scalar(1.0), &Normal).unwrap();
         let result = Sampler::new(chain, &InfTarget, &Walk { width: 1.0 }, &mut rng);
 
-        assert!(matches!(result, Err(McmcError::InfiniteCurrentLogProb)));
+        assert_matches!(result, Err(McmcError::InfiniteCurrentLogProb));
     }
 
     #[test]
@@ -3014,10 +3019,10 @@ mod tests {
 
         let result = sampler.run_with_thinning(5, 0);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3029,10 +3034,7 @@ mod tests {
 
         let result = sampler.run_with_thinning(5, 2);
 
-        assert!(matches!(
-            result,
-            Err(ThinningError::Run(McmcError::NanLogQRatio))
-        ));
+        assert_matches!(result, Err(ThinningError::Run(McmcError::NanLogQRatio)));
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3162,12 +3164,12 @@ mod tests {
 
         let result = sampler.try_run_observing_with_thinning(5, 2, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::Run(ObservedStepError::Observation(
                 ObservationFailure::Failed
             )))
-        ));
+        );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
@@ -3195,10 +3197,10 @@ mod tests {
 
         let result = sampler.run_observing_with_thinning(5, 0, &mut coordinate);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3211,10 +3213,10 @@ mod tests {
 
         let result = sampler.run_observing_into_with_thinning(5, 0, &mut coordinate, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
@@ -3235,12 +3237,12 @@ mod tests {
         // the first step, proving the step error is reported before emission.
         let result = sampler.run_observing_into_with_thinning(5, 1, &mut coordinate, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::Run(ObservedStreamError::Step(
                 McmcError::NanLogQRatio
             )))
-        ));
+        );
         assert!(!observed);
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 0);
@@ -3263,10 +3265,10 @@ mod tests {
 
         let result = sampler.try_run_observing(3, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStepError::Observation(ObservationFailure::Failed))
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
 
@@ -3288,10 +3290,10 @@ mod tests {
 
         let result = sampler.try_run_observing_into(3, &mut observable, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Observation(ObservationFailure::Failed))
-        ));
+        );
         assert_eq!(stats.count(), 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
@@ -3306,12 +3308,12 @@ mod tests {
 
         let result = sampler.run_observing_into(1, &mut invalid, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Accumulation(
                 StatisticsError::NanSample
             ))
-        ));
+        );
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
@@ -3330,10 +3332,10 @@ mod tests {
 
         let result = sampler.run_observing_into(1, &mut observable, &mut accumulator);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Step(McmcError::NanLogQRatio))
-        ));
+        );
         assert!(!observed);
         assert_eq!(accumulator.pushes, 0);
     }
@@ -3352,10 +3354,10 @@ mod tests {
 
         let result = sampler.try_run_observing_into(1, &mut observable, &mut accumulator);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Step(McmcError::NanLogQRatio))
-        ));
+        );
         assert!(!observed);
         assert_eq!(accumulator.pushes, 0);
     }
@@ -3373,10 +3375,10 @@ mod tests {
 
         let result = sampler.try_step_observing(&mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStepError::Step(McmcError::NanLogQRatio))
-        ));
+        );
         assert!(!observed);
     }
 
@@ -3446,10 +3448,10 @@ mod tests {
 
         let result = sampler.run_mut_with_thinning(5, 0);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3544,12 +3546,12 @@ mod tests {
 
         let result = sampler.try_run_mut_observing_with_thinning(7, 3, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::Run(ObservedStepError::Observation(
                 ObservationFailure::Failed
             )))
-        ));
+        );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 3);
     }
@@ -3587,10 +3589,10 @@ mod tests {
 
         let result = sampler.run_mut_observing_with_thinning(5, 0, &mut coordinate);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3616,10 +3618,10 @@ mod tests {
 
         let result = sampler.try_run_mut_observing(1, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStepError::Observation(ObservationFailure::Failed))
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
@@ -3663,12 +3665,12 @@ mod tests {
 
         let result = sampler.try_run_mut_observing_into(1, &mut invalid, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Accumulation(
                 StatisticsError::InfiniteSample
             ))
-        ));
+        );
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
@@ -3809,10 +3811,10 @@ mod tests {
 
         let result = sampler.run_delayed_with_thinning(5, 0);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3896,10 +3898,10 @@ mod tests {
         let result =
             sampler.run_delayed_observing_into_with_thinning(5, 0, &mut coordinate, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        ));
+        );
         assert_eq!(stats.count(), 0);
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
@@ -3951,12 +3953,12 @@ mod tests {
 
         let result = sampler.try_run_delayed_observing_with_thinning(6, 2, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ThinningError::Run(ObservedStepError::Observation(
                 ObservationFailure::Failed
             )))
-        ));
+        );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
@@ -3988,10 +3990,10 @@ mod tests {
 
         let result = sampler.try_run_delayed_observing(1, &mut observable);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStepError::Observation(ObservationFailure::Failed))
-        ));
+        );
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
@@ -4014,10 +4016,10 @@ mod tests {
 
         let result = sampler.try_run_delayed_observing_into(3, &mut observable, &mut stats);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(ObservedStreamError::Observation(ObservationFailure::Failed))
-        ));
+        );
         assert_eq!(stats.count(), 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
     }
@@ -4082,10 +4084,10 @@ mod tests {
 
         let result = sampler.run_delayed(3);
 
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(DelayedStepError::Plan(DelayedRunError::PlannedStop))
-        ));
+        );
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
