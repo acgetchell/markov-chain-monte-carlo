@@ -178,11 +178,11 @@ impl OnlineStats {
         Ok(stats)
     }
 
-    /// Add one sample to the accumulator.
+    /// Add one sample to the accumulator without validating it.
     ///
-    /// This method does not validate the sample.  Use [`try_push`](Self::try_push)
-    /// when non-finite measurements should be reported as errors instead of
-    /// becoming part of the accumulator state.
+    /// This is a compatibility alias for [`push_unchecked`](Self::push_unchecked).
+    /// Use [`try_push`](Self::try_push) when non-finite measurements should be
+    /// reported as errors instead of becoming part of the accumulator state.
     ///
     /// ```
     /// use markov_chain_monte_carlo::OnlineStats;
@@ -197,11 +197,22 @@ impl OnlineStats {
         self.push_unchecked(sample);
     }
 
-    /// Apply one Welford update without validation.
+    /// Add one sample to the accumulator without validating it.
     ///
-    /// This is shared by infallible `push` and fallible `try_push`, where
-    /// `try_push` first updates a copy so it can remain atomic on error.
-    fn push_unchecked(&mut self, sample: f64) {
+    /// Non-finite samples can permanently contaminate the running mean and
+    /// variance accumulator.  Use [`try_push`](Self::try_push) for production
+    /// measurement streams where `NaN` or infinity should be rejected atomically.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::OnlineStats;
+    ///
+    /// let mut stats = OnlineStats::new();
+    /// stats.push_unchecked(1.0);
+    /// stats.push_unchecked(3.0);
+    ///
+    /// assert_eq!(stats.mean(), Some(2.0));
+    /// ```
+    pub fn push_unchecked(&mut self, sample: f64) {
         self.count += 1;
         let delta = sample - self.mean;
         self.mean += delta / count_as_f64(self.count);
@@ -657,11 +668,11 @@ impl BinningAnalysis {
         Ok(analysis)
     }
 
-    /// Add one measurement.
+    /// Add one measurement without validating it.
     ///
-    /// This method does not validate the sample.  Use [`try_push`](Self::try_push)
-    /// when non-finite measurements should be reported as errors instead of
-    /// becoming part of the binning state.
+    /// This is a compatibility alias for [`push_unchecked`](Self::push_unchecked).
+    /// Use [`try_push`](Self::try_push) when non-finite measurements should be
+    /// reported as errors instead of becoming part of the binning state.
     ///
     /// ```
     /// use markov_chain_monte_carlo::BinningAnalysis;
@@ -677,7 +688,21 @@ impl BinningAnalysis {
     }
 
     /// Add one measurement without validating it.
-    fn push_unchecked(&mut self, sample: f64) {
+    ///
+    /// Non-finite samples can permanently contaminate every affected binning
+    /// level.  Use [`try_push`](Self::try_push) for production measurement
+    /// streams where `NaN` or infinity should be rejected atomically.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::BinningAnalysis;
+    ///
+    /// let mut bins = BinningAnalysis::new();
+    /// bins.push_unchecked(1.0);
+    /// bins.push_unchecked(2.0);
+    ///
+    /// assert_eq!(bins.count(), 2);
+    /// ```
+    pub fn push_unchecked(&mut self, sample: f64) {
         self.count += 1;
         self.push_block(0, sample);
     }

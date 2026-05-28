@@ -255,13 +255,6 @@ pub enum DetailedBalanceError<E = Infallible> {
         /// Observed log q-ratio.
         log_q_ratio: f64,
     },
-    /// Metropolis-Hastings log acceptance ratio was `NaN`.
-    InvalidLogAcceptanceRatio {
-        /// Direction whose log acceptance ratio was invalid.
-        direction: DetailedBalanceDirection,
-        /// Observed log acceptance ratio.
-        log_acceptance_ratio: f64,
-    },
     /// Delayed proposal planning failed.
     Plan {
         /// Direction whose planning failed.
@@ -328,13 +321,6 @@ impl<E: fmt::Display> fmt::Display for DetailedBalanceError<E> {
                 f,
                 "{direction} proposal log q-ratio is {log_q_ratio}: expected finite or -infinity"
             ),
-            Self::InvalidLogAcceptanceRatio {
-                direction,
-                log_acceptance_ratio,
-            } => write!(
-                f,
-                "{direction} log acceptance ratio is {log_acceptance_ratio}: expected a non-NaN value"
-            ),
             Self::Plan { direction, source } => {
                 write!(f, "{direction} delayed proposal planning failed: {source}")
             }
@@ -382,7 +368,6 @@ where
             | Self::InvalidMinHits { .. }
             | Self::InvalidTargetLogProb { .. }
             | Self::InvalidLogQRatio { .. }
-            | Self::InvalidLogAcceptanceRatio { .. }
             | Self::InsufficientHits { .. }
             | Self::Violation { .. } => None,
         }
@@ -1063,13 +1048,11 @@ where
     check_log_q_ratio(DetailedBalanceDirection::Reverse, reverse_log_q_ratio)?;
 
     let forward_acceptance = acceptance_probability(
-        DetailedBalanceDirection::Forward,
         endpoint_log_probs.proposed - endpoint_log_probs.current + forward_log_q_ratio,
-    )?;
+    );
     let reverse_acceptance = acceptance_probability(
-        DetailedBalanceDirection::Reverse,
         endpoint_log_probs.current - endpoint_log_probs.proposed + reverse_log_q_ratio,
-    )?;
+    );
 
     let forward = estimate_by_value_transition(
         current,
@@ -1391,9 +1374,8 @@ where
             let log_q_ratio = proposal.log_q_ratio(&candidate, &token);
             check_log_q_ratio(request.direction, log_q_ratio)?;
             estimate.push(acceptance_probability(
-                request.direction,
                 proposed_log_prob - request.from_log_prob + log_q_ratio,
-            )?);
+            ));
         }
     }
     Ok(estimate)
@@ -1444,9 +1426,8 @@ where
             })?;
             check_log_q_ratio(request.direction, log_q_ratio)?;
             estimate.push(acceptance_probability(
-                request.direction,
                 proposed_log_prob - request.from_log_prob + log_q_ratio,
-            )?);
+            ));
         }
     }
     Ok(estimate)
@@ -1513,20 +1494,17 @@ fn log_residual(forward_log_flow: f64, reverse_log_flow: f64) -> f64 {
     }
 }
 
-/// Convert a log Metropolis-Hastings ratio into an acceptance probability,
-/// rejecting undefined ratios before they contaminate empirical estimates.
-fn acceptance_probability<E>(
-    direction: DetailedBalanceDirection,
-    log_acceptance_ratio: f64,
-) -> Result<f64, DetailedBalanceError<E>> {
+/// Convert a log Metropolis-Hastings ratio into an acceptance probability.
+///
+/// This mirrors the sampler's edge-case policy: ratios such as
+/// `-inf - (-inf)` become `NaN` and are treated as zero acceptance
+/// probability, while nonnegative ratios accept with probability one.
+fn acceptance_probability(log_acceptance_ratio: f64) -> f64 {
     if log_acceptance_ratio.is_nan() {
         cold_path();
-        Err(DetailedBalanceError::InvalidLogAcceptanceRatio {
-            direction,
-            log_acceptance_ratio,
-        })
+        0.0
     } else {
-        Ok(log_acceptance_ratio.min(0.0).exp())
+        log_acceptance_ratio.min(0.0).exp()
     }
 }
 
@@ -2036,14 +2014,6 @@ mod tests {
             "forward proposal log q-ratio is inf: expected finite or -infinity"
         );
         assert_eq!(
-            DetailedBalanceError::<DelayedFailure>::InvalidLogAcceptanceRatio {
-                direction: DetailedBalanceDirection::Reverse,
-                log_acceptance_ratio: f64::NAN,
-            }
-            .to_string(),
-            "reverse log acceptance ratio is NaN: expected a non-NaN value"
-        );
-        assert_eq!(
             DetailedBalanceError::InsufficientHits::<DelayedFailure> {
                 direction: DetailedBalanceDirection::Forward,
                 hits: 0,
@@ -2528,9 +2498,9 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_log_acceptance_ratio() {
+    fn treats_two_impossible_endpoints_as_zero_flow() {
         let mut rng = StdRng::seed_from_u64(42);
-        let err = verify_detailed_balance(
+        let report = verify_detailed_balance(
             &false,
             &true,
             &ImpossibleTarget,
@@ -2538,15 +2508,16 @@ mod tests {
             &mut rng,
             small_config(),
         )
-        .unwrap_err();
+        .unwrap();
 
-        assert_matches!(
-            err,
-            DetailedBalanceError::InvalidLogAcceptanceRatio {
-                direction: DetailedBalanceDirection::Forward,
-                log_acceptance_ratio,
-            } if log_acceptance_ratio.is_nan()
-        );
+        assert_eq!(report.forward_hits, 128);
+        assert_eq!(report.reverse_hits, 128);
+        assert!(report.forward_log_transition.is_infinite());
+        assert!(report.forward_log_transition.is_sign_negative());
+        assert!(report.reverse_log_transition.is_infinite());
+        assert!(report.reverse_log_transition.is_sign_negative());
+        assert_relative_eq!(report.log_balance_residual, 0.0);
+        assert!(report.log_balance_standard_error.is_infinite());
     }
 
     #[test]
