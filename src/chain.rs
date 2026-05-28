@@ -1,6 +1,6 @@
 //! MCMC chain implementation.
 
-use core::hint::cold_path;
+use core::{cmp::Ordering, hint::cold_path};
 
 use std::error::Error;
 use std::fmt;
@@ -68,6 +68,27 @@ fn check_log_q_ratio(log_q: f64) -> Result<(), McmcError> {
     if log_q == f64::INFINITY {
         cold_path();
         return Err(McmcError::InfiniteLogQRatio);
+    }
+    Ok(())
+}
+
+/// Check that a delayed commit produced the state scored before acceptance.
+///
+/// The checked delayed path recomputes the committed state's log-probability so
+/// proposal authors can catch plan/commit mismatches without leaving the chain's
+/// cached log-probability stale.
+fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError> {
+    if committed.is_nan() {
+        cold_path();
+        return Err(McmcError::NanCommittedLogProb);
+    }
+    if committed == f64::INFINITY {
+        cold_path();
+        return Err(McmcError::InfiniteCommittedLogProb);
+    }
+    if committed.partial_cmp(&scored) != Some(Ordering::Equal) {
+        cold_path();
+        return Err(McmcError::InconsistentDelayedCommitLogProb);
     }
     Ok(())
 }
@@ -662,6 +683,171 @@ impl<S> Chain<S> {
                 info: Some(info),
                 log_prob_before,
                 log_prob_after: Some(log_prob_new),
+                log_alpha: Some(log_alpha),
+            })
+        } else {
+            self.rejected = self.rejected.saturating_add(1);
+            Ok(Step {
+                accepted: false,
+                proposed: true,
+                info: Some(info),
+                log_prob_before,
+                log_prob_after: None,
+                log_alpha: Some(log_alpha),
+            })
+        }
+    }
+
+    /// Perform a delayed-commit step and verify the committed state afterward.
+    ///
+    /// This variant is intended for proposal development and invariant-heavy
+    /// state spaces.  It follows the same Metropolis-Hastings decision as
+    /// [`step_delayed`](Self::step_delayed), then recomputes the target
+    /// log-probability after an accepted commit.  If the committed state's
+    /// log-probability is invalid or differs from the value used for the
+    /// acceptance decision, the original state is restored and an
+    /// [`McmcError`] is returned through [`DelayedStepError::Mcmc`].
+    ///
+    /// The method requires `S: Clone` so it can restore the prior state when a
+    /// proposal violates the delayed-commit contract.
+    ///
+    /// If [`DelayedProposal::commit`] returns an error, the chain state and
+    /// cached log-probability are restored before the error is returned.  The
+    /// proposal remains responsible for its own internal state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct TargetLine;
+    /// impl Target<i32> for TargetLine {
+    ///     fn log_prob(&self, state: &i32) -> f64 {
+    ///         -f64::from(state.abs())
+    ///     }
+    /// }
+    ///
+    /// struct MoveRight;
+    /// impl DelayedProposal<i32> for MoveRight {
+    ///     type Plan = i32;
+    ///     type Info = i32;
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _state: &i32,
+    ///         _rng: &mut R,
+    ///     ) -> Result<Option<i32>, Self::Error> {
+    ///         Ok(Some(1))
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///         &self,
+    ///         state: &i32,
+    ///         plan: &i32,
+    ///         target: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         Ok(target.log_prob(&(*state + *plan)))
+    ///     }
+    ///
+    ///     fn info(&self, plan: &i32) -> i32 {
+    ///         *plan
+    ///     }
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         state: &mut i32,
+    ///         plan: i32,
+    ///         _rng: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         *state += plan;
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let target = TargetLine;
+    /// let mut proposal = MoveRight;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let mut chain = Chain::new(-1, &target)?;
+    ///
+    /// let step = chain.step_delayed_checked(&target, &mut proposal, &mut rng)?;
+    /// assert!(step.accepted);
+    /// assert_eq!(*chain.state(), 0);
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`step_delayed`](Self::step_delayed), plus
+    /// [`McmcError::NanCommittedLogProb`],
+    /// [`McmcError::InfiniteCommittedLogProb`], or
+    /// [`McmcError::InconsistentDelayedCommitLogProb`] when post-commit
+    /// validation fails.
+    pub fn step_delayed_checked<T, P, R>(
+        &mut self,
+        target: &T,
+        proposal: &mut P,
+        rng: &mut R,
+    ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>>
+    where
+        S: Clone,
+        T: Target<S>,
+        P: DelayedProposal<S> + ?Sized,
+        R: Rng + ?Sized,
+    {
+        let log_prob_before = self.log_prob;
+        let Some(plan) = proposal
+            .propose_plan(&self.state, rng)
+            .map_err(DelayedStepError::Plan)?
+        else {
+            self.rejected = self.rejected.saturating_add(1);
+            return Ok(Step {
+                accepted: false,
+                proposed: false,
+                info: None,
+                log_prob_before,
+                log_prob_after: None,
+                log_alpha: None,
+            });
+        };
+
+        let log_prob_new = proposal
+            .proposed_log_prob(&self.state, &plan, target)
+            .map_err(DelayedStepError::ProposedLogProb)?;
+        check_proposed_log_prob(log_prob_new).map_err(DelayedStepError::Mcmc)?;
+
+        let log_q = proposal
+            .log_q_ratio(&self.state, &plan)
+            .map_err(DelayedStepError::LogQRatio)?;
+        check_log_q_ratio(log_q).map_err(DelayedStepError::Mcmc)?;
+
+        let log_alpha = log_prob_new - self.log_prob + log_q;
+        let accept = accept_log_alpha(log_alpha, rng);
+        let info = proposal.info(&plan);
+
+        if accept {
+            let state_before_commit = self.state.clone();
+            if let Err(err) = proposal.commit(&mut self.state, plan, rng) {
+                self.state = state_before_commit;
+                return Err(DelayedStepError::Commit(err));
+            }
+
+            let committed_log_prob = target.log_prob(&self.state);
+            if let Err(err) = check_committed_log_prob(log_prob_new, committed_log_prob) {
+                self.state = state_before_commit;
+                return Err(DelayedStepError::Mcmc(err));
+            }
+
+            self.log_prob = committed_log_prob;
+            self.accepted = self.accepted.saturating_add(1);
+            Ok(Step {
+                accepted: true,
+                proposed: true,
+                info: Some(info),
+                log_prob_before,
+                log_prob_after: Some(committed_log_prob),
                 log_alpha: Some(log_alpha),
             })
         } else {
@@ -1853,6 +2039,48 @@ mod tests {
         }
     }
 
+    struct CheckedCommitProposal {
+        scored: f64,
+        committed: f64,
+    }
+
+    impl DelayedProposal<Scalar> for CheckedCommitProposal {
+        type Plan = f64;
+        type Info = f64;
+        type Error = DelayedFixtureError;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _state: &Scalar,
+            _rng: &mut R,
+        ) -> Result<Option<f64>, Self::Error> {
+            Ok(Some(self.scored))
+        }
+
+        fn proposed_log_prob<T: Target<Scalar>>(
+            &self,
+            _state: &Scalar,
+            plan: &f64,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(&Scalar(*plan)))
+        }
+
+        fn info(&self, plan: &f64) -> f64 {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            _plan: f64,
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            state.0 = self.committed;
+            Ok(())
+        }
+    }
+
     #[test]
     fn delayed_accepts_uphill() {
         let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
@@ -2162,6 +2390,243 @@ mod tests {
             Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
         );
         assert_eq!(chain.state, MutScalar(2.0));
+        assert_relative_eq!(chain.log_prob(), log_prob);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_checked_accepts_consistent_commit() {
+        struct CheckedMove;
+        impl DelayedProposal<Scalar> for CheckedMove {
+            type Plan = f64;
+            type Info = f64;
+            type Error = DelayedFixtureError;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(0.0))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar>>(
+                &self,
+                _state: &Scalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(*plan)))
+            }
+
+            fn info(&self, plan: &f64) -> f64 {
+                *plan
+            }
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = plan;
+                Ok(())
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(2.0), &Normal).unwrap();
+        let mut proposal = CheckedMove;
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed_checked(&Normal, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert!(step.accepted);
+        assert_eq!(chain.state, Scalar(0.0));
+        assert_relative_eq!(chain.log_prob(), 0.0);
+        assert_eq!(chain.accepted(), 1);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_checked_restores_after_mismatched_commit() {
+        struct MismatchedCommit;
+        impl DelayedProposal<Scalar> for MismatchedCommit {
+            type Plan = f64;
+            type Info = f64;
+            type Error = DelayedFixtureError;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(0.0))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar>>(
+                &self,
+                _state: &Scalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(*plan)))
+            }
+
+            fn info(&self, plan: &f64) -> f64 {
+                *plan
+            }
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                _plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = 2.0;
+                Ok(())
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = MismatchedCommit;
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_delayed_checked(&Normal, &mut proposal, &mut rng);
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Mcmc(
+                McmcError::InconsistentDelayedCommitLogProb
+            ))
+        );
+        assert_eq!(chain.state, Scalar(1.0));
+        assert_relative_eq!(chain.log_prob(), log_prob);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_checked_restores_after_nan_committed_log_prob() {
+        struct NanAtTwo;
+        impl Target<Scalar> for NanAtTwo {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                if state.0.to_bits() == 2.0_f64.to_bits() {
+                    f64::NAN
+                } else {
+                    Normal.log_prob(state)
+                }
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(1.0), &NanAtTwo).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = CheckedCommitProposal {
+            scored: 0.0,
+            committed: 2.0,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_delayed_checked(&NanAtTwo, &mut proposal, &mut rng);
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Mcmc(McmcError::NanCommittedLogProb))
+        );
+        assert_eq!(chain.state, Scalar(1.0));
+        assert_relative_eq!(chain.log_prob(), log_prob);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_checked_restores_after_infinite_committed_log_prob() {
+        struct InfiniteAtTwo;
+        impl Target<Scalar> for InfiniteAtTwo {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                if state.0.to_bits() == 2.0_f64.to_bits() {
+                    f64::INFINITY
+                } else {
+                    Normal.log_prob(state)
+                }
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(1.0), &InfiniteAtTwo).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = CheckedCommitProposal {
+            scored: 0.0,
+            committed: 2.0,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_delayed_checked(&InfiniteAtTwo, &mut proposal, &mut rng);
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Mcmc(McmcError::InfiniteCommittedLogProb))
+        );
+        assert_eq!(chain.state, Scalar(1.0));
+        assert_relative_eq!(chain.log_prob(), log_prob);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn delayed_checked_restores_after_mutating_commit_error() {
+        struct MutatingCommitError;
+        impl DelayedProposal<Scalar> for MutatingCommitError {
+            type Plan = f64;
+            type Info = f64;
+            type Error = DelayedFixtureError;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(0.0))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar>>(
+                &self,
+                _state: &Scalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(*plan)))
+            }
+
+            fn info(&self, plan: &f64) -> f64 {
+                *plan
+            }
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = plan;
+                Err(DelayedFixtureError::Commit)
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = MutatingCommitError;
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = chain.step_delayed_checked(&Normal, &mut proposal, &mut rng);
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Commit(DelayedFixtureError::Commit))
+        );
+        assert_eq!(chain.state, Scalar(1.0));
         assert_relative_eq!(chain.log_prob(), log_prob);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 0);

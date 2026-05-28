@@ -1920,6 +1920,90 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             .step_delayed(self.target, &mut self.proposal, self.rng)
     }
 
+    /// Perform one delayed-commit step and verify the committed state afterward.
+    ///
+    /// Delegates to [`Chain::step_delayed_checked`].  Use this while developing
+    /// delayed proposals to catch mismatches between the scored plan and the
+    /// state actually committed by the proposal.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct TargetLine;
+    /// impl Target<i32> for TargetLine {
+    ///     fn log_prob(&self, state: &i32) -> f64 {
+    ///         -f64::from(state.abs())
+    ///     }
+    /// }
+    ///
+    /// struct MoveRight;
+    /// impl DelayedProposal<i32> for MoveRight {
+    ///     type Plan = i32;
+    ///     type Info = i32;
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _state: &i32,
+    ///         _rng: &mut R,
+    ///     ) -> Result<Option<i32>, Self::Error> {
+    ///         Ok(Some(1))
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///         &self,
+    ///         state: &i32,
+    ///         plan: &i32,
+    ///         target: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         Ok(target.log_prob(&(*state + *plan)))
+    ///     }
+    ///
+    ///     fn info(&self, plan: &i32) -> i32 {
+    ///         *plan
+    ///     }
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         state: &mut i32,
+    ///         plan: i32,
+    ///         _rng: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         *state += plan;
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let target = TargetLine;
+    /// let mut proposal = MoveRight;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(-1, &target)?;
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    ///
+    /// let step = sampler.step_delayed_checked()?;
+    /// assert!(step.accepted);
+    /// assert_eq!(*sampler.chain_ref().state(), 0);
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DelayedStepError`] when planning, numerical validation,
+    /// accepted-move commit, or post-commit validation fails.
+    pub fn step_delayed_checked(
+        &mut self,
+    ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>>
+    where
+        S: Clone,
+    {
+        self.chain
+            .step_delayed_checked(self.target, &mut self.proposal, self.rng)
+    }
+
     /// Run `steps` delayed-commit Metropolis-Hastings steps.
     ///
     /// Stops and returns the first error encountered.

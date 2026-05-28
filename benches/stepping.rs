@@ -7,7 +7,7 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use markov_chain_monte_carlo::prelude::by_value::Proposal;
 use markov_chain_monte_carlo::prelude::delayed::DelayedProposal;
 use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
-use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target};
+use markov_chain_monte_carlo::prelude::{BinningAnalysis, Chain, OnlineStats, Sampler, Target};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
@@ -336,6 +336,38 @@ fn bench_observing(c: &mut Criterion) {
                     sum = sample.mul_add(sample, sum);
                 }
                 black_box(sum);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    c.bench_function("observing/run_observing_into_online_stats_100", |b| {
+        b.iter_batched(
+            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
+            |(chain, mut rng)| {
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng).unwrap();
+                let mut square = |state: &Scalar| state.0 * state.0;
+                let mut stats = OnlineStats::new();
+                sampler
+                    .run_observing_into(black_box(BULK_STEPS), &mut square, &mut stats)
+                    .unwrap();
+                black_box(stats.count());
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    c.bench_function("observing/run_observing_into_binning_100", |b| {
+        b.iter_batched(
+            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
+            |(chain, mut rng)| {
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng).unwrap();
+                let mut square = |state: &Scalar| state.0 * state.0;
+                let mut bins = BinningAnalysis::new();
+                sampler
+                    .run_observing_into(black_box(BULK_STEPS), &mut square, &mut bins)
+                    .unwrap();
+                black_box(bins.standard_error());
             },
             BatchSize::SmallInput,
         );
