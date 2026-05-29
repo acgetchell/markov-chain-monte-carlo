@@ -58,6 +58,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── scientific_basis.md
 ├── dprint.json
 ├── examples/
+│   ├── delayed_chunked_telemetry.rs
 │   ├── detailed_balance.rs
 │   ├── ising_1d.rs
 │   ├── iterator_sampling.rs
@@ -221,6 +222,7 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/ising_1d.rs` — in-place mutation with rollback.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
+- `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 
 Keep examples deterministic when possible. The `validate-examples` recipe checks for expected output markers, so example output should remain stable enough for
 CI validation.

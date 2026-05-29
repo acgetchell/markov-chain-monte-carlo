@@ -233,6 +233,12 @@
 //! rejection, while [`DelayedProposal::commit`] errors are reserved for
 //! exceptional failures applying an already accepted concrete move.
 //!
+//! Delayed steps return [`DelayedStep`] telemetry with a [`StepOutcome`].  Use
+//! [`Step::rejection_reason`] when you only need rejected-step categories.
+//! Implement
+//! [`DelayedProposal::no_plan_info`] when a no-plan self-loop should still
+//! report proposal-family metadata.
+//!
 //! Use [`DiscreteProposalRatio`] when a delayed combinatorial proposal chooses
 //! a move family and then samples uniformly among that family's valid concrete
 //! sites.
@@ -294,7 +300,7 @@
 //!     let mut chain = Chain::new(-1, &target).map_err(DelayedStepError::Mcmc)?;
 //!
 //!     let step = chain.step_delayed(&target, &mut proposal, &mut rng)?;
-//!     assert!(step.accepted);
+//!     assert_eq!(step.outcome, StepOutcome::Accepted);
 //!     assert_eq!(*chain.state(), 0);
 //!     Ok(())
 //! }
@@ -417,7 +423,9 @@ mod statistics;
 mod testing;
 mod traits;
 
-pub use chain::{Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step};
+pub use chain::{
+    Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
+};
 pub use error::McmcError;
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
@@ -531,9 +539,9 @@ pub mod prelude {
             DelayedStepError, DiscreteProposalRatio, DiscreteProposalRatioError, McmcError,
             Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
             ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedDelayedIntoRunResult,
-            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
-            TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
+            SampleBuffer, Sampler, StatisticsError, StepOutcome, StepRejectionReason, Target,
+            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
+            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
             TryThinnedObservedRunResult,
         };
     }
@@ -571,8 +579,8 @@ mod public_api_smoke_tests {
         DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
         DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure,
         DetailedBalanceReport, DetailedBalanceState, McmcError, Observable, ObservedDelayedStep,
-        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, Target,
-        ThinningError,
+        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step,
+        StepOutcome, StepRejectionReason, Target, ThinningError,
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
@@ -659,6 +667,8 @@ mod public_api_smoke_tests {
         let _: Option<ChainCheckpoint<f64>> = None;
         let _: Option<Step<()>> = None;
         let _: Option<DelayedStep<()>> = None;
+        let _: Option<StepOutcome> = None;
+        let _: Option<StepRejectionReason> = None;
         let _: Option<McmcError> = None;
         let _: Option<SampleBuffer<f64>> = None;
         let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
@@ -688,6 +698,8 @@ mod public_api_smoke_tests {
         > = None;
         let _: Option<delayed::DiscreteProposalRatio> = None;
         let _: Option<delayed::DiscreteProposalRatioError> = None;
+        let _: Option<delayed::StepOutcome> = None;
+        let _: Option<delayed::StepRejectionReason> = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
         let _: Option<delayed::McmcError> = None;
         let _: Option<testing::DetailedBalanceConfig> = None;

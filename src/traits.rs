@@ -456,6 +456,11 @@ impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
 /// delta is cheap to compute from a concrete move descriptor.  If `commit`
 /// returns an error, it must be failure-atomic: either the accepted move is
 /// applied completely, or `state` is restored before returning `Err`.
+///
+/// Implement [`no_plan_info`](Self::no_plan_info) when planning may select a
+/// move family before discovering that no concrete site exists.  [`crate::Chain`]
+/// stores that metadata in [`crate::DelayedStep::info`] even though the step is
+/// counted as a rejection with no proposal.
 pub trait DelayedProposal<S> {
     /// Concrete move descriptor produced before the Metropolis-Hastings decision.
     type Plan;
@@ -479,6 +484,90 @@ pub trait DelayedProposal<S> {
         state: &S,
         rng: &mut R,
     ) -> Result<Option<Self::Plan>, Self::Error>;
+
+    /// Produce telemetry metadata for an `Ok(None)` planning result.
+    ///
+    /// The default returns no metadata.  Implementations that choose a move
+    /// family before discovering that no valid concrete site exists can store
+    /// that choice during [`propose_plan`](Self::propose_plan) and return it
+    /// here.  The value is attached to the resulting [`crate::DelayedStep`]
+    /// with [`crate::StepOutcome::NoProposal`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// enum MoveFamily {
+    ///     Add,
+    /// }
+    ///
+    /// struct Flat;
+    /// impl Target<()> for Flat {
+    ///     fn log_prob(&self, _: &()) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct NoAddSite {
+    ///     last_family: Option<MoveFamily>,
+    /// }
+    ///
+    /// impl DelayedProposal<()> for NoAddSite {
+    ///     type Plan = ();
+    ///     type Info = MoveFamily;
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &(),
+    ///         _: &mut R,
+    ///     ) -> Result<Option<()>, Self::Error> {
+    ///         self.last_family = Some(MoveFamily::Add);
+    ///         Ok(None)
+    ///     }
+    ///
+    ///     fn no_plan_info(&mut self) -> Option<Self::Info> {
+    ///         self.last_family.take()
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<()>>(
+    ///         &self,
+    ///         _: &(),
+    ///         _: &(),
+    ///         _: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         unreachable!("no plan should not be scored")
+    ///     }
+    ///
+    ///     fn info(&self, _: &()) -> MoveFamily {
+    ///         MoveFamily::Add
+    ///     }
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &mut (),
+    ///         _: (),
+    ///         _: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         unreachable!("no plan should not be committed")
+    ///     }
+    /// }
+    ///
+    /// let mut proposal = NoAddSite { last_family: None };
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let mut chain = Chain::new((), &Flat).map_err(DelayedStepError::Mcmc)?;
+    ///
+    /// let step = chain.step_delayed(&Flat, &mut proposal, &mut rng)?;
+    ///
+    /// assert_eq!(step.outcome, StepOutcome::NoProposal);
+    /// assert_eq!(step.info, Some(MoveFamily::Add));
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    fn no_plan_info(&mut self) -> Option<Self::Info> {
+        None
+    }
 
     /// Compute the concrete proposed state's log-probability without mutating
     /// `state`.
@@ -556,6 +645,10 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedProposal<S> for &mut P {
         rng: &mut R,
     ) -> Result<Option<Self::Plan>, Self::Error> {
         (**self).propose_plan(state, rng)
+    }
+
+    fn no_plan_info(&mut self) -> Option<Self::Info> {
+        (**self).no_plan_info()
     }
 
     fn proposed_log_prob<T: Target<S>>(

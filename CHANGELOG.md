@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Document delayed valid-site multiplicities and expose the ratio helper through the public API and scoped preludes.
   - Validate DetailedBalanceConfig at construction so detailed-balance checks operate on accepted configuration values.
   - Add validator property tests and document the repository convention for proptest integration files.
+- Expose resumable chunked runs [#60](https://github.com/acgetchell/markov-chain-monte-carlo/pull/60) [#76](https://github.com/acgetchell/markov-chain-monte-carlo/pull/76) [`bbcad08`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/bbcad08c22216c4738227f8ae802495e8024796a)
+
+  - Add checkpoint accessors on Sampler so callers can inspect or persist continuation state without unwrapping the inner chain.
+  - Add chunked by-value, in-place, and delayed-commit run helpers that preserve sampler counters and RNG streams across repeated chunks.
+  - Document chunked sampling as the ergonomic path for workflows that choose each next step budget from the updated state.
+
+### Changed
+
+- [**breaking**] Enforce parse-don't-validate invariants [#75](https://github.com/acgetchell/markov-chain-monte-carlo/pull/75) [`85ee3e0`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/85ee3e036197b6ced9f7559cc394909a7949b4d5)
+
+  - Require OnlineStats and BinningAnalysis to ingest raw f64 samples through fallible APIs, with private finite-sample evidence carried through accumulator internals.
+  - Store nonzero detailed-balance and proposal-ratio counts as refined types so zero is rejected at construction instead of rechecked downstream.
+  - Add Semgrep guardrails for unchecked APIs, infallible statistics ingestion, raw invariant fields, and public unit validators.
+  - Refresh docs, property tests, and crate metadata for the stricter public API surface.
 
 ### Fixed
 
