@@ -124,6 +124,7 @@ fn main() -> Result<(), McmcError> {
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
 - Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
+- Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.

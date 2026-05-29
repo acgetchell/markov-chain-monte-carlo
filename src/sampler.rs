@@ -2058,7 +2058,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     ///
     /// let step = sampler.step_delayed()?;
-    /// assert!(step.accepted);
+    /// assert_eq!(step.outcome, StepOutcome::Accepted);
     /// assert_eq!(*sampler.chain_ref().state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -2137,7 +2137,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
     ///
     /// let step = sampler.step_delayed_checked()?;
-    /// assert!(step.accepted);
+    /// assert_eq!(step.outcome, StepOutcome::Accepted);
     /// assert_eq!(*sampler.chain_ref().state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -3057,7 +3057,7 @@ mod tests {
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
-    use crate::{BinningAnalysis, OnlineStats, StatisticsError};
+    use crate::{BinningAnalysis, OnlineStats, StatisticsError, StepOutcome};
 
     // --- Shared fixtures ---
 
@@ -4078,7 +4078,7 @@ mod tests {
 
         let step = sampler.step_delayed().unwrap();
 
-        assert!(step.accepted);
+        assert_eq!(step.outcome, StepOutcome::Accepted);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }

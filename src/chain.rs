@@ -98,11 +98,9 @@ fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError
 #[non_exhaustive]
 #[must_use]
 pub struct Step<I> {
-    /// Whether the move was accepted and committed.
-    pub accepted: bool,
-    /// Whether a proposal was produced.
-    pub proposed: bool,
-    /// Proposal-specific metadata, when a proposal was produced.
+    /// Step outcome encoded as a single invariant-bearing value.
+    pub outcome: StepOutcome,
+    /// Proposal-specific metadata for the concrete proposal or no-plan outcome.
     pub info: Option<I>,
     /// Cached log-probability before the step.
     pub log_prob_before: f64,
@@ -110,6 +108,187 @@ pub struct Step<I> {
     pub log_prob_after: Option<f64>,
     /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
     pub log_alpha: Option<f64>,
+}
+
+impl<I> Step<I> {
+    /// Build telemetry for a no-proposal self-loop.
+    ///
+    /// This keeps the [`Step`] field-level contract synchronized whenever a
+    /// delayed proposal returns `Ok(None)`.
+    pub(crate) const fn no_proposal(info: Option<I>, log_prob_before: f64) -> Self {
+        Self {
+            outcome: StepOutcome::NoProposal,
+            info,
+            log_prob_before,
+            log_prob_after: None,
+            log_alpha: None,
+        }
+    }
+
+    /// Build telemetry for an accepted concrete proposal.
+    ///
+    /// This records the accepted outcome together with the post-commit
+    /// log-probability used by the chain cache.
+    pub(crate) const fn accepted_proposal(
+        info: I,
+        log_prob_before: f64,
+        log_prob_after: f64,
+        log_alpha: f64,
+    ) -> Self {
+        Self {
+            outcome: StepOutcome::Accepted,
+            info: Some(info),
+            log_prob_before,
+            log_prob_after: Some(log_prob_after),
+            log_alpha: Some(log_alpha),
+        }
+    }
+
+    /// Build telemetry for a concrete proposal rejected by the M-H draw.
+    ///
+    /// Rejected proposals leave the cached log-probability unchanged while
+    /// preserving the evaluated log-acceptance ratio for diagnostics.
+    pub(crate) const fn rejected_proposal(info: I, log_prob_before: f64, log_alpha: f64) -> Self {
+        Self {
+            outcome: StepOutcome::RejectedProposal,
+            info: Some(info),
+            log_prob_before,
+            log_prob_after: None,
+            log_alpha: Some(log_alpha),
+        }
+    }
+
+    /// Why a step was rejected, or `None` when it was accepted.
+    ///
+    /// This helper distinguishes proposal absence from a concrete proposal
+    /// rejected by the Metropolis-Hastings accept/reject draw.
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct Flat;
+    /// impl Target<()> for Flat {
+    ///     fn log_prob(&self, _: &()) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct NoMove;
+    /// impl DelayedProposal<()> for NoMove {
+    ///     type Plan = ();
+    ///     type Info = ();
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &(),
+    ///         _: &mut R,
+    ///     ) -> Result<Option<()>, Self::Error> {
+    ///         Ok(None)
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<()>>(
+    ///         &self,
+    ///         _: &(),
+    ///         _: &(),
+    ///         _: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         unreachable!("no plan should not be scored")
+    ///     }
+    ///
+    ///     fn info(&self, _: &()) {}
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &mut (),
+    ///         _: (),
+    ///         _: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         unreachable!("no plan should not be committed")
+    ///     }
+    /// }
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let mut proposal = NoMove;
+    /// let mut chain = Chain::new((), &Flat).map_err(DelayedStepError::Mcmc)?;
+    /// let step = chain.step_delayed(&Flat, &mut proposal, &mut rng)?;
+    ///
+    /// assert_eq!(step.outcome, StepOutcome::NoProposal);
+    /// assert_eq!(step.rejection_reason(), Some(StepRejectionReason::NoProposal));
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    #[must_use]
+    pub const fn rejection_reason(&self) -> Option<StepRejectionReason> {
+        match self.outcome {
+            StepOutcome::Accepted => None,
+            StepOutcome::RejectedProposal => Some(StepRejectionReason::RejectedProposal),
+            StepOutcome::NoProposal => Some(StepRejectionReason::NoProposal),
+        }
+    }
+}
+
+/// Outcome of a completed Metropolis-Hastings step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+#[must_use]
+pub enum StepOutcome {
+    /// A concrete proposal was accepted and committed.
+    Accepted,
+    /// A concrete proposal was produced and then rejected by the
+    /// Metropolis-Hastings acceptance draw.
+    RejectedProposal,
+    /// No concrete proposal was available, so the step was an ordinary
+    /// self-loop without a Metropolis-Hastings acceptance draw.
+    NoProposal,
+}
+
+impl StepOutcome {
+    /// Whether this outcome accepted and committed a concrete proposal.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::StepOutcome;
+    ///
+    /// assert!(StepOutcome::Accepted.is_accepted());
+    /// assert!(!StepOutcome::RejectedProposal.is_accepted());
+    /// assert!(!StepOutcome::NoProposal.is_accepted());
+    /// ```
+    #[must_use]
+    pub const fn is_accepted(self) -> bool {
+        match self {
+            Self::Accepted => true,
+            Self::RejectedProposal | Self::NoProposal => false,
+        }
+    }
+
+    /// Whether this outcome includes a concrete proposal.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::StepOutcome;
+    ///
+    /// assert!(StepOutcome::Accepted.has_proposal());
+    /// assert!(StepOutcome::RejectedProposal.has_proposal());
+    /// assert!(!StepOutcome::NoProposal.has_proposal());
+    /// ```
+    #[must_use]
+    pub const fn has_proposal(self) -> bool {
+        match self {
+            Self::Accepted | Self::RejectedProposal => true,
+            Self::NoProposal => false,
+        }
+    }
+}
+
+/// Reason a completed step was counted as a rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+#[must_use]
+pub enum StepRejectionReason {
+    /// No concrete proposal was available, so the step was an ordinary
+    /// self-loop without a Metropolis-Hastings acceptance draw.
+    NoProposal,
+    /// A concrete proposal was produced and then rejected by the
+    /// Metropolis-Hastings acceptance draw.
+    RejectedProposal,
 }
 
 /// Telemetry for a delayed-commit Metropolis-Hastings step.
@@ -622,7 +801,7 @@ impl<S> Chain<S> {
     /// let mut chain = Chain::new(-1, &target)?;
     ///
     /// let step = chain.step_delayed(&target, &mut proposal, &mut rng)?;
-    /// assert!(step.accepted);
+    /// assert_eq!(step.outcome, StepOutcome::Accepted);
     /// assert_eq!(*chain.state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -646,15 +825,9 @@ impl<S> Chain<S> {
             .propose_plan(&self.state, rng)
             .map_err(DelayedStepError::Plan)?
         else {
+            let info = proposal.no_plan_info();
             self.rejected = self.rejected.saturating_add(1);
-            return Ok(Step {
-                accepted: false,
-                proposed: false,
-                info: None,
-                log_prob_before,
-                log_prob_after: None,
-                log_alpha: None,
-            });
+            return Ok(Step::no_proposal(info, log_prob_before));
         };
 
         let log_prob_new = proposal
@@ -677,24 +850,15 @@ impl<S> Chain<S> {
                 .map_err(DelayedStepError::Commit)?;
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
-            Ok(Step {
-                accepted: true,
-                proposed: true,
-                info: Some(info),
+            Ok(Step::accepted_proposal(
+                info,
                 log_prob_before,
-                log_prob_after: Some(log_prob_new),
-                log_alpha: Some(log_alpha),
-            })
+                log_prob_new,
+                log_alpha,
+            ))
         } else {
             self.rejected = self.rejected.saturating_add(1);
-            Ok(Step {
-                accepted: false,
-                proposed: true,
-                info: Some(info),
-                log_prob_before,
-                log_prob_after: None,
-                log_alpha: Some(log_alpha),
-            })
+            Ok(Step::rejected_proposal(info, log_prob_before, log_alpha))
         }
     }
 
@@ -773,7 +937,7 @@ impl<S> Chain<S> {
     /// let mut chain = Chain::new(-1, &target)?;
     ///
     /// let step = chain.step_delayed_checked(&target, &mut proposal, &mut rng)?;
-    /// assert!(step.accepted);
+    /// assert_eq!(step.outcome, StepOutcome::Accepted);
     /// assert_eq!(*chain.state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -802,15 +966,9 @@ impl<S> Chain<S> {
             .propose_plan(&self.state, rng)
             .map_err(DelayedStepError::Plan)?
         else {
+            let info = proposal.no_plan_info();
             self.rejected = self.rejected.saturating_add(1);
-            return Ok(Step {
-                accepted: false,
-                proposed: false,
-                info: None,
-                log_prob_before,
-                log_prob_after: None,
-                log_alpha: None,
-            });
+            return Ok(Step::no_proposal(info, log_prob_before));
         };
 
         let log_prob_new = proposal
@@ -842,24 +1000,15 @@ impl<S> Chain<S> {
 
             self.log_prob = committed_log_prob;
             self.accepted = self.accepted.saturating_add(1);
-            Ok(Step {
-                accepted: true,
-                proposed: true,
-                info: Some(info),
+            Ok(Step::accepted_proposal(
+                info,
                 log_prob_before,
-                log_prob_after: Some(committed_log_prob),
-                log_alpha: Some(log_alpha),
-            })
+                committed_log_prob,
+                log_alpha,
+            ))
         } else {
             self.rejected = self.rejected.saturating_add(1);
-            Ok(Step {
-                accepted: false,
-                proposed: true,
-                info: Some(info),
-                log_prob_before,
-                log_prob_after: None,
-                log_alpha: Some(log_alpha),
-            })
+            Ok(Step::rejected_proposal(info, log_prob_before, log_alpha))
         }
     }
 
@@ -2039,6 +2188,56 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum MoveFamily {
+        Add,
+    }
+
+    struct FamilyNoPlanProposal {
+        last_family: Option<MoveFamily>,
+    }
+
+    impl DelayedProposal<MutScalar> for FamilyNoPlanProposal {
+        type Plan = f64;
+        type Info = MoveFamily;
+        type Error = DelayedFixtureError;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _state: &MutScalar,
+            _rng: &mut R,
+        ) -> Result<Option<f64>, Self::Error> {
+            self.last_family = Some(MoveFamily::Add);
+            Ok(None)
+        }
+
+        fn no_plan_info(&mut self) -> Option<Self::Info> {
+            self.last_family.take()
+        }
+
+        fn proposed_log_prob<T: Target<MutScalar>>(
+            &self,
+            _state: &MutScalar,
+            _plan: &f64,
+            _target: &T,
+        ) -> Result<f64, Self::Error> {
+            unreachable!("no plan should not be scored")
+        }
+
+        fn info(&self, _plan: &f64) -> Self::Info {
+            unreachable!("no plan should not produce plan info")
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _state: &mut MutScalar,
+            _plan: f64,
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            unreachable!("no plan should not be committed")
+        }
+    }
+
     struct CheckedCommitProposal {
         scored: f64,
         committed: f64,
@@ -2091,8 +2290,10 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert!(step.accepted);
-        assert!(step.proposed);
+        assert_eq!(step.outcome, StepOutcome::Accepted);
+        assert!(step.outcome.is_accepted());
+        assert!(step.outcome.has_proposal());
+        assert!(step.rejection_reason().is_none());
         assert_eq!(step.info, Some(0.0));
         assert_relative_eq!(step.log_prob_before, -2.0, epsilon = 1e-12);
         assert_eq!(step.log_prob_after, Some(0.0));
@@ -2112,8 +2313,13 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert!(!step.accepted);
-        assert!(step.proposed);
+        assert_eq!(step.outcome, StepOutcome::RejectedProposal);
+        assert!(!step.outcome.is_accepted());
+        assert!(step.outcome.has_proposal());
+        assert_eq!(
+            step.rejection_reason(),
+            Some(StepRejectionReason::RejectedProposal)
+        );
         assert_eq!(step.info, Some(100.0));
         assert_relative_eq!(step.log_prob_before, 0.0);
         assert_eq!(step.log_prob_after, None);
@@ -2134,13 +2340,41 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert!(!step.accepted);
-        assert!(!step.proposed);
+        assert_eq!(step.outcome, StepOutcome::NoProposal);
+        assert!(!step.outcome.is_accepted());
+        assert!(!step.outcome.has_proposal());
+        assert_eq!(
+            step.rejection_reason(),
+            Some(StepRejectionReason::NoProposal)
+        );
         assert_eq!(step.info, None);
         assert_relative_eq!(step.log_prob_before, log_prob);
         assert_eq!(step.log_prob_after, None);
         assert_eq!(step.log_alpha, None);
         assert_eq!(chain.state, MutScalar(1.0));
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 1);
+    }
+
+    #[test]
+    fn delayed_no_plan_can_report_family_info() {
+        let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let mut proposal = FamilyNoPlanProposal { last_family: None };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed(&Normal, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert_eq!(step.outcome, StepOutcome::NoProposal);
+        assert!(!step.outcome.is_accepted());
+        assert!(!step.outcome.has_proposal());
+        assert_eq!(
+            step.rejection_reason(),
+            Some(StepRejectionReason::NoProposal)
+        );
+        assert_eq!(step.info, Some(MoveFamily::Add));
+        assert_eq!(proposal.last_family, None);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
     }
@@ -2443,7 +2677,7 @@ mod tests {
             .step_delayed_checked(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert!(step.accepted);
+        assert_eq!(step.outcome, StepOutcome::Accepted);
         assert_eq!(chain.state, Scalar(0.0));
         assert_relative_eq!(chain.log_prob(), 0.0);
         assert_eq!(chain.accepted(), 1);
