@@ -6,7 +6,7 @@ use std::{error::Error, fmt};
 use rand::Rng;
 
 use crate::{
-    Chain, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
+    Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
     ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Target,
     TryAccumulator, TryObservable,
 };
@@ -306,6 +306,68 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         self.chain
     }
 
+    /// Borrow checkpoint-compatible continuation state from the inner chain.
+    ///
+    /// The returned checkpoint includes the current state and accepted/rejected
+    /// counters. It deliberately borrows the state and does not include the
+    /// RNG stream; keep using the same sampler to preserve RNG state across
+    /// chunks, or persist the caller-owned RNG separately for durable resumes.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<i32> for T { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
+    /// # struct P;
+    /// # impl Proposal<i32> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
+    /// #         current + 1
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &T)?;
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// let checkpoint = sampler.checkpoint();
+    /// assert_eq!(checkpoint.state(), &&0);
+    /// assert_eq!(checkpoint.total_steps(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub const fn checkpoint(&self) -> ChainCheckpoint<&S> {
+        self.chain.checkpoint()
+    }
+
+    /// Consume the sampler and return an owned checkpoint for its chain.
+    ///
+    /// Restore the returned checkpoint with [`Chain::from_checkpoint`] and
+    /// reconstruct the target, proposal, and RNG stream that will be used for
+    /// resumed sampling.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<String> for T { fn log_prob(&self, _: &String) -> f64 { 0.0 } }
+    /// # struct P;
+    /// # impl Proposal<String> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &String, _: &mut R) -> String {
+    /// #         current.clone()
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(String::from("state"), &T)?;
+    /// let sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// let checkpoint = sampler.into_checkpoint();
+    /// assert_eq!(checkpoint.into_parts(), (String::from("state"), 0, 0));
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn into_checkpoint(self) -> ChainCheckpoint<S> {
+        self.chain.into_checkpoint()
+    }
+
     /// Reset acceptance and rejection counters on the inner chain.
     ///
     /// Useful after burn-in to measure the acceptance rate of the production
@@ -589,6 +651,45 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
             self.step()?;
         }
         Ok(())
+    }
+
+    /// Run a resumable by-value chunk and return continuation state.
+    ///
+    /// This is equivalent to [`run`](Self::run) followed by
+    /// [`checkpoint`](Self::checkpoint). Repeated chunks on the same sampler
+    /// preserve the chain counters and RNG stream exactly as a one-shot run
+    /// with the same total number of steps.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// # struct T;
+    /// # impl Target<i32> for T { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
+    /// # struct P;
+    /// # impl Proposal<i32> for P {
+    /// #     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
+    /// #         current + 1
+    /// #     }
+    /// # }
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &T)?;
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    ///
+    /// let continuation = sampler.run_chunk(3)?;
+    /// assert_eq!(continuation.state(), &&3);
+    /// assert_eq!(continuation.total_steps(), 3);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`run`](Self::run): [`McmcError`] on the
+    /// first step with invalid target log-probability or proposal ratio
+    /// numerics.
+    pub fn run_chunk(&mut self, steps: usize) -> Result<ChainCheckpoint<&S>, McmcError> {
+        self.run(steps)?;
+        Ok(self.checkpoint())
     }
 
     /// Run by-value steps and collect cloned states every `thin_interval` steps.
@@ -1234,6 +1335,57 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
             self.step_mut()?;
         }
         Ok(())
+    }
+
+    /// Run a resumable in-place chunk and return continuation state.
+    ///
+    /// This is equivalent to [`run_mut`](Self::run_mut) followed by
+    /// [`checkpoint`](Self::checkpoint). Repeated chunks on the same sampler
+    /// preserve the chain counters and RNG stream exactly as a one-shot run
+    /// with the same total number of steps.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct S(i32);
+    /// struct Flat;
+    /// impl Target<S> for Flat {
+    ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
+    /// }
+    /// struct Increment;
+    /// impl ProposalMut<S> for Increment {
+    ///     type Undo = i32;
+    ///
+    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///         let old = state.0;
+    ///         state.0 += 1;
+    ///         Some(old)
+    ///     }
+    ///
+    ///     fn undo(&self, state: &mut S, old: i32) {
+    ///         state.0 = old;
+    ///     }
+    /// }
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    ///
+    /// let continuation = sampler.run_mut_chunk(3)?;
+    /// assert_eq!(continuation.state().0, 3);
+    /// assert_eq!(continuation.total_steps(), 3);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`run_mut`](Self::run_mut): [`McmcError`] on
+    /// the first step with invalid target log-probability or proposal ratio
+    /// numerics after rolling back the in-place proposal when needed.
+    pub fn run_mut_chunk(&mut self, steps: usize) -> Result<ChainCheckpoint<&S>, McmcError> {
+        self.run_mut(steps)?;
+        Ok(self.checkpoint())
     }
 
     /// Run in-place steps and collect cloned states every `thin_interval` steps.
@@ -2073,6 +2225,87 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             let _ = self.step_delayed()?;
         }
         Ok(())
+    }
+
+    /// Run a resumable delayed-commit chunk and return continuation state.
+    ///
+    /// This is equivalent to [`run_delayed`](Self::run_delayed) followed by
+    /// [`checkpoint`](Self::checkpoint). Repeated chunks on the same sampler
+    /// preserve the chain counters and RNG stream exactly as a one-shot run
+    /// with the same total number of steps.
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct Flat;
+    /// impl Target<i32> for Flat {
+    ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct Increment;
+    /// impl DelayedProposal<i32> for Increment {
+    ///     type Plan = i32;
+    ///     type Info = i32;
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &i32,
+    ///         _: &mut R,
+    ///     ) -> Result<Option<i32>, Self::Error> {
+    ///         Ok(Some(1))
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///         &self,
+    ///         state: &i32,
+    ///         plan: &i32,
+    ///         target: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         Ok(target.log_prob(&(*state + *plan)))
+    ///     }
+    ///
+    ///     fn info(&self, plan: &i32) -> i32 {
+    ///         *plan
+    ///     }
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         state: &mut i32,
+    ///         plan: i32,
+    ///         _: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         *state += plan;
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let target = Flat;
+    /// let mut proposal = Increment;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    ///
+    /// let continuation = sampler.run_delayed_chunk(3)?;
+    /// assert_eq!(**continuation.state(), 3);
+    /// assert_eq!(continuation.total_steps(), 3);
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`run_delayed`](Self::run_delayed):
+    /// [`DelayedStepError`] when delayed proposal planning, proposed-state
+    /// scoring, proposal-ratio evaluation, Metropolis-Hastings numeric
+    /// validation, or accepted-move commit fails.
+    pub fn run_delayed_chunk(
+        &mut self,
+        steps: usize,
+    ) -> Result<ChainCheckpoint<&S>, DelayedStepError<P::Error>> {
+        self.run_delayed(steps)?;
+        Ok(self.checkpoint())
     }
 
     /// Run delayed-commit steps and collect cloned states every `thin_interval` steps.
