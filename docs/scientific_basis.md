@@ -50,6 +50,9 @@ Proposal asymmetry is not folded into the bias term. Keep it in the appropriate 
 log_alpha = -(Delta S_model + Delta S_bias) + log q(x | y) - log q(y | x)
 ```
 
+The runnable [`examples/additive_target_bias.rs`](../examples/additive_target_bias.rs) demonstrates this split on a two-state target: a flat model term is
+combined with a bias weight through `AdditiveTarget`, while the symmetric flip proposal keeps the proposal-ratio correction at its default zero value.
+
 ## What the Crate Checks
 
 The library enforces several local invariants:

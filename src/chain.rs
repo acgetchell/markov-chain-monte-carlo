@@ -1300,6 +1300,7 @@ impl<S> Chain<S> {
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
     use std::assert_matches;
 
     use approx::assert_relative_eq;
@@ -1596,7 +1597,7 @@ mod tests {
     impl DelayedProposal<bool> for DelayedFlip {
         type Plan = bool;
         type Info = bool;
-        type Error = core::convert::Infallible;
+        type Error = Infallible;
 
         fn propose_plan<R: Rng + ?Sized>(
             &mut self,
@@ -1655,6 +1656,30 @@ mod tests {
         assert!(step.outcome.has_proposal());
         assert_relative_eq!(step.log_alpha.unwrap(), -2.0_f64.ln(), epsilon = 1e-12);
         assert_eq!(step.info, Some(true));
+    }
+
+    #[test]
+    fn delayed_additive_target_commits_accepted_bias_move() {
+        let target = AdditiveTarget::new(
+            FlatBool,
+            FavorTrue {
+                true_log_weight: 3.0_f64.ln(),
+            },
+        );
+        let mut proposal = DelayedFlip { log_q: 0.0 };
+        let mut chain = Chain::new(false, &target).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed(&target, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert_eq!(step.outcome, StepOutcome::Accepted);
+        assert_relative_eq!(step.log_alpha.unwrap(), 3.0_f64.ln(), epsilon = 1e-12);
+        assert_eq!(step.info, Some(true));
+        assert!(*chain.state());
+        assert_eq!(chain.accepted(), 1);
+        assert_eq!(chain.rejected(), 0);
     }
 
     // --- Error handling ---

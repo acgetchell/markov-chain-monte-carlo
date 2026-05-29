@@ -150,6 +150,8 @@ Complete runnable examples live in [`examples/`](https://github.com/acgetchell/m
   and batch detailed-balance checks
 - [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/delayed_chunked_telemetry.rs) — per-step
   delayed telemetry and post-step state recorded across resumable chunks
+- [`examples/additive_target_bias.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/additive_target_bias.rs) — model and bias
+  log-weight terms composed with `AdditiveTarget`
 
 Run them with:
 

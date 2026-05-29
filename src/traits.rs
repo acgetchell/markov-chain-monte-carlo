@@ -859,6 +859,13 @@ mod tests {
     #[derive(Clone, Debug)]
     struct Scalar(f64);
 
+    struct WeightedTarget(f64);
+    impl Target<Scalar> for WeightedTarget {
+        fn log_prob(&self, state: &Scalar) -> f64 {
+            self.0 * state.0
+        }
+    }
+
     struct SymmetricProposal;
     impl Proposal<Scalar> for SymmetricProposal {
         fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
@@ -882,6 +889,20 @@ mod tests {
     }
 
     // --- Default log_q_ratio tests ---
+
+    #[test]
+    fn additive_target_exposes_components_and_parts() {
+        let target = AdditiveTarget::new(WeightedTarget(2.0), WeightedTarget(-0.5));
+
+        assert_relative_eq!(target.log_prob(&Scalar(4.0)), 6.0);
+        assert_relative_eq!(target.primary().log_prob(&Scalar(4.0)), 8.0);
+        assert_relative_eq!(target.additive().log_prob(&Scalar(4.0)), -2.0);
+
+        let (primary, additive) = target.into_parts();
+
+        assert_relative_eq!(primary.log_prob(&Scalar(3.0)), 6.0);
+        assert_relative_eq!(additive.log_prob(&Scalar(3.0)), -1.5);
+    }
 
     #[test]
     fn proposal_default_log_q_zero() {

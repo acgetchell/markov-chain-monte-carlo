@@ -143,6 +143,65 @@
 //! stream and return a checkpoint-compatible view containing the current state
 //! and counters.
 //!
+//! # Resumable chunked runs
+//!
+//! Chunked runs advance the chain by a chosen number of steps, then return a
+//! checkpoint-compatible continuation so a caller can inspect the updated state,
+//! choose the next chunk length, and resume without losing RNG state or
+//! counters.  Reusing the same [`Sampler`] preserves the RNG stream, so a
+//! sequence of chunks reproduces an equivalent one-shot run with the same seed.
+//!
+//! Measurements stay on the caller side: keep domain-specific statistics in your
+//! own buffers and accumulate them across chunks rather than having the sampler
+//! own a measurement buffer.  The delayed observing variant
+//! [`Sampler::run_delayed_chunk_observing`] hands each step's [`DelayedStep`]
+//! telemetry and post-step state to a callback while still returning the
+//! continuation, so the chain keeps ownership of the accept/reject draw and
+//! counters.  Between chunks a caller can size the next chunk from the current
+//! state and stop on an elapsed-time budget.
+//!
+//! ```
+//! use core::convert::Infallible;
+//! use markov_chain_monte_carlo::prelude::delayed::*;
+//! use rand::{Rng, SeedableRng, rngs::StdRng};
+//!
+//! # struct Flat;
+//! # impl Target<i32> for Flat {
+//! #     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+//! # }
+//! # struct Advance;
+//! # impl DelayedProposal<i32> for Advance {
+//! #     type Plan = i32;
+//! #     type Info = i32;
+//! #     type Error = Infallible;
+//! #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
+//! #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+//! #     fn info(&self, plan: &i32) -> i32 { *plan }
+//! #     fn commit<R: Rng + ?Sized>(&mut self, s: &mut i32, p: i32, _: &mut R) -> Result<(), Self::Error> { *s += p; Ok(()) }
+//! # }
+//! let mut rng = StdRng::seed_from_u64(42);
+//! let mut proposal = Advance;
+//! let chain = Chain::new(0, &Flat).map_err(DelayedStepError::Mcmc)?;
+//! let mut sampler = Sampler::new(chain, &Flat, &mut proposal, &mut rng)
+//!     .map_err(DelayedStepError::Mcmc)?;
+//!
+//! // Domain-specific measurements stay outside the generic sampler.
+//! let mut samples: Vec<i32> = Vec::new();
+//! let mut next_chunk = 4;
+//!
+//! for _ in 0..3 {
+//!     let continuation = sampler.run_delayed_chunk_observing(next_chunk, |_step, state| {
+//!         samples.push(*state);
+//!     })?;
+//!     // Size the next chunk from the updated state and resume on the same RNG
+//!     // stream.  A real caller can also break here on an elapsed-time budget.
+//!     next_chunk = usize::try_from(**continuation.state()).unwrap_or(1).max(1);
+//! }
+//!
+//! assert_eq!(sampler.chain_ref().total_steps(), samples.len());
+//! # Ok::<(), DelayedStepError<Infallible>>(())
+//! ```
+//!
 //! # Proposal validation
 //!
 //! The [`verify_detailed_balance`] family of helpers gives proposal authors a
