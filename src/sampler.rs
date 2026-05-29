@@ -2308,6 +2308,117 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         Ok(self.checkpoint())
     }
 
+    /// Run a resumable delayed-commit chunk, observing every step's telemetry.
+    ///
+    /// This composes the resumable continuation of
+    /// [`run_delayed_chunk`](Self::run_delayed_chunk) with per-step
+    /// [`DelayedStep`] telemetry.  After each completed step, `on_step` is
+    /// invoked with the [`DelayedStep`] for that step — exposing its
+    /// [`StepOutcome`](crate::StepOutcome), proposal
+    /// [`info`](DelayedStep::info), and
+    /// [`rejection_reason`](DelayedStep::rejection_reason) — together with the
+    /// chain state *after* the step.  A downstream caller can therefore record
+    /// the selected proposal family, the rejection reason for every step, and
+    /// post-step measurements without re-implementing Metropolis-Hastings
+    /// acceptance: the chain retains ownership of the accept/reject draw and
+    /// counters.
+    ///
+    /// Like [`run_delayed_chunk`](Self::run_delayed_chunk), repeated chunks on
+    /// the same sampler preserve the chain counters and RNG stream exactly as a
+    /// one-shot run with the same total number of steps, and the returned
+    /// [`ChainCheckpoint`] resumes the next chunk.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::convert::Infallible;
+    /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use rand::{Rng, SeedableRng, rngs::StdRng};
+    ///
+    /// struct Flat;
+    /// impl Target<i32> for Flat {
+    ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct Increment;
+    /// impl DelayedProposal<i32> for Increment {
+    ///     type Plan = i32;
+    ///     type Info = i32;
+    ///     type Error = Infallible;
+    ///
+    ///     fn propose_plan<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         _: &i32,
+    ///         _: &mut R,
+    ///     ) -> Result<Option<i32>, Self::Error> {
+    ///         Ok(Some(1))
+    ///     }
+    ///
+    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///         &self,
+    ///         state: &i32,
+    ///         plan: &i32,
+    ///         target: &T,
+    ///     ) -> Result<f64, Self::Error> {
+    ///         Ok(target.log_prob(&(*state + *plan)))
+    ///     }
+    ///
+    ///     fn info(&self, plan: &i32) -> i32 {
+    ///         *plan
+    ///     }
+    ///
+    ///     fn commit<R: Rng + ?Sized>(
+    ///         &mut self,
+    ///         state: &mut i32,
+    ///         plan: i32,
+    ///         _: &mut R,
+    ///     ) -> Result<(), Self::Error> {
+    ///         *state += plan;
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let target = Flat;
+    /// let mut proposal = Increment;
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    ///
+    /// // Record the selected family and post-step state for every step while
+    /// // the sampler owns acceptance, then resume from the continuation.
+    /// let mut families = Vec::new();
+    /// let continuation = sampler.run_delayed_chunk_observing(3, |step, state| {
+    ///     assert!(step.rejection_reason().is_none());
+    ///     if let Some(family) = step.info {
+    ///         families.push((family, *state));
+    ///     }
+    /// })?;
+    ///
+    /// assert_eq!(families, vec![(1, 1), (1, 2), (1, 3)]);
+    /// assert_eq!(**continuation.state(), 3);
+    /// assert_eq!(continuation.total_steps(), 3);
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`run_delayed`](Self::run_delayed):
+    /// [`DelayedStepError`] when delayed proposal planning, proposed-state
+    /// scoring, proposal-ratio evaluation, Metropolis-Hastings numeric
+    /// validation, or accepted-move commit fails.  On error the chunk stops at
+    /// the failing step and no continuation is returned.
+    pub fn run_delayed_chunk_observing(
+        &mut self,
+        steps: usize,
+        mut on_step: impl FnMut(&DelayedStep<P::Info>, &S),
+    ) -> Result<ChainCheckpoint<&S>, DelayedStepError<P::Error>> {
+        for _ in 0..steps {
+            let step = self.step_delayed()?;
+            on_step(&step, self.chain.state());
+        }
+        Ok(self.checkpoint())
+    }
+
     /// Run delayed-commit steps and collect cloned states every `thin_interval` steps.
     ///
     /// States are cloned after completed steps whose 1-based step number is
@@ -4097,6 +4208,67 @@ mod tests {
     }
 
     #[test]
+    fn run_delayed_chunk_observing_surfaces_telemetry_and_resumes() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = DelayedToZero;
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+
+        let mut outcomes = Vec::new();
+        let mut families = Vec::new();
+        let mut observed_states = Vec::new();
+        let continuation = sampler
+            .run_delayed_chunk_observing(3, |step, state| {
+                outcomes.push(step.outcome);
+                assert!(step.rejection_reason().is_none());
+                if let Some(family) = step.info {
+                    families.push(family);
+                }
+                observed_states.push(state.0);
+            })
+            .unwrap();
+
+        assert_eq!(
+            outcomes,
+            vec![
+                StepOutcome::Accepted,
+                StepOutcome::Accepted,
+                StepOutcome::Accepted,
+            ]
+        );
+        assert_eq!(families.len(), 3);
+        for family in families {
+            assert_relative_eq!(family, 0.0);
+        }
+        assert_eq!(observed_states.len(), 3);
+        for coordinate in observed_states {
+            assert_relative_eq!(coordinate, 0.0);
+        }
+        assert_eq!(continuation.state(), &&Scalar(0.0));
+        assert_eq!(continuation.total_steps(), 3);
+    }
+
+    #[test]
+    fn run_delayed_chunk_observing_resumes_across_chunks() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = DelayedToZero;
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+
+        let mut observed = 0_usize;
+        let first = sampler
+            .run_delayed_chunk_observing(2, |_step, _state| observed += 1)
+            .unwrap();
+        assert_eq!(first.total_steps(), 2);
+
+        let second = sampler
+            .run_delayed_chunk_observing(3, |_step, _state| observed += 1)
+            .unwrap();
+
+        assert_eq!(observed, 5);
+        assert_eq!(second.total_steps(), 5);
+        assert_eq!(second.state(), &&Scalar(0.0));
+    }
+
+    #[test]
     fn run_delayed_with_thinning_collects_every_kth_state() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut proposal = DelayedToZero;
@@ -4405,6 +4577,27 @@ mod tests {
             result,
             Err(DelayedStepError::Plan(DelayedRunError::PlannedStop))
         );
+        assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+        assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn run_delayed_chunk_observing_stops_on_first_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut proposal = StopAfterFirstDelayed { calls: 0 };
+        let mut sampler = sampler!(chain, &Normal, &mut proposal, &mut rng);
+        let mut observed = Vec::new();
+
+        let result = sampler.run_delayed_chunk_observing(3, |step, state| {
+            observed.push((step.outcome, step.info, state.0));
+        });
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Plan(DelayedRunError::PlannedStop))
+        );
+        assert_eq!(observed, vec![(StepOutcome::Accepted, Some(0.0), 0.0)]);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }

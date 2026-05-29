@@ -126,6 +126,7 @@ fn main() -> Result<(), McmcError> {
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
+- Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 
@@ -144,6 +145,8 @@ Complete runnable examples live in [`examples/`](https://github.com/acgetchell/m
 - [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/iterator_sampling.rs) — `Sampler` as an iterator
 - [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed,
   and batch detailed-balance checks
+- [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/delayed_chunked_telemetry.rs) — per-step
+  delayed telemetry and post-step state recorded across resumable chunks
 
 Run them with:
 
