@@ -28,41 +28,119 @@ use crate::{DelayedProposal, Proposal, ProposalMut, Target};
 #[must_use]
 pub struct DetailedBalanceConfig {
     /// Number of proposal samples drawn in each direction.
-    pub samples: usize,
+    samples: usize,
     /// Absolute tolerance for the log detailed-balance residual.
-    pub tolerance: f64,
+    tolerance: f64,
     /// Minimum hit count required in each direction.
-    pub min_hits: usize,
+    min_hits: usize,
 }
 
 impl DetailedBalanceConfig {
     /// Create detailed-balance verification configuration.
     ///
-    /// The verification functions validate these values before sampling.
+    /// # Errors
+    ///
+    /// Returns [`DetailedBalanceError::InvalidSamples`] when `samples` is zero.
+    ///
+    /// Returns [`DetailedBalanceError::InvalidTolerance`] when `tolerance` is
+    /// negative, `NaN`, or infinite.
+    ///
+    /// Returns [`DetailedBalanceError::InvalidMinHits`] when `min_hits` is zero
+    /// or larger than `samples`.
     ///
     /// # Examples
     ///
     /// ```
     /// use markov_chain_monte_carlo::DetailedBalanceConfig;
     ///
-    /// let config = DetailedBalanceConfig::new(128, 1e-12, 1);
+    /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
     ///
-    /// assert_eq!(config.samples, 128);
-    /// assert_eq!(config.tolerance, 1e-12);
-    /// assert_eq!(config.min_hits, 1);
+    /// assert_eq!(config.samples(), 128);
+    /// assert_eq!(config.tolerance(), 1e-12);
+    /// assert_eq!(config.min_hits(), 1);
+    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
     /// ```
-    pub const fn new(samples: usize, tolerance: f64, min_hits: usize) -> Self {
-        Self {
+    pub fn new(
+        samples: usize,
+        tolerance: f64,
+        min_hits: usize,
+    ) -> Result<Self, DetailedBalanceError> {
+        if samples == 0 {
+            return Err(DetailedBalanceError::InvalidSamples { samples });
+        }
+        if !tolerance.is_finite() || tolerance < 0.0 {
+            return Err(DetailedBalanceError::InvalidTolerance { tolerance });
+        }
+        if min_hits == 0 || min_hits > samples {
+            return Err(DetailedBalanceError::InvalidMinHits { min_hits, samples });
+        }
+
+        Ok(Self {
             samples,
             tolerance,
             min_hits,
-        }
+        })
+    }
+
+    /// Number of proposal samples drawn in each direction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    ///
+    /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
+    ///
+    /// assert_eq!(config.samples(), 128);
+    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// ```
+    #[must_use]
+    pub const fn samples(self) -> usize {
+        self.samples
+    }
+
+    /// Absolute tolerance for the log detailed-balance residual.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    ///
+    /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
+    ///
+    /// assert_eq!(config.tolerance(), 1e-12);
+    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// ```
+    #[must_use]
+    pub const fn tolerance(self) -> f64 {
+        self.tolerance
+    }
+
+    /// Minimum hit count required in each direction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    ///
+    /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
+    ///
+    /// assert_eq!(config.min_hits(), 1);
+    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// ```
+    #[must_use]
+    pub const fn min_hits(self) -> usize {
+        self.min_hits
     }
 }
 
 impl Default for DetailedBalanceConfig {
     fn default() -> Self {
-        Self::new(10_000, 0.1, 30)
+        Self {
+            samples: 10_000,
+            tolerance: 0.1,
+            min_hits: 30,
+        }
     }
 }
 
@@ -220,7 +298,7 @@ impl DetailedBalanceReport {
     }
 }
 
-/// Error returned by empirical detailed-balance verification.
+/// Error returned by detailed-balance configuration and verification.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum DetailedBalanceError<E = Infallible> {
@@ -513,7 +591,7 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
 ///
 /// This helper samples `proposal` from `current` and `proposed`, estimates the
 /// off-diagonal Metropolis-Hastings transition probabilities in both directions,
-/// and checks that the log transition flows agree within `config.tolerance`.
+/// and checks that the log transition flows agree within the configured tolerance.
 ///
 /// Because it compares states with [`PartialEq`], this is intended for
 /// discrete, quantized, or otherwise exactly comparable state spaces.  For
@@ -545,7 +623,7 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
 ///     &Flat,
 ///     &Flip,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
 /// )?;
 ///
 /// assert_eq!(report.forward_hits, 128);
@@ -555,10 +633,10 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
 ///
 /// # Errors
 ///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid, target
-/// log-probabilities or proposal ratios are `NaN`/`+infinity`, too few exact
-/// hits are observed in either direction, or the estimated detailed-balance
-/// residual exceeds the configured tolerance.
+/// Returns [`DetailedBalanceError`] if target log-probabilities or proposal
+/// ratios are `NaN`/`+infinity`, too few exact hits are observed in either
+/// direction, or the estimated detailed-balance residual exceeds the configured
+/// tolerance.
 pub fn verify_detailed_balance<S, T, P, R>(
     current: &S,
     proposed: &S,
@@ -573,7 +651,6 @@ where
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    validate_config(config)?;
     verify_detailed_balance_unchecked(current, proposed, target, proposal, rng, config)
 }
 
@@ -607,25 +684,22 @@ where
 ///     &Flat,
 ///     &Flip,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
-/// )?;
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
+/// );
 ///
 /// assert!(batch.is_success());
 /// assert_eq!(batch.reports.len(), 2);
 /// # Ok::<(), DetailedBalanceError>(())
 /// ```
 ///
-/// # Errors
-///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid.  Per-transition
-/// failures are collected in [`DetailedBalanceBatchReport::failures`].
+/// Per-transition failures are collected in [`DetailedBalanceBatchReport::failures`].
 pub fn verify_detailed_balance_many<'a, S, T, P, R, I>(
     pairs: I,
     target: &T,
     proposal: &P,
     rng: &mut R,
     config: DetailedBalanceConfig,
-) -> Result<DetailedBalanceBatchReport, DetailedBalanceError>
+) -> DetailedBalanceBatchReport
 where
     S: PartialEq + 'a,
     T: Target<S>,
@@ -634,8 +708,6 @@ where
     I: IntoIterator<Item = (&'a S, &'a S)>,
 {
     let mut batch = DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
-
-    validate_config(config)?;
 
     for (index, (current, proposed)) in pairs.into_iter().enumerate() {
         match verify_detailed_balance_unchecked(current, proposed, target, proposal, rng, config) {
@@ -646,7 +718,7 @@ where
         }
     }
 
-    Ok(batch)
+    batch
 }
 
 /// Empirically verify detailed balance for one in-place transition.
@@ -690,7 +762,7 @@ where
 ///     &Flat,
 ///     &Flip,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
 /// )?;
 ///
 /// assert!(report.is_within_tolerance(1e-12));
@@ -699,10 +771,10 @@ where
 ///
 /// # Errors
 ///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid, target
-/// log-probabilities or proposal ratios are `NaN`/`+infinity`, too few exact
-/// hits are observed in either direction, or the estimated detailed-balance
-/// residual exceeds the configured tolerance.
+/// Returns [`DetailedBalanceError`] if target log-probabilities or proposal
+/// ratios are `NaN`/`+infinity`, too few exact hits are observed in either
+/// direction, or the estimated detailed-balance residual exceeds the configured
+/// tolerance.
 pub fn verify_detailed_balance_mut<S, T, P, R>(
     current: &S,
     proposed: &S,
@@ -717,7 +789,6 @@ where
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    validate_config(config)?;
     verify_detailed_balance_mut_unchecked(current, proposed, target, proposal, rng, config)
 }
 
@@ -756,25 +827,22 @@ where
 ///     &Flat,
 ///     &Flip,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
-/// )?;
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
+/// );
 ///
 /// assert!(batch.is_success());
 /// assert_eq!(batch.reports.len(), 2);
 /// # Ok::<(), DetailedBalanceError>(())
 /// ```
 ///
-/// # Errors
-///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid.  Per-transition
-/// failures are collected in [`DetailedBalanceBatchReport::failures`].
+/// Per-transition failures are collected in [`DetailedBalanceBatchReport::failures`].
 pub fn verify_detailed_balance_mut_many<'a, S, T, P, R, I>(
     pairs: I,
     target: &T,
     proposal: &P,
     rng: &mut R,
     config: DetailedBalanceConfig,
-) -> Result<DetailedBalanceBatchReport, DetailedBalanceError>
+) -> DetailedBalanceBatchReport
 where
     S: Clone + PartialEq + 'a,
     T: Target<S>,
@@ -783,8 +851,6 @@ where
     I: IntoIterator<Item = (&'a S, &'a S)>,
 {
     let mut batch = DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
-
-    validate_config(config)?;
 
     for (index, (current, proposed)) in pairs.into_iter().enumerate() {
         match verify_detailed_balance_mut_unchecked(
@@ -797,7 +863,7 @@ where
         }
     }
 
-    Ok(batch)
+    batch
 }
 
 /// Empirically verify detailed balance for one delayed-commit transition.
@@ -810,11 +876,10 @@ where
 ///
 /// # Errors
 ///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid, delayed
-/// proposal planning/scoring fails, target log-probabilities or proposal ratios
-/// are `NaN`/`+infinity`, too few matching plans are observed in either
-/// direction, or the estimated detailed-balance residual exceeds the configured
-/// tolerance.
+/// Returns [`DetailedBalanceError`] if delayed proposal planning/scoring fails,
+/// target log-probabilities or proposal ratios are `NaN`/`+infinity`, too few
+/// matching plans are observed in either direction, or the estimated
+/// detailed-balance residual exceeds the configured tolerance.
 ///
 /// # Examples
 ///
@@ -872,7 +937,7 @@ where
 ///     &Flat,
 ///     &mut proposal,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
 ///     (|plan| *plan, |plan| !*plan),
 /// )?;
 ///
@@ -893,7 +958,6 @@ where
     P: DelayedProposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    validate_config(config)?;
     let (forward_matches, reverse_matches) = plan_matches;
     verify_detailed_balance_delayed_unchecked(
         current,
@@ -971,25 +1035,22 @@ where
 ///     &Flat,
 ///     &mut proposal,
 ///     &mut rng,
-///     DetailedBalanceConfig::new(128, 1e-12, 1),
-/// )?;
+///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
+/// );
 ///
 /// assert!(batch.is_success());
 /// assert_eq!(batch.reports.len(), 1);
 /// # Ok::<(), DetailedBalanceError<Infallible>>(())
 /// ```
 ///
-/// # Errors
-///
-/// Returns [`DetailedBalanceError`] if the configuration is invalid.  Per-transition
-/// failures are collected in [`DetailedBalanceBatchReport::failures`].
+/// Per-transition failures are collected in [`DetailedBalanceBatchReport::failures`].
 pub fn verify_detailed_balance_delayed_many<'a, S, T, P, R, I>(
     transitions: I,
     target: &T,
     proposal: &mut P,
     rng: &mut R,
     config: DetailedBalanceConfig,
-) -> Result<DetailedBalanceBatchReport<P::Error>, DetailedBalanceError<P::Error>>
+) -> DetailedBalanceBatchReport<P::Error>
 where
     S: 'a,
     T: Target<S>,
@@ -999,8 +1060,6 @@ where
     I: IntoIterator<Item = DetailedBalanceDelayedTransition<'a, S, P::Plan>>,
 {
     let mut batch = DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
-
-    validate_config(config)?;
 
     for (index, transition) in transitions.into_iter().enumerate() {
         match verify_detailed_balance_delayed_unchecked(
@@ -1022,11 +1081,10 @@ where
         }
     }
 
-    Ok(batch)
+    batch
 }
 
-/// Run a by-value detailed-balance check after the public caller has already
-/// validated the sampling configuration.
+/// Run a by-value detailed-balance check with an already validated config.
 fn verify_detailed_balance_unchecked<S, T, P, R>(
     current: &S,
     proposed: &S,
@@ -1074,7 +1132,7 @@ where
     finish_report(endpoint_log_probs, forward, reverse, config)
 }
 
-/// Run an in-place detailed-balance check after configuration validation,
+/// Run an in-place detailed-balance check with an already validated config,
 /// estimating each direction from cloned endpoint states.
 fn verify_detailed_balance_mut_unchecked<S, T, P, R>(
     current: &S,
@@ -1119,8 +1177,8 @@ where
     finish_report(endpoint_log_probs, forward, reverse, config)
 }
 
-/// Run a delayed-proposal detailed-balance check after configuration validation,
-/// using caller-supplied predicates to identify matching concrete plans.
+/// Run a delayed-proposal detailed-balance check with an already validated
+/// config, using caller-supplied predicates to identify matching concrete plans.
 fn verify_detailed_balance_delayed_unchecked<S, T, P, R, F, G>(
     current: &S,
     proposed: &S,
@@ -1164,27 +1222,6 @@ where
     )?;
 
     finish_report(endpoint_log_probs, forward, reverse, config)
-}
-
-/// Validate detailed-balance configuration before sampling.
-fn validate_config<E>(config: DetailedBalanceConfig) -> Result<(), DetailedBalanceError<E>> {
-    if config.samples == 0 {
-        return Err(DetailedBalanceError::InvalidSamples {
-            samples: config.samples,
-        });
-    }
-    if !config.tolerance.is_finite() || config.tolerance < 0.0 {
-        return Err(DetailedBalanceError::InvalidTolerance {
-            tolerance: config.tolerance,
-        });
-    }
-    if config.min_hits == 0 || config.min_hits > config.samples {
-        return Err(DetailedBalanceError::InvalidMinHits {
-            min_hits: config.min_hits,
-            samples: config.samples,
-        });
-    }
-    Ok(())
 }
 
 /// Cached endpoint target log-probabilities for the two states in a check.
@@ -1539,7 +1576,9 @@ mod tests {
     use std::{assert_matches, error::Error as _};
 
     use approx::{assert_relative_eq, relative_eq};
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+
+    use crate::{DiscreteProposalRatio, DiscreteProposalRatioError};
 
     use super::*;
 
@@ -1707,6 +1746,131 @@ mod tests {
             _: &mut R,
         ) -> Result<(), Infallible> {
             *state = plan;
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum OccupancyMoveKind {
+        Add,
+        Remove,
+    }
+
+    impl OccupancyMoveKind {
+        const fn reverse(self) -> Self {
+            match self {
+                Self::Add => Self::Remove,
+                Self::Remove => Self::Add,
+            }
+        }
+
+        const fn target_occupied(self) -> bool {
+            match self {
+                Self::Add => true,
+                Self::Remove => false,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct OccupancyPlan {
+        kind: OccupancyMoveKind,
+        site: usize,
+    }
+
+    struct FlatOccupancyTarget;
+    impl Target<[bool; 3]> for FlatOccupancyTarget {
+        fn log_prob(&self, _: &[bool; 3]) -> f64 {
+            0.0
+        }
+    }
+
+    struct OccupancyToggle;
+    impl OccupancyToggle {
+        fn valid_sites(state: [bool; 3], kind: OccupancyMoveKind) -> impl Iterator<Item = usize> {
+            let target_occupied = kind.target_occupied();
+            state
+                .into_iter()
+                .enumerate()
+                .filter_map(move |(site, occupied)| (target_occupied != occupied).then_some(site))
+        }
+
+        fn valid_site_count(state: [bool; 3], kind: OccupancyMoveKind) -> usize {
+            Self::valid_sites(state, kind).count()
+        }
+
+        fn nth_valid_site(state: [bool; 3], kind: OccupancyMoveKind, index: usize) -> usize {
+            Self::valid_sites(state, kind)
+                .nth(index)
+                .expect("valid site index is drawn below the valid-site count")
+        }
+
+        fn proposed_state(state: [bool; 3], plan: OccupancyPlan) -> [bool; 3] {
+            let mut proposed = state;
+            proposed[plan.site] = plan.kind.target_occupied();
+            proposed
+        }
+    }
+
+    impl DelayedProposal<[bool; 3]> for OccupancyToggle {
+        type Plan = OccupancyPlan;
+        type Info = OccupancyPlan;
+        type Error = DiscreteProposalRatioError;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &[bool; 3],
+            rng: &mut R,
+        ) -> Result<Option<OccupancyPlan>, DiscreteProposalRatioError> {
+            let kind = if rng.random_range(0..2) == 0 {
+                OccupancyMoveKind::Add
+            } else {
+                OccupancyMoveKind::Remove
+            };
+            let valid_sites = Self::valid_site_count(*state, kind);
+            if valid_sites == 0 {
+                return Ok(None);
+            }
+
+            let site_index = rng.random_range(0..valid_sites);
+            Ok(Some(OccupancyPlan {
+                kind,
+                site: Self::nth_valid_site(*state, kind, site_index),
+            }))
+        }
+
+        fn proposed_log_prob<T: Target<[bool; 3]>>(
+            &self,
+            state: &[bool; 3],
+            plan: &OccupancyPlan,
+            target: &T,
+        ) -> Result<f64, DiscreteProposalRatioError> {
+            Ok(target.log_prob(&Self::proposed_state(*state, *plan)))
+        }
+
+        fn log_q_ratio(
+            &self,
+            state: &[bool; 3],
+            plan: &OccupancyPlan,
+        ) -> Result<f64, DiscreteProposalRatioError> {
+            let proposed = Self::proposed_state(*state, *plan);
+            let forward_sites = Self::valid_site_count(*state, plan.kind);
+            let reverse_sites = Self::valid_site_count(proposed, plan.kind.reverse());
+
+            Ok(DiscreteProposalRatio::from_counts(forward_sites, reverse_sites)?.log_q_ratio())
+        }
+
+        fn info(&self, plan: &OccupancyPlan) -> OccupancyPlan {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut [bool; 3],
+            plan: OccupancyPlan,
+            _: &mut R,
+        ) -> Result<(), DiscreteProposalRatioError> {
+            *state = Self::proposed_state(*state, plan);
             Ok(())
         }
     }
@@ -1926,7 +2090,7 @@ mod tests {
 
     /// Return a fast deterministic configuration for exact two-state tests.
     fn small_config() -> DetailedBalanceConfig {
-        DetailedBalanceConfig::new(128, 1e-12, 1)
+        DetailedBalanceConfig::new(128, 1e-12, 1).unwrap()
     }
 
     /// Build a minimal report with a configurable standard error for helper API tests.
@@ -1947,9 +2111,9 @@ mod tests {
     #[test]
     fn default_config_and_report_helpers_cover_public_contract() {
         let config = DetailedBalanceConfig::default();
-        assert_eq!(config.samples, 10_000);
-        assert_eq!(config.tolerance.to_bits(), 0.1_f64.to_bits());
-        assert_eq!(config.min_hits, 30);
+        assert_eq!(config.samples(), 10_000);
+        assert_eq!(config.tolerance().to_bits(), 0.1_f64.to_bits());
+        assert_eq!(config.min_hits(), 30);
 
         let report = report_with_standard_error(0.0);
         assert!(report.is_within_tolerance(0.0));
@@ -2125,6 +2289,56 @@ mod tests {
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
         assert!(report.is_within_tolerance(1e-12));
+    }
+
+    #[test]
+    fn delayed_valid_site_counts_supply_hastings_correction() {
+        let current = [false, false, false];
+        let proposed = [true, false, false];
+        let forward = |plan: &OccupancyPlan| plan.kind == OccupancyMoveKind::Add && plan.site == 0;
+        let reverse =
+            |plan: &OccupancyPlan| plan.kind == OccupancyMoveKind::Remove && plan.site == 0;
+
+        let mut proposal = OccupancyToggle;
+        let forward_log_q_ratio = proposal
+            .log_q_ratio(
+                &current,
+                &OccupancyPlan {
+                    kind: OccupancyMoveKind::Add,
+                    site: 0,
+                },
+            )
+            .unwrap();
+        let reverse_log_q_ratio = proposal
+            .log_q_ratio(
+                &proposed,
+                &OccupancyPlan {
+                    kind: OccupancyMoveKind::Remove,
+                    site: 0,
+                },
+            )
+            .unwrap();
+
+        assert_relative_eq!(forward_log_q_ratio, 3.0_f64.ln(), epsilon = 1e-12);
+        assert_relative_eq!(
+            reverse_log_q_ratio,
+            (1.0_f64 / 3.0_f64).ln(),
+            epsilon = 1e-12
+        );
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let report = verify_detailed_balance_delayed(
+            &current,
+            &proposed,
+            &FlatOccupancyTarget,
+            &mut proposal,
+            &mut rng,
+            DetailedBalanceConfig::new(16_384, 0.08, 64).unwrap(),
+            (forward, reverse),
+        )
+        .unwrap();
+
+        assert!(report.is_within_tolerance(0.08), "{report:?}");
     }
 
     #[test]
@@ -2530,8 +2744,7 @@ mod tests {
             &BadLogQ,
             &mut rng,
             small_config(),
-        )
-        .unwrap();
+        );
 
         assert!(!batch.is_success());
         assert_eq!(batch.failures.len(), 2);
@@ -2549,8 +2762,7 @@ mod tests {
             &BadLogQMut,
             &mut rng,
             small_config(),
-        )
-        .unwrap();
+        );
 
         assert!(!batch.is_success());
         assert_eq!(batch.reports.len(), 0);
@@ -2575,8 +2787,7 @@ mod tests {
             &mut proposal,
             &mut rng,
             small_config(),
-        )
-        .unwrap();
+        );
 
         assert!(batch.is_success());
         assert_eq!(batch.reports.len(), 1);
@@ -2599,8 +2810,7 @@ mod tests {
             &mut proposal,
             &mut rng,
             small_config(),
-        )
-        .unwrap();
+        );
 
         assert!(!batch.is_success());
         assert_eq!(batch.reports.len(), 0);
@@ -2616,29 +2826,14 @@ mod tests {
     }
 
     #[test]
-    fn batch_rejects_invalid_config_without_fake_transition_index() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let err = verify_detailed_balance_many(
-            core::iter::empty::<(&bool, &bool)>(),
-            &TwoStateTarget,
-            &Flip,
-            &mut rng,
-            DetailedBalanceConfig::new(0, 1e-12, 1),
-        )
-        .unwrap_err();
-
+    fn detailed_balance_config_rejects_zero_samples_at_construction() {
+        let err = DetailedBalanceConfig::new(0, 1e-12, 1).unwrap_err();
         assert_matches!(err, DetailedBalanceError::InvalidSamples { samples: 0 });
     }
 
     #[test]
-    fn rejects_invalid_config() {
-        let err: DetailedBalanceError =
-            validate_config(DetailedBalanceConfig::new(0, 0.0, 1)).unwrap_err();
-
-        assert_matches!(err, DetailedBalanceError::InvalidSamples { samples: 0 });
-
-        let err =
-            validate_config::<Infallible>(DetailedBalanceConfig::new(1, -1.0, 1)).unwrap_err();
+    fn detailed_balance_config_rejects_invalid_tolerances_at_construction() {
+        let err = DetailedBalanceConfig::new(1, -1.0, 1).unwrap_err();
 
         assert_matches!(
             err,
@@ -2646,24 +2841,25 @@ mod tests {
                 if tolerance.to_bits() == (-1.0_f64).to_bits()
         );
 
-        let err =
-            validate_config::<Infallible>(DetailedBalanceConfig::new(1, f64::NAN, 1)).unwrap_err();
+        let err = DetailedBalanceConfig::new(1, f64::NAN, 1).unwrap_err();
 
         assert_matches!(
             err,
             DetailedBalanceError::InvalidTolerance { tolerance } if tolerance.is_nan()
         );
 
-        let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, f64::INFINITY, 1))
-            .unwrap_err();
+        let err = DetailedBalanceConfig::new(1, f64::INFINITY, 1).unwrap_err();
 
         assert_matches!(
             err,
             DetailedBalanceError::InvalidTolerance { tolerance }
                 if tolerance.is_infinite() && tolerance.is_sign_positive()
         );
+    }
 
-        let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, 0.0, 0)).unwrap_err();
+    #[test]
+    fn detailed_balance_config_rejects_invalid_min_hits_at_construction() {
+        let err = DetailedBalanceConfig::new(1, 0.0, 0).unwrap_err();
 
         assert_matches!(
             err,
@@ -2673,7 +2869,7 @@ mod tests {
             }
         );
 
-        let err = validate_config::<Infallible>(DetailedBalanceConfig::new(1, 0.0, 2)).unwrap_err();
+        let err = DetailedBalanceConfig::new(1, 0.0, 2).unwrap_err();
 
         assert_matches!(
             err,

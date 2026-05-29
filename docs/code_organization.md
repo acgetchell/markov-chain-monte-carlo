@@ -88,6 +88,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── traits.rs
 ├── tests/
 │   ├── proptest_chain.rs
+│   ├── proptest_validators.rs
 │   └── semgrep/
 │       ├── benches/
 │       │   ├── erased_error.rs
@@ -118,7 +119,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 
 - `src/` — core library modules and crate-level documentation. The detailed source file map is below.
 - `examples/` — complete runnable workflows that demonstrate public APIs.
-- `tests/` — integration tests and project-rule tests, including Semgrep fixtures under `tests/semgrep/`.
+- `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
 - `scripts/` — Python helpers for changelog post-processing and release tagging.

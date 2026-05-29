@@ -90,6 +90,8 @@ remains on the narrower `rustfmt` `max_width = 100` setting because wide Rust si
 - Python tooling tests: `just test-python`
 - Single runnable test by name filter: `cargo nextest run chain_samples_near_mode`
 - Examples: `just examples` builds all examples once, then runs the compiled binaries.
+- Property-based Rust tests live in integration files named `tests/proptest_*.rs`; keep `src` unit tests deterministic unless a private helper requires a
+  local test.
 
 ## Benchmarks
 

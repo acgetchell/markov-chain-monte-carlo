@@ -228,6 +228,10 @@
 //! rejection, while [`DelayedProposal::commit`] errors are reserved for
 //! exceptional failures applying an already accepted concrete move.
 //!
+//! Use [`DiscreteProposalRatio`] when a delayed combinatorial proposal chooses
+//! a move family and then samples uniformly among that family's valid concrete
+//! sites.
+//!
 //! ```
 //! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::delayed::*;
@@ -429,7 +433,10 @@ pub use testing::{
     verify_detailed_balance_delayed_many, verify_detailed_balance_many,
     verify_detailed_balance_mut, verify_detailed_balance_mut_many,
 };
-pub use traits::{DelayedProposal, Proposal, ProposalMut, Target};
+pub use traits::{
+    DelayedProposal, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal, ProposalMut,
+    Target,
+};
 
 /// Convenience re-exports for common usage.
 ///
@@ -484,11 +491,12 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
-            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, Proposal,
-            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DiscreteProposalRatio,
+            DiscreteProposalRatioError, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
+            StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError,
+            TryAccumulator, TryObservable, TryObservedIntoRunResult,
+            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -498,12 +506,12 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
-            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
-            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
-            TryObservable, TryObservedIntoRunResult, TryThinnedObservedIntoRunResult,
-            TryThinnedObservedRunResult,
+            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DiscreteProposalRatio,
+            DiscreteProposalRatioError, McmcError, Observable, ObservedIntoRunResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
+            Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
+            ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -514,11 +522,12 @@ pub mod prelude {
     pub mod delayed {
         pub use crate::{
             BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedProposal, DelayedStep,
-            DelayedStepError, McmcError, Observable, ObservedDelayedIntoRunResult,
-            ObservedDelayedStep, ObservedDelayedStepResult, ObservedStepError, ObservedStreamError,
-            OnlineStats, SampleBuffer, Sampler, StatisticsError, Target,
-            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
-            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
+            DelayedStepError, DiscreteProposalRatio, DiscreteProposalRatioError, McmcError,
+            Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
+            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedDelayedIntoRunResult,
+            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
             TryThinnedObservedRunResult,
         };
     }
@@ -534,8 +543,9 @@ pub mod prelude {
         pub use crate::{
             DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
             DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
-            DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, Proposal,
-            ProposalMut, Target, verify_detailed_balance, verify_detailed_balance_delayed,
+            DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
+            DiscreteProposalRatio, DiscreteProposalRatioError, Proposal, ProposalMut, Target,
+            verify_detailed_balance, verify_detailed_balance_delayed,
             verify_detailed_balance_delayed_many, verify_detailed_balance_many,
             verify_detailed_balance_mut, verify_detailed_balance_mut_many,
         };
@@ -662,15 +672,23 @@ mod public_api_smoke_tests {
         let _: Option<DetailedBalanceState> = None;
         let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
         let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
+        let _: Option<by_value::DiscreteProposalRatio> = None;
+        let _: Option<by_value::DiscreteProposalRatioError> = None;
         let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
+        let _: Option<in_place::DiscreteProposalRatio> = None;
+        let _: Option<in_place::DiscreteProposalRatioError> = None;
         let _: Option<
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
+        let _: Option<delayed::DiscreteProposalRatio> = None;
+        let _: Option<delayed::DiscreteProposalRatioError> = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
         let _: Option<delayed::McmcError> = None;
         let _: Option<testing::DetailedBalanceConfig> = None;
         let _: Option<testing::DetailedBalanceError> = None;
         let _: Option<testing::DetailedBalanceReport> = None;
+        let _: Option<testing::DiscreteProposalRatio> = None;
+        let _: Option<testing::DiscreteProposalRatioError> = None;
         let _: Option<
             delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
         > = None;

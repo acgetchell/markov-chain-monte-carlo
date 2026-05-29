@@ -81,6 +81,8 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take
   ownership or return `Vec`/allocated data when required.
+- Put property-based Rust tests in integration files named `tests/proptest_*.rs`. Keep `src` unit tests focused on deterministic local behavior unless a
+  private helper cannot be exercised through a public or crate-visible path.
 - Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
 ## Common Commands

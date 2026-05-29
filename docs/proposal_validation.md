@@ -60,6 +60,22 @@ Useful checks:
 Delayed detailed-balance checks use plan predicates because plans are the transition descriptors. The helper does not assume endpoint equality is enough to
 identify a move.
 
+For local combinatorial kernels, include valid-site multiplicities in `DelayedProposal::log_q_ratio` whenever they affect concrete transition probabilities.
+For a move that chooses a move kind and then chooses uniformly among valid concrete sites, the ratio for a successful transition is:
+
+```text
+log_q_ratio = log q(current | proposed) - log q(proposed | current)
+            = log reverse_move_weight - log forward_move_weight
+            + log valid_forward_sites - log valid_reverse_sites
+```
+
+Add any non-uniform concrete-site selection terms as well. A bounded search that returns `Ok(None)` after failing to find a valid site is an ordinary
+self-loop/rejection, but it does not repair an omitted Hastings correction for successful moves.
+
+Use `DiscreteProposalRatio::from_counts(forward_sites, reverse_sites)?` for the common equal-move-weight case, or `DiscreteProposalRatio::new(...)` when inverse
+move families have different selection weights. Construction rejects invalid successful-forward inputs immediately. A zero reverse-site count is valid and
+computes to `-inf`, while a successful plan with zero forward sites is reported as an invalid proposal-ratio input.
+
 ## Continuous Proposals
 
 The current detailed-balance helpers are designed for discrete, quantized, or exactly comparable transitions. Continuous proposals almost never resample the
