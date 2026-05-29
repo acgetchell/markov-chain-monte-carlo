@@ -1,8 +1,9 @@
 //! Property tests for public validator constructors.
 
-use markov_chain_monte_carlo::{
+use markov_chain_monte_carlo::prelude::testing::{
     DetailedBalanceConfig, DetailedBalanceError, DiscreteProposalRatio, DiscreteProposalRatioError,
 };
+use markov_chain_monte_carlo::prelude::{BinningAnalysis, OnlineStats, StatisticsError};
 use proptest::prelude::*;
 
 proptest! {
@@ -57,6 +58,47 @@ proptest! {
             prop_assert_eq!(config.samples(), samples);
             prop_assert_eq!(config.tolerance().to_bits(), tolerance.to_bits());
             prop_assert_eq!(config.min_hits(), min_hits);
+        }
+    }
+
+    #[test]
+    fn online_stats_accepts_only_finite_single_samples(sample in any::<f64>()) {
+        let mut stats = OnlineStats::new();
+        let result = stats.try_push(sample);
+
+        if sample.is_finite() {
+            prop_assert_eq!(result, Ok(()));
+            prop_assert_eq!(stats.count(), 1);
+            prop_assert_eq!(stats.mean(), Some(sample));
+        } else {
+            let expected = if sample.is_nan() {
+                StatisticsError::NanSample
+            } else {
+                StatisticsError::InfiniteSample
+            };
+            prop_assert_eq!(result, Err(expected));
+            prop_assert!(stats.is_empty());
+        }
+    }
+
+    #[test]
+    fn binning_analysis_accepts_only_finite_single_samples(sample in any::<f64>()) {
+        let mut bins = BinningAnalysis::new();
+        let result = bins.try_push(sample);
+
+        if sample.is_finite() {
+            prop_assert_eq!(result, Ok(()));
+            prop_assert_eq!(bins.count(), 1);
+            prop_assert_eq!(bins.mean(), Some(sample));
+            prop_assert_eq!(bins.estimates().count(), 1);
+        } else {
+            let expected = if sample.is_nan() {
+                StatisticsError::NanSample
+            } else {
+                StatisticsError::InfiniteSample
+            };
+            prop_assert_eq!(result, Err(expected));
+            prop_assert!(bins.is_empty());
         }
     }
 }

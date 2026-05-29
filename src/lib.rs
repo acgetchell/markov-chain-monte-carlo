@@ -368,13 +368,14 @@
 //! use markov_chain_monte_carlo::prelude::*;
 //!
 //! let mut energy = OnlineStats::new();
-//! energy.extend([1.0, 2.0, 3.0, 4.0]);
+//! energy.try_extend([1.0, 2.0, 3.0, 4.0])?;
 //!
 //! assert_eq!(energy.mean(), Some(2.5));
 //!
 //! let mut bins = BinningAnalysis::new();
-//! bins.extend([1.0, 2.0, 3.0, 4.0]);
+//! bins.try_extend([1.0, 2.0, 3.0, 4.0])?;
 //! assert!(bins.standard_error().is_some());
+//! # Ok::<(), StatisticsError>(())
 //! ```
 //!
 //! `Sampler` can also stream observations directly into these accumulators:

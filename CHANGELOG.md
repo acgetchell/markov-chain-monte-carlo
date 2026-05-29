@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- [**breaking**] Add constructors for fallible stats and public reports [#66](https://github.com/acgetchell/markov-chain-monte-carlo/pull/66) [`fee14b4`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/fee14b4ac75e2a0f8ede899541c10109d6ebd990)
+
+  - Add checked bulk constructors for streaming statistics so callers can reject non-finite samples without retaining partial accumulator state.
+  - Add constructors for detailed-balance config, reports, failures, batches, and delayed transitions before making those public structs non-exhaustive.
+  - Reuse compiled example binaries during local validation to avoid rebuilding examples twice.
+  - Refresh the pre-1.0 roadmap around v0.4.0, adaptive diagnostics, learned proposals, and portability.
+- [**breaking**] Validate delayed commits after acceptance [#70](https://github.com/acgetchell/markov-chain-monte-carlo/pull/70) [`1c4654b`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/1c4654bf9cc94a9bc37131858183854620e46692)
+
+  - Add checked delayed-commit stepping for Chain and Sampler so proposal authors can verify that committed states match the scored plan.
+  - Report committed-state NaN, positive-infinity, and score-mismatch failures with dedicated McmcError variants while restoring the previous chain state.
+  - Treat undefined detailed-balance acceptance ratios as zero acceptance so impossible bidirectional transitions produce balanced zero-flow reports.
+  - Expose unchecked streaming-statistics push methods for callers that already validate measurement streams.
+  - Add benchmark coverage for streaming observations into OnlineStats and BinningAnalysis.
+- [**breaking**] Add delayed proposal ratio helpers [#71](https://github.com/acgetchell/markov-chain-monte-carlo/pull/71) [`ed876f6`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ed876f67fcd1f3ed0fa79242ba5a10c8ccd7a489)
+
+  * feat!: add delayed proposal ratio helpers
+
+  - Add DiscreteProposalRatio for weighted move-family and valid-site Hastings corrections in delayed proposals.
+  - Document delayed valid-site multiplicities and expose the ratio helper through the public API and scoped preludes.
+  - Validate DetailedBalanceConfig at construction so detailed-balance checks operate on accepted configuration values.
+  - Add validator property tests and document the repository convention for proptest integration files.
+
 ### Fixed
 
 - Escape changelog angle brackets for GitHub rendering [`82014b4`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/82014b424d0b5be37c93770e2cdd925ba351ca25)
@@ -20,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This fix escapes those characters during changelog generation,
   ensuring correct display. The changelog was regenerated,
   also incorporating repository security enhancements from #63.
+- Clean regenerated changelog entries [`4147806`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/414780606cc68da0f8a5b99de821af89a94e0671)
+
+  - Repair the historical changelog body for escaped Rust generic examples.
+  - Filter changelog-only body noise from generated release notes.
+  - Regenerate CHANGELOG.md with the corrected commit preprocessing.
 
 ### Maintenance
 
@@ -49,6 +78,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replace taiki-e/install-action with cached Cargo installs for audit and coverage workflow tools.
   - Update uv-managed development tools, including Semgrep, Ruff, Ty, and the workflow uv version.
   - Refresh the serde_json dev dependency and remove taiki-e from the repository-owned Actions allowlist.
+- Clear code scanning workflow findings [`cf946db`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/cf946dbd2e2f4b44bc41343692d98459954ced4d)
+
+  - Align the Clippy SARIF job with the local Clippy policy so dependency-version noise is not uploaded as code scanning alerts.
+  - Refresh CodeQL action SHA pins and version comments across CodeQL, Clippy, and Semgrep SARIF workflows.
+- Use rumdl and dprint for checks [#53](https://github.com/acgetchell/markov-chain-monte-carlo/pull/53) [#67](https://github.com/acgetchell/markov-chain-monte-carlo/pull/67) [`d23029c`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d23029c9763067a1ad5510cd80dcb19c9c7fdc1e)
+
+  - Replace dprint Markdown formatting and yamllint validation with rumdl Markdown checks and dprint Pretty YAML checks.
+  - Install and verify rumdl through Cargo-managed local setup and CI tooling.
+  - Keep non-Rust formatter widths at 160 columns across Markdown, TOML, YAML, and Python.
+  - Add a Semgrep fixture that keeps contributor docs ordering non-mutating checks before mutating fixes.
+- Cache cargo-installed CI tools [#68](https://github.com/acgetchell/markov-chain-monte-carlo/pull/68) [`ebd98de`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ebd98de9fb8725f2f261a52ab6c4c6e77ee7a9d7)
+
+  * ci: cache cargo-installed CI tools
+
+  - Install Cargo-managed CI tools through taiki-e/cache-cargo-install-action instead of rebuilding them in each matrix job.
+  - Keep full just ci coverage on Linux, macOS, and Windows while exposing smaller CI subsets for timing and local diagnosis.
+  - Compile benchmark harnesses with all crate features enabled and allow the pinned cache action in the repository workflow policy.
+- Bump Rust MSRV to 1.96.0 [#65](https://github.com/acgetchell/markov-chain-monte-carlo/pull/65) [#69](https://github.com/acgetchell/markov-chain-monte-carlo/pull/69) [`ba7beb2`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ba7beb2a65b4d506374569d19a77b336ad74e53d)
+
+  * build: bump Rust MSRV to 1.96.0 [#65](https://github.com/acgetchell/markov-chain-monte-carlo/pull/65)
+
+  - Pin Cargo, rustup, Clippy, and contributor docs to Rust 1.96.0.
+  - Adopt 1.96-compatible numeric updates with fused multiply-add in statistics, examples, and benchmarks.
+  - Refresh typed error assertions and doctests to use `std::assert_matches!`.
+  - Clarify that LLVM coverage tools are installed by setup and Codecov rather than the default pinned toolchain.
+
+  * ci: add Windows taplo install fallback [#65](https://github.com/acgetchell/markov-chain-monte-carlo/pull/65)
+
+  - Preserve the cached cargo install action as the primary tool installation path across operating systems.
+  - Fall back to direct taplo installation on Windows only when the cached install step fails.
 
 ## [0.3.0] - 2026-05-05
 
