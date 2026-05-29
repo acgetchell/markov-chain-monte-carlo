@@ -22,6 +22,34 @@ log proposal ratio through:
 These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities,
 site counts, reverse-site counts, and invalid-move handling.
 
+## Additive Target Terms
+
+Bias potentials, energy-based model terms, learned regularizers, umbrella-sampling weights, softened constraints, and auxiliary energy/action terms should be
+included in the target distribution itself. For separate model and bias terms, use `AdditiveTarget` or an equivalent `Target` implementation that returns the
+combined log weight:
+
+```text
+log pi(state) = log pi_model(state) + log pi_bias(state)
+```
+
+When the model is written as an action or energy, each component should return the negative component action:
+
+```text
+log pi(state) = -S_model(state) - S_bias(state)
+```
+
+The Metropolis-Hastings target contribution is therefore:
+
+```text
+log pi(y) - log pi(x) = -(Delta S_model + Delta S_bias)
+```
+
+Proposal asymmetry is not folded into the bias term. Keep it in the appropriate `log_q_ratio` implementation so the full acceptance ratio remains:
+
+```text
+log_alpha = -(Delta S_model + Delta S_bias) + log q(x | y) - log q(y | x)
+```
+
 ## What the Crate Checks
 
 The library enforces several local invariants:
