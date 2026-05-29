@@ -1,5 +1,8 @@
 //! Core traits for target distributions and proposal distributions.
 
+use core::{fmt, num::NonZeroUsize};
+use std::error::Error;
+
 use rand::Rng;
 
 /// Hastings correction for a discrete proposal with weighted move families and
@@ -32,7 +35,7 @@ use rand::Rng;
 pub struct DiscreteProposalRatio {
     forward_weight: f64,
     reverse_weight: f64,
-    forward_site_count: usize,
+    forward_site_count: NonZeroUsize,
     reverse_site_count: usize,
 }
 
@@ -91,9 +94,9 @@ impl DiscreteProposalRatio {
                 weight: reverse_weight,
             });
         }
-        if forward_site_count == 0 {
+        let Some(forward_site_count) = NonZeroUsize::new(forward_site_count) else {
             return Err(DiscreteProposalRatioError::ZeroForwardSiteCount);
-        }
+        };
 
         Ok(Self {
             forward_weight,
@@ -183,7 +186,7 @@ impl DiscreteProposalRatio {
     /// ```
     #[must_use]
     pub const fn forward_site_count(self) -> usize {
-        self.forward_site_count
+        self.forward_site_count.get()
     }
 
     /// Number of concrete sites sampled by the reverse proposal family.
@@ -226,12 +229,15 @@ impl DiscreteProposalRatio {
     /// ```
     #[must_use]
     pub fn log_q_ratio(self) -> f64 {
-        if self.reverse_weight == 0.0 || self.reverse_site_count == 0 {
+        let Some(reverse_site_count) = NonZeroUsize::new(self.reverse_site_count) else {
+            return f64::NEG_INFINITY;
+        };
+        if self.reverse_weight == 0.0 {
             return f64::NEG_INFINITY;
         }
 
         self.reverse_weight.ln() - self.forward_weight.ln() + count_ln(self.forward_site_count)
-            - count_ln(self.reverse_site_count)
+            - count_ln(reverse_site_count)
     }
 }
 
@@ -255,8 +261,8 @@ pub enum DiscreteProposalRatioError {
     ZeroForwardSiteCount,
 }
 
-impl core::fmt::Display for DiscreteProposalRatioError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for DiscreteProposalRatioError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidForwardWeight { weight } => write!(
                 f,
@@ -273,15 +279,18 @@ impl core::fmt::Display for DiscreteProposalRatioError {
     }
 }
 
-impl std::error::Error for DiscreteProposalRatioError {}
+impl Error for DiscreteProposalRatioError {}
 
 /// Convert a valid-site count into a logarithm for proposal-ratio arithmetic.
+///
+/// The [`NonZeroUsize`] argument records the constructor invariant for counts
+/// that must be positive before they enter log-space arithmetic.
 #[expect(
     clippy::cast_precision_loss,
     reason = "valid-site counts intentionally cross into log-space f64 proposal arithmetic"
 )]
-fn count_ln(count: usize) -> f64 {
-    (count as f64).ln()
+fn count_ln(count: NonZeroUsize) -> f64 {
+    (count.get() as f64).ln()
 }
 
 /// Target distribution.

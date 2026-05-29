@@ -2,9 +2,7 @@
 
 use core::hint::cold_path;
 
-use std::error::Error;
-use std::fmt;
-use std::iter;
+use std::{error::Error, fmt};
 
 use crate::TryAccumulator;
 
@@ -66,20 +64,32 @@ impl fmt::Display for StatisticsError {
 
 impl Error for StatisticsError {}
 
-/// Validate one input sample before fallible accumulation mutates state.
+/// Finite measurement accepted by the public fallible statistics APIs.
 ///
-/// This exists so all statistical sinks report NaN and infinity with the same
-/// orthogonal error variants.
-const fn check_sample(sample: f64) -> Result<(), StatisticsError> {
-    if sample.is_nan() {
-        cold_path();
-        return Err(StatisticsError::NanSample);
+/// Keeping this proof type private makes raw `f64` parsing a boundary concern:
+/// once a sample reaches the online formulas or binning hierarchy, downstream
+/// helpers can rely on it not being `NaN` or infinite.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FiniteSample(f64);
+
+impl FiniteSample {
+    /// Parse a raw measurement into a finite sample.
+    const fn new(sample: f64) -> Result<Self, StatisticsError> {
+        if sample.is_nan() {
+            cold_path();
+            return Err(StatisticsError::NanSample);
+        }
+        if sample.is_infinite() {
+            cold_path();
+            return Err(StatisticsError::InfiniteSample);
+        }
+        Ok(Self(sample))
     }
-    if sample.is_infinite() {
-        cold_path();
-        return Err(StatisticsError::InfiniteSample);
+
+    /// Return the validated raw measurement for floating-point arithmetic.
+    const fn into_inner(self) -> f64 {
+        self.0
     }
-    Ok(())
 }
 
 /// Validate the floating-point state produced by one Welford update.
@@ -110,20 +120,22 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 ///
 /// `OnlineStats` updates in constant memory and is suitable for long
 /// production runs where retaining every measurement would be expensive.
-/// Use [`try_push`](Self::try_push), [`try_extend`](Self::try_extend), or
-/// [`try_from_iter`](Self::try_from_iter) when non-finite measurements should be
-/// rejected instead of becoming part of the accumulator state.
+/// Measurements enter through [`try_push`](Self::try_push),
+/// [`try_extend`](Self::try_extend), or [`try_from_iter`](Self::try_from_iter)
+/// so invalid floating-point values are rejected before they can become part of
+/// the accumulator state.
 ///
 /// ```
 /// use approx::assert_relative_eq;
-/// use markov_chain_monte_carlo::OnlineStats;
+/// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
 ///
 /// let mut stats = OnlineStats::new();
-/// stats.extend([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]);
+/// stats.try_extend([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])?;
 ///
 /// assert_eq!(stats.count(), 8);
 /// assert_relative_eq!(stats.mean().unwrap(), 5.0, epsilon = 1e-12);
 /// assert_relative_eq!(stats.population_variance().unwrap(), 4.0, epsilon = 1e-12);
+/// # Ok::<(), StatisticsError>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use]
@@ -152,8 +164,8 @@ impl OnlineStats {
 
     /// Build an accumulator from finite samples.
     ///
-    /// Unlike [`FromIterator`], this validates every sample and leaves no
-    /// partially constructed accumulator behind on error.
+    /// This validates every sample and leaves no partially constructed
+    /// accumulator behind on error.
     ///
     /// ```
     /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
@@ -170,50 +182,28 @@ impl OnlineStats {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
-    /// accumulator update.
-    pub fn try_from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Result<Self, StatisticsError> {
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] for the first non-finite input
+    /// sample.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
+    /// produces non-finite accumulator state.  No partially constructed
+    /// accumulator is returned on error.
+    pub fn try_from_iter(iter: impl IntoIterator<Item = f64>) -> Result<Self, StatisticsError> {
         let mut stats = Self::new();
         stats.try_extend(iter)?;
         Ok(stats)
     }
 
-    /// Add one sample to the accumulator without validating it.
+    /// Apply one already validated sample to Welford state.
     ///
-    /// This is a compatibility alias for [`push_unchecked`](Self::push_unchecked).
-    /// Use [`try_push`](Self::try_push) when non-finite measurements should be
-    /// reported as errors instead of becoming part of the accumulator state.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
-    ///
-    /// let mut stats = OnlineStats::new();
-    /// stats.push(1.0);
-    /// stats.push(3.0);
-    ///
-    /// assert_eq!(stats.mean(), Some(2.0));
-    /// ```
-    pub fn push(&mut self, sample: f64) {
-        self.push_unchecked(sample);
-    }
-
-    /// Add one sample to the accumulator without validating it.
-    ///
-    /// Non-finite samples can permanently contaminate the running mean and
-    /// variance accumulator.  Use [`try_push`](Self::try_push) for production
-    /// measurement streams where `NaN` or infinity should be rejected atomically.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
-    ///
-    /// let mut stats = OnlineStats::new();
-    /// stats.push_unchecked(1.0);
-    /// stats.push_unchecked(3.0);
-    ///
-    /// assert_eq!(stats.mean(), Some(2.0));
-    /// ```
-    pub fn push_unchecked(&mut self, sample: f64) {
+    /// Public callers reach this only through [`Self::try_push`], which stages
+    /// the mutation and rejects non-finite arithmetic before committing it.
+    fn push_sample(&mut self, sample: FiniteSample) {
         self.count += 1;
+        let sample = sample.into_inner();
         let delta = sample - self.mean;
         self.mean += delta / count_as_f64(self.count);
         let delta_after = sample - self.mean;
@@ -234,12 +224,17 @@ impl OnlineStats {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] if `sample` is NaN or infinite, or if the
-    /// online mean or variance accumulator becomes non-finite while updating.
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] if `sample` is non-finite.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
+    /// produces non-finite accumulator state.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
-        check_sample(sample)?;
+        let sample = FiniteSample::new(sample)?;
         let mut next = *self;
-        next.push_unchecked(sample);
+        next.push_sample(sample);
         check_stats(&next)?;
         *self = next;
         Ok(())
@@ -262,11 +257,18 @@ impl OnlineStats {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
-    /// accumulator update.
-    pub fn try_extend<I: IntoIterator<Item = f64>>(
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] for the first non-finite input
+    /// sample.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
+    /// produces non-finite accumulator state.  Samples accepted before the error
+    /// remain in the accumulator.
+    pub fn try_extend(
         &mut self,
-        iter: I,
+        iter: impl IntoIterator<Item = f64>,
     ) -> Result<(), StatisticsError> {
         for sample in iter {
             self.try_push(sample)?;
@@ -277,11 +279,12 @@ impl OnlineStats {
     /// Remove all accumulated samples.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let mut stats: OnlineStats = [1.0, 2.0].into_iter().collect();
+    /// let mut stats = OnlineStats::try_from_iter([1.0, 2.0])?;
     /// stats.clear();
     /// assert_eq!(stats.count(), 0);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     pub const fn clear(&mut self) {
         *self = Self::new();
@@ -290,10 +293,11 @@ impl OnlineStats {
     /// Number of accumulated samples.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 2.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(stats.count(), 3);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn count(&self) -> usize {
@@ -307,7 +311,7 @@ impl OnlineStats {
     ///
     /// let mut stats = OnlineStats::new();
     /// assert!(stats.is_empty());
-    /// stats.push(1.0);
+    /// stats.try_push(1.0).unwrap();
     /// assert!(!stats.is_empty());
     /// ```
     #[must_use]
@@ -320,10 +324,11 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [2.0, 4.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([2.0, 4.0])?;
     /// assert_eq!(stats.mean(), Some(3.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn mean(&self) -> Option<f64> {
@@ -335,10 +340,11 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.population_variance(), Some(1.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn population_variance(&self) -> Option<f64> {
@@ -350,10 +356,11 @@ impl OnlineStats {
     /// Returns `None` until at least two samples have been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.sample_variance(), Some(2.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn sample_variance(&self) -> Option<f64> {
@@ -365,10 +372,11 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.population_std_dev(), Some(1.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn population_std_dev(&self) -> Option<f64> {
@@ -380,10 +388,11 @@ impl OnlineStats {
     /// Returns `None` until at least two samples have been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.sample_std_dev(), Some(2.0_f64.sqrt()));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn sample_std_dev(&self) -> Option<f64> {
@@ -396,10 +405,11 @@ impl OnlineStats {
     /// inspect the blocked standard-error estimates.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
     ///
-    /// let stats: OnlineStats = [1.0, 3.0].into_iter().collect();
+    /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.standard_error(), Some(1.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn standard_error(&self) -> Option<f64> {
@@ -414,27 +424,11 @@ impl Default for OnlineStats {
     }
 }
 
-impl Extend<f64> for OnlineStats {
-    fn extend<I: IntoIterator<Item = f64>>(&mut self, iter: I) {
-        for sample in iter {
-            self.push(sample);
-        }
-    }
-}
-
 impl TryAccumulator<f64> for OnlineStats {
     type Error = StatisticsError;
 
     fn try_push(&mut self, sample: f64) -> Result<(), Self::Error> {
         Self::try_push(self, sample)
-    }
-}
-
-impl FromIterator<f64> for OnlineStats {
-    fn from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Self {
-        let mut stats = Self::new();
-        stats.extend(iter);
-        stats
     }
 }
 
@@ -457,10 +451,11 @@ impl BinningEstimate {
     /// Number of original samples per block at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().nth(1).unwrap().block_size(), 2);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn block_size(&self) -> usize {
@@ -470,10 +465,11 @@ impl BinningEstimate {
     /// Number of completed block means included in this estimate.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().next().unwrap().block_count(), 4);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn block_count(&self) -> usize {
@@ -483,10 +479,11 @@ impl BinningEstimate {
     /// Mean of the completed block means.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().next().unwrap().mean(), 2.5);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn mean(&self) -> f64 {
@@ -498,10 +495,11 @@ impl BinningEstimate {
     /// Returns `None` until at least two completed blocks exist at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().nth(2).unwrap().sample_variance(), None);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn sample_variance(&self) -> Option<f64> {
@@ -513,10 +511,11 @@ impl BinningEstimate {
     /// Returns `None` until at least two completed blocks exist at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert!(bins.estimates().next().unwrap().standard_error().is_some());
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn standard_error(&self) -> Option<f64> {
@@ -528,7 +527,7 @@ impl BinningEstimate {
 struct BinningLevel {
     block_size: usize,
     stats: OnlineStats,
-    pending: Option<f64>,
+    pending: Option<FiniteSample>,
 }
 
 impl BinningLevel {
@@ -564,30 +563,23 @@ impl BinningLevel {
         })
     }
 
-    /// Apply the per-level update shared by infallible and staged pushes.
+    /// Apply one validated per-level update during staged accumulation.
     ///
     /// Returns a coarser block mean only when this level pairs the incoming block
     /// with an existing pending block.
-    fn push_block_mean(&mut self, block_mean: f64) -> Option<f64> {
-        self.stats.push(block_mean);
+    fn push_block_mean(
+        &mut self,
+        block_mean: FiniteSample,
+    ) -> Result<Option<FiniteSample>, StatisticsError> {
+        self.stats.push_sample(block_mean);
+        check_stats(&self.stats)?;
         if let Some(previous) = self.pending.take() {
-            Some(0.5_f64.mul_add(block_mean, 0.5 * previous))
+            FiniteSample::new(0.5_f64.mul_add(block_mean.into_inner(), 0.5 * previous.into_inner()))
+                .map(Some)
         } else {
             self.pending = Some(block_mean);
-            None
+            Ok(None)
         }
-    }
-
-    /// Validate a staged level before it is committed to the visible analysis.
-    ///
-    /// This preserves `try_push` failure atomicity while reusing the same sample
-    /// and accumulator checks as the public fallible statistics APIs.
-    fn check(&self) -> Result<(), StatisticsError> {
-        check_stats(&self.stats)?;
-        if let Some(pending) = self.pending {
-            check_sample(pending)?;
-        }
-        Ok(())
     }
 }
 
@@ -599,21 +591,23 @@ impl BinningLevel {
 /// once the estimates plateau, that value is the usual binning estimate for the
 /// standard error of an MCMC mean.
 ///
-/// Use [`try_push`](Self::try_push), [`try_extend`](Self::try_extend), or
-/// [`try_from_iter`](Self::try_from_iter) when non-finite measurements should be
-/// rejected instead of becoming part of the binning hierarchy.
+/// Measurements enter through [`try_push`](Self::try_push),
+/// [`try_extend`](Self::try_extend), or [`try_from_iter`](Self::try_from_iter)
+/// so invalid floating-point values are rejected before they can become part of
+/// the binning hierarchy.
 ///
 /// ```
-/// use markov_chain_monte_carlo::BinningAnalysis;
+/// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
 ///
 /// let mut bins = BinningAnalysis::new();
-/// bins.extend((1..=8).map(f64::from));
+/// bins.try_extend((1..=8).map(f64::from))?;
 ///
 /// let estimates: Vec<_> = bins.estimates().collect();
 /// assert_eq!(estimates[0].block_size(), 1);
 /// assert_eq!(estimates[1].block_size(), 2);
 /// assert_eq!(estimates[2].block_size(), 4);
 /// assert_eq!(bins.mean(), Some(4.5));
+/// # Ok::<(), StatisticsError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
@@ -642,8 +636,8 @@ impl BinningAnalysis {
 
     /// Build a binning analysis from finite samples.
     ///
-    /// Unlike [`FromIterator`], this validates every sample and leaves no
-    /// partially constructed analysis behind on error.
+    /// This validates every sample and leaves no partially constructed analysis
+    /// behind on error.
     ///
     /// ```
     /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
@@ -660,51 +654,19 @@ impl BinningAnalysis {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
-    /// accumulator update.
-    pub fn try_from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Result<Self, StatisticsError> {
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] for the first non-finite input
+    /// sample.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if any binning-level
+    /// accumulator update produces non-finite state.  No partially constructed
+    /// analysis is returned on error.
+    pub fn try_from_iter(iter: impl IntoIterator<Item = f64>) -> Result<Self, StatisticsError> {
         let mut analysis = Self::new();
         analysis.try_extend(iter)?;
         Ok(analysis)
-    }
-
-    /// Add one measurement without validating it.
-    ///
-    /// This is a compatibility alias for [`push_unchecked`](Self::push_unchecked).
-    /// Use [`try_push`](Self::try_push) when non-finite measurements should be
-    /// reported as errors instead of becoming part of the binning state.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
-    ///
-    /// let mut bins = BinningAnalysis::new();
-    /// bins.push(1.0);
-    /// bins.push(2.0);
-    ///
-    /// assert_eq!(bins.count(), 2);
-    /// ```
-    pub fn push(&mut self, sample: f64) {
-        self.push_unchecked(sample);
-    }
-
-    /// Add one measurement without validating it.
-    ///
-    /// Non-finite samples can permanently contaminate every affected binning
-    /// level.  Use [`try_push`](Self::try_push) for production measurement
-    /// streams where `NaN` or infinity should be rejected atomically.
-    ///
-    /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
-    ///
-    /// let mut bins = BinningAnalysis::new();
-    /// bins.push_unchecked(1.0);
-    /// bins.push_unchecked(2.0);
-    ///
-    /// assert_eq!(bins.count(), 2);
-    /// ```
-    pub fn push_unchecked(&mut self, sample: f64) {
-        self.count += 1;
-        self.push_block(0, sample);
     }
 
     /// Add one finite measurement.
@@ -721,10 +683,15 @@ impl BinningAnalysis {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] if `sample` is NaN or infinite, or if any
-    /// online binning accumulator becomes non-finite while updating.
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] if `sample` is non-finite.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if any staged
+    /// binning-level accumulator update produces non-finite state.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
-        check_sample(sample)?;
+        let sample = FiniteSample::new(sample)?;
         self.stage_push(sample)?;
 
         self.count += 1;
@@ -755,11 +722,18 @@ impl BinningAnalysis {
     ///
     /// # Errors
     ///
-    /// Returns [`StatisticsError`] on the first invalid sample or non-finite
-    /// accumulator update.
-    pub fn try_extend<I: IntoIterator<Item = f64>>(
+    /// Returns [`StatisticsError::NanSample`] or
+    /// [`StatisticsError::InfiniteSample`] for the first non-finite input
+    /// sample.
+    ///
+    /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
+    /// [`StatisticsError::NanVarianceAccumulator`], or
+    /// [`StatisticsError::InfiniteVarianceAccumulator`] if any binning-level
+    /// accumulator update produces non-finite state.  Samples accepted before the
+    /// error remain in the analysis.
+    pub fn try_extend(
         &mut self,
-        iter: I,
+        iter: impl IntoIterator<Item = f64>,
     ) -> Result<(), StatisticsError> {
         for sample in iter {
             self.try_push(sample)?;
@@ -770,11 +744,12 @@ impl BinningAnalysis {
     /// Remove all accumulated samples and bins.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let mut bins: BinningAnalysis = [1.0, 2.0].into_iter().collect();
+    /// let mut bins = BinningAnalysis::try_from_iter([1.0, 2.0])?;
     /// bins.clear();
     /// assert!(bins.is_empty());
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     pub fn clear(&mut self) {
         self.count = 0;
@@ -785,10 +760,11 @@ impl BinningAnalysis {
     /// Number of original measurements pushed into the analysis.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = [1.0, 2.0, 3.0].into_iter().collect();
+    /// let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(bins.count(), 3);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn count(&self) -> usize {
@@ -802,7 +778,7 @@ impl BinningAnalysis {
     ///
     /// let mut bins = BinningAnalysis::new();
     /// assert!(bins.is_empty());
-    /// bins.push(1.0);
+    /// bins.try_push(1.0).unwrap();
     /// assert!(!bins.is_empty());
     /// ```
     #[must_use]
@@ -815,10 +791,11 @@ impl BinningAnalysis {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = [1.0, 2.0, 3.0].into_iter().collect();
+    /// let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(bins.mean(), Some(2.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn mean(&self) -> Option<f64> {
@@ -831,10 +808,11 @@ impl BinningAnalysis {
     /// [`OnlineStats::standard_error`] over the original measurements.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = [1.0, 3.0].into_iter().collect();
+    /// let bins = BinningAnalysis::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(bins.unblocked_standard_error(), Some(1.0));
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn unblocked_standard_error(&self) -> Option<f64> {
@@ -850,10 +828,11 @@ impl BinningAnalysis {
     /// standard error has stabilized across block sizes.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=8).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=8).map(f64::from))?;
     /// assert_eq!(bins.coarsest_estimate().unwrap().block_size(), 4);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn coarsest_estimate(&self) -> Option<BinningEstimate> {
@@ -867,10 +846,11 @@ impl BinningAnalysis {
     /// Returns `None` until at least two completed blocks exist at some level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert!(bins.standard_error().is_some());
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub fn standard_error(&self) -> Option<f64> {
@@ -885,33 +865,16 @@ impl BinningAnalysis {
     /// completed blocks are available at that block size.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
     ///
-    /// let bins: BinningAnalysis = (1..=4).map(f64::from).collect();
+    /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// let block_sizes: Vec<_> = bins.estimates().map(|estimate| estimate.block_size()).collect();
     ///
     /// assert_eq!(block_sizes, vec![1, 2, 4]);
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     pub fn estimates(&self) -> impl Iterator<Item = BinningEstimate> + '_ {
         self.levels.iter().filter_map(BinningLevel::estimate)
-    }
-
-    /// Propagate one completed block mean through the power-of-two hierarchy.
-    ///
-    /// Each level stores one pending block mean; when a second block arrives,
-    /// their average becomes one completed block at the next coarser level.
-    fn push_block(&mut self, mut level_index: usize, mut block_mean: f64) {
-        loop {
-            self.ensure_level(level_index);
-            let next_block_mean = self.levels[level_index].push_block_mean(block_mean);
-
-            if let Some(mean) = next_block_mean {
-                block_mean = mean;
-                level_index += 1;
-            } else {
-                break;
-            }
-        }
     }
 
     /// Stage the exact levels changed by a fallible push.
@@ -919,7 +882,7 @@ impl BinningAnalysis {
     /// A single sample only touches a prefix of the binning hierarchy.  Staging
     /// that prefix keeps `try_push` failure-atomic without cloning untouched
     /// coarser levels.
-    fn stage_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
+    fn stage_push(&mut self, sample: FiniteSample) -> Result<(), StatisticsError> {
         self.staged_levels.clear();
         let mut level_index = 0;
         let mut block_mean = sample;
@@ -930,11 +893,13 @@ impl BinningAnalysis {
                 .get(level_index)
                 .cloned()
                 .unwrap_or_else(|| self.new_staged_level(level_index));
-            let next_block_mean = level.push_block_mean(block_mean);
-            if let Err(err) = level.check() {
-                self.staged_levels.clear();
-                return Err(err);
-            }
+            let next_block_mean = match level.push_block_mean(block_mean) {
+                Ok(next_block_mean) => next_block_mean,
+                Err(err) => {
+                    self.staged_levels.clear();
+                    return Err(err);
+                }
+            };
             self.staged_levels.push((level_index, level));
 
             if let Some(mean) = next_block_mean {
@@ -963,20 +928,6 @@ impl BinningAnalysis {
 
         BinningLevel::new(block_size)
     }
-
-    /// Ensure the hierarchy contains `level_index`.
-    ///
-    /// Levels are created lazily so short runs do not allocate unused coarse
-    /// block levels.
-    fn ensure_level(&mut self, level_index: usize) {
-        while self.levels.len() <= level_index {
-            let block_size = self
-                .levels
-                .last()
-                .map_or(1, |level| level.block_size.saturating_mul(2));
-            self.levels.push(BinningLevel::new(block_size));
-        }
-    }
 }
 
 impl Default for BinningAnalysis {
@@ -985,39 +936,11 @@ impl Default for BinningAnalysis {
     }
 }
 
-impl Extend<f64> for BinningAnalysis {
-    fn extend<I: IntoIterator<Item = f64>>(&mut self, iter: I) {
-        for sample in iter {
-            self.push(sample);
-        }
-    }
-}
-
 impl TryAccumulator<f64> for BinningAnalysis {
     type Error = StatisticsError;
 
     fn try_push(&mut self, sample: f64) -> Result<(), Self::Error> {
         Self::try_push(self, sample)
-    }
-}
-
-impl FromIterator<f64> for BinningAnalysis {
-    fn from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Self {
-        let mut analysis = Self::new();
-        analysis.extend(iter);
-        analysis
-    }
-}
-
-impl iter::Sum<f64> for OnlineStats {
-    fn sum<I: Iterator<Item = f64>>(iter: I) -> Self {
-        iter.collect()
-    }
-}
-
-impl iter::Sum<f64> for BinningAnalysis {
-    fn sum<I: Iterator<Item = f64>>(iter: I) -> Self {
-        iter.collect()
     }
 }
 
@@ -1073,9 +996,7 @@ mod tests {
 
     #[test]
     fn online_stats_matches_known_values() {
-        let stats: OnlineStats = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
-            .into_iter()
-            .collect();
+        let stats = OnlineStats::try_from_iter([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]).unwrap();
 
         assert_eq!(stats.count(), 8);
         assert_close(stats.mean().unwrap(), 5.0);
@@ -1087,9 +1008,7 @@ mod tests {
 
     #[test]
     fn online_stats_pins_fused_variance_update() {
-        let stats: OnlineStats = [1.0, 1.0e12, -1.0e12, 3.5, -2.25, 8.125]
-            .into_iter()
-            .collect();
+        let stats = OnlineStats::try_from_iter([1.0, 1.0e12, -1.0e12, 3.5, -2.25, 8.125]).unwrap();
 
         assert_eq!(stats.count(), 6);
         assert_eq!(stats.mean.to_bits(), 0x3ffb_aaa0_0000_0000);
@@ -1107,9 +1026,9 @@ mod tests {
     #[test]
     fn online_stats_can_clear_and_reuse() {
         let mut stats = OnlineStats::default();
-        stats.extend([1.0, 3.0]);
+        stats.try_extend([1.0, 3.0]).unwrap();
         stats.clear();
-        stats.push(10.0);
+        stats.try_push(10.0).unwrap();
 
         assert_eq!(stats.count(), 1);
         assert_eq!(stats.mean(), Some(10.0));
@@ -1214,7 +1133,7 @@ mod tests {
 
     #[test]
     fn binning_analysis_builds_power_of_two_levels() {
-        let bins: BinningAnalysis = (1..=8).map(f64::from).collect();
+        let bins = BinningAnalysis::try_from_iter((1..=8).map(f64::from)).unwrap();
         let estimates: Vec<_> = bins.estimates().collect();
 
         assert_eq!(bins.count(), 8);
@@ -1232,7 +1151,7 @@ mod tests {
 
     #[test]
     fn binning_analysis_reports_blocked_errors() {
-        let bins: BinningAnalysis = (1..=8).map(f64::from).collect();
+        let bins = BinningAnalysis::try_from_iter((1..=8).map(f64::from)).unwrap();
         let estimates: Vec<_> = bins.estimates().collect();
 
         assert_close(estimates[0].sample_variance().unwrap(), 6.0);
@@ -1257,7 +1176,7 @@ mod tests {
 
     #[test]
     fn binning_analysis_handles_partial_tail_blocks() {
-        let bins: BinningAnalysis = (1..=5).map(f64::from).collect();
+        let bins = BinningAnalysis::try_from_iter((1..=5).map(f64::from)).unwrap();
         let estimates: Vec<_> = bins.estimates().collect();
 
         assert_eq!(bins.count(), 5);
@@ -1274,9 +1193,9 @@ mod tests {
     #[test]
     fn binning_analysis_can_clear_and_reuse() {
         let mut bins = BinningAnalysis::default();
-        bins.extend([1.0, 2.0, 3.0, 4.0]);
+        bins.try_extend([1.0, 2.0, 3.0, 4.0]).unwrap();
         bins.clear();
-        bins.extend([10.0, 14.0]);
+        bins.try_extend([10.0, 14.0]).unwrap();
 
         assert_eq!(bins.count(), 2);
         assert_eq!(bins.mean(), Some(12.0));
@@ -1310,17 +1229,16 @@ mod tests {
     }
 
     #[test]
-    fn binning_analysis_try_push_matches_infallible_hierarchy() {
+    fn binning_analysis_try_push_matches_try_from_iter_hierarchy() {
         let samples = (1..=9).map(f64::from);
         let mut fallible = BinningAnalysis::new();
-        let mut infallible = BinningAnalysis::new();
 
-        for sample in samples {
+        for sample in samples.clone() {
             fallible.try_push(sample).unwrap();
-            infallible.push(sample);
         }
+        let from_iter = BinningAnalysis::try_from_iter(samples).unwrap();
 
-        assert_eq!(fallible, infallible);
+        assert_eq!(fallible, from_iter);
 
         let estimates: Vec<_> = fallible.estimates().collect();
         assert_eq!(

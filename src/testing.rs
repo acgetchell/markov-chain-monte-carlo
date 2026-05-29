@@ -14,9 +14,8 @@
 //! [`DetailedBalanceBatchReport`] so callers can inspect every failed
 //! transition instead of stopping at the first violation.
 
-use core::{convert::Infallible, hint::cold_path};
-use std::error::Error;
-use std::fmt;
+use core::{convert::Infallible, hint::cold_path, num::NonZeroUsize};
+use std::{error::Error, fmt};
 
 use rand::Rng;
 
@@ -28,11 +27,11 @@ use crate::{DelayedProposal, Proposal, ProposalMut, Target};
 #[must_use]
 pub struct DetailedBalanceConfig {
     /// Number of proposal samples drawn in each direction.
-    samples: usize,
+    samples: NonZeroUsize,
     /// Absolute tolerance for the log detailed-balance residual.
     tolerance: f64,
     /// Minimum hit count required in each direction.
-    min_hits: usize,
+    min_hits: NonZeroUsize,
 }
 
 impl DetailedBalanceConfig {
@@ -65,14 +64,23 @@ impl DetailedBalanceConfig {
         tolerance: f64,
         min_hits: usize,
     ) -> Result<Self, DetailedBalanceError> {
-        if samples == 0 {
+        let Some(samples) = NonZeroUsize::new(samples) else {
             return Err(DetailedBalanceError::InvalidSamples { samples });
-        }
+        };
         if !tolerance.is_finite() || tolerance < 0.0 {
             return Err(DetailedBalanceError::InvalidTolerance { tolerance });
         }
-        if min_hits == 0 || min_hits > samples {
-            return Err(DetailedBalanceError::InvalidMinHits { min_hits, samples });
+        let Some(min_hits) = NonZeroUsize::new(min_hits) else {
+            return Err(DetailedBalanceError::InvalidMinHits {
+                min_hits,
+                samples: samples.get(),
+            });
+        };
+        if min_hits > samples {
+            return Err(DetailedBalanceError::InvalidMinHits {
+                min_hits: min_hits.get(),
+                samples: samples.get(),
+            });
         }
 
         Ok(Self {
@@ -96,7 +104,7 @@ impl DetailedBalanceConfig {
     /// ```
     #[must_use]
     pub const fn samples(self) -> usize {
-        self.samples
+        self.samples.get()
     }
 
     /// Absolute tolerance for the log detailed-balance residual.
@@ -130,16 +138,16 @@ impl DetailedBalanceConfig {
     /// ```
     #[must_use]
     pub const fn min_hits(self) -> usize {
-        self.min_hits
+        self.min_hits.get()
     }
 }
 
 impl Default for DetailedBalanceConfig {
     fn default() -> Self {
         Self {
-            samples: 10_000,
+            samples: NonZeroUsize::MIN.saturating_add(9_999),
             tolerance: 0.1,
-            min_hits: 30,
+            min_hits: NonZeroUsize::MIN.saturating_add(29),
         }
     }
 }
@@ -303,16 +311,19 @@ impl DetailedBalanceReport {
 #[non_exhaustive]
 pub enum DetailedBalanceError<E = Infallible> {
     /// `samples` must be greater than zero.
+    #[non_exhaustive]
     InvalidSamples {
         /// Invalid sample count.
         samples: usize,
     },
     /// `tolerance` must be finite and nonnegative.
+    #[non_exhaustive]
     InvalidTolerance {
         /// Invalid tolerance.
         tolerance: f64,
     },
     /// `min_hits` must be greater than zero and no larger than `samples`.
+    #[non_exhaustive]
     InvalidMinHits {
         /// Invalid minimum hit count.
         min_hits: usize,
@@ -320,6 +331,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         samples: usize,
     },
     /// Target log-probability was `NaN` or positive infinity for one endpoint.
+    #[non_exhaustive]
     InvalidTargetLogProb {
         /// Endpoint whose log-probability was invalid.
         state: DetailedBalanceState,
@@ -327,6 +339,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         log_prob: f64,
     },
     /// Proposal log q-ratio was `NaN` or positive infinity for one direction.
+    #[non_exhaustive]
     InvalidLogQRatio {
         /// Direction whose log q-ratio was invalid.
         direction: DetailedBalanceDirection,
@@ -334,6 +347,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         log_q_ratio: f64,
     },
     /// Delayed proposal planning failed.
+    #[non_exhaustive]
     Plan {
         /// Direction whose planning failed.
         direction: DetailedBalanceDirection,
@@ -341,6 +355,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         source: E,
     },
     /// Delayed proposal log-probability evaluation failed.
+    #[non_exhaustive]
     ProposedLogProb {
         /// Direction whose proposed log-probability evaluation failed.
         direction: DetailedBalanceDirection,
@@ -348,6 +363,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         source: E,
     },
     /// Delayed proposal log q-ratio evaluation failed.
+    #[non_exhaustive]
     LogQRatio {
         /// Direction whose proposal ratio evaluation failed.
         direction: DetailedBalanceDirection,
@@ -355,6 +371,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         source: E,
     },
     /// Too few exact proposal hits were observed in one direction.
+    #[non_exhaustive]
     InsufficientHits {
         /// Direction with too few hits.
         direction: DetailedBalanceDirection,
@@ -364,6 +381,7 @@ pub enum DetailedBalanceError<E = Infallible> {
         min_hits: usize,
     },
     /// Estimated detailed-balance residual exceeded the configured tolerance.
+    #[non_exhaustive]
     Violation {
         /// Estimated `log(forward flow) - log(reverse flow)`.
         residual: f64,
@@ -469,11 +487,12 @@ impl<E> DetailedBalanceFailure<E> {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{DetailedBalanceError, DetailedBalanceFailure};
+    /// use markov_chain_monte_carlo::{DetailedBalanceConfig, DetailedBalanceFailure};
     ///
+    /// let error = DetailedBalanceConfig::new(0, 1e-12, 1).unwrap_err();
     /// let failure = DetailedBalanceFailure::new(
     ///     2,
-    ///     DetailedBalanceError::<()>::InvalidSamples { samples: 0 },
+    ///     error,
     /// );
     ///
     /// assert_eq!(failure.index, 2);
@@ -1117,7 +1136,7 @@ where
         proposed,
         proposal,
         rng,
-        config.samples,
+        config.samples(),
         forward_acceptance,
     );
     let reverse = estimate_by_value_transition(
@@ -1125,7 +1144,7 @@ where
         current,
         proposal,
         rng,
-        config.samples,
+        config.samples(),
         reverse_acceptance,
     );
 
@@ -1156,7 +1175,7 @@ where
         proposal,
         rng,
         TransitionRequest {
-            samples: config.samples,
+            samples: config.samples(),
             from_log_prob: endpoint_log_probs.current,
             direction: DetailedBalanceDirection::Forward,
         },
@@ -1168,7 +1187,7 @@ where
         proposal,
         rng,
         TransitionRequest {
-            samples: config.samples,
+            samples: config.samples(),
             from_log_prob: endpoint_log_probs.proposed,
             direction: DetailedBalanceDirection::Reverse,
         },
@@ -1202,7 +1221,7 @@ where
         proposal,
         rng,
         TransitionRequest {
-            samples: config.samples,
+            samples: config.samples(),
             from_log_prob: endpoint_log_probs.current,
             direction: DetailedBalanceDirection::Forward,
         },
@@ -1214,7 +1233,7 @@ where
         proposal,
         rng,
         TransitionRequest {
-            samples: config.samples,
+            samples: config.samples(),
             from_log_prob: endpoint_log_probs.proposed,
             direction: DetailedBalanceDirection::Reverse,
         },
@@ -1481,39 +1500,39 @@ fn finish_report<E>(
     check_hits(
         DetailedBalanceDirection::Forward,
         forward.hits,
-        config.min_hits,
+        config.min_hits(),
     )?;
     check_hits(
         DetailedBalanceDirection::Reverse,
         reverse.hits,
-        config.min_hits,
+        config.min_hits(),
     )?;
 
-    let forward_log_transition = forward.log_transition_probability(config.samples);
-    let reverse_log_transition = reverse.log_transition_probability(config.samples);
+    let forward_log_transition = forward.log_transition_probability(config.samples());
+    let reverse_log_transition = reverse.log_transition_probability(config.samples());
     let forward_log_flow = endpoint_log_probs.current + forward_log_transition;
     let reverse_log_flow = endpoint_log_probs.proposed + reverse_log_transition;
     let log_balance_residual = log_residual(forward_log_flow, reverse_log_flow);
     let log_balance_standard_error = forward
-        .log_standard_error(config.samples)
-        .hypot(reverse.log_standard_error(config.samples));
+        .log_standard_error(config.samples())
+        .hypot(reverse.log_standard_error(config.samples()));
 
     let report = DetailedBalanceReport {
-        samples: config.samples,
+        samples: config.samples(),
         forward_hits: forward.hits,
         reverse_hits: reverse.hits,
-        forward_log_proposal: forward.log_proposal_probability(config.samples),
-        reverse_log_proposal: reverse.log_proposal_probability(config.samples),
+        forward_log_proposal: forward.log_proposal_probability(config.samples()),
+        reverse_log_proposal: reverse.log_proposal_probability(config.samples()),
         forward_log_transition,
         reverse_log_transition,
         log_balance_residual,
         log_balance_standard_error,
     };
 
-    if !report.is_within_tolerance(config.tolerance) {
+    if !report.is_within_tolerance(config.tolerance()) {
         return Err(DetailedBalanceError::Violation {
             residual: log_balance_residual,
-            tolerance: config.tolerance,
+            tolerance: config.tolerance(),
             report,
         });
     }

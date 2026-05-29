@@ -89,6 +89,112 @@ rules:
               ...
           }
 
+  - id: mcmc.rust.no-public-unchecked-apis
+    languages:
+      - rust
+    severity: WARNING
+    message: "Keep *_unchecked APIs private so invalid-state escape hatches do not become public contracts."
+    metadata:
+      category: correctness
+      rationale: "Unchecked helpers should stay behind validated constructors, parsers, or setters."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    patterns:
+      - pattern-regex: '^\s*pub(?:\([^)]*\))?\s+(?:const\s+|async\s+|unsafe\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*_unchecked\s*\('
+      - pattern-not-inside: |
+          mod tests {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $MOD {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          fn $FUNC(...) {
+              ...
+          }
+
+  - id: mcmc.rust.no-infallible-statistics-f64-ingestion
+    languages:
+      - rust
+    severity: WARNING
+    message: "OnlineStats and BinningAnalysis must ingest raw f64 samples through fallible APIs."
+    metadata:
+      category: correctness
+      rationale: "Raw f64 measurements can be NaN, infinite, or overflow accumulator state; accepted samples should carry validation evidence."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    pattern-either:
+      - pattern-regex: '^\s*pub\s+fn\s+push\s*\(\s*&mut\s+self\s*,\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*f64\s*\)'
+      - pattern-regex: '^\s*impl\s+(?:(?:std::)?iter::)?(?:Extend|FromIterator|Sum)\s*<\s*f64\s*>\s+for\s+(?:OnlineStats|BinningAnalysis)\b'
+
+  - id: mcmc.rust.invariant-fields-use-refined-types
+    languages:
+      - rust
+    severity: WARNING
+    message: "Keep established invariant-bearing fields stored as refined types, not raw primitives."
+    metadata:
+      category: correctness
+      rationale: "Positive counts and validated sample thresholds should remain unrepresentable as zero once parsed."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    pattern-either:
+      - patterns:
+          - pattern-inside: |
+              pub struct DetailedBalanceConfig {
+                  ...
+              }
+          - pattern-regex: '^\s*samples\s*:\s*usize\b'
+      - patterns:
+          - pattern-inside: |
+              pub struct DetailedBalanceConfig {
+                  ...
+              }
+          - pattern-regex: '^\s*min_hits\s*:\s*usize\b'
+      - patterns:
+          - pattern-inside: |
+              pub struct DiscreteProposalRatio {
+                  ...
+              }
+          - pattern-regex: '^\s*forward_site_count\s*:\s*usize\b'
+
+  - id: mcmc.rust.no-public-unit-validators
+    languages:
+      - rust
+    severity: WARNING
+    message: "Prefer returning a refined value from constructors/parsers over public validate_* -> Result<(), _> APIs."
+    metadata:
+      category: correctness
+      rationale: "A unit-returning validator discards validation evidence that a refined type could carry."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    patterns:
+      - pattern-regex: '^\s*pub(?:\([^)]*\))?\s+(?:const\s+|async\s+|unsafe\s+)?fn\s+validate_[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)\s*->\s*Result\s*<\s*\(\s*\)\s*,'
+      - pattern-not-inside: |
+          mod tests {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $MOD {
+              ...
+          }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          fn $FUNC(...) {
+              ...
+          }
+
   - id: mcmc.rust.no-box-dyn-error-in-src
     languages:
       - rust

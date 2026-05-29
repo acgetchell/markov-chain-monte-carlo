@@ -27,6 +27,61 @@ fn raw_panic() {
     panic!("boom");
 }
 
+pub struct InvariantType;
+
+impl InvariantType {
+    // ruleid: mcmc.rust.no-public-unchecked-apis
+    pub fn new_unchecked() -> Self {
+        Self
+    }
+
+    // ruleid: mcmc.rust.no-public-unit-validators
+    pub fn validate_positive(value: usize) -> Result<(), ()> {
+        if value == 0 { Err(()) } else { Ok(()) }
+    }
+}
+
+pub struct OnlineStats;
+pub struct BinningAnalysis;
+
+impl OnlineStats {
+    // ruleid: mcmc.rust.no-infallible-statistics-f64-ingestion
+    pub fn push(&mut self, sample: f64) {
+        let _ = sample;
+    }
+}
+
+// ruleid: mcmc.rust.no-infallible-statistics-f64-ingestion
+impl Extend<f64> for BinningAnalysis {
+    fn extend<T: IntoIterator<Item = f64>>(&mut self, iter: T) {
+        for sample in iter {
+            let _ = sample;
+        }
+    }
+}
+
+// ruleid: mcmc.rust.no-infallible-statistics-f64-ingestion
+impl FromIterator<f64> for OnlineStats {
+    fn from_iter<T: IntoIterator<Item = f64>>(iter: T) -> Self {
+        for sample in iter {
+            let _ = sample;
+        }
+        Self
+    }
+}
+
+pub struct DetailedBalanceConfig {
+    // ruleid: mcmc.rust.invariant-fields-use-refined-types
+    samples: usize,
+    // ruleid: mcmc.rust.invariant-fields-use-refined-types
+    min_hits: usize,
+}
+
+pub struct DiscreteProposalRatio {
+    // ruleid: mcmc.rust.invariant-fields-use-refined-types
+    forward_site_count: usize,
+}
+
 // ruleid: mcmc.rust.no-box-dyn-error-in-src
 fn erased_error() -> Result<(), Box<dyn Error>> {
     Ok(())
