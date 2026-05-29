@@ -305,6 +305,55 @@ proptest! {
         prop_assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 
+    /// Chunked by-value sampler runs must preserve RNG state, counters, and
+    /// checkpoint-compatible continuation state exactly like one-shot runs.
+    #[test]
+    fn sampler_run_chunk_matches_one_shot(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..500,
+        split in 0u32..500,
+        seed in any::<u64>(),
+    ) {
+        let proposal = CloneWalk { width };
+        let steps = steps as usize;
+        let first = split as usize % (steps + 1);
+        let second = steps - first;
+
+        let one_shot_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut one_shot_rng = StdRng::seed_from_u64(seed);
+        let mut one_shot =
+            Sampler::new(one_shot_chain, &Normal, &proposal, &mut one_shot_rng).unwrap();
+        one_shot.run(steps).unwrap();
+
+        let chunked_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut chunked_rng = StdRng::seed_from_u64(seed);
+        let mut chunked =
+            Sampler::new(chunked_chain, &Normal, &proposal, &mut chunked_rng).unwrap();
+
+        let first_total_steps = {
+            let continuation = chunked.run_chunk(first).unwrap();
+            continuation.total_steps()
+        };
+        prop_assert_eq!(first_total_steps, first);
+
+        let continuation = chunked.run_chunk(second).unwrap();
+        prop_assert_eq!(one_shot.chain_ref().state(), *continuation.state());
+        prop_assert_eq!(one_shot.chain_ref().accepted(), continuation.accepted());
+        prop_assert_eq!(one_shot.chain_ref().rejected(), continuation.rejected());
+        prop_assert_eq!(one_shot.chain_ref().total_steps(), continuation.total_steps());
+        prop_assert!(
+            relative_eq!(
+                one_shot.chain_ref().log_prob(),
+                chunked.chain_ref().log_prob(),
+                epsilon = 1e-12,
+            ),
+            "cached log_prob diverged: one-shot={:.15}, chunked={:.15}",
+            one_shot.chain_ref().log_prob(),
+            chunked.chain_ref().log_prob(),
+        );
+    }
+
     /// `Sampler::run_mut` must produce identical results to a raw `Chain`
     /// loop with the same seed.
     #[test]
@@ -333,4 +382,161 @@ proptest! {
         prop_assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
         prop_assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
+
+    /// Chunked in-place sampler runs must match one-shot runs with the same
+    /// seed and expose continuation counters after each chunk.
+    #[test]
+    fn sampler_run_mut_chunk_matches_one_shot(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..500,
+        split in 0u32..500,
+        seed in any::<u64>(),
+    ) {
+        let proposal = MutWalk { width };
+        let steps = steps as usize;
+        let first = split as usize % (steps + 1);
+        let second = steps - first;
+
+        let one_shot_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut one_shot_rng = StdRng::seed_from_u64(seed);
+        let mut one_shot =
+            Sampler::new(one_shot_chain, &Normal, &proposal, &mut one_shot_rng).unwrap();
+        one_shot.run_mut(steps).unwrap();
+
+        let chunked_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut chunked_rng = StdRng::seed_from_u64(seed);
+        let mut chunked =
+            Sampler::new(chunked_chain, &Normal, &proposal, &mut chunked_rng).unwrap();
+
+        let first_total_steps = {
+            let continuation = chunked.run_mut_chunk(first).unwrap();
+            continuation.total_steps()
+        };
+        prop_assert_eq!(first_total_steps, first);
+
+        let continuation = chunked.run_mut_chunk(second).unwrap();
+        prop_assert_eq!(one_shot.chain_ref().state(), *continuation.state());
+        prop_assert_eq!(one_shot.chain_ref().accepted(), continuation.accepted());
+        prop_assert_eq!(one_shot.chain_ref().rejected(), continuation.rejected());
+        prop_assert_eq!(one_shot.chain_ref().total_steps(), continuation.total_steps());
+        prop_assert!(
+            relative_eq!(
+                one_shot.chain_ref().log_prob(),
+                chunked.chain_ref().log_prob(),
+                epsilon = 1e-12,
+            ),
+            "cached log_prob diverged: one-shot={:.15}, chunked={:.15}",
+            one_shot.chain_ref().log_prob(),
+            chunked.chain_ref().log_prob(),
+        );
+    }
+
+    /// Chunked delayed sampler runs must match one-shot delayed runs with the
+    /// same seed and preserve delayed proposal telemetry counters.
+    #[test]
+    fn sampler_run_delayed_chunk_matches_one_shot(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 1u32..200,
+        split in 0u32..200,
+        seed in any::<u64>(),
+    ) {
+        let steps = steps as usize;
+        let first = split as usize % (steps + 1);
+        let second = steps - first;
+
+        let one_shot_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut one_shot_rng = StdRng::seed_from_u64(seed);
+        let mut one_shot_proposal = DelayedWalk { width };
+        let mut one_shot = Sampler::new(
+            one_shot_chain,
+            &Normal,
+            &mut one_shot_proposal,
+            &mut one_shot_rng,
+        ).unwrap();
+        one_shot.run_delayed(steps).unwrap();
+
+        let chunked_chain = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut chunked_rng = StdRng::seed_from_u64(seed);
+        let mut chunked_proposal = DelayedWalk { width };
+        let mut chunked = Sampler::new(
+            chunked_chain,
+            &Normal,
+            &mut chunked_proposal,
+            &mut chunked_rng,
+        ).unwrap();
+
+        let first_total_steps = {
+            let continuation = chunked.run_delayed_chunk(first).unwrap();
+            continuation.total_steps()
+        };
+        prop_assert_eq!(first_total_steps, first);
+
+        let continuation = chunked.run_delayed_chunk(second).unwrap();
+        prop_assert_eq!(one_shot.chain_ref().state(), *continuation.state());
+        prop_assert_eq!(one_shot.chain_ref().accepted(), continuation.accepted());
+        prop_assert_eq!(one_shot.chain_ref().rejected(), continuation.rejected());
+        prop_assert_eq!(one_shot.chain_ref().total_steps(), continuation.total_steps());
+        prop_assert!(
+            relative_eq!(
+                one_shot.chain_ref().log_prob(),
+                chunked.chain_ref().log_prob(),
+                epsilon = 1e-12,
+            ),
+            "cached log_prob diverged: one-shot={:.15}, chunked={:.15}",
+            one_shot.chain_ref().log_prob(),
+            chunked.chain_ref().log_prob(),
+        );
+    }
+}
+
+#[test]
+fn run_chunk_allows_next_chunk_size_from_current_state() {
+    #[derive(Clone, Debug, PartialEq)]
+    struct Counter(i32);
+
+    struct Flat;
+    impl Target<Counter> for Flat {
+        fn log_prob(&self, _: &Counter) -> f64 {
+            0.0
+        }
+    }
+
+    struct Increment;
+    impl Proposal<Counter> for Increment {
+        fn propose<R: Rng + ?Sized>(&self, current: &Counter, _: &mut R) -> Counter {
+            Counter(current.0 + 1)
+        }
+    }
+
+    let mut one_shot_rng = StdRng::seed_from_u64(42);
+    let one_shot_chain = Chain::new(Counter(0), &Flat).unwrap();
+    let mut one_shot = Sampler::new(one_shot_chain, &Flat, &Increment, &mut one_shot_rng).unwrap();
+    one_shot.run(5).unwrap();
+
+    let mut chunked_rng = StdRng::seed_from_u64(42);
+    let chunked_chain = Chain::new(Counter(0), &Flat).unwrap();
+    let mut chunked = Sampler::new(chunked_chain, &Flat, &Increment, &mut chunked_rng).unwrap();
+
+    let next_chunk_size = {
+        let continuation = chunked.run_chunk(2).unwrap();
+        assert_eq!(continuation.state().0, 2);
+        usize::try_from(continuation.state().0 + 1).unwrap()
+    };
+
+    let continuation = chunked.run_chunk(next_chunk_size).unwrap();
+
+    assert_eq!(one_shot.chain_ref().state(), *continuation.state());
+    assert_eq!(one_shot.chain_ref().accepted(), continuation.accepted());
+    assert_eq!(one_shot.chain_ref().rejected(), continuation.rejected());
+    assert_eq!(
+        one_shot.chain_ref().total_steps(),
+        continuation.total_steps()
+    );
+    assert!(relative_eq!(
+        one_shot.chain_ref().log_prob(),
+        chunked.chain_ref().log_prob(),
+        epsilon = 1e-12,
+    ));
 }

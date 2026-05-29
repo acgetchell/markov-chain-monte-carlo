@@ -41,7 +41,7 @@ responsibilities.
 - Generic `Chain<S>` over user-defined state spaces with explicit accepted/rejected counters.
 - Log-space Metropolis-Hastings acceptance with typed errors for NaN and positive-infinite target or proposal values.
 - Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
-- `Sampler` helpers for repeated runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
+- `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains, samplers, and portable checkpoints.
@@ -124,7 +124,7 @@ fn main() -> Result<(), McmcError> {
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
 - Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
-- Use `Sampler` when you want ergonomic repeated runs, iterator-based sampling, or observing helpers.
+- Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 

@@ -112,6 +112,11 @@
 //! for those streaming measurement loops.  Samplers also provide
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
+//! For workflows that choose the next step budget from the updated state, use
+//! [`Sampler::run_chunk`], [`Sampler::run_mut_chunk`], or
+//! [`Sampler::run_delayed_chunk`].  They run the next chunk on the same RNG
+//! stream and return a checkpoint-compatible view containing the current state
+//! and counters.
 //!
 //! # Proposal validation
 //!

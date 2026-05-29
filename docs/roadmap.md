@@ -28,7 +28,7 @@ The next feature release should focus on downstream sampler integration rather t
 MSRV/toolchain refresh.
 
 - [#65](https://github.com/acgetchell/markov-chain-monte-carlo/issues/65) - Update Rust toolchain and MSRV to 1.96.0
-- [#60](https://github.com/acgetchell/markov-chain-monte-carlo/issues/60) - Expose resumable sampler state for chunked runs
+- [x] [#60](https://github.com/acgetchell/markov-chain-monte-carlo/issues/60) - Expose resumable sampler state for chunked runs
 - [#61](https://github.com/acgetchell/markov-chain-monte-carlo/issues/61) - Expose delayed-step hooks or telemetry for domain-specific sampler integration
 - [#59](https://github.com/acgetchell/markov-chain-monte-carlo/issues/59) - Support additive target bias terms in Metropolis-Hastings acceptance
 - [#48](https://github.com/acgetchell/markov-chain-monte-carlo/issues/48) - Investigate detailed balance for delayed proposals with variable valid-site counts
