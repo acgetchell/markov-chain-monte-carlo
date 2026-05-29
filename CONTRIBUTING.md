@@ -264,7 +264,9 @@ in `src/`/examples/benches/doctests, requiring `expect()` reasons, and forbiddin
 
 ### Property-Based Tests
 
-For numerical/statistical invariants, use [proptest](https://docs.rs/proptest/) (already a dev-dependency). Seed RNGs explicitly so failing cases reproduce.
+For numerical/statistical invariants, use [proptest](https://docs.rs/proptest/) (already a dev-dependency). Put property-based Rust tests in integration
+files named `tests/proptest_*.rs`; keep `src` unit tests focused on deterministic local behavior unless a private helper cannot be reached otherwise. Seed
+RNGs explicitly so failing cases reproduce.
 
 ### Test Conventions
 
