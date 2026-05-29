@@ -2326,6 +2326,18 @@ mod tests {
             epsilon = 1e-12
         );
 
+        let mut committed = current;
+        let plan = OccupancyPlan {
+            kind: OccupancyMoveKind::Add,
+            site: 0,
+        };
+        assert_eq!(proposal.info(&plan), plan);
+        let mut commit_rng = StdRng::seed_from_u64(7);
+        proposal
+            .commit(&mut committed, plan, &mut commit_rng)
+            .unwrap();
+        assert_eq!(committed, proposed);
+
         let mut rng = StdRng::seed_from_u64(42);
         let report = verify_detailed_balance_delayed(
             &current,

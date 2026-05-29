@@ -732,12 +732,15 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_accounts_for_move_weights() {
-        let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)
-            .unwrap()
-            .log_q_ratio();
+        let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2).unwrap();
+
+        assert_eq!(ratio.forward_weight().to_bits(), 0.25_f64.to_bits());
+        assert_eq!(ratio.reverse_weight().to_bits(), 0.75_f64.to_bits());
+        assert_eq!(ratio.forward_site_count(), 6);
+        assert_eq!(ratio.reverse_site_count(), 2);
 
         assert_relative_eq!(
-            ratio,
+            ratio.log_q_ratio(),
             0.75_f64.ln() - 0.25_f64.ln() + 6.0_f64.ln() - 2.0_f64.ln(),
             epsilon = 1e-12
         );
@@ -778,6 +781,12 @@ mod tests {
     fn discrete_proposal_ratio_rejects_invalid_forward_weights() {
         for weight in [0.0, -1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
             let err = DiscreteProposalRatio::new(weight, 1, 1.0, 1).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "invalid forward move-family weight {weight}: expected a positive finite value"
+                )
+            );
 
             match err {
                 DiscreteProposalRatioError::InvalidForwardWeight { weight: observed } => {
@@ -796,6 +805,12 @@ mod tests {
     fn discrete_proposal_ratio_rejects_invalid_reverse_weights() {
         for weight in [-1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
             let err = DiscreteProposalRatio::new(1.0, 1, weight, 1).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "invalid reverse move-family weight {weight}: expected a nonnegative finite value"
+                )
+            );
 
             match err {
                 DiscreteProposalRatioError::InvalidReverseWeight { weight: observed } => {
