@@ -58,6 +58,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── scientific_basis.md
 ├── dprint.json
 ├── examples/
+│   ├── additive_target_bias.rs
 │   ├── delayed_chunked_telemetry.rs
 │   ├── detailed_balance.rs
 │   ├── ising_1d.rs
@@ -218,6 +219,7 @@ sampling imports.
 
 New examples go in `examples/`. Each is a complete, runnable workflow:
 
+- `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/ising_1d.rs` — in-place mutation with rollback.

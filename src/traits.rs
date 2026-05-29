@@ -293,6 +293,173 @@ fn count_ln(count: NonZeroUsize) -> f64 {
     (count.get() as f64).ln()
 }
 
+/// Additive composition of two target log-weight components.
+///
+/// `AdditiveTarget` is a small adapter for targets whose log weight is a sum
+/// of independent model terms, such as an energy-based model term, learned
+/// regularizer, physics action, umbrella-sampling bias, or softened
+/// constraint.  Each component implements [`Target`] using this crate's
+/// ordinary sign convention: return a log probability/log weight, or return
+/// negative energy/action when the model is written as `exp(-S)`.
+///
+/// For action terms, this means:
+///
+/// ```text
+/// log pi(state) = -S_model(state) - S_bias(state)
+/// ```
+///
+/// so Metropolis-Hastings uses:
+///
+/// ```text
+/// log pi(y) - log pi(x) = -(Delta S_model + Delta S_bias)
+/// ```
+///
+/// Proposal-ratio corrections remain separate in [`Proposal::log_q_ratio`],
+/// [`ProposalMut::log_q_ratio`], or [`DelayedProposal::log_q_ratio`].
+///
+/// # Examples
+///
+/// ```
+/// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+///
+/// struct ModelAction;
+/// impl Target<i32> for ModelAction {
+///     fn log_prob(&self, state: &i32) -> f64 {
+///         -0.5 * f64::from(*state * *state)
+///     }
+/// }
+///
+/// struct BiasTowardTwo;
+/// impl Target<i32> for BiasTowardTwo {
+///     fn log_prob(&self, state: &i32) -> f64 {
+///         let distance = f64::from(*state - 2);
+///         -distance * distance
+///     }
+/// }
+///
+/// let target = AdditiveTarget::new(ModelAction, BiasTowardTwo);
+///
+/// assert_eq!(target.log_prob(&2), -2.0);
+/// assert_eq!(target.log_prob(&0), -4.0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct AdditiveTarget<A, B> {
+    primary: A,
+    additive: B,
+}
+
+impl<A, B> AdditiveTarget<A, B> {
+    /// Create a target whose log weight is `primary + additive`.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    ///
+    /// struct Flat;
+    /// impl Target<()> for Flat {
+    ///     fn log_prob(&self, _: &()) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct Offset;
+    /// impl Target<()> for Offset {
+    ///     fn log_prob(&self, _: &()) -> f64 { -2.0 }
+    /// }
+    ///
+    /// let target = AdditiveTarget::new(Flat, Offset);
+    ///
+    /// assert_eq!(target.log_prob(&()), -2.0);
+    /// ```
+    pub const fn new(primary: A, additive: B) -> Self {
+        Self { primary, additive }
+    }
+
+    /// Primary target component.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    ///
+    /// struct Model;
+    /// impl Target<i32> for Model {
+    ///     fn log_prob(&self, state: &i32) -> f64 { -f64::from(*state) }
+    /// }
+    ///
+    /// struct Bias;
+    /// impl Target<i32> for Bias {
+    ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+    /// }
+    ///
+    /// let target = AdditiveTarget::new(Model, Bias);
+    ///
+    /// assert_eq!(target.primary().log_prob(&3), -3.0);
+    /// ```
+    #[must_use]
+    pub const fn primary(&self) -> &A {
+        &self.primary
+    }
+
+    /// Additive target component, such as a bias or auxiliary log weight.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    ///
+    /// struct Model;
+    /// impl Target<i32> for Model {
+    ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+    /// }
+    ///
+    /// struct Bias;
+    /// impl Target<i32> for Bias {
+    ///     fn log_prob(&self, state: &i32) -> f64 {
+    ///         -f64::from((*state - 1).abs())
+    ///     }
+    /// }
+    ///
+    /// let target = AdditiveTarget::new(Model, Bias);
+    ///
+    /// assert_eq!(target.additive().log_prob(&3), -2.0);
+    /// ```
+    #[must_use]
+    pub const fn additive(&self) -> &B {
+        &self.additive
+    }
+
+    /// Consume the adapter into its component targets.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    ///
+    /// struct Model;
+    /// impl Target<()> for Model {
+    ///     fn log_prob(&self, _: &()) -> f64 { -1.0 }
+    /// }
+    ///
+    /// struct Bias;
+    /// impl Target<()> for Bias {
+    ///     fn log_prob(&self, _: &()) -> f64 { -2.0 }
+    /// }
+    ///
+    /// let target = AdditiveTarget::new(Model, Bias);
+    /// let (model, bias) = target.into_parts();
+    ///
+    /// assert_eq!(model.log_prob(&()), -1.0);
+    /// assert_eq!(bias.log_prob(&()), -2.0);
+    /// ```
+    #[must_use]
+    pub fn into_parts(self) -> (A, B) {
+        (self.primary, self.additive)
+    }
+}
+
+impl<S, A, B> Target<S> for AdditiveTarget<A, B>
+where
+    A: Target<S>,
+    B: Target<S>,
+{
+    fn log_prob(&self, state: &S) -> f64 {
+        self.primary.log_prob(state) + self.additive.log_prob(state)
+    }
+}
+
 /// Target distribution.
 ///
 /// `log_prob` returns a value proportional to the natural logarithm of the
@@ -692,6 +859,13 @@ mod tests {
     #[derive(Clone, Debug)]
     struct Scalar(f64);
 
+    struct WeightedTarget(f64);
+    impl Target<Scalar> for WeightedTarget {
+        fn log_prob(&self, state: &Scalar) -> f64 {
+            self.0 * state.0
+        }
+    }
+
     struct SymmetricProposal;
     impl Proposal<Scalar> for SymmetricProposal {
         fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
@@ -715,6 +889,20 @@ mod tests {
     }
 
     // --- Default log_q_ratio tests ---
+
+    #[test]
+    fn additive_target_exposes_components_and_parts() {
+        let target = AdditiveTarget::new(WeightedTarget(2.0), WeightedTarget(-0.5));
+
+        assert_relative_eq!(target.log_prob(&Scalar(4.0)), 6.0);
+        assert_relative_eq!(target.primary().log_prob(&Scalar(4.0)), 8.0);
+        assert_relative_eq!(target.additive().log_prob(&Scalar(4.0)), -2.0);
+
+        let (primary, additive) = target.into_parts();
+
+        assert_relative_eq!(primary.log_prob(&Scalar(3.0)), 6.0);
+        assert_relative_eq!(additive.log_prob(&Scalar(3.0)), -1.5);
+    }
 
     #[test]
     fn proposal_default_log_q_zero() {

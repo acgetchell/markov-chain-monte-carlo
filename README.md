@@ -28,6 +28,7 @@ Use this crate when you want:
 - a generic Metropolis-Hastings chain over user-defined state spaces
 - by-value, in-place, and delayed-commit proposal APIs
 - log-space acceptance calculations with NaN/+infinity checks
+- additive target composition for bias potentials, energy terms, learned regularizers, and other log-weight modifiers
 - observable measurement APIs, streaming statistics, and binning error estimates
 - thinning helpers for long sampler runs
 - optional `serde` checkpointing with validated resume flows
@@ -40,6 +41,7 @@ responsibilities.
 
 - Generic `Chain<S>` over user-defined state spaces with explicit accepted/rejected counters.
 - Log-space Metropolis-Hastings acceptance with typed errors for NaN and positive-infinite target or proposal values.
+- `AdditiveTarget` for composing model and bias log-weight terms without mixing them into proposal-ratio corrections.
 - Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
 - `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
@@ -124,6 +126,7 @@ fn main() -> Result<(), McmcError> {
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
 - Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
+- Use `AdditiveTarget` when the target log weight is the sum of model, bias, regularization, energy, or action terms.
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
@@ -147,6 +150,8 @@ Complete runnable examples live in [`examples/`](https://github.com/acgetchell/m
   and batch detailed-balance checks
 - [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/delayed_chunked_telemetry.rs) — per-step
   delayed telemetry and post-step state recorded across resumable chunks
+- [`examples/additive_target_bias.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/additive_target_bias.rs) — model and bias
+  log-weight terms composed with `AdditiveTarget`
 
 Run them with:
 

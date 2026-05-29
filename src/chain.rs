@@ -1300,12 +1300,14 @@ impl<S> Chain<S> {
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
     use std::assert_matches;
 
     use approx::assert_relative_eq;
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
+    use crate::AdditiveTarget;
 
     // --- Test fixtures ---
 
@@ -1521,6 +1523,163 @@ mod tests {
         );
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
+    }
+
+    struct FlatBool;
+    impl Target<bool> for FlatBool {
+        fn log_prob(&self, _: &bool) -> f64 {
+            0.0
+        }
+    }
+
+    struct FavorTrue {
+        true_log_weight: f64,
+    }
+    impl Target<bool> for FavorTrue {
+        fn log_prob(&self, state: &bool) -> f64 {
+            if *state { self.true_log_weight } else { 0.0 }
+        }
+    }
+
+    struct FlipBool;
+    impl Proposal<bool> for FlipBool {
+        fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
+            !*current
+        }
+    }
+
+    #[test]
+    fn unbiased_two_state_baseline_samples_uniformly() {
+        let mut chain = Chain::new(false, &FlatBool).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let samples = 1_000_u32;
+        let mut true_count = 0_u32;
+        for _ in 0..samples {
+            chain.step(&FlatBool, &FlipBool, &mut rng).unwrap();
+            true_count += u32::from(*chain.state());
+        }
+
+        assert_eq!(true_count, samples / 2);
+        assert_eq!(chain.accepted(), usize::try_from(samples).unwrap());
+        assert_eq!(chain.rejected(), 0);
+    }
+
+    #[test]
+    fn additive_bias_changes_observed_stationary_distribution() {
+        let target = AdditiveTarget::new(
+            FlatBool,
+            FavorTrue {
+                true_log_weight: 3.0_f64.ln(),
+            },
+        );
+        let mut chain = Chain::new(false, &target).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..5_000 {
+            chain.step(&target, &FlipBool, &mut rng).unwrap();
+        }
+
+        let samples = 50_000_u32;
+        let mut true_count = 0_u32;
+        for _ in 0..samples {
+            chain.step(&target, &FlipBool, &mut rng).unwrap();
+            true_count += u32::from(*chain.state());
+        }
+
+        let true_fraction = f64::from(true_count) / f64::from(samples);
+        assert_relative_eq!(true_fraction, 0.75, epsilon = 0.03);
+    }
+
+    struct DelayedFlip {
+        log_q: f64,
+    }
+    impl DelayedProposal<bool> for DelayedFlip {
+        type Plan = bool;
+        type Info = bool;
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &bool,
+            _: &mut R,
+        ) -> Result<Option<bool>, Self::Error> {
+            Ok(Some(!*state))
+        }
+
+        fn proposed_log_prob<T: Target<bool>>(
+            &self,
+            _: &bool,
+            plan: &bool,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(plan))
+        }
+
+        fn log_q_ratio(&self, _: &bool, _: &bool) -> Result<f64, Self::Error> {
+            Ok(self.log_q)
+        }
+
+        fn info(&self, plan: &bool) -> bool {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut bool,
+            plan: bool,
+            _: &mut R,
+        ) -> Result<(), Self::Error> {
+            *state = plan;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn delayed_log_alpha_adds_target_bias_and_proposal_ratio_with_correct_sign() {
+        let target = AdditiveTarget::new(
+            FlatBool,
+            FavorTrue {
+                true_log_weight: 3.0_f64.ln(),
+            },
+        );
+        let mut proposal = DelayedFlip {
+            log_q: -6.0_f64.ln(),
+        };
+        let mut chain = Chain::new(false, &target).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed(&target, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert!(step.outcome.has_proposal());
+        assert_relative_eq!(step.log_alpha.unwrap(), -2.0_f64.ln(), epsilon = 1e-12);
+        assert_eq!(step.info, Some(true));
+    }
+
+    #[test]
+    fn delayed_additive_target_commits_accepted_bias_move() {
+        let target = AdditiveTarget::new(
+            FlatBool,
+            FavorTrue {
+                true_log_weight: 3.0_f64.ln(),
+            },
+        );
+        let mut proposal = DelayedFlip { log_q: 0.0 };
+        let mut chain = Chain::new(false, &target).unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed(&target, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert_eq!(step.outcome, StepOutcome::Accepted);
+        assert_relative_eq!(step.log_alpha.unwrap(), 3.0_f64.ln(), epsilon = 1e-12);
+        assert_eq!(step.info, Some(true));
+        assert!(*chain.state());
+        assert_eq!(chain.accepted(), 1);
+        assert_eq!(chain.rejected(), 0);
     }
 
     // --- Error handling ---

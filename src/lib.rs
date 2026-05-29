@@ -81,6 +81,31 @@
 //! For a fuller discussion, see
 //! [docs/scientific_basis.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md).
 //!
+//! # Additive target terms
+//!
+//! Bias potentials, energy-based model terms, learned regularizers,
+//! auxiliary actions, umbrella-sampling weights, and other target modifiers
+//! should be sampled as part of the target distribution, not applied as ad hoc
+//! rejection filters after a proposal has been generated.  Use
+//! [`AdditiveTarget`] when model and bias terms are easiest to express as
+//! separate log-weight components.
+//!
+//! If a downstream model is written in action form, implement each component
+//! with the same sign convention: return `-S_component(state)`.  Then the
+//! acceptance calculation uses the combined action delta naturally:
+//!
+//! ```text
+//! log pi(y) - log pi(x) = -(Delta S_model + Delta S_bias)
+//! ```
+//!
+//! The Hastings correction remains independent and is still supplied through
+//! [`Proposal::log_q_ratio`], [`ProposalMut::log_q_ratio`], or
+//! [`DelayedProposal::log_q_ratio`]:
+//!
+//! ```text
+//! log_alpha = -(Delta S_model + Delta S_bias) + log q(x | y) - log q(y | x)
+//! ```
+//!
 //! # Numerical semantics
 //!
 //! The core Metropolis-Hastings acceptance calculation is performed in log
@@ -117,6 +142,65 @@
 //! [`Sampler::run_delayed_chunk`].  They run the next chunk on the same RNG
 //! stream and return a checkpoint-compatible view containing the current state
 //! and counters.
+//!
+//! # Resumable chunked runs
+//!
+//! Chunked runs advance the chain by a chosen number of steps, then return a
+//! checkpoint-compatible continuation so a caller can inspect the updated state,
+//! choose the next chunk length, and resume without losing RNG state or
+//! counters.  Reusing the same [`Sampler`] preserves the RNG stream, so a
+//! sequence of chunks reproduces an equivalent one-shot run with the same seed.
+//!
+//! Measurements stay on the caller side: keep domain-specific statistics in your
+//! own buffers and accumulate them across chunks rather than having the sampler
+//! own a measurement buffer.  The delayed observing variant
+//! [`Sampler::run_delayed_chunk_observing`] hands each step's [`DelayedStep`]
+//! telemetry and post-step state to a callback while still returning the
+//! continuation, so the chain keeps ownership of the accept/reject draw and
+//! counters.  Between chunks a caller can size the next chunk from the current
+//! state and stop on an elapsed-time budget.
+//!
+//! ```
+//! use core::convert::Infallible;
+//! use markov_chain_monte_carlo::prelude::delayed::*;
+//! use rand::{Rng, SeedableRng, rngs::StdRng};
+//!
+//! # struct Flat;
+//! # impl Target<i32> for Flat {
+//! #     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+//! # }
+//! # struct Advance;
+//! # impl DelayedProposal<i32> for Advance {
+//! #     type Plan = i32;
+//! #     type Info = i32;
+//! #     type Error = Infallible;
+//! #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
+//! #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+//! #     fn info(&self, plan: &i32) -> i32 { *plan }
+//! #     fn commit<R: Rng + ?Sized>(&mut self, s: &mut i32, p: i32, _: &mut R) -> Result<(), Self::Error> { *s += p; Ok(()) }
+//! # }
+//! let mut rng = StdRng::seed_from_u64(42);
+//! let mut proposal = Advance;
+//! let chain = Chain::new(0, &Flat).map_err(DelayedStepError::Mcmc)?;
+//! let mut sampler = Sampler::new(chain, &Flat, &mut proposal, &mut rng)
+//!     .map_err(DelayedStepError::Mcmc)?;
+//!
+//! // Domain-specific measurements stay outside the generic sampler.
+//! let mut samples: Vec<i32> = Vec::new();
+//! let mut next_chunk = 4;
+//!
+//! for _ in 0..3 {
+//!     let continuation = sampler.run_delayed_chunk_observing(next_chunk, |_step, state| {
+//!         samples.push(*state);
+//!     })?;
+//!     // Size the next chunk from the updated state and resume on the same RNG
+//!     // stream.  A real caller can also break here on an elapsed-time budget.
+//!     next_chunk = usize::try_from(**continuation.state()).unwrap_or(1).max(1);
+//! }
+//!
+//! assert_eq!(sampler.chain_ref().total_steps(), samples.len());
+//! # Ok::<(), DelayedStepError<Infallible>>(())
+//! ```
 //!
 //! # Proposal validation
 //!
@@ -448,8 +532,8 @@ pub use testing::{
     verify_detailed_balance_mut, verify_detailed_balance_mut_many,
 };
 pub use traits::{
-    DelayedProposal, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal, ProposalMut,
-    Target,
+    AdditiveTarget, DelayedProposal, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal,
+    ProposalMut, Target,
 };
 
 /// Convenience re-exports for common usage.
@@ -492,10 +576,10 @@ pub use traits::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError, Observable,
-        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
-        Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
-        ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError,
+        Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+        SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
+        ThinnedRunResult, ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
         TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
@@ -505,12 +589,12 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DiscreteProposalRatio,
-            DiscreteProposalRatioError, McmcError, Observable, ObservedIntoRunResult,
-            ObservedStepError, ObservedStreamError, OnlineStats, Proposal, SampleBuffer, Sampler,
-            StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError,
-            TryAccumulator, TryObservable, TryObservedIntoRunResult,
-            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
+            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, Proposal,
+            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
+            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -520,12 +604,13 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DiscreteProposalRatio,
-            DiscreteProposalRatioError, McmcError, Observable, ObservedIntoRunResult,
-            ObservedStepError, ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer,
-            Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult, ThinnedRunResult,
-            ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
+            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
+            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
+            TryObservable, TryObservedIntoRunResult, TryThinnedObservedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 
@@ -535,14 +620,14 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedProposal, DelayedStep,
-            DelayedStepError, DiscreteProposalRatio, DiscreteProposalRatioError, McmcError,
-            Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
-            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            SampleBuffer, Sampler, StatisticsError, StepOutcome, StepRejectionReason, Target,
-            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
-            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
-            TryThinnedObservedRunResult,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            DelayedProposal, DelayedStep, DelayedStepError, DiscreteProposalRatio,
+            DiscreteProposalRatioError, McmcError, Observable, ObservedDelayedIntoRunResult,
+            ObservedDelayedStep, ObservedDelayedStepResult, ObservedStepError, ObservedStreamError,
+            OnlineStats, SampleBuffer, Sampler, StatisticsError, StepOutcome, StepRejectionReason,
+            Target, ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError,
+            TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+            TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -555,7 +640,7 @@ pub mod prelude {
     /// inspect [`crate::DetailedBalanceReport`] values.
     pub mod testing {
         pub use crate::{
-            DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
+            AdditiveTarget, DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
             DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
             DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
             DiscreteProposalRatio, DiscreteProposalRatioError, Proposal, ProposalMut, Target,
@@ -575,7 +660,7 @@ mod public_api_smoke_tests {
     use serde_json::{Error as JsonError, json, to_value};
 
     use super::{
-        BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedStep,
+        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedStep,
         DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
         DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure,
         DetailedBalanceReport, DetailedBalanceState, McmcError, Observable, ObservedDelayedStep,
@@ -663,6 +748,7 @@ mod public_api_smoke_tests {
         let mut observable = |state: &f64| *state;
         needs_observable(&mut observable);
 
+        let _: Option<AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<Chain<f64>> = None;
         let _: Option<ChainCheckpoint<f64>> = None;
         let _: Option<Step<()>> = None;
@@ -686,16 +772,20 @@ mod public_api_smoke_tests {
         let _: Option<DetailedBalanceBatchReport> = None;
         let _: Option<DetailedBalanceReport> = None;
         let _: Option<DetailedBalanceState> = None;
+        let _: Option<prelude::AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
         let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
+        let _: Option<by_value::AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<by_value::DiscreteProposalRatio> = None;
         let _: Option<by_value::DiscreteProposalRatioError> = None;
         let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
+        let _: Option<in_place::AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<in_place::DiscreteProposalRatio> = None;
         let _: Option<in_place::DiscreteProposalRatioError> = None;
         let _: Option<
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
+        let _: Option<delayed::AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<delayed::DiscreteProposalRatio> = None;
         let _: Option<delayed::DiscreteProposalRatioError> = None;
         let _: Option<delayed::StepOutcome> = None;
@@ -705,6 +795,7 @@ mod public_api_smoke_tests {
         let _: Option<testing::DetailedBalanceConfig> = None;
         let _: Option<testing::DetailedBalanceError> = None;
         let _: Option<testing::DetailedBalanceReport> = None;
+        let _: Option<testing::AdditiveTarget<Smoke, Smoke>> = None;
         let _: Option<testing::DiscreteProposalRatio> = None;
         let _: Option<testing::DiscreteProposalRatioError> = None;
         let _: Option<

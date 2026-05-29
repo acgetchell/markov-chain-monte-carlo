@@ -13,7 +13,7 @@ rumdl_version := "0.2.3"
 taplo_version := "0.10.0"
 typos_version := "1.46.3"
 zizmor_version := "1.25.2"
-example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry"
+example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 
 # Common cargo-llvm-cov arguments for all coverage runs.
 # Excludes examples from reports while allowing tests to exercise library code.
@@ -670,6 +670,7 @@ validate-examples: _build-examples
     validate_example ising_1d "<m>" "acceptance rate"
     validate_example iterator_sampling "Sample mean" "Acceptance rate"
     validate_example delayed_chunked_telemetry "Per-step telemetry" "Delayed chunked telemetry complete"
+    validate_example additive_target_bias "AdditiveTarget bias example" "observed P(true)"
 
 validate-json: _ensure-jq
     #!/usr/bin/env bash
