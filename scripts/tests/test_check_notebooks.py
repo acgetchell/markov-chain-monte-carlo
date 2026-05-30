@@ -81,7 +81,7 @@ class TestLintNotebook:
 
         check_notebooks.lint_notebooks([notebook])
 
-        assert f"✓ linted {notebook}" in capsys.readouterr().out
+        assert f"OK linted {notebook}" in capsys.readouterr().out
 
 
 class TestExecuteNotebooks:
@@ -128,7 +128,7 @@ class TestExecuteNotebooks:
         assert calls["kwargs"]["resources"] == {"metadata": {"path": str(repo_root)}}
         assert calls["executed"] is True
         assert check_notebooks.os.environ["MPLBACKEND"] == "Agg"
-        assert f"✓ executed {notebook}" in capsys.readouterr().out
+        assert f"OK executed {notebook}" in capsys.readouterr().out
 
 
 class TestMain:

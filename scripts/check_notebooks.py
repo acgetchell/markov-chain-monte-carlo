@@ -40,7 +40,7 @@ def lint_notebooks(paths: list[Path]) -> None:
     """Lint every notebook in `paths`."""
     for path in paths:
         lint_notebook(path)
-        print(f"✓ linted {path}")
+        print(f"OK linted {path}")
 
 
 def execute_notebooks(paths: list[Path], repo_root: Path) -> None:
@@ -58,7 +58,7 @@ def execute_notebooks(paths: list[Path], repo_root: Path) -> None:
             resources={"metadata": {"path": str(repo_root)}},
         )
         client.execute()
-        print(f"✓ executed {path}")
+        print(f"OK executed {path}")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
