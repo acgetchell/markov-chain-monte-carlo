@@ -54,8 +54,11 @@ Then refresh lockfiles/build metadata:
 
 ```bash
 cargo check
-uv sync --group dev
+uv sync
 ```
+
+`uv sync` installs the default `dev` and `notebook` dependency groups (configured in `[tool.uv] default-groups`), refreshing `uv.lock` so the notebook
+execution dependencies exercised by `just ci` are provisioned during release validation.
 
 ### 3. Generate the changelog
 
