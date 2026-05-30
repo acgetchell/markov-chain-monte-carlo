@@ -21,6 +21,10 @@ _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
   --workspace --all-features --lib --tests \
   --verbose'''
 
+# Examples
+_build-examples:
+    cargo build --locked --examples
+
 # Internal helpers: ensure external tooling is installed
 _ensure-actionlint:
     #!/usr/bin/env bash
@@ -182,14 +186,6 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     GIT_CLIFF_OFFLINE=true git-cliff --tag {{version}} -o CHANGELOG.md
     uv run postprocess-changelog
 
-# Rust validation that is meaningful for source portability and user-facing API correctness.
-check-rust: fmt-check clippy
-    @echo "✅ Rust checks complete!"
-
-# Repository tooling that does not need to be repeated across operating systems.
-check-repository-tooling: python-check notebook-lint yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
-    @echo "✅ Repository tooling checks complete!"
-
 # Non-mutating validation gate
 check: check-rust check-repository-tooling
     @echo "✅ Checks complete!"
@@ -198,9 +194,18 @@ check: check-rust check-repository-tooling
 check-fast:
     cargo check --locked
 
-# CI subset for Rust correctness.
-ci-rust: check-rust doc test test-integration validate-examples
-    @echo "✅ Rust CI checks complete!"
+# Repository tooling that does not need to be repeated across operating systems.
+check-repository-tooling: python-check notebook-lint yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+    @echo "✅ Repository tooling checks complete!"
+
+# Rust validation that is meaningful for source portability and user-facing API correctness.
+check-rust: fmt-check clippy
+    @echo "✅ Rust checks complete!"
+
+# CI simulation: comprehensive validation.
+# Depends on repository tooling, including `zizmor` GitHub Actions security analysis.
+ci: ci-repository-tooling ci-rust notebook-check bench-compile
+    @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
 ci-portability: check-fast test test-integration validate-examples
@@ -210,10 +215,9 @@ ci-portability: check-fast test test-integration validate-examples
 ci-repository-tooling: check-repository-tooling test-python
     @echo "✅ Repository tooling CI checks complete!"
 
-# CI simulation: comprehensive validation.
-# Depends on repository tooling, including `zizmor` GitHub Actions security analysis.
-ci: ci-repository-tooling ci-rust notebook-check bench-compile
-    @echo "🎯 CI checks complete!"
+# CI subset for Rust correctness.
+ci-rust: check-rust doc test test-integration validate-examples
+    @echo "✅ Rust CI checks complete!"
 
 # Clean build artifacts
 clean:
@@ -249,10 +253,6 @@ default:
 # Documentation
 doc:
     cargo doc --locked --no-deps --document-private-items
-
-# Examples
-_build-examples:
-    cargo build --locked --examples
 
 # Run one example by name, e.g. `just example ising_1d`.
 example name:
@@ -324,18 +324,6 @@ lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmo
 
 lint-docs: markdown-check spell-check
 
-notebook-check: notebook-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just example ising_1d
-    MPLBACKEND=Agg uv run --group dev --group notebook check-notebooks execute
-
-notebook-lint: _ensure-uv
-    uv run --group dev check-notebooks lint
-
-notebook-sync: _ensure-uv
-    uv sync --group dev --group notebook
-
 markdown-check: _ensure-rumdl
     #!/usr/bin/env bash
     set -euo pipefail
@@ -369,6 +357,18 @@ markdown-fix: _ensure-rumdl
     fi
 
 markdown-lint: markdown-check
+
+notebook-check: notebook-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just example ising_1d
+    MPLBACKEND=Agg uv run --group dev --group notebook check-notebooks execute
+
+notebook-lint: _ensure-uv
+    uv run --group dev check-notebooks lint
+
+notebook-sync: _ensure-uv
+    uv sync --group dev --group notebook
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 publish-check: _ensure-jq
@@ -488,6 +488,9 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches benches/typed_error.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/erased_error.rs
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/typed_error.rs
+    expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-doctests src/doctests/unwrap_expect.rs
+    expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-benches-examples examples/unwrap_expect.rs
+    expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-benches-examples benches/unwrap_expect.rs
     expect_semgrep_count 1 mcmc.github-actions.external-action-sha-pinned github-actions/workflow_actions.yml
     expect_semgrep_count 1 mcmc.github-actions.external-action-approved-allowlist github-actions/workflow_actions.yml
     expect_semgrep_count 1 mcmc.github-actions.external-action-version-comment github-actions/workflow_actions.yml
@@ -600,22 +603,24 @@ tag-force version: python-sync
 # Testing: runnable Rust tests use nextest; rustdoc doctests remain on cargo test.
 test: test-lib test-doc
 
-test-lib: _ensure-cargo-nextest
-    cargo nextest run --locked --lib --verbose
-
-test-doc:
-    cargo test --locked --doc --verbose
-
 # All tests (lib + doc + integration + Python tooling)
 test-all: test test-integration test-python
     @echo "✅ All tests passed"
+
+test-doc:
+    cargo test --locked --doc --verbose
 
 # Integration tests
 test-integration: _ensure-cargo-nextest
     cargo nextest run --locked --test '*' --verbose
 
+test-lib: _ensure-cargo-nextest
+    cargo nextest run --locked --lib --verbose
+
 test-python: python-sync
     uv run pytest -q
+
+toml-fix: toml-fmt
 
 toml-fmt: _ensure-taplo
     #!/usr/bin/env bash
@@ -655,8 +660,6 @@ toml-lint: _ensure-taplo
     else
         echo "No TOML files found to lint."
     fi
-
-toml-fix: toml-fmt
 
 # Validate example output (seeded, deterministic)
 validate-examples: _build-examples

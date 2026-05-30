@@ -145,16 +145,18 @@ fn main() -> Result<(), ExampleError> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let n_spins = 50_u32;
+    let n_spins = 50_usize;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "example spin count is small enough to represent exactly"
+    )]
+    let n_spins_f64 = n_spins as f64;
     let beta = 0.5; // moderate temperature
     let coupling = 1.0;
 
     let target = Ising { coupling, beta };
     let proposal = SpinFlip;
-    let chain = Chain::new(
-        SpinChain::all_up(usize::try_from(n_spins).expect("example spin count fits usize")),
-        &target,
-    )?;
+    let chain = Chain::new(SpinChain::all_up(n_spins), &target)?;
     let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
 
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
@@ -199,7 +201,7 @@ fn main() -> Result<(), ExampleError> {
 
     let mean_mag = mag_sum / f64::from(n_samples);
     let mean_mag_sq = mag_sq_sum / f64::from(n_samples);
-    let susceptibility = beta * f64::from(n_spins) * (mean_mag_sq - mean_mag * mean_mag);
+    let susceptibility = beta * n_spins_f64 * (mean_mag_sq - mean_mag * mean_mag);
 
     println!("\nResults ({n_samples} samples):");
     println!("  <m>:             {mean_mag:+.4}");

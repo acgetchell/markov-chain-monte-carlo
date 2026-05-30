@@ -102,11 +102,13 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── semgrep/
 │       ├── benches/
 │       │   ├── erased_error.rs
-│       │   └── typed_error.rs
+│       │   ├── typed_error.rs
+│       │   └── unwrap_expect.rs
 │       ├── examples/
 │       │   ├── deep_import.rs
 │       │   ├── erased_error.rs
-│       │   └── typed_error.rs
+│       │   ├── typed_error.rs
+│       │   └── unwrap_expect.rs
 │       ├── github-actions/
 │       │   └── workflow_actions.yml
 │       ├── docs/
@@ -117,7 +119,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       └── src/
 │           ├── doctests/
 │           │   ├── erased_error.rs
-│           │   └── typed_error.rs
+│           │   ├── typed_error.rs
+│           │   └── unwrap_expect.rs
 │           └── project_rules/
 │               └── rust_style.rs
 ├── ty.toml

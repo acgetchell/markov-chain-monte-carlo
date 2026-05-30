@@ -513,9 +513,21 @@ impl Trace {
     /// was created.
     ///
     /// ```
+    /// # use std::io;
     /// use markov_chain_monte_carlo::prelude::{
     ///     ChainId, Trace, TraceError, TraceRecord, TraceStepOutcome,
     /// };
+    /// # #[derive(Debug)]
+    /// # enum ExampleError {
+    /// #     Trace(TraceError),
+    /// #     Io(io::Error),
+    /// # }
+    /// # impl From<TraceError> for ExampleError {
+    /// #     fn from(err: TraceError) -> Self { Self::Trace(err) }
+    /// # }
+    /// # impl From<io::Error> for ExampleError {
+    /// #     fn from(err: io::Error) -> Self { Self::Io(err) }
+    /// # }
     ///
     /// let mut trace = Trace::new(["energy"])?;
     /// trace.push(TraceRecord::new(
@@ -527,13 +539,13 @@ impl Trace {
     /// ))?;
     ///
     /// let mut csv = Vec::new();
-    /// trace.write_csv(&mut csv).expect("writing to Vec cannot fail");
+    /// trace.write_csv(&mut csv)?;
     ///
     /// assert_eq!(
-    ///     String::from_utf8(csv).expect("CSV output is UTF-8"),
-    ///     "chain_id,step,accepted,proposed,log_prob,energy\n0,1,true,true,-1,1.5\n",
+    ///     csv,
+    ///     b"chain_id,step,accepted,proposed,log_prob,energy\n0,1,true,true,-1,1.5\n",
     /// );
-    /// # Ok::<(), TraceError>(())
+    /// # Ok::<(), ExampleError>(())
     /// ```
     ///
     /// # Errors
@@ -622,22 +634,33 @@ impl TraceRecorder {
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{
-    ///     Chain, ChainId, Target, TraceError, TraceRecorder, TraceStepOutcome,
+    ///     Chain, ChainId, McmcError, Target, TraceError, TraceRecorder, TraceStepOutcome,
     /// };
+    ///
+    /// # #[derive(Debug)]
+    /// # enum ExampleError {
+    /// #     Mcmc(McmcError),
+    /// #     Trace(TraceError),
+    /// # }
+    /// # impl From<McmcError> for ExampleError {
+    /// #     fn from(err: McmcError) -> Self { Self::Mcmc(err) }
+    /// # }
+    /// # impl From<TraceError> for ExampleError {
+    /// #     fn from(err: TraceError) -> Self { Self::Trace(err) }
+    /// # }
     ///
     /// struct Flat;
     /// impl Target<i32> for Flat {
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
     ///
-    /// let chain = Chain::new(4, &Flat)
-    ///     .expect("flat target returns a finite log-probability");
+    /// let chain = Chain::new(4, &Flat)?;
     /// let mut recorder = TraceRecorder::new(ChainId::new(0), ["value"])?;
     ///
     /// recorder.record(&chain, TraceStepOutcome::accepted(), [f64::from(*chain.state())])?;
     ///
     /// assert_eq!(recorder.trace().records()[0].observable_values(), &[4.0]);
-    /// # Ok::<(), TraceError>(())
+    /// # Ok::<(), ExampleError>(())
     /// ```
     ///
     /// # Errors

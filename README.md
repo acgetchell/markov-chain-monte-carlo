@@ -12,7 +12,7 @@
 [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
 [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
 
-![Ising energy trace](docs/assets/ising_energy_trace.png)
+![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/main/docs/assets/ising_energy_trace.png)
 
 Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
 rollback-safe mutation or delayed commits.

@@ -226,6 +226,17 @@
 //! and RNG streams are reconstructed by the caller for portable resumes.
 //!
 //! ```
+//! # #[derive(Debug)]
+//! # enum ExampleError {
+//! #     Mcmc(markov_chain_monte_carlo::McmcError),
+//! #     Json(serde_json::Error),
+//! # }
+//! # impl From<markov_chain_monte_carlo::McmcError> for ExampleError {
+//! #     fn from(err: markov_chain_monte_carlo::McmcError) -> Self { Self::Mcmc(err) }
+//! # }
+//! # impl From<serde_json::Error> for ExampleError {
+//! #     fn from(err: serde_json::Error) -> Self { Self::Json(err) }
+//! # }
 //! # #[cfg(feature = "serde")] {
 //! use approx::assert_relative_eq;
 //! use markov_chain_monte_carlo::prelude::*;
@@ -235,20 +246,18 @@
 //!     fn log_prob(&self, state: &f64) -> f64 { -0.5 * state * state }
 //! }
 //!
-//! let chain = Chain::new(1.0, &Normal)
-//!     .expect("normal target returns a finite log probability");
+//! let chain = Chain::new(1.0, &Normal)?;
 //! let checkpoint = chain.checkpoint();
 //! let checkpoint = serde_json::to_string(&checkpoint)?;
 //! let checkpoint: ChainCheckpoint<f64> = serde_json::from_str(&checkpoint)?;
-//! let restored = Chain::from_checkpoint(checkpoint, &Normal)
-//!     .expect("normal target returns a finite checkpoint log probability");
+//! let restored = Chain::from_checkpoint(checkpoint, &Normal)?;
 //! assert_relative_eq!(
 //!     restored.log_prob(),
 //!     Normal.log_prob(restored.state()),
 //!     epsilon = 1e-12
 //! );
 //! # }
-//! # Ok::<(), serde_json::Error>(())
+//! # Ok::<(), ExampleError>(())
 //! ```
 //!
 //! # In-place mutation with rollback
@@ -490,7 +499,8 @@
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
 //! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+//!     .map_err(ObservedStreamError::Step)?;
 //! let mut coordinate = |state: &f64| *state;
 //! let mut stats = OnlineStats::new();
 //!
