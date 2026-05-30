@@ -119,3 +119,4 @@ python_functions = [ "test_*" ]
 
 [tool.uv]
 package = true
+default-groups = [ "dev", "notebook" ]

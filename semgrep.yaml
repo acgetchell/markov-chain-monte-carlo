@@ -264,6 +264,38 @@ rules:
           - pattern-regex: >-
               (?s)/\*!.*?(Box\s*<\s*dyn\s+(std::error::)?Error|&\s*dyn\s+(std::error::)?Error|anyhow::Error).*?\*/
 
+  - id: mcmc.rust.no-unwrap-expect-in-doctests
+    languages:
+      - generic
+    severity: WARNING
+    message: "Use fallible doctest flow instead of unwrap() or expect() in public documentation examples."
+    metadata:
+      category: correctness
+      rationale: "Public Rust documentation examples should model typed error handling with concrete errors and ? rather than panic-based control flow."
+    paths:
+      include:
+        - "/src/**/*.rs"
+    pattern-either:
+      - pattern-regex: '^\s*//[!/]\s*(?:#\s*)?(?:\s*\.|.*(?:\b[\w:]+|[\]\)?])\.)(unwrap|expect)\s*\('
+      - pattern-regex: '(?s)/\*\*.*?(?:\b[\w:]+|[\]\)?])\.(unwrap|expect)\s*\(.*?\*/'
+      - pattern-regex: '(?s)/\*!.*?(?:\b[\w:]+|[\]\)?])\.(unwrap|expect)\s*\(.*?\*/'
+
+  - id: mcmc.rust.no-unwrap-expect-in-benches-examples
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use explicit fixture error handling instead of unwrap() or expect() in benchmarks and examples."
+    metadata:
+      category: correctness
+      rationale: "Benchmarks and public examples should keep failure modes explicit so users and CI see the operation that failed instead of a panic-only unwrap/expect path."
+    paths:
+      include:
+        - "/benches/**/*.rs"
+        - "/examples/**/*.rs"
+    pattern-either:
+      - pattern: $VALUE.unwrap()
+      - pattern: $VALUE.expect(...)
+
   - id: mcmc.rust.public-error-enums-non-exhaustive
     languages:
       - rust

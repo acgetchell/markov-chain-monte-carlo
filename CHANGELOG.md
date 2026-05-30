@@ -49,6 +49,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add AdditiveTarget for composing model and bias log-weight terms in the target distribution.
   - Re-export the adapter through the crate root and scoped preludes for by-value, in-place, delayed, and testing workflows.
   - Document additive energy/action semantics and keep proposal-ratio corrections separate from target bias terms.
+- Add trace recording diagnostics [#79](https://github.com/acgetchell/markov-chain-monte-carlo/pull/79) [`adbb84a`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/adbb84a60a509eaba0d37ac298f2a6196b6495ee)
+
+  * feat: add trace recording diagnostics
+
+  - Add ChainId, TraceStepOutcome, TraceRecord, Trace, and TraceRecorder for reusable numeric MCMC traces with accept/reject metadata and CSV export.
+  - Re-export trace diagnostics through the root API and scoped preludes so examples, doctests, benchmarks, and downstream users can import them consistently.
+  - Extend the Ising example with energy and magnetization trace export, add an individual just example recipe, and document the notebook workflow for inspecting the generated CSV.
+
+  * ci: add notebook validation checks
+
+  - Add notebook linting and in-memory execution recipes so tracked notebooks are checked in local validation and full CI simulation.
+  - Add notebook runtime dependencies and a reusable check-notebooks helper for JSON, code-cell syntax, and nbclient execution.
+  - Harden the Ising trace notebook with clearer missing-file errors and proposed-move acceptance-rate handling.
+  - Cover notebook checking and subprocess utility behavior with Python tests.
+
+  * fix(ci): use ASCII notebook checker output
+
+  - Replace Unicode status markers with ASCII text so notebook checks run on Windows consoles.
+
+  * fix(tooling): exclude notebook checkpoints from discovery
+
+  - Skip `.ipynb_checkpoints` copies in `discover_notebooks` so checkpoint duplicates are never linted or executed.
+  - Correct the `paths` CLI help text to describe discovery via `discover_notebooks` instead of tracked files.
+  - Treat `check_notebooks` as a first-party module for Ruff import sorting.
 
 ### Changed
 

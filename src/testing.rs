@@ -231,7 +231,6 @@ impl DetailedBalanceReport {
     /// # Examples
     ///
     /// ```
-    /// use approx::assert_relative_eq;
     /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceReport;
     ///
     /// let report = DetailedBalanceReport::new(
@@ -239,7 +238,7 @@ impl DetailedBalanceReport {
     /// );
     ///
     /// assert_eq!(report.samples, 128);
-    /// assert_relative_eq!(report.z_score().unwrap(), 0.2, epsilon = 1e-12);
+    /// assert!(matches!(report.z_score(), Some(z) if (z - 0.2).abs() < 1e-12));
     /// ```
     #[expect(
         clippy::too_many_arguments,

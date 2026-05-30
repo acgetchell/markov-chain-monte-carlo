@@ -165,6 +165,7 @@ Keep these checks focused. Avoid broad community rule packs unless they prove lo
 - Only take ownership or allocate returned `Vec`s when required.
 - Keep production fallible paths typed; prefer `McmcError` or a specific error type over dynamic error erasure.
 - Avoid `unwrap`, `expect`, and `panic!` in production `src/` code.
+- Avoid `unwrap()`/`expect()` in doctests, examples, and benchmarks too; prefer `?` with concrete errors, or an explicit fixture helper in benches.
 - Use `#[expect(..., reason = "...")]` rather than `#[allow(clippy::...)]`.
 
 ## Publishing

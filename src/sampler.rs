@@ -388,7 +388,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     ///
     /// sampler.run(4)?;
     /// sampler.reset_counters();
@@ -479,7 +479,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// [`McmcError::InfiniteCurrentLogProb`] if the target returns NaN or +∞
     /// for the chain's current state.
     ///
-    /// ```should_panic
+    /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -499,12 +499,13 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0.0, &ValidTarget).unwrap();
-    /// // This will return Err(McmcError::NanCurrentLogProb)
-    /// let sampler = Sampler::new(chain, &NanTarget, &P, &mut rng).unwrap();
+    /// let chain = Chain::new(0.0, &ValidTarget)?;
+    /// let sampler = Sampler::new(chain, &NanTarget, &P, &mut rng);
+    /// assert!(matches!(sampler, Err(McmcError::NanCurrentLogProb)));
+    /// # Ok::<(), McmcError>(())
     /// ```
     ///
-    /// ```should_panic
+    /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -524,9 +525,10 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0.0, &ValidTarget).unwrap();
-    /// // This will return Err(McmcError::InfiniteCurrentLogProb)
-    /// let sampler = Sampler::new(chain, &InfTarget, &P, &mut rng).unwrap();
+    /// let chain = Chain::new(0.0, &ValidTarget)?;
+    /// let sampler = Sampler::new(chain, &InfTarget, &P, &mut rng);
+    /// assert!(matches!(sampler, Err(McmcError::InfiniteCurrentLogProb)));
+    /// # Ok::<(), McmcError>(())
     /// ```
     pub fn new(
         mut chain: Chain<S>,
@@ -718,7 +720,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ThinningError::Run)?;
     ///
     /// let states = sampler.run_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -849,7 +852,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -901,7 +905,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| state.0;
     /// let mut stats = OnlineStats::new();
     ///
@@ -961,7 +966,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -1018,7 +1025,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut finite = |state: &f64| {
     ///     if state.is_finite() { Ok(*state) } else { Err("non-finite") }
     /// };
@@ -1058,7 +1066,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut nonnegative = |state: &f64| {
     ///     if *state >= 0.0 { Ok(*state) } else { Err("negative state") }
     /// };
@@ -1108,7 +1117,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -1155,7 +1166,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut nonnegative = |state: &f64| {
     ///     if *state >= 0.0 { Ok(*state) } else { Err("negative state") }
     /// };
@@ -1216,7 +1228,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
@@ -1320,7 +1334,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(Spins(vec![1; 20]), &Ising)?;
-    /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng)?;
     ///
     /// sampler.run_mut(1000)?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
@@ -1417,7 +1431,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ThinningError::Run)?;
     ///
     /// let states = sampler.run_mut_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -1561,7 +1576,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -1613,7 +1629,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| state.0;
     /// let mut bins = BinningAnalysis::new();
     ///
@@ -1678,7 +1695,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
     ///
@@ -1736,7 +1755,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1780,7 +1800,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1836,7 +1857,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
     ///
     /// let samples = sampler.try_run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -1889,7 +1912,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
@@ -1955,7 +1979,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
     ///
@@ -2055,7 +2081,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = MoveRight;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(-1, &target)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let step = sampler.step_delayed()?;
     /// assert_eq!(step.outcome, StepOutcome::Accepted);
@@ -2134,7 +2160,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = MoveRight;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(-1, &target)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let step = sampler.step_delayed_checked()?;
     /// assert_eq!(step.outcome, StepOutcome::Accepted);
@@ -2210,7 +2236,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// sampler.run_delayed(3)?;
     /// assert_eq!(*sampler.chain_ref().state(), 3);
@@ -2286,7 +2312,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let continuation = sampler.run_delayed_chunk(3)?;
     /// assert_eq!(**continuation.state(), 3);
@@ -2382,7 +2408,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// // Record the selected family and post-step state for every step while
     /// // the sampler owns acceptance, then resume from the continuation.
@@ -2478,7 +2504,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(S(0), &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ThinningError::Run)?;
     ///
     /// let states = sampler.run_delayed_with_thinning(5, 2)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
@@ -2536,7 +2564,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let (_step, sample) = sampler.step_delayed_observing(&mut coordinate)?;
@@ -2608,7 +2636,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing(3, &mut coordinate)?;
@@ -2660,7 +2688,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -2717,7 +2747,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -2781,7 +2813,10 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
     ///
@@ -2845,7 +2880,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(*state) } else { Err("not positive") }
     /// };
@@ -2895,7 +2932,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(*state) } else { Err("not positive") }
     /// };
@@ -2950,7 +2989,10 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStepError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     ///
     /// let samples = sampler.try_run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
@@ -3009,7 +3051,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut positive = |state: &i32| {
     ///     if *state > 0 { Ok(f64::from(*state)) } else { Err("not positive") }
     /// };
@@ -3074,7 +3118,10 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)
     ///     .map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+    ///     .map_err(DelayedStepError::Mcmc)
+    ///     .map_err(ObservedStreamError::Step)
+    ///     .map_err(ThinningError::Run)?;
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
     ///
@@ -3146,7 +3193,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, 
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(Val(0.0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng).unwrap();
+    /// let mut sampler = Sampler::new(chain, &Flat, &Walk, &mut rng)?;
     ///
     /// // Take exactly 100 steps using iterator
     /// let errors: Vec<_> = sampler.by_ref().take(100).filter_map(Result::err).collect();

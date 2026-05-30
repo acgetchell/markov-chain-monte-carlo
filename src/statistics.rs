@@ -126,15 +126,14 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 /// the accumulator state.
 ///
 /// ```
-/// use approx::assert_relative_eq;
 /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 ///
 /// let mut stats = OnlineStats::new();
 /// stats.try_extend([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])?;
 ///
 /// assert_eq!(stats.count(), 8);
-/// assert_relative_eq!(stats.mean().unwrap(), 5.0, epsilon = 1e-12);
-/// assert_relative_eq!(stats.population_variance().unwrap(), 4.0, epsilon = 1e-12);
+/// assert_eq!(stats.mean(), Some(5.0));
+/// assert_eq!(stats.population_variance(), Some(4.0));
 /// # Ok::<(), StatisticsError>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -307,12 +306,13 @@ impl OnlineStats {
     /// Whether the accumulator is empty.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::prelude::OnlineStats;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let mut stats = OnlineStats::new();
     /// assert!(stats.is_empty());
-    /// stats.try_push(1.0).unwrap();
+    /// stats.try_push(1.0)?;
     /// assert!(!stats.is_empty());
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -454,7 +454,7 @@ impl BinningEstimate {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
-    /// assert_eq!(bins.estimates().nth(1).unwrap().block_size(), 2);
+    /// assert_eq!(bins.estimates().nth(1).map(|estimate| estimate.block_size()), Some(2));
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
@@ -468,7 +468,7 @@ impl BinningEstimate {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
-    /// assert_eq!(bins.estimates().next().unwrap().block_count(), 4);
+    /// assert_eq!(bins.estimates().next().map(|estimate| estimate.block_count()), Some(4));
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
@@ -482,7 +482,7 @@ impl BinningEstimate {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
-    /// assert_eq!(bins.estimates().next().unwrap().mean(), 2.5);
+    /// assert_eq!(bins.estimates().next().map(|estimate| estimate.mean()), Some(2.5));
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
@@ -498,7 +498,10 @@ impl BinningEstimate {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
-    /// assert_eq!(bins.estimates().nth(2).unwrap().sample_variance(), None);
+    /// assert_eq!(
+    ///     bins.estimates().nth(2).and_then(|estimate| estimate.sample_variance()),
+    ///     None
+    /// );
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
@@ -514,7 +517,12 @@ impl BinningEstimate {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
-    /// assert!(bins.estimates().next().unwrap().standard_error().is_some());
+    /// assert!(
+    ///     bins.estimates()
+    ///         .next()
+    ///         .and_then(|estimate| estimate.standard_error())
+    ///         .is_some()
+    /// );
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
@@ -774,12 +782,13 @@ impl BinningAnalysis {
     /// Whether the analysis contains no measurements.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::prelude::BinningAnalysis;
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let mut bins = BinningAnalysis::new();
     /// assert!(bins.is_empty());
-    /// bins.try_push(1.0).unwrap();
+    /// bins.try_push(1.0)?;
     /// assert!(!bins.is_empty());
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -831,7 +840,10 @@ impl BinningAnalysis {
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=8).map(f64::from))?;
-    /// assert_eq!(bins.coarsest_estimate().unwrap().block_size(), 4);
+    /// assert_eq!(
+    ///     bins.coarsest_estimate().map(|estimate| estimate.block_size()),
+    ///     Some(4)
+    /// );
     /// # Ok::<(), StatisticsError>(())
     /// ```
     #[must_use]
