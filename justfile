@@ -488,7 +488,7 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches benches/typed_error.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/erased_error.rs
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-doctests src/doctests/typed_error.rs
-    expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-doctests src/doctests/unwrap_expect.rs
+    expect_semgrep_count 7 mcmc.rust.no-unwrap-expect-in-doctests src/doctests/unwrap_expect.rs
     expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-benches-examples examples/unwrap_expect.rs
     expect_semgrep_count 2 mcmc.rust.no-unwrap-expect-in-benches-examples benches/unwrap_expect.rs
     expect_semgrep_count 1 mcmc.github-actions.external-action-sha-pinned github-actions/workflow_actions.yml

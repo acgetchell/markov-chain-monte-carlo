@@ -223,8 +223,8 @@ The crate forbids `unsafe_code` and warns on `missing_docs`; broken intra-doc li
 ### Project-Specific Semgrep Rules
 
 The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They cover things like avoiding `stdio` diagnostics in `src/`, banning `Box<dyn Error>`
-in `src/`/examples/benches/doctests, requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run them with `just semgrep` and
-`just semgrep-test`.
+in `src/`/examples/benches/doctests, banning `unwrap()`/`expect()` in doctests/examples/benches (prefer `?` and concrete errors, or a benches fixture helper),
+requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run them with `just semgrep` and `just semgrep-test`.
 
 ## Testing
 

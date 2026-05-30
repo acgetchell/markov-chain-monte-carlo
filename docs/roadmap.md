@@ -32,7 +32,7 @@ MSRV/toolchain refresh.
 - [#61](https://github.com/acgetchell/markov-chain-monte-carlo/issues/61) - Expose delayed-step hooks or telemetry for domain-specific sampler integration
 - [x] [#59](https://github.com/acgetchell/markov-chain-monte-carlo/issues/59) - Support additive target bias terms in Metropolis-Hastings acceptance
 - [#48](https://github.com/acgetchell/markov-chain-monte-carlo/issues/48) - Investigate detailed balance for delayed proposals with variable valid-site counts
-- [#62](https://github.com/acgetchell/markov-chain-monte-carlo/issues/62) - Clean up doctest/example unwraps and enforce with Semgrep
+- [x] [#62](https://github.com/acgetchell/markov-chain-monte-carlo/issues/62) - Clean up doctest/example unwraps and enforce with Semgrep
 
 Resumable chunked runs shipped as `Sampler::run_chunk`, `run_mut_chunk`, and `run_delayed_chunk`, each returning a checkpoint-compatible continuation, plus
 `run_delayed_chunk_observing` for per-step delayed telemetry. A combined `(measurements, continuation)` return shape is intentionally deferred: callers keep

@@ -275,7 +275,10 @@ rules:
     paths:
       include:
         - "/src/**/*.rs"
-    pattern-regex: '^\s*//[!/]\s*(?:#\s*)?.*(?:\b[\w:]+|[\]\)])\.(unwrap|expect)\s*\('
+    pattern-either:
+      - pattern-regex: '^\s*//[!/]\s*(?:#\s*)?(?:\s*\.|.*(?:\b[\w:]+|[\]\)?])\.)(unwrap|expect)\s*\('
+      - pattern-regex: '(?s)/\*\*.*?(?:\b[\w:]+|[\]\)?])\.(unwrap|expect)\s*\(.*?\*/'
+      - pattern-regex: '(?s)/\*!.*?(?:\b[\w:]+|[\]\)?])\.(unwrap|expect)\s*\(.*?\*/'
 
   - id: mcmc.rust.no-unwrap-expect-in-benches-examples
     languages:
