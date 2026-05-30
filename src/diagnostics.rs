@@ -715,6 +715,24 @@ mod tests {
     }
 
     #[test]
+    fn recorder_accessors_return_metadata_and_trace() -> Result<(), TraceError> {
+        let recorder = TraceRecorder::new(ChainId::new(7), ["energy"])?;
+
+        assert_eq!(recorder.chain_id(), ChainId::new(7));
+        assert_eq!(recorder.trace().observable_names(), &["energy"]);
+
+        let trace = recorder.into_trace();
+        assert_eq!(trace.observable_names(), &["energy"]);
+        assert!(trace.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn chain_id_display_formats_raw_identifier() {
+        assert_eq!(ChainId::new(42).to_string(), "42");
+    }
+
+    #[test]
     fn trace_rejects_bad_headers_and_row_widths() {
         assert_eq!(
             Trace::new(["energy", ""]).unwrap_err(),
@@ -745,6 +763,37 @@ mod tests {
     }
 
     #[test]
+    fn trace_error_display_messages_include_context() {
+        assert_eq!(
+            TraceError::EmptyObservableName { index: 3 }.to_string(),
+            "observable name at index 3 is empty"
+        );
+        assert_eq!(
+            TraceError::DuplicateObservableName {
+                name: "energy".to_owned()
+            }
+            .to_string(),
+            "observable name \"energy\" appears more than once"
+        );
+        assert_eq!(
+            TraceError::ObservableCountMismatch {
+                expected: 2,
+                actual: 1
+            }
+            .to_string(),
+            "trace row has 1 observable values, expected 2"
+        );
+        assert_eq!(
+            TraceError::ObservableNamesMismatch {
+                expected: vec!["energy".to_owned()],
+                actual: vec!["magnetization".to_owned()]
+            }
+            .to_string(),
+            "trace observable columns differ: expected [\"energy\"], got [\"magnetization\"]"
+        );
+    }
+
+    #[test]
     fn trace_extend_rejects_mismatched_headers() {
         let mut trace = Trace::new(["energy"]).expect("valid observable name");
         let other = Trace::new(["energy", "magnetization"]).expect("valid observable names");
@@ -756,6 +805,29 @@ mod tests {
                 actual: vec!["energy".to_owned(), "magnetization".to_owned()]
             }
         );
+    }
+
+    #[test]
+    fn trace_extend_appends_matching_records() -> Result<(), TraceError> {
+        let mut trace = Trace::new(["energy"])?;
+        let mut other = Trace::new(["energy"])?;
+        other
+            .push(TraceRecord::new(
+                ChainId::new(1),
+                9,
+                TraceStepOutcome::accepted(),
+                -3.5,
+                vec![-7.0],
+            ))
+            .expect("row width matches");
+
+        trace.extend(other)?;
+
+        assert_eq!(trace.len(), 1);
+        assert_eq!(trace.records()[0].chain_id(), ChainId::new(1));
+        assert_eq!(trace.records()[0].step(), 9);
+        assert_eq!(trace.records()[0].observable_values(), &[-7.0]);
+        Ok(())
     }
 
     #[test]
@@ -820,6 +892,51 @@ mod tests {
              0,1,true,true,0,1\n"
         );
         Ok(())
+    }
+
+    #[test]
+    fn trace_write_csv_propagates_row_write_errors() {
+        struct FailAfter {
+            accepted: usize,
+            limit: usize,
+        }
+
+        impl Write for FailAfter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                if self.accepted >= self.limit {
+                    return Err(io::Error::other("writer full"));
+                }
+                let remaining = self.limit - self.accepted;
+                let written = remaining.min(buf.len());
+                self.accepted += written;
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut trace = Trace::new(["energy"]).expect("valid observable name");
+        trace
+            .push(TraceRecord::new(
+                ChainId::new(0),
+                1,
+                TraceStepOutcome::accepted(),
+                0.0,
+                vec![1.0],
+            ))
+            .expect("row width matches");
+        let mut writer = FailAfter {
+            accepted: 0,
+            limit: "chain_id,step,accepted,proposed,log_prob,energy\n".len(),
+        };
+
+        let err = trace.write_csv(&mut writer).unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert_eq!(err.to_string(), "writer full");
+        writer.flush().expect("flush is infallible for test writer");
     }
 
     #[test]

@@ -187,7 +187,7 @@ check-rust: fmt-check clippy
     @echo "✅ Rust checks complete!"
 
 # Repository tooling that does not need to be repeated across operating systems.
-check-repository-tooling: python-check yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check-repository-tooling: python-check notebook-lint yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Repository tooling checks complete!"
 
 # Non-mutating validation gate
@@ -212,7 +212,7 @@ ci-repository-tooling: check-repository-tooling test-python
 
 # CI simulation: comprehensive validation.
 # Depends on repository tooling, including `zizmor` GitHub Actions security analysis.
-ci: ci-repository-tooling ci-rust bench-compile
+ci: ci-repository-tooling ci-rust notebook-check bench-compile
     @echo "🎯 CI checks complete!"
 
 # Clean build artifacts
@@ -301,6 +301,8 @@ help-workflows:
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
     @echo "  just lint-docs      # Markdown and spelling checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
+    @echo "  just notebook-lint  # Validate notebooks without executing cells"
+    @echo "  just notebook-check # Execute notebooks after generating example artifacts"
     @echo "  just zizmor         # GitHub Actions security analysis"
     @echo ""
     @echo "Testing:"
@@ -321,6 +323,18 @@ lint-code: fmt-check clippy python-check semgrep semgrep-test
 lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmor
 
 lint-docs: markdown-check spell-check
+
+notebook-check: notebook-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just example ising_1d
+    MPLBACKEND=Agg uv run --group dev --group notebook check-notebooks execute
+
+notebook-lint: _ensure-uv
+    uv run --group dev check-notebooks lint
+
+notebook-sync: _ensure-uv
+    uv sync --group dev --group notebook
 
 markdown-check: _ensure-rumdl
     #!/usr/bin/env bash

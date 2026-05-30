@@ -1,6 +1,16 @@
 # Tooling Scripts
 
-Python utilities used by the local release workflow.
+Python utilities used by local repository workflows.
+
+## Notebooks
+
+```bash
+just notebook-lint
+just notebook-check
+```
+
+`just notebook-lint` validates tracked notebook JSON and compiles code cells without executing them. `just notebook-check` first generates example artifacts,
+then executes tracked notebooks in memory through `nbclient` with a non-interactive Matplotlib backend.
 
 ## Changelog
 

@@ -75,12 +75,15 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── rustfmt.toml
 ├── scripts/
 │   ├── README.md
+│   ├── check_notebooks.py
 │   ├── postprocess_changelog.py
 │   ├── subprocess_utils.py
 │   ├── tag_release.py
 │   └── tests/
 │       ├── __init__.py
+│       ├── test_check_notebooks.py
 │       ├── test_postprocess_changelog.py
+│       ├── test_subprocess_utils.py
 │       └── test_tag_release.py
 ├── semgrep.yaml
 ├── src/
@@ -131,7 +134,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
-- `scripts/` — Python helpers for changelog post-processing and release tagging.
+- `scripts/` — Python helpers for notebook checks, changelog post-processing, and release tagging.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 

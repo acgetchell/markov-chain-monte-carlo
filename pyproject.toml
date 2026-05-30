@@ -22,12 +22,13 @@ dependencies = [  ]
 "Bug Tracker" = "https://github.com/acgetchell/markov-chain-monte-carlo/issues"
 
 [project.scripts]
+check-notebooks = "check_notebooks:main"
 postprocess-changelog = "postprocess_changelog:main"
 tag-release = "tag_release:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "postprocess_changelog", "subprocess_utils", "tag_release" ]
+py-modules = [ "check_notebooks", "postprocess_changelog", "subprocess_utils", "tag_release" ]
 
 [dependency-groups]
 dev = [
@@ -36,6 +37,13 @@ dev = [
     "ruff>=0.15.14",
     "semgrep==1.164.0",
     "ty>=0.0.40",
+]
+notebook = [
+    "ipykernel>=7.1.0",
+    "matplotlib>=3.10.8",
+    "nbclient>=0.10.2",
+    "nbformat>=5.10.4",
+    "polars>=1.35.2",
 ]
 
 [tool.ruff]
