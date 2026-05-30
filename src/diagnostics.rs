@@ -5,6 +5,25 @@
 //! contains one row per completed step, a stable [`ChainId`], accept/reject
 //! metadata through [`TraceStepOutcome`], the chain's cached target
 //! log-probability, and caller-defined numeric observable columns.
+//!
+//! # Acceptance signal availability by stepping path
+//!
+//! Populating accept/reject metadata requires an acceptance signal from the
+//! step that produced the row, and the three stepping paths expose different
+//! information:
+//!
+//! - In-place stepping ([`Chain::step_mut`](crate::Chain::step_mut) and
+//!   [`Sampler::step_mut`](crate::Sampler::step_mut)) returns `bool`; convert
+//!   it with [`TraceStepOutcome::from_proposal_acceptance`].
+//! - Delayed stepping ([`Chain::step_delayed`](crate::Chain::step_delayed) and
+//!   [`Sampler::step_delayed`](crate::Sampler::step_delayed)) returns a
+//!   [`Step`]/[`StepOutcome`]; convert it with the [`From`] implementations on
+//!   [`TraceStepOutcome`].
+//! - By-value stepping ([`Chain::step`](crate::Chain::step) and
+//!   [`Sampler::step`](crate::Sampler::step)) returns `Result<(), _>` with no
+//!   acceptance information, so a by-value caller cannot truthfully populate
+//!   accept/reject. Record from an in-place or delayed step when a trace must
+//!   capture acceptance exactly.
 
 use std::collections::BTreeSet;
 use std::error::Error;

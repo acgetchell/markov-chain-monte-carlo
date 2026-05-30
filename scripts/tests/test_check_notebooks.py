@@ -33,6 +33,17 @@ class TestDiscoverNotebooks:
 
         assert check_notebooks.discover_notebooks(tmp_path) == [first, second]
 
+    def test_excludes_checkpoint_notebooks(self, tmp_path: Path) -> None:
+        notebooks = tmp_path / "notebooks"
+        checkpoints = notebooks / ".ipynb_checkpoints"
+        checkpoints.mkdir(parents=True)
+        tracked = notebooks / "a.ipynb"
+        checkpoint = checkpoints / "a-checkpoint.ipynb"
+        tracked.write_text("{}", encoding="utf-8")
+        checkpoint.write_text("{}", encoding="utf-8")
+
+        assert check_notebooks.discover_notebooks(tmp_path) == [tracked]
+
     def test_returns_empty_list_when_notebook_directory_is_missing(self, tmp_path: Path) -> None:
         assert check_notebooks.discover_notebooks(tmp_path) == []
 

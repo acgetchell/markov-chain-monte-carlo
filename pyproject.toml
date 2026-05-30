@@ -86,6 +86,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "check_notebooks",
     "postprocess_changelog",
     "subprocess_utils",
     "tag_release",

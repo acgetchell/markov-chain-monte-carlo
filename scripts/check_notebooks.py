@@ -12,8 +12,12 @@ from typing import Any
 
 
 def discover_notebooks(repo_root: Path) -> list[Path]:
-    """Return repository notebooks in the conventional notebook directory."""
-    return sorted((repo_root / "notebooks").glob("**/*.ipynb"))
+    """Return repository notebooks in the conventional notebook directory.
+
+    Jupyter checkpoint copies under ``.ipynb_checkpoints`` directories are
+    excluded so they are never linted or executed.
+    """
+    return sorted(path for path in (repo_root / "notebooks").glob("**/*.ipynb") if ".ipynb_checkpoints" not in path.parts)
 
 
 def cell_source(cell: dict[str, Any]) -> str:
@@ -69,7 +73,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "paths",
         nargs="*",
         type=Path,
-        help="notebooks to check; defaults to tracked *.ipynb files",
+        help="notebooks to check; defaults to discovered notebooks under notebooks/ via discover_notebooks",
     )
     return parser.parse_args(argv)
 
