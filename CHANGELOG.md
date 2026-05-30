@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-05-30
 
 ### Added
 
@@ -101,6 +101,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Repair the historical changelog body for escaped Rust generic examples.
   - Filter changelog-only body noise from generated release notes.
   - Regenerate CHANGELOG.md with the corrected commit preprocessing.
+- Enforce fallible public Rust examples [#62](https://github.com/acgetchell/markov-chain-monte-carlo/pull/62) [#80](https://github.com/acgetchell/markov-chain-monte-carlo/pull/80) [`ca2ba16`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ca2ba169385a8fa99aced9100a392fb402fa29bf)
+
+  * fix: enforce fallible public Rust examples [#62](https://github.com/acgetchell/markov-chain-monte-carlo/pull/62)
+
+  - Replace unwrap and expect flows in doctests, examples, and benchmarks with typed error propagation or contextual benchmark failure handling.
+  - Add Semgrep guardrails and fixtures that catch unwrap and expect usage in public doctests, examples, and benchmarks.
+  - Keep generated documentation and tooling metadata aligned with the updated validation surface.
+
+  * fix(semgrep): catch doctest unwrap continuations [#62](https://github.com/acgetchell/markov-chain-monte-carlo/pull/62)
+
+  - Detect unwrap and expect calls on rustfmt-style continuation lines in doctests.
+  - Cover line and block doctest fixtures for public panic-based example flows.
+  - Document the no-unwrap doctest, example, and benchmark convention.
 
 ### Maintenance
 
@@ -395,7 +408,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit: scaffold MCMC crate [`5d7f706`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/5d7f706da2d7c41af619a2f5669cdcd56dae94ba)
 
-[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.3.0...HEAD
+[0.4.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.1.0...v0.2.0

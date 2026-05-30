@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markov-chain-monte-carlo-tooling"
-version = "0.3.0"
+version = "0.4.0"
 description = "Python utility scripts for the markov-chain-monte-carlo Rust library"
 readme = "README.md"
 requires-python = ">=3.12"

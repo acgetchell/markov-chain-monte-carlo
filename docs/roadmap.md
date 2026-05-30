@@ -20,24 +20,23 @@ The v0.3.0 milestone made the crate useful as the sampling layer for downstream 
 - [x] Optional `serde` checkpointing
 - [x] Detailed-balance verification for by-value, in-place, and delayed proposals
 
-## Planned Milestones
-
 ### v0.4.0 Resumable CDT Integration
 
-The next feature release should focus on downstream sampler integration rather than a grab bag of diagnostics. This is the right place for the Rust 1.96.0
-MSRV/toolchain refresh.
+The v0.4.0 milestone focused on downstream sampler integration and included the Rust 1.96.0 MSRV/toolchain refresh.
 
-- [#65](https://github.com/acgetchell/markov-chain-monte-carlo/issues/65) - Update Rust toolchain and MSRV to 1.96.0
+- [x] [#65](https://github.com/acgetchell/markov-chain-monte-carlo/issues/65) - Update Rust toolchain and MSRV to 1.96.0
 - [x] [#60](https://github.com/acgetchell/markov-chain-monte-carlo/issues/60) - Expose resumable sampler state for chunked runs
-- [#61](https://github.com/acgetchell/markov-chain-monte-carlo/issues/61) - Expose delayed-step hooks or telemetry for domain-specific sampler integration
+- [x] [#61](https://github.com/acgetchell/markov-chain-monte-carlo/issues/61) - Expose delayed-step hooks or telemetry for domain-specific sampler integration
 - [x] [#59](https://github.com/acgetchell/markov-chain-monte-carlo/issues/59) - Support additive target bias terms in Metropolis-Hastings acceptance
-- [#48](https://github.com/acgetchell/markov-chain-monte-carlo/issues/48) - Investigate detailed balance for delayed proposals with variable valid-site counts
+- [x] [#48](https://github.com/acgetchell/markov-chain-monte-carlo/issues/48) - Detailed balance for delayed proposals with variable valid-site counts
 - [x] [#62](https://github.com/acgetchell/markov-chain-monte-carlo/issues/62) - Clean up doctest/example unwraps and enforce with Semgrep
 
 Resumable chunked runs shipped as `Sampler::run_chunk`, `run_mut_chunk`, and `run_delayed_chunk`, each returning a checkpoint-compatible continuation, plus
 `run_delayed_chunk_observing` for per-step delayed telemetry. A combined `(measurements, continuation)` return shape is intentionally deferred: callers keep
 measurements in their own buffers and accumulate across chunks today. Revisit the combined shape once `causal-triangulations` integrates against v0.4.0 and
 shows whether the callback-plus-continuation composition is sufficient in practice.
+
+## Planned Milestones
 
 ### v0.5.0 Adaptive Diagnostics
 
