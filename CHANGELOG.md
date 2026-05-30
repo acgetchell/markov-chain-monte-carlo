@@ -35,6 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add checkpoint accessors on Sampler so callers can inspect or persist continuation state without unwrapping the inner chain.
   - Add chunked by-value, in-place, and delayed-commit run helpers that preserve sampler counters and RNG streams across repeated chunks.
   - Document chunked sampling as the ergonomic path for workflows that choose each next step budget from the updated state.
+- [**breaking**] Expose delayed-step outcome telemetry [#61](https://github.com/acgetchell/markov-chain-monte-carlo/pull/61) [#77](https://github.com/acgetchell/markov-chain-monte-carlo/pull/77) [`6f846ff`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/6f846ff25e44895f9b6573352a365121127b748f)
+
+  * feat!: expose delayed-step outcome telemetry [#61](https://github.com/acgetchell/markov-chain-monte-carlo/pull/61)
+
+  - Replace delayed-step accepted/proposed booleans with StepOutcome so step state is represented by one invariant-bearing value.
+  - Add StepRejectionReason and DelayedProposal::no_plan_info for no-plan delayed steps that still need domain-specific telemetry.
+  - Re-export delayed telemetry through the root API and delayed prelude, and update docs and benchmarks to use outcome-based access.
+- Add additive target composition [#78](https://github.com/acgetchell/markov-chain-monte-carlo/pull/78) [`55140e0`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/55140e086b4f4b724372b797b6856b41b8c7d1f1)
+
+  * feat: add additive target composition
+
+  - Add AdditiveTarget for composing model and bias log-weight terms in the target distribution.
+  - Re-export the adapter through the crate root and scoped preludes for by-value, in-place, delayed, and testing workflows.
+  - Document additive energy/action semantics and keep proposal-ratio corrections separate from target bias terms.
 
 ### Changed
 

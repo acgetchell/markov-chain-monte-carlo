@@ -50,14 +50,16 @@ impl DetailedBalanceConfig {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceConfig, DetailedBalanceError,
+    /// };
     ///
     /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
     ///
     /// assert_eq!(config.samples(), 128);
     /// assert_eq!(config.tolerance(), 1e-12);
     /// assert_eq!(config.min_hits(), 1);
-    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// # Ok::<(), DetailedBalanceError>(())
     /// ```
     pub fn new(
         samples: usize,
@@ -95,12 +97,14 @@ impl DetailedBalanceConfig {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceConfig, DetailedBalanceError,
+    /// };
     ///
     /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
     ///
     /// assert_eq!(config.samples(), 128);
-    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// # Ok::<(), DetailedBalanceError>(())
     /// ```
     #[must_use]
     pub const fn samples(self) -> usize {
@@ -112,12 +116,14 @@ impl DetailedBalanceConfig {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceConfig, DetailedBalanceError,
+    /// };
     ///
     /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
     ///
     /// assert_eq!(config.tolerance(), 1e-12);
-    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// # Ok::<(), DetailedBalanceError>(())
     /// ```
     #[must_use]
     pub const fn tolerance(self) -> f64 {
@@ -129,12 +135,14 @@ impl DetailedBalanceConfig {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceConfig;
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceConfig, DetailedBalanceError,
+    /// };
     ///
     /// let config = DetailedBalanceConfig::new(128, 1e-12, 1)?;
     ///
     /// assert_eq!(config.min_hits(), 1);
-    /// # Ok::<(), markov_chain_monte_carlo::DetailedBalanceError>(())
+    /// # Ok::<(), DetailedBalanceError>(())
     /// ```
     #[must_use]
     pub const fn min_hits(self) -> usize {
@@ -224,7 +232,7 @@ impl DetailedBalanceReport {
     ///
     /// ```
     /// use approx::assert_relative_eq;
-    /// use markov_chain_monte_carlo::DetailedBalanceReport;
+    /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceReport;
     ///
     /// let report = DetailedBalanceReport::new(
     ///     128, 64, 64, 0.0, 0.0, 0.0, 0.0, 0.01, 0.05,
@@ -266,7 +274,7 @@ impl DetailedBalanceReport {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceReport;
+    /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceReport;
     ///
     /// let report = DetailedBalanceReport::new(
     ///     128, 128, 128, 0.0, 0.0, 0.0, 0.0, 1e-3, 0.01,
@@ -288,7 +296,7 @@ impl DetailedBalanceReport {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceReport;
+    /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceReport;
     ///
     /// let report = DetailedBalanceReport::new(
     ///     128, 128, 128, 0.0, 0.0, 0.0, 0.0, 0.02, 0.01,
@@ -487,7 +495,9 @@ impl<E> DetailedBalanceFailure<E> {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{DetailedBalanceConfig, DetailedBalanceFailure};
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceConfig, DetailedBalanceFailure,
+    /// };
     ///
     /// let error = DetailedBalanceConfig::new(0, 1e-12, 1).unwrap_err();
     /// let failure = DetailedBalanceFailure::new(
@@ -519,7 +529,9 @@ impl<E> DetailedBalanceBatchReport<E> {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{DetailedBalanceBatchReport, DetailedBalanceReport};
+    /// use markov_chain_monte_carlo::prelude::testing::{
+    ///     DetailedBalanceBatchReport, DetailedBalanceReport,
+    /// };
     ///
     /// let report = DetailedBalanceReport::new(
     ///     128, 128, 128, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01,
@@ -544,7 +556,7 @@ impl<E> DetailedBalanceBatchReport<E> {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceBatchReport;
+    /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceBatchReport;
     ///
     /// let batch: DetailedBalanceBatchReport =
     ///     DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
@@ -577,7 +589,7 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DetailedBalanceDelayedTransition;
+    /// use markov_chain_monte_carlo::prelude::testing::DetailedBalanceDelayedTransition;
     ///
     /// let forward = |plan: &bool| *plan;
     /// let reverse = |plan: &bool| !*plan;

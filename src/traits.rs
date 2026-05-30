@@ -23,12 +23,14 @@ use rand::Rng;
 /// # Examples
 ///
 /// ```
-/// use markov_chain_monte_carlo::DiscreteProposalRatio;
+/// use markov_chain_monte_carlo::prelude::by_value::{
+///     DiscreteProposalRatio, DiscreteProposalRatioError,
+/// };
 ///
 /// let log_q_ratio = DiscreteProposalRatio::from_counts(3, 1)?.log_q_ratio();
 ///
 /// assert!((log_q_ratio - 3.0_f64.ln()).abs() < 1e-12);
-/// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+/// # Ok::<(), DiscreteProposalRatioError>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use]
@@ -68,7 +70,9 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
     ///
@@ -76,7 +80,7 @@ impl DiscreteProposalRatio {
     /// assert_eq!(ratio.forward_site_count(), 6);
     /// assert_eq!(ratio.reverse_weight(), 0.75);
     /// assert_eq!(ratio.reverse_site_count(), 2);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     pub fn new(
         forward_weight: f64,
@@ -123,13 +127,15 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::from_counts(4, 2)?;
     /// let log_q_ratio = ratio.log_q_ratio();
     ///
     /// assert!((log_q_ratio - 2.0_f64.ln()).abs() < 1e-12);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     pub fn from_counts(
         forward_site_count: usize,
@@ -143,12 +149,14 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
     ///
     /// assert_eq!(ratio.forward_weight(), 0.25);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn forward_weight(self) -> f64 {
@@ -160,12 +168,14 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
     ///
     /// assert_eq!(ratio.reverse_weight(), 0.75);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn reverse_weight(self) -> f64 {
@@ -177,12 +187,14 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::from_counts(4, 2)?;
     ///
     /// assert_eq!(ratio.forward_site_count(), 4);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn forward_site_count(self) -> usize {
@@ -194,12 +206,14 @@ impl DiscreteProposalRatio {
     /// # Examples
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let ratio = DiscreteProposalRatio::from_counts(4, 2)?;
     ///
     /// assert_eq!(ratio.reverse_site_count(), 2);
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn reverse_site_count(self) -> usize {
@@ -219,13 +233,15 @@ impl DiscreteProposalRatio {
     /// cannot be accepted because no reverse proposal exists.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::DiscreteProposalRatio;
+    /// use markov_chain_monte_carlo::prelude::by_value::{
+    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    /// };
     ///
     /// let log_q_ratio = DiscreteProposalRatio::from_counts(3, 0)?.log_q_ratio();
     ///
     /// assert!(log_q_ratio.is_infinite());
     /// assert!(log_q_ratio.is_sign_negative());
-    /// # Ok::<(), markov_chain_monte_carlo::DiscreteProposalRatioError>(())
+    /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub fn log_q_ratio(self) -> f64 {
@@ -320,7 +336,7 @@ fn count_ln(count: NonZeroUsize) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+/// use markov_chain_monte_carlo::prelude::{AdditiveTarget, Target};
 ///
 /// struct ModelAction;
 /// impl Target<i32> for ModelAction {
@@ -353,7 +369,7 @@ impl<A, B> AdditiveTarget<A, B> {
     /// Create a target whose log weight is `primary + additive`.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    /// use markov_chain_monte_carlo::prelude::{AdditiveTarget, Target};
     ///
     /// struct Flat;
     /// impl Target<()> for Flat {
@@ -376,7 +392,7 @@ impl<A, B> AdditiveTarget<A, B> {
     /// Primary target component.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    /// use markov_chain_monte_carlo::prelude::{AdditiveTarget, Target};
     ///
     /// struct Model;
     /// impl Target<i32> for Model {
@@ -400,7 +416,7 @@ impl<A, B> AdditiveTarget<A, B> {
     /// Additive target component, such as a bias or auxiliary log weight.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    /// use markov_chain_monte_carlo::prelude::{AdditiveTarget, Target};
     ///
     /// struct Model;
     /// impl Target<i32> for Model {
@@ -426,7 +442,7 @@ impl<A, B> AdditiveTarget<A, B> {
     /// Consume the adapter into its component targets.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{AdditiveTarget, Target};
+    /// use markov_chain_monte_carlo::prelude::{AdditiveTarget, Target};
     ///
     /// struct Model;
     /// impl Target<()> for Model {

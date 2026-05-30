@@ -23,7 +23,7 @@ pub trait Observable<S> {
     /// Compute a measurement from `state`.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::Observable;
+    /// use markov_chain_monte_carlo::prelude::Observable;
     ///
     /// let mut squared = |x: &f64| x * x;
     ///
@@ -54,7 +54,7 @@ pub trait TryObservable<S> {
     /// Compute a fallible measurement from `state`.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::TryObservable;
+    /// use markov_chain_monte_carlo::prelude::TryObservable;
     ///
     /// let mut reciprocal = |x: &f64| {
     ///     if *x == 0.0 { Err("zero") } else { Ok(1.0 / *x) }
@@ -184,14 +184,14 @@ pub trait TryAccumulator<T> {
     /// Store or update one observation output.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, TryAccumulator};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError, TryAccumulator};
     ///
     /// let mut stats = OnlineStats::new();
     /// TryAccumulator::try_push(&mut stats, 1.0)?;
     /// TryAccumulator::try_push(&mut stats, 3.0)?;
     ///
     /// assert_eq!(stats.mean(), Some(2.0));
-    /// # Ok::<(), markov_chain_monte_carlo::StatisticsError>(())
+    /// # Ok::<(), StatisticsError>(())
     /// ```
     ///
     /// # Errors
@@ -215,7 +215,7 @@ impl<T> SampleBuffer<T> {
     /// Create an empty buffer.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer = SampleBuffer::<f64>::new();
     /// assert!(buffer.is_empty());
@@ -229,7 +229,7 @@ impl<T> SampleBuffer<T> {
     /// Create an empty buffer with space for at least `capacity` samples.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer = SampleBuffer::<usize>::with_capacity(128);
     /// assert_eq!(buffer.len(), 0);
@@ -243,7 +243,7 @@ impl<T> SampleBuffer<T> {
     /// Append one observation.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let mut buffer = SampleBuffer::new();
     /// buffer.push(1.5);
@@ -256,7 +256,7 @@ impl<T> SampleBuffer<T> {
     /// Number of observations in the buffer.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer: SampleBuffer<_> = [1, 2, 3].into_iter().collect();
     /// assert_eq!(buffer.len(), 3);
@@ -269,7 +269,7 @@ impl<T> SampleBuffer<T> {
     /// Whether the buffer contains no observations.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let mut buffer = SampleBuffer::new();
     /// assert!(buffer.is_empty());
@@ -284,7 +284,7 @@ impl<T> SampleBuffer<T> {
     /// Remove all observations while retaining allocated capacity.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let mut buffer: SampleBuffer<_> = [1, 2].into_iter().collect();
     /// buffer.clear();
@@ -297,7 +297,7 @@ impl<T> SampleBuffer<T> {
     /// Borrow observations as a slice.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer: SampleBuffer<_> = [0.25, 0.5].into_iter().collect();
     /// assert_eq!(buffer.as_slice(), &[0.25, 0.5]);
@@ -310,7 +310,7 @@ impl<T> SampleBuffer<T> {
     /// Iterate over observations.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer: SampleBuffer<_> = [1, 2, 3].into_iter().collect();
     /// let total: i32 = buffer.iter().sum();
@@ -323,7 +323,7 @@ impl<T> SampleBuffer<T> {
     /// Consume the buffer and return the underlying vector.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::SampleBuffer;
+    /// use markov_chain_monte_carlo::prelude::SampleBuffer;
     ///
     /// let buffer: SampleBuffer<_> = [1, 2, 3].into_iter().collect();
     /// assert_eq!(buffer.into_vec(), vec![1, 2, 3]);

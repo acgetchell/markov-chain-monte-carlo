@@ -500,6 +500,7 @@
 //! ```
 
 mod chain;
+mod diagnostics;
 mod error;
 mod observable;
 mod sampler;
@@ -510,6 +511,7 @@ mod traits;
 pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
 };
+pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
 pub use error::McmcError;
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
@@ -538,7 +540,8 @@ pub use traits::{
 
 /// Convenience re-exports for common usage.
 ///
-/// The top-level prelude contains only the shared sampling foundation:
+/// The top-level prelude contains the shared sampling foundation, observable
+/// statistics, and reusable trace diagnostics:
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::*;
@@ -546,6 +549,7 @@ pub use traits::{
 /// fn accepts_target<T: Target<f64>>(_: &T) {}
 /// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
 /// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
+/// fn accepts_trace(_: TraceRecorder, _: TraceError) {}
 /// ```
 ///
 /// Workflow-specific preludes are available when tests, examples, or
@@ -576,10 +580,11 @@ pub use traits::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, McmcError,
-        Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
-        SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-        ThinnedRunResult, ThinningError, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
+        McmcError, Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError,
+        OnlineStats, SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
+        ThinnedRunResult, ThinningError, Trace, TraceError, TraceRecord, TraceRecorder,
+        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
         TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
@@ -589,12 +594,13 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
             DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
             ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, Proposal,
             SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-            ThinnedRunResult, ThinningError, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            ThinnedRunResult, ThinningError, Trace, TraceError, TraceRecord, TraceRecorder,
+            TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -604,13 +610,13 @@ pub mod prelude {
     /// importing the by-value or delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
             DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
             ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
             ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
-            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryAccumulator,
-            TryObservable, TryObservedIntoRunResult, TryThinnedObservedIntoRunResult,
-            TryThinnedObservedRunResult,
+            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, Trace, TraceError,
+            TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -620,14 +626,15 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint,
+            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
             DelayedProposal, DelayedStep, DelayedStepError, DiscreteProposalRatio,
             DiscreteProposalRatioError, McmcError, Observable, ObservedDelayedIntoRunResult,
             ObservedDelayedStep, ObservedDelayedStepResult, ObservedStepError, ObservedStreamError,
             OnlineStats, SampleBuffer, Sampler, StatisticsError, StepOutcome, StepRejectionReason,
-            Target, ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError,
-            TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
-            TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedRunResult,
+            Target, ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, Trace,
+            TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator,
+            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 
@@ -660,12 +667,13 @@ mod public_api_smoke_tests {
     use serde_json::{Error as JsonError, json, to_value};
 
     use super::{
-        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, DelayedStep,
-        DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
-        DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure,
-        DetailedBalanceReport, DetailedBalanceState, McmcError, Observable, ObservedDelayedStep,
-        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step,
-        StepOutcome, StepRejectionReason, Target, ThinningError,
+        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
+        DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
+        DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
+        DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, McmcError, Observable,
+        ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
+        StatisticsError, Step, StepOutcome, StepRejectionReason, Target, ThinningError, Trace,
+        TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
@@ -755,6 +763,12 @@ mod public_api_smoke_tests {
         let _: Option<DelayedStep<()>> = None;
         let _: Option<StepOutcome> = None;
         let _: Option<StepRejectionReason> = None;
+        let _: Option<ChainId> = None;
+        let _: Option<Trace> = None;
+        let _: Option<TraceError> = None;
+        let _: Option<TraceRecord> = None;
+        let _: Option<TraceRecorder> = None;
+        let _: Option<TraceStepOutcome> = None;
         let _: Option<McmcError> = None;
         let _: Option<SampleBuffer<f64>> = None;
         let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
@@ -773,23 +787,47 @@ mod public_api_smoke_tests {
         let _: Option<DetailedBalanceReport> = None;
         let _: Option<DetailedBalanceState> = None;
         let _: Option<prelude::AdditiveTarget<Smoke, Smoke>> = None;
+        let _: Option<prelude::ChainId> = None;
+        let _: Option<prelude::Trace> = None;
+        let _: Option<prelude::TraceError> = None;
+        let _: Option<prelude::TraceRecord> = None;
+        let _: Option<prelude::TraceRecorder> = None;
+        let _: Option<prelude::TraceStepOutcome> = None;
         let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
         let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
         let _: Option<by_value::AdditiveTarget<Smoke, Smoke>> = None;
+        let _: Option<by_value::ChainId> = None;
+        let _: Option<by_value::Trace> = None;
+        let _: Option<by_value::TraceError> = None;
+        let _: Option<by_value::TraceRecord> = None;
+        let _: Option<by_value::TraceRecorder> = None;
+        let _: Option<by_value::TraceStepOutcome> = None;
         let _: Option<by_value::DiscreteProposalRatio> = None;
         let _: Option<by_value::DiscreteProposalRatioError> = None;
         let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
         let _: Option<in_place::AdditiveTarget<Smoke, Smoke>> = None;
+        let _: Option<in_place::ChainId> = None;
+        let _: Option<in_place::Trace> = None;
+        let _: Option<in_place::TraceError> = None;
+        let _: Option<in_place::TraceRecord> = None;
+        let _: Option<in_place::TraceRecorder> = None;
+        let _: Option<in_place::TraceStepOutcome> = None;
         let _: Option<in_place::DiscreteProposalRatio> = None;
         let _: Option<in_place::DiscreteProposalRatioError> = None;
         let _: Option<
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
         let _: Option<delayed::AdditiveTarget<Smoke, Smoke>> = None;
+        let _: Option<delayed::ChainId> = None;
+        let _: Option<delayed::Trace> = None;
+        let _: Option<delayed::TraceError> = None;
+        let _: Option<delayed::TraceRecord> = None;
+        let _: Option<delayed::TraceRecorder> = None;
         let _: Option<delayed::DiscreteProposalRatio> = None;
         let _: Option<delayed::DiscreteProposalRatioError> = None;
         let _: Option<delayed::StepOutcome> = None;
         let _: Option<delayed::StepRejectionReason> = None;
+        let _: Option<delayed::TraceStepOutcome> = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
         let _: Option<delayed::McmcError> = None;
         let _: Option<testing::DetailedBalanceConfig> = None;
