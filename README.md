@@ -12,6 +12,8 @@
 [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
 [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
 
+![Ising energy trace](docs/assets/ising_energy_trace.png)
+
 Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
 rollback-safe mutation or delayed commits.
 
@@ -30,6 +32,7 @@ Use this crate when you want:
 - log-space acceptance calculations with NaN/+infinity checks
 - additive target composition for bias potentials, energy terms, learned regularizers, and other log-weight modifiers
 - observable measurement APIs, streaming statistics, and binning error estimates
+- trace recording and CSV export for downstream MCMC diagnostics
 - thinning helpers for long sampler runs
 - optional `serde` checkpointing with validated resume flows
 - detailed-balance diagnostics for proposal development
@@ -45,6 +48,7 @@ responsibilities.
 - Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
 - `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
+- `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains, samplers, and portable checkpoints.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
@@ -130,6 +134,7 @@ fn main() -> Result<(), McmcError> {
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
+- Use `TraceRecorder` when you need reusable numeric traces with chain IDs, acceptance metadata, target log-probabilities, and CSV export.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 
@@ -144,7 +149,7 @@ Complete runnable examples live in [`examples/`](https://github.com/acgetchell/m
 - [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/normal_1d.rs) — by-value random-walk sampler for a normal
   target
 - [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/ising_1d.rs) — in-place spin-flip proposals for a
-  non-`Clone` Ising state
+  non-`Clone` Ising state, with energy/magnetization trace CSV export
 - [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/iterator_sampling.rs) — `Sampler` as an iterator
 - [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed,
   and batch detailed-balance checks
@@ -161,6 +166,10 @@ just examples
 
 For proposal-specific testing patterns, see the
 [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md).
+
+The Ising trace notebook lives at
+[`notebooks/ising_trace_analysis.ipynb`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/notebooks/ising_trace_analysis.ipynb). Run
+`just example ising_1d` first to generate `target/ising_1d_trace.csv`.
 
 ## 📖 Documentation
 

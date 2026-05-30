@@ -127,7 +127,7 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 ///
 /// ```
 /// use approx::assert_relative_eq;
-/// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+/// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 ///
 /// let mut stats = OnlineStats::new();
 /// stats.try_extend([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])?;
@@ -149,7 +149,7 @@ impl OnlineStats {
     /// Create an empty accumulator.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::prelude::OnlineStats;
     ///
     /// let stats = OnlineStats::new();
     /// assert!(stats.is_empty());
@@ -168,7 +168,7 @@ impl OnlineStats {
     /// accumulator behind on error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// assert_eq!(
     ///     OnlineStats::try_from_iter([1.0, f64::NAN]),
@@ -215,7 +215,7 @@ impl OnlineStats {
     /// The accumulator is unchanged on error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let mut stats = OnlineStats::new();
     /// assert_eq!(stats.try_push(f64::NAN), Err(StatisticsError::NanSample));
@@ -245,7 +245,7 @@ impl OnlineStats {
     /// The accumulator retains samples accepted before the first error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let mut stats = OnlineStats::new();
     /// let err = stats.try_extend([1.0, 2.0, f64::NAN, 4.0]);
@@ -279,7 +279,7 @@ impl OnlineStats {
     /// Remove all accumulated samples.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let mut stats = OnlineStats::try_from_iter([1.0, 2.0])?;
     /// stats.clear();
@@ -293,7 +293,7 @@ impl OnlineStats {
     /// Number of accumulated samples.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(stats.count(), 3);
@@ -307,7 +307,7 @@ impl OnlineStats {
     /// Whether the accumulator is empty.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::OnlineStats;
+    /// use markov_chain_monte_carlo::prelude::OnlineStats;
     ///
     /// let mut stats = OnlineStats::new();
     /// assert!(stats.is_empty());
@@ -324,7 +324,7 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([2.0, 4.0])?;
     /// assert_eq!(stats.mean(), Some(3.0));
@@ -340,7 +340,7 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.population_variance(), Some(1.0));
@@ -356,7 +356,7 @@ impl OnlineStats {
     /// Returns `None` until at least two samples have been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.sample_variance(), Some(2.0));
@@ -372,7 +372,7 @@ impl OnlineStats {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.population_std_dev(), Some(1.0));
@@ -388,7 +388,7 @@ impl OnlineStats {
     /// Returns `None` until at least two samples have been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.sample_std_dev(), Some(2.0_f64.sqrt()));
@@ -405,7 +405,7 @@ impl OnlineStats {
     /// inspect the blocked standard-error estimates.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{OnlineStats, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     ///
     /// let stats = OnlineStats::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(stats.standard_error(), Some(1.0));
@@ -451,7 +451,7 @@ impl BinningEstimate {
     /// Number of original samples per block at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().nth(1).unwrap().block_size(), 2);
@@ -465,7 +465,7 @@ impl BinningEstimate {
     /// Number of completed block means included in this estimate.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().next().unwrap().block_count(), 4);
@@ -479,7 +479,7 @@ impl BinningEstimate {
     /// Mean of the completed block means.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().next().unwrap().mean(), 2.5);
@@ -495,7 +495,7 @@ impl BinningEstimate {
     /// Returns `None` until at least two completed blocks exist at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert_eq!(bins.estimates().nth(2).unwrap().sample_variance(), None);
@@ -511,7 +511,7 @@ impl BinningEstimate {
     /// Returns `None` until at least two completed blocks exist at this level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert!(bins.estimates().next().unwrap().standard_error().is_some());
@@ -597,7 +597,7 @@ impl BinningLevel {
 /// the binning hierarchy.
 ///
 /// ```
-/// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+/// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
 ///
 /// let mut bins = BinningAnalysis::new();
 /// bins.try_extend((1..=8).map(f64::from))?;
@@ -621,7 +621,7 @@ impl BinningAnalysis {
     /// Create an empty binning analysis.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::prelude::BinningAnalysis;
     ///
     /// let bins = BinningAnalysis::new();
     /// assert!(bins.is_empty());
@@ -640,7 +640,7 @@ impl BinningAnalysis {
     /// behind on error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// assert_eq!(
     ///     BinningAnalysis::try_from_iter([1.0, f64::INFINITY]),
@@ -674,7 +674,7 @@ impl BinningAnalysis {
     /// The analysis is unchanged on error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let mut bins = BinningAnalysis::new();
     /// assert_eq!(bins.try_push(f64::INFINITY), Err(StatisticsError::InfiniteSample));
@@ -710,7 +710,7 @@ impl BinningAnalysis {
     /// The analysis retains samples accepted before the first error.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let mut bins = BinningAnalysis::new();
     /// let err = bins.try_extend([1.0, 2.0, f64::INFINITY, 4.0]);
@@ -744,7 +744,7 @@ impl BinningAnalysis {
     /// Remove all accumulated samples and bins.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let mut bins = BinningAnalysis::try_from_iter([1.0, 2.0])?;
     /// bins.clear();
@@ -760,7 +760,7 @@ impl BinningAnalysis {
     /// Number of original measurements pushed into the analysis.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(bins.count(), 3);
@@ -774,7 +774,7 @@ impl BinningAnalysis {
     /// Whether the analysis contains no measurements.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::BinningAnalysis;
+    /// use markov_chain_monte_carlo::prelude::BinningAnalysis;
     ///
     /// let mut bins = BinningAnalysis::new();
     /// assert!(bins.is_empty());
@@ -791,7 +791,7 @@ impl BinningAnalysis {
     /// Returns `None` until at least one sample has been added.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0])?;
     /// assert_eq!(bins.mean(), Some(2.0));
@@ -808,7 +808,7 @@ impl BinningAnalysis {
     /// [`OnlineStats::standard_error`] over the original measurements.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter([1.0, 3.0])?;
     /// assert_eq!(bins.unblocked_standard_error(), Some(1.0));
@@ -828,7 +828,7 @@ impl BinningAnalysis {
     /// standard error has stabilized across block sizes.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=8).map(f64::from))?;
     /// assert_eq!(bins.coarsest_estimate().unwrap().block_size(), 4);
@@ -846,7 +846,7 @@ impl BinningAnalysis {
     /// Returns `None` until at least two completed blocks exist at some level.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// assert!(bins.standard_error().is_some());
@@ -865,7 +865,7 @@ impl BinningAnalysis {
     /// completed blocks are available at that block size.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::{BinningAnalysis, StatisticsError};
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     ///
     /// let bins = BinningAnalysis::try_from_iter((1..=4).map(f64::from))?;
     /// let block_sizes: Vec<_> = bins.estimates().map(|estimate| estimate.block_size()).collect();

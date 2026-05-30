@@ -246,7 +246,7 @@ impl StepOutcome {
     /// Whether this outcome accepted and committed a concrete proposal.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::StepOutcome;
+    /// use markov_chain_monte_carlo::prelude::delayed::StepOutcome;
     ///
     /// assert!(StepOutcome::Accepted.is_accepted());
     /// assert!(!StepOutcome::RejectedProposal.is_accepted());
@@ -263,7 +263,7 @@ impl StepOutcome {
     /// Whether this outcome includes a concrete proposal.
     ///
     /// ```
-    /// use markov_chain_monte_carlo::StepOutcome;
+    /// use markov_chain_monte_carlo::prelude::delayed::StepOutcome;
     ///
     /// assert!(StepOutcome::Accepted.has_proposal());
     /// assert!(StepOutcome::RejectedProposal.has_proposal());

@@ -50,6 +50,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── clippy.toml
 ├── docs/
 │   ├── RELEASING.md
+│   ├── assets/
+│   │   └── ising_energy_trace.png
 │   ├── code_organization.md
 │   ├── dev/
 │   │   └── rust.md
@@ -65,6 +67,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── iterator_sampling.rs
 │   └── normal_1d.rs
 ├── justfile
+├── notebooks/
+│   └── ising_trace_analysis.ipynb
 ├── pyproject.toml
 ├── rumdl.toml
 ├── rust-toolchain.toml
@@ -81,6 +85,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── semgrep.yaml
 ├── src/
 │   ├── chain.rs
+│   ├── diagnostics.rs
 │   ├── error.rs
 │   ├── lib.rs
 │   ├── observable.rs
@@ -121,9 +126,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 
 - `src/` — core library modules and crate-level documentation. The detailed source file map is below.
 - `examples/` — complete runnable workflows that demonstrate public APIs.
+- `notebooks/` — notebook consumers for example-generated artifacts such as exported diagnostic traces.
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
+- `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
 - `scripts/` — Python helpers for changelog post-processing and release tagging.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
@@ -144,6 +151,19 @@ part of the intended user API.
 Defines `McmcError`, the crate error type for invalid log-probabilities and proposal ratios.
 
 Add new variants conservatively. `McmcError` is `#[non_exhaustive]`, but error changes still affect user matching and documentation.
+
+### `src/diagnostics.rs`
+
+Defines trace-recording APIs for reusable MCMC diagnostics:
+
+- `ChainId` for stable multi-chain identifiers
+- `TraceStepOutcome` for accepted, rejected-proposal, and no-proposal outcomes
+- `TraceRecord` for one post-step row
+- `TraceRecorder` for recording one chain into a shared-column trace
+- `Trace` for multi-chain numeric observable rows and CSV export
+
+Keep diagnostics independent from plotting and notebook rendering. Domain observables should enter this module as numeric columns; visualization and
+post-processing belong in notebooks or downstream tools.
 
 ### `src/observable.rs`
 
@@ -222,12 +242,18 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
-- `examples/ising_1d.rs` — in-place mutation with rollback.
+- `examples/ising_1d.rs` — in-place mutation with rollback plus energy/magnetization trace CSV export.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 - `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 
 Keep examples deterministic when possible. The `validate-examples` recipe checks for expected output markers, so example output should remain stable enough for
 CI validation.
+
+## Notebooks
+
+Notebook files live in `notebooks/` and should consume generated artifacts rather than owning sampler logic:
+
+- `notebooks/ising_trace_analysis.ipynb` — reads the Ising example CSV trace, plots energy and magnetization traces, and summarizes acceptance statistics.
 
 ## Benchmarks
 

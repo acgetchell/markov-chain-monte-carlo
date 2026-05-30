@@ -254,6 +254,10 @@ doc:
 _build-examples:
     cargo build --locked --examples
 
+# Run one example by name, e.g. `just example ising_1d`.
+example name:
+    cargo run --locked --example "{{name}}"
+
 examples: _build-examples
     #!/usr/bin/env bash
     set -euo pipefail
@@ -306,6 +310,7 @@ help-workflows:
     @echo "  just bench-compile  # Compile benchmarks without measuring"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
+    @echo "  just example <name> # Run one example, e.g. just example ising_1d"
     @echo "  just examples       # Run all examples"
 
 # All linting: code + documentation + configuration
