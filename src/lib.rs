@@ -1,31 +1,6 @@
 #![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]
 
 //! ---
-//! # Documentation map
-//!
-//! The README above is included verbatim and serves as the user-facing
-//! introduction to the crate: overview, feature list, installation, quick-start
-//! example, API selection, examples, project links, citation, and contribution
-//! pointers.
-//!
-//! Everything below this line specifies the semantic and API contract of the
-//! `markov-chain-monte-carlo` crate. It is intended for users who need deeper
-//! detail about Metropolis-Hastings correctness, numerical behavior, proposal
-//! workflows, checkpoints, observables, and streaming statistics.
-//!
-//! This crate's documentation is intentionally layered by audience and intent:
-//!
-//! - **README.md** (included above):
-//!   user-facing overview, feature list, and quick-start examples.
-//! - **Crate-level documentation (`lib.rs`)** (this document):
-//!   the programming contract of the sampler APIs, including acceptance
-//!   semantics, proposal responsibilities, checkpoint restore behavior, and
-//!   measurement utilities.
-//! - **`docs/scientific_basis.md`**:
-//!   deeper discussion of the Metropolis-Hastings contract and scope.
-//! - **`docs/proposal_validation.md`**:
-//!   proposal-author testing patterns and `verify_detailed_balance*` usage.
-//!
 //! # API contract
 //!
 //! [`Target::log_prob`] should return an unnormalized natural log-probability
@@ -33,62 +8,26 @@
 //! only uses differences, but arbitrary scores or logits will sample a
 //! different distribution.
 //!
-//! # Scientific basis and scope
-//!
-//! This crate implements Metropolis-Hastings sampling for user-defined state
-//! spaces.  The transition rule uses target log-probability differences and
-//! proposal probability ratios:
+//! Each transition uses the standard Metropolis-Hastings acceptance rule:
 //!
 //! ```text
 //! alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
 //! ```
 //!
-//! The library is built around the standard MCMC contract:
-//!
-//! - `Target<S>` returns an unnormalized natural log probability, log
-//!   density, or negative action.
-//! - Proposal implementations must describe the same concrete transition in
-//!   both the generated move and `log_q_ratio`.
-//! - Detailed balance, or a valid Metropolis-Hastings correction, is a
-//!   property of the user-provided target+proposal pair.
-//! - Irreducibility, aperiodicity, burn-in, autocorrelation, and convergence
-//!   are domain-specific analysis questions.
-//!
-//! What the crate provides:
-//!
-//! - Log-space acceptance calculations to avoid underflow in tail
-//!   probabilities.
-//! - Explicit rejection of `NaN` and positive-infinite log probabilities or
-//!   proposal ratios.
-//! - Rollback-safe in-place proposals for large states where cloning is
-//!   expensive.
-//! - Delayed-commit proposals for workflows that need to score a concrete
-//!   move before mutating state.
-//! - Empirical detailed-balance checks for representative discrete
-//!   transitions.
-//! - Streaming statistics and binning analysis for correlated-sample
-//!   uncertainty estimates.
-//!
-//! What the crate does not prove:
-//!
-//! - That a proposal is ergodic on a domain-specific state space.
-//! - That a chain has mixed enough for a given scientific observable.
-//! - That a triangulation, graph, or other combinatorial state satisfies
-//!   external validity constraints.
-//! - That a chosen model is scientifically appropriate for a downstream
-//!   study.
-//!
-//! For a fuller discussion, see
-//! [docs/scientific_basis.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md).
+//! Proposal implementations must describe the same concrete transition in both
+//! the generated move and `log_q_ratio`.  Irreducibility, convergence, and the
+//! scientific meaning of observables remain caller responsibilities.
 //!
 //! # Additive target terms
 //!
-//! Bias potentials, energy-based model terms, learned regularizers,
-//! auxiliary actions, umbrella-sampling weights, and other target modifiers
-//! should be sampled as part of the target distribution, not applied as ad hoc
-//! rejection filters after a proposal has been generated.  Use
-//! [`AdditiveTarget`] when model and bias terms are easiest to express as
-//! separate log-weight components.
+//! Bias potentials, umbrella-sampling weights, softened constraints, auxiliary
+//! energy/action terms, externally supplied learned regularizer terms, and
+//! other target modifiers should be sampled as part of the target distribution,
+//! not applied as ad hoc rejection filters after a proposal has been generated.
+//! Use [`AdditiveTarget`] when model and bias terms are easiest to express as
+//! separate log-weight components.  The crate treats learned regularizers as
+//! already supplied log-weight terms; it does not train learned energies or
+//! adaptive proposal policies.
 //!
 //! If a downstream model is written in action form, implement each component
 //! with the same sign convention: return `-S_component(state)`.  Then the

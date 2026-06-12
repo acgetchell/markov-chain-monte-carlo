@@ -162,7 +162,7 @@ just help-workflows  # Detailed workflow guidance
 
 ### Typical Development Cycle
 
-1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `docs/329-citation-notes`:
+1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `doc/329-citation-notes`:
 
    ```bash
    git checkout -b feat/your-feature
@@ -293,10 +293,10 @@ Rules:
 - Edit `README.md` directly for the public landing page: badges, pitch/status, install snippet, MSRV, Cargo features, minimal quick start, API-choice guide,
   examples, docs, contributing, citation, and ecosystem links.
 - Keep README code examples valid as doctests. The README is included during `cargo test --doc`.
-- Keep `src/lib.rs //!` focused on deeper semantic/API contract material that should appear below the README on docs.rs: Metropolis-Hastings scope, numerical
-  semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
-- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract/API prose should live in
-  `src/lib.rs //!`, while landing-page prose belongs in README.
+- Keep `src/lib.rs //!` focused on programming-contract material that should appear below the README on docs.rs: API semantics, numerical behavior, proposal
+  responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
+- Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; scientific scope belongs in `docs/`, API behavior
+  belongs in `src/lib.rs //!`, and landing-page prose belongs in README.
 
 For the full agent-facing rule set, see the `## Documentation generation` section of [`AGENTS.md`](AGENTS.md).
 
@@ -319,8 +319,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc       # fail on rustdoc warnings
 Long-form discussion lives under `docs/`. Update these alongside code changes that affect them.
 
 - [`docs/code_organization.md`](docs/code_organization.md) — per-module "where does new code go?" guidance for `src/*.rs`
-- [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion (extends the `# Scientific basis and scope` section
-  in `lib.rs //!`)
+- [`docs/reviewer_guide.md`](docs/reviewer_guide.md) — short reading path for scientific and engineering reviewers
+- [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion that expands the README scientific-basis summary
 - [`docs/proposal_validation.md`](docs/proposal_validation.md) — proposal-author testing patterns and `verify_detailed_balance*` usage
 - [`docs/roadmap.md`](docs/roadmap.md) — planned feature work
 - [`docs/dev/rust.md`](docs/dev/rust.md) — Rust toolchain notes and tooling deep-dive

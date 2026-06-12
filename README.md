@@ -14,24 +14,28 @@
 
 ![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/main/docs/assets/ising_energy_trace.png)
 
-Small, explicit Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
+Research-oriented Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
 rollback-safe mutation or delayed commits.
 
 ## 📐 Introduction
 
 This library implements composable Metropolis-Hastings sampling in Rust for workflows where the state space, proposal mechanism, and measurement strategy are
-application-specific. The goal is to keep the transition mechanics explicit while supporting cheap cloned states, large rollback-mutable states, delayed-commit
-proposals, long streaming runs, and proposal diagnostics.
+application-specific. It is designed for research code where proposal kernels, observables, and scientific validity checks live in domain code, while the
+sampler owns the transition bookkeeping.
 
-🚧 **Pre-release (0.x)** — This crate is under active development and not yet ready for production use. APIs may change without notice.
+The Metropolis-Hastings contract is explicit: targets return unnormalized natural log weights, proposals describe the same concrete transition they generate,
+and proposal asymmetry stays in the Hastings correction. The crate is useful for simple numeric examples, spin systems, triangulation moves, and other large
+combinatorial state spaces where cloning, rollback, or delayed commits matter.
+
+🚧 **Pre-release (0.x)** — This is research software under active development. APIs may change before 1.0.
 
 Use this crate when you want:
 
 - a generic Metropolis-Hastings chain over user-defined state spaces
 - by-value, in-place, and delayed-commit proposal APIs
 - log-space acceptance calculations with NaN/+infinity checks
-- additive target composition for bias potentials, energy terms, learned regularizers, and other log-weight modifiers
-- observable measurement APIs, streaming statistics, and binning error estimates
+- additive target composition for bias potentials, energy/action terms, externally supplied learned regularizers, and other log-weight modifiers
+- observable measurement APIs, streaming statistics, and binning-based uncertainty estimates for correlated samples
 - trace recording and CSV export for downstream MCMC diagnostics
 - thinning helpers for long sampler runs
 - optional `serde` checkpointing with validated resume flows
@@ -39,6 +43,28 @@ Use this crate when you want:
 
 This crate provides the sampler mechanics; proposal correctness, ergodicity, convergence assessment, and scientific model choice remain domain-specific
 responsibilities.
+
+## 🧪 Scientific basis
+
+The acceptance rule is the standard Metropolis-Hastings correction:
+
+```text
+alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
+```
+
+`Target<S>` supplies `log pi(s)` up to an additive constant. Proposal implementations either use the default symmetric correction or supply the proposal ratio
+for the same concrete transition they generate. For asymmetric combinatorial moves, that usually means accounting for move-kind probabilities, valid-site
+counts, reverse-site counts, and invalid-move handling.
+
+Physics actions and externally supplied learned regularizer terms fit the same target interface: implement `Target::log_prob` as an unnormalized log weight, or
+as `-E(state)` when working in energy/action form. Training learned energies or adaptive proposal policies is outside the current crate scope.
+
+The crate checks local transition mechanics: log-space acceptance, invalid floating-point values, rollback for in-place proposals, delayed commits, counters,
+checkpoints, and empirical detailed-balance diagnostics for representative discrete transitions. It does not prove that a proposal is ergodic, that a chain has
+mixed, or that a scientific model is appropriate for a downstream study.
+
+For the detailed contract, see the
+[scientific basis and scope guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md).
 
 ## ✨ Features
 
@@ -56,17 +82,19 @@ responsibilities.
 ## Contents
 
 - [📐 Introduction](#-introduction)
+- [🧪 Scientific basis](#-scientific-basis)
 - [✨ Features](#-features)
 - [🚀 Quick start](#-quick-start)
 - [🧭 Choosing an API](#-choosing-an-api)
 - [📦 Cargo features](#-cargo-features)
 - [🧪 Examples](#-examples)
 - [📖 Documentation](#-documentation)
+- [👀 Reviewer guide](#-reviewer-guide)
 - [🧩 Ecosystem](#-ecosystem)
 - [🤝 Contributing](#-contributing)
 - [📚 Citation](#-citation)
 - [🔎 References](#-references)
-- [🤖 AI Agents](#-ai-agents)
+- [🤖 AI-assisted development](#-ai-assisted-development)
 - [📜 License](#-license)
 
 ## 🚀 Quick start
@@ -85,7 +113,7 @@ cargo add markov-chain-monte-carlo --features serde
 
 Rust 1.96.0 or newer is required.
 
-Minimal by-value Metropolis-Hastings sampler:
+Minimal by-value Metropolis-Hastings sampler. This example demonstrates the transition mechanics; convergence assessment remains a separate analysis step.
 
 ```rust
 use markov_chain_monte_carlo::prelude::by_value::*;
@@ -130,7 +158,7 @@ fn main() -> Result<(), McmcError> {
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
 - Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
-- Use `AdditiveTarget` when the target log weight is the sum of model, bias, regularization, energy, or action terms.
+- Use `AdditiveTarget` when the target log weight is the sum of model, bias, energy, action, or externally supplied regularizer terms.
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
@@ -174,6 +202,7 @@ The Ising trace notebook lives at
 ## 📖 Documentation
 
 - [docs.rs API documentation](https://docs.rs/markov-chain-monte-carlo)
+- [Reviewer guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/reviewer_guide.md)
 - [Changelog](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CHANGELOG.md)
 - [Scientific basis and scope](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md)
 - [Proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md)
@@ -182,6 +211,11 @@ The Ising trace notebook lives at
 - [Rust development workflow](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/dev/rust.md)
 - [Release process](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/RELEASING.md)
 - [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/SECURITY.md)
+
+## 👀 Reviewer guide
+
+For a short reading path through the repository's scientific contract, validation strategy, roadmap boundaries, and reproducible local checks, see
+[`docs/reviewer_guide.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/reviewer_guide.md).
 
 ## 🧩 Ecosystem
 
@@ -216,14 +250,13 @@ If you use this crate in academic work or downstream research software, please c
 For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
 [`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md).
 
-## 🤖 AI Agents
+## 🤖 AI-assisted development
 
-This repository contains an `AGENTS.md` file, which defines the canonical rules and invariants for AI coding assistants and autonomous agents working on this
-codebase.
+This repository contains an `AGENTS.md` file, which defines the rules and invariants for AI coding assistants and autonomous agents working on this codebase.
 
 Portions of this library were developed with the assistance of AI tools including [ChatGPT], [Claude], [Codex], and [CodeRabbit].
 
-All code was written and/or reviewed and validated by the author.
+All accepted code and documentation changes are reviewed, edited, and validated by the author.
 
 For tool citation metadata, see the
 [AI-assisted development tools](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md#ai-assisted-development-tools) section of

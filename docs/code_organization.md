@@ -57,6 +57,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   └── rust.md
 │   ├── proposal_validation.md
 │   ├── roadmap.md
+│   ├── reviewer_guide.md
 │   └── scientific_basis.md
 ├── dprint.json
 ├── examples/
@@ -146,10 +147,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ### `src/lib.rs`
 
 The crate root wires the public module layout together. It re-exports the core modules and defines the `prelude` for ergonomic user imports. It includes
-`README.md` at the top of rustdoc builds with `include_str!`, then appends crate-level `//!` contract documentation for docs.rs (see
+`README.md` at the top of rustdoc builds with `include_str!`, then appends crate-level `//!` programming-contract documentation for docs.rs (see
 [`AGENTS.md` § Documentation generation](../AGENTS.md#documentation-generation)).
 
-Keep `src/lib.rs` small. New public surface should usually live in a focused module first, then be re-exported from the crate root or prelude only when it is
+Keep `src/lib.rs` small. Plain project orientation belongs in the README or `docs/`; `src/lib.rs` should stay focused on API semantics, numerical behavior,
+and programming contracts. New public surface should usually live in a focused module first, then be re-exported from the crate root or prelude only when it is
 part of the intended user API.
 
 ### `src/error.rs`
@@ -271,4 +273,5 @@ suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sam
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup, external tools, test categories, code style, PR checklist, release process.
 - [`AGENTS.md`](../AGENTS.md) — git/edit/validation rules, documentation-generation rules.
 - [`docs/proposal_validation.md`](proposal_validation.md) — proposal-author testing patterns.
+- [`docs/reviewer_guide.md`](reviewer_guide.md) — short reading path for scientific and engineering reviewers.
 - [`docs/scientific_basis.md`](scientific_basis.md) — Metropolis–Hastings contract and scope.

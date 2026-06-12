@@ -1,7 +1,9 @@
 //! Add a target-bias term to Metropolis-Hastings acceptance.
 //!
 //! Demonstrates [`AdditiveTarget`] for composing a model log weight with an
-//! auxiliary bias term.  The proposal remains symmetric, so the Hastings
+//! auxiliary bias term.  This is the same place an externally supplied
+//! regularizer would enter: as part of the target log weight, not as an ad hoc
+//! rejection filter.  The proposal remains symmetric, so the Hastings
 //! correction is still supplied by the proposal API and defaults to zero here.
 //!
 //! Run with: `cargo run --example additive_target_bias`
