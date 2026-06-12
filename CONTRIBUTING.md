@@ -162,7 +162,7 @@ just help-workflows  # Detailed workflow guidance
 
 ### Typical Development Cycle
 
-1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `docs/329-citation-notes`:
+1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `doc/329-citation-notes`:
 
    ```bash
    git checkout -b feat/your-feature
