@@ -152,7 +152,9 @@ The repository's docs have overlapping topics but distinct roles. When in doubt,
   appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
 - **`README.md`** — public GitHub/crates.io landing page. It is also included verbatim at the top of docs.rs through
   `#![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]` in `src/lib.rs`, so keep it concise, user-facing, and suitable for rustdoc rendering.
-- **`docs/scientific_basis.md`** — Metropolis–Hastings contract and scope discussion (extends the `# Scientific basis and scope` section in `lib.rs //!`).
+- **`docs/reviewer_guide.md`** — short reading path for scientific and engineering reviewers: what to read first, what the crate claims, what it does not
+  claim, and how to reproduce local checks.
+- **`docs/scientific_basis.md`** — Metropolis–Hastings contract and scope discussion that expands the README scientific-basis summary.
 - **`docs/proposal_validation.md`** — proposal-author testing patterns and `verify_detailed_balance*` usage.
 - **`docs/roadmap.md`** — planned feature work.
 - **`docs/dev/rust.md`** — Rust toolchain notes and tooling deep-dive.
@@ -174,10 +176,10 @@ Rules:
 - Edit `README.md` directly for badges, pitch, installation, quick start, API-choice guidance, examples, ecosystem, contributing, citation, references, and
   agent guidance.
 - Keep README examples valid as rustdoc examples because the README is included during `cargo test --doc`.
-- Keep the `src/lib.rs //!` block focused on deeper semantic/API contract material that should appear after the README on docs.rs: Metropolis-Hastings scope,
-  numerical semantics, proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
+- Keep the `src/lib.rs //!` block focused on programming-contract material that should appear after the README on docs.rs: API semantics, numerical behavior,
+  proposal responsibilities, checkpoint behavior, detailed-balance diagnostics, and streaming statistics.
 - Avoid duplicating long-form content between README and `src/lib.rs //!`. Short orientation overlap is fine; detailed contract prose belongs in
-  `src/lib.rs //!`, while landing-page prose belongs in README.
+  `docs/` or `src/lib.rs //!` depending on whether it is scientific scope or API behavior. Landing-page prose belongs in README.
 - For long READMEs, maintain a hand-written `## Contents` section before `## 🚀 Quick start`. Include the major landing-page sections, but do not enumerate
   every crate-level contract section appended by `src/lib.rs //!`.
 

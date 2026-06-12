@@ -2,7 +2,9 @@
 //!
 //! Demonstrates [`Sampler`] with `run_mut` for burn-in, `step_mut` for
 //! per-sample collection on a discrete, non-Clone state space, and
-//! [`TraceRecorder`] for CSV trace export.
+//! [`TraceRecorder`] for CSV trace export.  The example is intentionally small:
+//! it shows the sampler contract for a familiar statistical-physics model,
+//! not a finite-size scaling study.
 //!
 //! Run with: `just example ising_1d`
 
@@ -119,7 +121,7 @@ impl Target<SpinChain> for Ising {
     }
 }
 
-// --- Proposal: flip one random spin ---
+// --- Proposal: flip one random spin, symmetric over sites for non-empty chains ---
 
 /// Single-site spin flip.  Undo token is the flipped site index.
 struct SpinFlip;

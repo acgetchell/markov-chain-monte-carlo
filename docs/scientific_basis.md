@@ -12,8 +12,9 @@ For a current state `x` and proposed state `y`, the crate uses the standard Metr
 alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
 ```
 
-The `Target<S>` implementation supplies `log pi(s)` up to an additive constant. The proposal implementation supplies either symmetric proposals or an explicit
-log proposal ratio through:
+The `Target<S>` implementation supplies `log pi(s)` up to an additive constant. Additive constants are fine because Metropolis-Hastings only uses differences,
+but arbitrary scores or logits sample a different distribution. The proposal implementation supplies either symmetric proposals or an explicit log proposal
+ratio through:
 
 - `Proposal::log_q_ratio(current, proposed)`
 - `ProposalMut::log_q_ratio(state, token)`
@@ -22,9 +23,12 @@ log proposal ratio through:
 These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities,
 site counts, reverse-site counts, and invalid-move handling.
 
+Detailed balance, or a valid Metropolis-Hastings correction for a non-symmetric proposal, is a property of the user-provided target+proposal pair. The crate
+checks transition mechanics; domain code still owns irreducibility, aperiodicity, burn-in, autocorrelation, convergence, and observable interpretation.
+
 ## Additive Target Terms
 
-Bias potentials, energy-based model terms, learned regularizers, umbrella-sampling weights, softened constraints, and auxiliary energy/action terms should be
+Bias potentials, umbrella-sampling weights, softened constraints, auxiliary energy/action terms, and externally supplied learned regularizer terms should be
 included in the target distribution itself. For separate model and bias terms, use `AdditiveTarget` or an equivalent `Target` implementation that returns the
 combined log weight:
 
@@ -53,11 +57,16 @@ log_alpha = -(Delta S_model + Delta S_bias) + log q(x | y) - log q(y | x)
 The runnable [`examples/additive_target_bias.rs`](../examples/additive_target_bias.rs) demonstrates this split on a two-state target: a flat model term is
 combined with a bias weight through `AdditiveTarget`, while the symmetric flip proposal keeps the proposal-ratio correction at its default zero value.
 
+Externally supplied learned regularizer terms use the same contract as physics actions: return an unnormalized log weight, or return `-E(state)` when the term
+is written in energy form. This crate currently provides sampler mechanics and target composition, not training for learned energies or adaptive proposal
+policies.
+
 ## What the Crate Checks
 
 The library enforces several local invariants:
 
 - Acceptance decisions are computed in log space.
+- Log-space acceptance avoids underflow in tail probabilities.
 - `NaN` and positive-infinite target log-probabilities or proposal ratios are rejected.
 - In-place proposals roll back on rejection or invalid proposed values.
 - Delayed proposals separate planning, scoring, acceptance, and commit so mutations happen only after acceptance.

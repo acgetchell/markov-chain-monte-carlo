@@ -3,9 +3,9 @@
 This roadmap records likely directions for the `markov-chain-monte-carlo` crate. It is not a stability promise; release scope depends on scientific need, API
 maturity, and validation quality.
 
-Pre-1.0 releases may still revise public APIs when that makes the crate more correct, but patch releases should stay boring: fixes, documentation, and tooling
-hardening that are compatible with the current minor line. New sampler APIs, changed acceptance semantics, and MSRV bumps belong in minor releases so Cargo
-users on `0.x` ranges are not surprised by patch updates.
+Until v1.0, API breaks are acceptable when they improve correctness, performance, or orthogonality. Patch releases should normally stay focused on fixes,
+documentation, tooling hardening, and invariant cleanup, while new sampler APIs, changed acceptance semantics, and MSRV bumps belong in minor releases so the
+feature roadmap stays understandable.
 
 ## Completed
 
@@ -38,6 +38,14 @@ shows whether the callback-plus-continuation composition is sufficient in practi
 
 ## Planned Milestones
 
+### v0.4.1 Invariant and Tooling Hardening
+
+Before starting the adaptive diagnostics feature train, clean up validation boundaries and Python tooling while the v0.4 sampler integration API is still fresh.
+API breaks are acceptable when they make invalid states unrepresentable or preserve validation evidence more directly.
+
+- [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
+- [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.13 and parse scripts at boundaries
+
 ### v0.5.0 Adaptive Diagnostics
 
 After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
@@ -49,11 +57,10 @@ scientifically trustworthy. This should happen before learned-proposal work so t
 - [#20](https://github.com/acgetchell/markov-chain-monte-carlo/issues/20) - Benchmark distributions
 - [#21](https://github.com/acgetchell/markov-chain-monte-carlo/issues/21) - Tracing integration for long-running simulations
 
-### v0.6.0 Multi-Chain, Tempering, and Learned Proposals
+### v0.6.0 Multi-Chain, Tempering, and Learned-Proposal Foundations
 
-Multi-chain execution and tempering are natural prerequisites for serious learned-proposal experiments: they provide independent-chain comparison, ensemble
-diagnostics, and rugged-target baselines. Learned proposals align with near-term AI doctorate work, so they should land while the research context is active
-rather than being deferred until the end of the pre-1.0 cycle.
+Multi-chain execution and tempering should come before learned-proposal experiments because they provide independent-chain comparison, ensemble diagnostics,
+and rugged-target baselines. Learned proposals remain future work until those baselines make failures visible and comparisons meaningful.
 
 - [#12](https://github.com/acgetchell/markov-chain-monte-carlo/issues/12) - Parallel chains
 - [#11](https://github.com/acgetchell/markov-chain-monte-carlo/issues/11) - Simulated annealing / tempering

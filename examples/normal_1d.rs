@@ -1,7 +1,9 @@
 //! Sample from a 1D standard normal distribution using Metropolis–Hastings.
 //!
 //! Demonstrates [`Sampler`] with `run` for burn-in and `step` for
-//! per-sample collection.
+//! per-sample collection.  This is a mechanics example: the target is known,
+//! the proposal is symmetric, and the printed summary is a quick sanity check
+//! rather than a convergence proof.
 //!
 //! Run with: `cargo run --example normal_1d`
 
@@ -14,7 +16,7 @@ use rand::{Rng, RngExt, SeedableRng};
 #[derive(Clone, Debug)]
 struct Scalar(f64);
 
-// --- Target: N(0,1) ---
+// --- Target: N(0,1), up to an additive log-normalization constant ---
 
 struct StandardNormal;
 impl Target<Scalar> for StandardNormal {
@@ -23,7 +25,7 @@ impl Target<Scalar> for StandardNormal {
     }
 }
 
-// --- Proposal: symmetric random walk ---
+// --- Proposal: symmetric random walk, so log q(x | y) - log q(y | x) = 0 ---
 
 struct RandomWalk {
     width: f64,
