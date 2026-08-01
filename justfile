@@ -5,14 +5,16 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-cargo_nextest_version := "0.9.137"
+cargo_nextest_version := "0.9.140"
 cargo_llvm_cov_version := "0.8.7"
 dprint_version := "0.55.2"
 git_cliff_version := "2.13.1"
+just_version := "1.57.0"
 rumdl_version := "0.2.48"
 taplo_version := "0.10.0"
-typos_version := "1.47.2"
-zizmor_version := "1.25.2"
+typos_version := "1.48.0"
+uv_version := "0.12.0"
+zizmor_version := "1.28.0"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 
 # Common cargo-llvm-cov arguments for all coverage runs.
@@ -39,9 +41,9 @@ _ensure-cargo-llvm-cov:
     if command -v cargo-llvm-cov >/dev/null; then
         installed_version="$(cargo llvm-cov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{cargo_llvm_cov_version}}" ]]; then
-        echo "❌ 'cargo-llvm-cov' {{cargo_llvm_cov_version}} not found. Install with:"
-        echo "   cargo install --locked cargo-llvm-cov --version {{cargo_llvm_cov_version}}"
+    if [[ "$installed_version" != "{{ cargo_llvm_cov_version }}" ]]; then
+        echo "❌ 'cargo-llvm-cov' {{ cargo_llvm_cov_version }} not found. Install with:"
+        echo "   cargo install --locked cargo-llvm-cov --version {{ cargo_llvm_cov_version }}"
         exit 1
     fi
 
@@ -52,9 +54,9 @@ _ensure-cargo-nextest:
     if cargo nextest --version >/dev/null 2>&1; then
         installed_version="$(cargo nextest --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{cargo_nextest_version}}" ]]; then
-        echo "❌ 'cargo-nextest' {{cargo_nextest_version}} not found. Install with:"
-        echo "   cargo install --locked cargo-nextest --version {{cargo_nextest_version}}"
+    if [[ "$installed_version" != "{{ cargo_nextest_version }}" ]]; then
+        echo "❌ 'cargo-nextest' {{ cargo_nextest_version }} not found. Install with:"
+        echo "   cargo install --locked cargo-nextest --version {{ cargo_nextest_version }}"
         exit 1
     fi
 
@@ -65,9 +67,9 @@ _ensure-dprint:
     if command -v dprint >/dev/null; then
         installed_version="$(dprint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{dprint_version}}" ]]; then
-        echo "❌ 'dprint' {{dprint_version}} not found. Install with:"
-        echo "   cargo install --locked dprint --version {{dprint_version}}"
+    if [[ "$installed_version" != "{{ dprint_version }}" ]]; then
+        echo "❌ 'dprint' {{ dprint_version }} not found. Install with:"
+        echo "   cargo install --locked dprint --version {{ dprint_version }}"
         exit 1
     fi
 
@@ -78,9 +80,9 @@ _ensure-git-cliff:
     if command -v git-cliff >/dev/null; then
         installed_version="$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{git_cliff_version}}" ]]; then
-        echo "❌ 'git-cliff' {{git_cliff_version}} not found. Install with:"
-        echo "   cargo install --locked git-cliff --version {{git_cliff_version}}"
+    if [[ "$installed_version" != "{{ git_cliff_version }}" ]]; then
+        echo "❌ 'git-cliff' {{ git_cliff_version }} not found. Install with:"
+        echo "   cargo install --locked git-cliff --version {{ git_cliff_version }}"
         exit 1
     fi
 
@@ -96,9 +98,9 @@ _ensure-rumdl:
     if command -v rumdl >/dev/null; then
         installed_version="$(rumdl --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{rumdl_version}}" ]]; then
-        echo "❌ 'rumdl' {{rumdl_version}} not found. Install with:"
-        echo "   cargo install --locked rumdl --version {{rumdl_version}}"
+    if [[ "$installed_version" != "{{ rumdl_version }}" ]]; then
+        echo "❌ 'rumdl' {{ rumdl_version }} not found. Install with:"
+        echo "   cargo install --locked rumdl --version {{ rumdl_version }}"
         exit 1
     fi
 
@@ -109,9 +111,9 @@ _ensure-taplo:
     if command -v taplo >/dev/null; then
         installed_version="$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{taplo_version}}" ]]; then
-        echo "❌ 'taplo' {{taplo_version}} not found. Install with:"
-        echo "   cargo install --locked taplo-cli --version {{taplo_version}}"
+    if [[ "$installed_version" != "{{ taplo_version }}" ]]; then
+        echo "❌ 'taplo' {{ taplo_version }} not found. Install with:"
+        echo "   cargo install --locked taplo-cli --version {{ taplo_version }}"
         exit 1
     fi
 
@@ -122,9 +124,9 @@ _ensure-typos:
     if command -v typos >/dev/null; then
         installed_version="$(typos --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{typos_version}}" ]]; then
-        echo "❌ 'typos' {{typos_version}} not found. Install with:"
-        echo "   cargo install --locked typos-cli --version {{typos_version}}"
+    if [[ "$installed_version" != "{{ typos_version }}" ]]; then
+        echo "❌ 'typos' {{ typos_version }} not found. Install with:"
+        echo "   cargo install --locked typos-cli --version {{ typos_version }}"
         exit 1
     fi
 
@@ -140,9 +142,9 @@ _ensure-zizmor:
     if command -v zizmor >/dev/null; then
         installed_version="$(zizmor --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     fi
-    if [[ "$installed_version" != "{{zizmor_version}}" ]]; then
-        echo "❌ 'zizmor' {{zizmor_version}} not found. Install with:"
-        echo "   cargo install --locked zizmor --version {{zizmor_version}}"
+    if [[ "$installed_version" != "{{ zizmor_version }}" ]]; then
+        echo "❌ 'zizmor' {{ zizmor_version }} not found. Install with:"
+        echo "   cargo install --locked zizmor --version {{ zizmor_version }}"
         exit 1
     fi
 
@@ -183,7 +185,7 @@ changelog: _ensure-git-cliff python-sync
 changelog-unreleased version: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
-    GIT_CLIFF_OFFLINE=true git-cliff --tag {{version}} -o CHANGELOG.md
+    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ version }} -o CHANGELOG.md
     uv run postprocess-changelog
 
 # Non-mutating validation gate
@@ -235,7 +237,7 @@ coverage: _ensure-cargo-llvm-cov
     set -euo pipefail
 
     mkdir -p target/llvm-cov
-    cargo llvm-cov {{_coverage_base_args}} --open --output-dir target/llvm-cov
+    cargo llvm-cov {{ _coverage_base_args }} --open --output-dir target/llvm-cov
     echo "Coverage report generated: target/llvm-cov/html/index.html"
 
 # Coverage analysis for CI (XML output for codecov)
@@ -244,7 +246,7 @@ coverage-ci: _ensure-cargo-llvm-cov
     set -euo pipefail
 
     mkdir -p coverage
-    cargo llvm-cov {{_coverage_base_args}} --cobertura --output-path coverage/cobertura.xml
+    cargo llvm-cov {{ _coverage_base_args }} --cobertura --output-path coverage/cobertura.xml
 
 # Default recipe shows available commands
 default:
@@ -256,7 +258,7 @@ doc:
 
 # Run one example by name, e.g. `just example ising_1d`.
 example name:
-    cargo run --locked --example "{{name}}"
+    cargo run --locked --example "{{ name }}"
 
 examples: _build-examples
     #!/usr/bin/env bash
@@ -265,7 +267,7 @@ examples: _build-examples
     if [[ "${OS:-}" == "Windows_NT" ]]; then
         suffix=".exe"
     fi
-    for example in {{example_names}}; do
+    for example in {{ example_names }}; do
         "target/debug/examples/${example}${suffix}"
     done
 
@@ -510,35 +512,35 @@ setup-tools:
     echo ""
 
     echo "Ensuring cargo tools..."
-    cargo_llvm_cov_version="{{cargo_llvm_cov_version}}"
+    cargo_llvm_cov_version="{{ cargo_llvm_cov_version }}"
     if ! have cargo-llvm-cov || [[ "$(cargo llvm-cov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_llvm_cov_version" ]]; then
         cargo install --locked cargo-llvm-cov --version "$cargo_llvm_cov_version"
     fi
-    cargo_nextest_version="{{cargo_nextest_version}}"
+    cargo_nextest_version="{{ cargo_nextest_version }}"
     if ! cargo nextest --version >/dev/null 2>&1 || [[ "$(cargo nextest --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_nextest_version" ]]; then
         cargo install --locked cargo-nextest --version "$cargo_nextest_version"
     fi
-    dprint_version="{{dprint_version}}"
+    dprint_version="{{ dprint_version }}"
     if ! have dprint || [[ "$(dprint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$dprint_version" ]]; then
         cargo install --locked dprint --version "$dprint_version"
     fi
-    git_cliff_version="{{git_cliff_version}}"
+    git_cliff_version="{{ git_cliff_version }}"
     if ! have git-cliff || [[ "$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$git_cliff_version" ]]; then
         cargo install --locked git-cliff --version "$git_cliff_version"
     fi
-    taplo_version="{{taplo_version}}"
+    taplo_version="{{ taplo_version }}"
     if ! have taplo || [[ "$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$taplo_version" ]]; then
         cargo install --locked taplo-cli --version "$taplo_version"
     fi
-    rumdl_version="{{rumdl_version}}"
+    rumdl_version="{{ rumdl_version }}"
     if ! have rumdl || [[ "$(rumdl --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$rumdl_version" ]]; then
         cargo install --locked rumdl --version "$rumdl_version"
     fi
-    typos_version="{{typos_version}}"
+    typos_version="{{ typos_version }}"
     if ! have typos || [[ "$(typos --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$typos_version" ]]; then
         cargo install --locked typos-cli --version "$typos_version"
     fi
-    zizmor_version="{{zizmor_version}}"
+    zizmor_version="{{ zizmor_version }}"
     if ! have zizmor || [[ "$(zizmor --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$zizmor_version" ]]; then
         cargo install --locked zizmor --version "$zizmor_version"
     fi
@@ -594,11 +596,11 @@ spell-check: _ensure-typos
 
 # Create an annotated git tag from the CHANGELOG.md section for the given version
 tag version: python-sync
-    uv run tag-release {{version}}
+    uv run tag-release {{ version }}
 
 # Recreate an existing tag from the CHANGELOG.md section for the given version
 tag-force version: python-sync
-    uv run tag-release {{version}} --force
+    uv run tag-release {{ version }} --force
 
 # Testing: runnable Rust tests use nextest; rustdoc doctests remain on cargo test.
 test: test-lib test-doc
