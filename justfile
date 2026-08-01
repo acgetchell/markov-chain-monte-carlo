@@ -7,9 +7,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cargo_nextest_version := "0.9.137"
 cargo_llvm_cov_version := "0.8.7"
-dprint_version := "0.54.0"
+dprint_version := "0.55.2"
 git_cliff_version := "2.13.1"
-rumdl_version := "0.2.14"
+rumdl_version := "0.2.48"
 taplo_version := "0.10.0"
 typos_version := "1.47.2"
 zizmor_version := "1.25.2"
@@ -227,7 +227,7 @@ clean:
 
 # Clippy linting
 clippy:
-    cargo clippy --locked --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+    CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
 # Coverage analysis for local development (HTML output)
 coverage: _ensure-cargo-llvm-cov

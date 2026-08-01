@@ -228,6 +228,25 @@ class TestCreateTag:
     @patch("tag_release._tag_exists", return_value=False)
     @patch("tag_release.find_changelog")
     @patch("tag_release.extract_changelog_section", return_value="### Added\n\n- Something new")
+    def test_next_step_sets_release_title(
+        self,
+        _mock_extract: MagicMock,
+        mock_find: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_git_input: MagicMock,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_find.return_value = tmp_path / "CHANGELOG.md"
+
+        tag_release.create_tag("v1.0.0")
+
+        assert "gh release create v1.0.0 --title v1.0.0 --notes-from-tag" in capsys.readouterr().out
+
+    @patch("tag_release.run_git_command_with_input")
+    @patch("tag_release._tag_exists", return_value=False)
+    @patch("tag_release.find_changelog")
+    @patch("tag_release.extract_changelog_section", return_value="### Added\n\n- Something new")
     def test_creates_annotated_tag(
         self,
         _mock_extract: MagicMock,

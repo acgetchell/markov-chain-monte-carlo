@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.96.0 and edition 2024.
+This repository is a single Rust library crate using Rust 1.97.1 and edition 2024.
 
 ## Core Commands
 
@@ -57,6 +57,22 @@ The full command is factored into named subsets so CI-shape trade-offs are expli
 
 The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
 comprehensive validation gate.
+
+## Rust 1.97.1 Audit
+
+The MSRV and contributor toolchain use Rust 1.97.1 rather than 1.97.0 because the point release fixes an LLVM miscompilation. The audit below follows the
+official [Rust 1.97.0 release notes](https://doc.rust-lang.org/stable/releases.html#version-1970-2026-07-09) and
+[Rust 1.97.1 announcement](https://blog.rust-lang.org/2026/07/16/Rust-1.97.1/).
+
+| Surface | Decision |
+| --- | --- |
+| Cargo warning policy | `just clippy` uses `CARGO_BUILD_WARNINGS=deny` instead of `-D warnings`, so changing warning severity does not invalidate the build cache. The explicit Clippy `-W` selectors remain because Cargo changes the severity of enabled lints but does not enable `pedantic`, `nursery`, or `cargo`. The standalone rustdoc command keeps `RUSTDOCFLAGS="-D warnings"` to express rustdoc-specific policy at that command boundary. |
+| `Result<T, Infallible>` must-use behavior | Keep the typed infallible results. Library tests, doctests, examples, integration tests, and benchmark compilation exercise these APIs under 1.97.1 without exposing ignored results. |
+| Symbol mangling and code generation | Keep the new v0 symbol mangling default. Repository benchmarks, backtraces, and LLVM coverage do not parse legacy symbol names. The 1.97.1 LLVM fix is the reason to require the point release rather than 1.97.0. |
+| Linker messages | Keep the lint enabled and add no suppression. Local validation checks the host linker, while the Linux, macOS, and Windows CI matrix checks the supported platform linkers. Any future suppression must be limited to a demonstrated platform-specific false positive. |
+| Integer, `NonZero`, and `RepeatN` APIs | No change. Existing `NonZeroUsize` values model validated counts rather than bit masks, and the crate does not construct a reusable `RepeatN`; adopting the new APIs would add churn without clarifying an invariant. |
+| `resolver.lockfile-path` | No change. The crate commits `Cargo.lock`, and its build, benchmark, release, and coverage workflows use writable checkouts; there is no read-only source workflow that needs a relocated lockfile. |
+| Clippy, rustfmt, and rustdoc | Keep the current configuration. The 1.97 Clippy lint set is enforced by `just clippy`; rustfmt produces no formatting changes; and the new rustdoc `--emit` and path-remapping options do not improve the current local or docs.rs workflow. |
 
 ## Setup
 
