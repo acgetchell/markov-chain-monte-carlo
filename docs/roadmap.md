@@ -51,6 +51,7 @@ API breaks are acceptable when they make invalid states unrepresentable or prese
 After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
 scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
 
+- [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
 - [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Adaptive Metropolis-Hastings
 - [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
 - [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal diagnostics

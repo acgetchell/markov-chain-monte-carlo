@@ -23,9 +23,6 @@ permissions:
   security-events: write
   actions: read
 
-env:
-  UV_VERSION: "0.11.16"
-
 jobs:
   semgrep-sarif:
     name: Repository Rule SARIF Analysis
@@ -37,10 +34,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up just
+        uses: ./.github/actions/setup-just
+
+      - name: Resolve uv version
+        id: uv_version
+        shell: bash
+        run: |
+          version="$(just --evaluate uv_version)"
+          if [[ -z "$version" ]]; then
+            echo "::error::Could not resolve uv_version from justfile"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ steps.uv_version.outputs.version }}
 
       - name: Run repository Semgrep rules
         id: semgrep

@@ -34,7 +34,7 @@ This project is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The comm
 
 Before you begin, ensure you have:
 
-1. **Rust 1.96.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
+1. **Rust 1.97.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
 4. **uv** (Python tooling): install from [astral.sh/uv][uv]
@@ -89,7 +89,7 @@ Before you begin, ensure you have:
 
 This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.toml). When you enter the project directory, `rustup` will automatically:
 
-- install the correct Rust version (1.96.0) if you don't have it
+- install the correct Rust version (1.97.1) if you don't have it
 - switch to the pinned version for this project
 - install required components (clippy, rustfmt, rust-docs, rust-std, rust-src, rust-analyzer)
 
@@ -196,7 +196,7 @@ just help-workflows  # Detailed workflow guidance
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.96.0 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.97.1 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
@@ -205,10 +205,12 @@ just help-workflows  # Detailed workflow guidance
 `just clippy` runs:
 
 ```bash
-cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 ```
 
-The crate forbids `unsafe_code` and warns on `missing_docs`; broken intra-doc links are denied.
+Cargo owns the warning-as-error policy so changing the policy does not invalidate compiled artifacts. The explicit `-W` flags remain because they enable
+Clippy lint groups; `CARGO_BUILD_WARNINGS=deny` changes the severity of enabled lints but does not select those groups. The crate forbids `unsafe_code` and
+warns on `missing_docs`; broken intra-doc links are denied.
 
 ### API Style
 
