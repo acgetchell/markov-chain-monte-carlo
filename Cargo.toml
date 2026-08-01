@@ -16,8 +16,8 @@ keywords = [ "mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hast
 categories = [ "science", "mathematics", "algorithms" ]
 
 [dependencies]
-rand = "0.10.1"
-serde = { version = "1.0.228", features = [ "derive" ], optional = true }
+rand = "0.10.2"
+serde = { version = "1.0.229", features = [ "derive" ], optional = true }
 
 [features]
 serde = [ "dep:serde" ]

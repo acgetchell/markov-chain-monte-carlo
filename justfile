@@ -7,10 +7,12 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cargo_nextest_version := "0.9.140"
 cargo_llvm_cov_version := "0.8.7"
+clippy_sarif_version := "0.8.0"
 dprint_version := "0.55.2"
 git_cliff_version := "2.13.1"
 just_version := "1.57.0"
 rumdl_version := "0.2.48"
+sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
 typos_version := "1.48.0"
 uv_version := "0.12.0"
