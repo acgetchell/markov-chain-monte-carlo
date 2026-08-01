@@ -31,6 +31,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── ci.yml
 │       ├── codecov.yml
 │       ├── codeql.yml
+│       ├── dependabot-auto-merge.yml
 │       ├── rust-clippy.yml
 │       ├── semgrep-sarif.yml
 │       └── zizmor.yml
