@@ -16,7 +16,7 @@ sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
 typos_version := "1.48.0"
 uv_version := "0.12.0"
-zizmor_version := "1.28.0"
+zizmor_version := "1.29.0"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 
 # Common cargo-llvm-cov arguments for all coverage runs.
