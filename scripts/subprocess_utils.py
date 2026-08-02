@@ -96,13 +96,7 @@ def run_git_command(
         subprocess.CalledProcessError: If command fails and check=True
         subprocess.TimeoutExpired: If command times out
     """
-    git_path = get_safe_executable("git")
-    run_kwargs = _build_run_kwargs("run_git_command", **kwargs)
-    return subprocess.run(  # noqa: S603,PLW1510
-        [git_path, *args],
-        cwd=cwd,
-        **run_kwargs,
-    )
+    return run_safe_command("git", args, cwd=cwd, **kwargs)
 
 
 def run_git_command_with_input(

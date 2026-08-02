@@ -18,6 +18,7 @@ type CheckMode = Literal["lint", "execute", "clear"]
 type CellType = Literal["code", "markdown", "raw"]
 
 VALID_CELL_TYPES: set[CellType] = {"code", "markdown", "raw"}
+PYTHON_CELL_MAGICS = frozenset({"capture", "prun", "time", "timeit"})
 CELL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 RUFF_LOCATION_RE = re.compile(r"^.+?:(?P<line>\d+):(?P<column>\d+):\s+(?P<message>.+)$")
 TY_LOCATION_RE = re.compile(r"^.+?:(?P<line>\d+):(?P<column>\d+):\s+(?P<message>.+)$")
@@ -166,6 +167,9 @@ def parse_cell(value: object, *, path: Path, index: int) -> NotebookCell:
     if not is_json_object(value):
         msg = f"{path}: cell {index}: expected a JSON object"
         raise TypeError(msg)
+    if not is_json_object(value.get("metadata")):
+        msg = f"{path}: cell {index}: metadata must be a JSON object"
+        raise TypeError(msg)
     cell_type = parse_cell_type(value.get("cell_type"), path=path, index=index)
     output_count = parse_outputs(value.get("outputs"), path=path, index=index) if cell_type == "code" else 0
     execution_count = parse_execution_count(value.get("execution_count"), path=path, index=index) if cell_type == "code" else None
@@ -189,8 +193,12 @@ def load_notebook(path: Path) -> LoadedNotebook:
     if not is_json_object(raw_value):
         msg = f"{path}: notebook JSON must be an object"
         raise TypeError(msg)
-    if raw_value.get("nbformat") != 4:
-        msg = f"{path}: expected nbformat 4, got {raw_value.get('nbformat')!r}"
+    nbformat = raw_value.get("nbformat")
+    if isinstance(nbformat, bool) or not isinstance(nbformat, int):
+        msg = f"{path}: nbformat must be integer 4, got {nbformat!r}"
+        raise TypeError(msg)
+    if nbformat != 4:
+        msg = f"{path}: expected nbformat 4, got {nbformat!r}"
         raise ValueError(msg)
     nbformat_minor = raw_value.get("nbformat_minor")
     if isinstance(nbformat_minor, bool) or not isinstance(nbformat_minor, int) or nbformat_minor < 0:
@@ -220,6 +228,29 @@ def code_cells(notebook: NotebookDocument) -> tuple[NotebookCell, ...]:
     return tuple(cell for cell in notebook.cells if cell.is_code)
 
 
+def neutralize_ipython_syntax(source: str) -> str:
+    """Replace IPython-only syntax while preserving Python lines and line numbers."""
+    lines = source.splitlines(keepends=True)
+    first_content = next((line.lstrip() for line in lines if line.strip()), "")
+    if first_content.startswith("%%"):
+        magic_name = first_content[2:].split(maxsplit=1)[0].lower()
+        if magic_name not in PYTHON_CELL_MAGICS:
+            return "".join(_neutralize_ipython_line(line, whole_cell=True) for line in lines)
+    return "".join(_neutralize_ipython_line(line) for line in lines)
+
+
+def _neutralize_ipython_line(line: str, *, whole_cell: bool = False) -> str:
+    """Neutralize one IPython-only line without changing its line count."""
+    stripped = line.lstrip()
+    if not line.strip() or (not whole_cell and not stripped.startswith(("%", "!"))):
+        return line
+    ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else "\r" if line.endswith("\r") else ""
+    content = line[: -len(ending)] if ending else line
+    indent = content[: len(content) - len(content.lstrip())]
+    replacement = f"{indent}# IPython syntax" if whole_cell or not indent else f"{indent}pass  # IPython syntax"
+    return replacement + ending
+
+
 def extract_code(notebook: NotebookDocument) -> CodeSnapshot:
     """Extract code cells and retain generated-line to source-cell mapping."""
     chunks: list[str] = []
@@ -231,7 +262,7 @@ def extract_code(notebook: NotebookDocument) -> CodeSnapshot:
         chunks.append(marker)
         line_to_cell[current_line] = cell.index
         current_line += 1
-        source_lines = cell.source.splitlines(keepends=True)
+        source_lines = neutralize_ipython_syntax(cell.source).splitlines(keepends=True)
         if not source_lines:
             source_lines = ["\n"]
         for source_line in source_lines:
@@ -252,7 +283,7 @@ def code_cell_diagnostics(notebook: NotebookDocument) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     for cell in code_cells(notebook):
         try:
-            compile(cell.source, f"{notebook.path}:cell-{cell.index}:{cell.cell_id}", "exec")
+            compile(neutralize_ipython_syntax(cell.source), f"{notebook.path}:cell-{cell.index}:{cell.cell_id}", "exec")
         except SyntaxError as error:
             location = f"line {error.lineno}" if error.lineno is not None else "unknown line"
             diagnostics.append(Diagnostic(cell.index, f"syntax error at {location}: {error.msg}"))
@@ -360,7 +391,7 @@ def ty_diagnostics(path: Path, snapshot: CodeSnapshot, repo_root: Path) -> list[
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
     if result.returncode == 0:
         return []
-    if result.returncode not in {1, 2}:
+    if result.returncode != 1:
         return [Diagnostic(None, f"ty failed with exit code {result.returncode}: {output.strip()}")]
     return parse_line_diagnostics(output, tool="ty", pattern=TY_LOCATION_RE, line_to_cell=snapshot.line_to_cell)
 
@@ -383,7 +414,10 @@ def lint_notebooks(paths: tuple[Path, ...], options: CheckOptions) -> int:
     """Lint every requested notebook and report cell-aware failures."""
     failed = False
     for path in paths:
-        diagnostics = lint_notebook(path, options)
+        try:
+            diagnostics = lint_notebook(path, options)
+        except (OSError, TypeError, ValueError) as error:
+            diagnostics = [Diagnostic(None, str(error))]
         for diagnostic in diagnostics:
             location = f"cell {diagnostic.cell}" if diagnostic.cell is not None else "notebook"
             print(f"{path}: {location}: error: {diagnostic.message}", file=sys.stderr)
@@ -441,7 +475,7 @@ def execute_notebook(path: Path, options: CheckOptions) -> Path:
     matplotlib_dir = output_dir / ".matplotlib"
     ipython_dir.mkdir(parents=True, exist_ok=True)
     matplotlib_dir.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("MPLBACKEND", "Agg")
+    os.environ["MPLBACKEND"] = "Agg"
     os.environ.setdefault("IPYTHONDIR", str(ipython_dir))
     os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_dir))
     with path.open(encoding="utf-8") as handle:
@@ -466,7 +500,7 @@ def execute_notebooks(paths: tuple[Path, ...], options: CheckOptions) -> None:
 
 def write_json_atomic(path: Path, value: dict[str, object]) -> None:
     """Atomically replace a JSON document after complete serialization."""
-    serialized = json.dumps(value, ensure_ascii=False, indent=1) + "\n"
+    serialized = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -488,20 +522,32 @@ def write_json_atomic(path: Path, value: dict[str, object]) -> None:
 def clear_notebook(path: Path) -> bool:
     """Clear code-cell outputs and counts, returning whether the file changed."""
     loaded = load_notebook(path)
-    if not any(cell.output_count or cell.execution_count is not None for cell in code_cells(loaded.document)):
-        return False
     raw_cells = loaded.raw["cells"]
     if not isinstance(raw_cells, list):
         msg = "validated notebook cells lost their list invariant"
         raise TypeError(msg)
+    changed = False
     for raw_cell in raw_cells:
         if not is_json_object(raw_cell):
             msg = "validated notebook cell lost its object invariant"
             raise TypeError(msg)
         if raw_cell.get("cell_type") == "code":
-            empty_outputs: list[object] = []
-            raw_cell["outputs"] = empty_outputs
-            raw_cell["execution_count"] = None
+            metadata = raw_cell.get("metadata")
+            if not is_json_object(metadata):
+                msg = "validated code-cell metadata lost its object invariant"
+                raise TypeError(msg)
+            if raw_cell["outputs"]:
+                empty_outputs: list[object] = []
+                raw_cell["outputs"] = empty_outputs
+                changed = True
+            if raw_cell["execution_count"] is not None:
+                raw_cell["execution_count"] = None
+                changed = True
+            if "execution" in metadata:
+                del metadata["execution"]
+                changed = True
+    if not changed:
+        return False
     write_json_atomic(path, loaded.raw)
     return True
 
@@ -586,6 +632,10 @@ def main(argv: list[str] | None = None) -> int:
     """Run notebook validation with concise boundary-error reporting."""
     try:
         return run(parse_args(sys.argv[1:] if argv is None else argv))
+    except ModuleNotFoundError as error:
+        dependency = error.name or "notebook dependency"
+        print(f"error: {dependency} is required; run the checker through `uv run --locked`", file=sys.stderr)
+        return 1
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

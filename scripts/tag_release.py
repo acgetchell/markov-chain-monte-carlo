@@ -70,12 +70,18 @@ class ReleaseVersion:
     tag: str
     number: str
 
+    def __post_init__(self) -> None:
+        """Reject direct construction that would bypass SemVer parsing."""
+        if not _SEMVER_RE.fullmatch(self.tag):
+            msg = f"Tag version should follow SemVer format 'vX.Y.Z' (e.g., v0.3.5, v1.2.3-rc.1). Got: {self.tag}"
+            raise ValueError(msg)
+        if self.number != self.tag.removeprefix("v"):
+            msg = f"Release version number {self.number!r} does not match tag {self.tag!r}"
+            raise ValueError(msg)
+
     @classmethod
     def parse(cls, raw: str) -> ReleaseVersion:
         """Parse a strict ``vX.Y.Z`` SemVer release tag."""
-        if not _SEMVER_RE.fullmatch(raw):
-            msg = f"Tag version should follow SemVer format 'vX.Y.Z' (e.g., v0.3.5, v1.2.3-rc.1). Got: {raw}"
-            raise ValueError(msg)
         return cls(tag=raw, number=raw.removeprefix("v"))
 
 
@@ -96,6 +102,14 @@ def validate_semver(tag_version: str) -> None:
 def parse_version(tag_version: str) -> str:
     """Parse a release tag and return its version number without ``v``."""
     return ReleaseVersion.parse(tag_version).number
+
+
+def parse_release_version_argument(raw: str) -> ReleaseVersion:
+    """Parse a release version while preserving its diagnostic in argparse."""
+    try:
+        return ReleaseVersion.parse(raw)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +324,7 @@ def parse_args(argv: list[str] | None = None) -> TagOptions:
         prog="tag-release",
         description="Create an annotated git tag from a CHANGELOG.md section.",
     )
-    parser.add_argument("version", type=ReleaseVersion.parse, help="Tag version (e.g. v1.2.3)")
+    parser.add_argument("version", type=parse_release_version_argument, help="Tag version (e.g. v1.2.3)")
     parser.add_argument("--force", action="store_true", help="Recreate tag if it already exists")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     namespace = parser.parse_args(argv)

@@ -32,10 +32,9 @@ _build-examples:
     cargo build --locked --examples
 
 # Internal helpers: ensure external tooling is installed
-_ensure-actionlint:
+_ensure-actionlint: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
     uv run --locked actionlint -version >/dev/null
 
 _ensure-cargo-llvm-cov:
@@ -138,6 +137,15 @@ _ensure-uv:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
+    installed_version="$(uv --version 2>/dev/null || true)"
+    if [[ "$installed_version" =~ ^uv[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        installed_version="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$installed_version" != "{{ uv_version }}" ]]; then
+        echo "❌ 'uv' version mismatch: expected {{ uv_version }}, found ${installed_version:-unknown}."
+        echo "   Install it with: curl -LsSf https://astral.sh/uv/{{ uv_version }}/install.sh | sh"
+        exit 1
+    fi
 
 _ensure-zizmor:
     #!/usr/bin/env bash
@@ -532,7 +540,7 @@ semgrep-test: _ensure-uv
 
 setup: setup-tools
 
-setup-tools:
+setup-tools: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -577,15 +585,9 @@ setup-tools:
     fi
     echo ""
 
-    if have uv; then
-        echo "Ensuring uv-managed Python tools..."
-        uv sync --locked --group dev
-        echo ""
-    else
-        echo "❌ uv missing; cannot install project-managed Python tools."
-        echo "Install uv and re-run: just setup-tools"
-        exit 1
-    fi
+    echo "Ensuring uv-managed Python tools..."
+    uv sync --locked --group dev
+    echo ""
 
     echo "Verifying required commands..."
     missing=0

@@ -18,6 +18,7 @@ def code_cell(
     source: str | list[str] = "value = 1",
     *,
     cell_id: str = "code-cell",
+    metadata: dict[str, object] | None = None,
     outputs: list[object] | None = None,
     execution_count: int | None = None,
 ) -> dict[str, object]:
@@ -26,7 +27,7 @@ def code_cell(
         "cell_type": "code",
         "execution_count": execution_count,
         "id": cell_id,
-        "metadata": {},
+        "metadata": {} if metadata is None else metadata,
         "outputs": [] if outputs is None else outputs,
         "source": source,
     }
@@ -112,7 +113,10 @@ class TestLoadNotebook:
         [
             (lambda payload: payload.pop("cells"), "cells must be a list"),
             (lambda payload: payload.__setitem__("nbformat", 3), "expected nbformat 4"),
+            (lambda payload: payload.__setitem__("nbformat", 4.0), "nbformat must be integer 4"),
+            (lambda payload: payload.__setitem__("nbformat_minor", "5"), "nbformat_minor must be a nonnegative integer"),
             (lambda payload: payload.__setitem__("metadata", []), "metadata must be a JSON object"),
+            (lambda payload: payload["cells"][0].__setitem__("metadata", []), "cell 1: metadata must be a JSON object"),
             (lambda payload: payload["cells"][0].__setitem__("source", 42), "source must be a string"),
             (lambda payload: payload["cells"][0].__setitem__("id", ""), "id must be a nonempty string"),
             (
@@ -184,6 +188,30 @@ class TestNotebookDiagnostics:
             (2, "execution_count=4; clear execution counts before committing"),
         ]
 
+    @pytest.mark.parametrize(
+        ("source", "ipython_syntax"),
+        [
+            ("%matplotlib inline\nvalue = 1", "%matplotlib inline"),
+            ("%%time\nvalue = 1", "%%time"),
+            ("!echo hello\nvalue = 1", "!echo hello"),
+            ("%%bash\necho hello", "%%bash"),
+        ],
+    )
+    def test_neutralizes_ipython_syntax_before_python_validation(
+        self,
+        tmp_path: Path,
+        source: str,
+        ipython_syntax: str,
+    ) -> None:
+        notebook_path = tmp_path / "magics.ipynb"
+        write_notebook(notebook_path, [code_cell(source)])
+        notebook = check_notebooks.load_notebook(notebook_path).document
+
+        assert check_notebooks.code_cell_diagnostics(notebook) == []
+        snapshot = check_notebooks.extract_code(notebook)
+        compile(snapshot.source, "extracted-notebook.py", "exec")
+        assert ipython_syntax not in snapshot.source
+
     def test_extract_code_maps_generated_lines_to_cells(self, tmp_path: Path) -> None:
         notebook_path = tmp_path / "valid.ipynb"
         write_notebook(
@@ -225,6 +253,14 @@ class TestNotebookDiagnostics:
 
         assert diagnostics == [check_notebooks.Diagnostic(None, "ruff is required; run the checker through `uv run --locked`")]
 
+    def test_ty_exit_code_two_is_an_unexpected_tool_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = subprocess.CompletedProcess([], 2, stdout="invalid configuration\n", stderr="")
+        monkeypatch.setattr(check_notebooks, "tool_result", lambda *_args, **_kwargs: result)
+
+        diagnostics = check_notebooks.ty_diagnostics(Path("fixture.ipynb"), check_notebooks.CodeSnapshot("", {}), tmp_path)
+
+        assert diagnostics == [check_notebooks.Diagnostic(None, "ty failed with exit code 2: invalid configuration")]
+
     def test_lint_notebooks_reports_clean_path(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         notebook = tmp_path / "valid.ipynb"
         write_notebook(notebook, [code_cell()])
@@ -232,6 +268,19 @@ class TestNotebookDiagnostics:
 
         assert check_notebooks.lint_notebooks((notebook,), options) == 0
         assert f"OK linted {notebook}" in capsys.readouterr().out
+
+    def test_lint_notebooks_reports_load_failure_and_continues(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        invalid = tmp_path / "invalid.ipynb"
+        invalid.write_text("not-json", encoding="utf-8")
+        valid = tmp_path / "valid.ipynb"
+        write_notebook(valid, [code_cell()])
+        options = check_options(tmp_path, paths=(invalid, valid))
+
+        assert check_notebooks.lint_notebooks((invalid, valid), options) == 1
+
+        captured = capsys.readouterr()
+        assert f"{invalid}: notebook: error:" in captured.err
+        assert f"OK linted {valid}" in captured.out
 
 
 class TestExecuteNotebooks:
@@ -287,7 +336,7 @@ class TestExecuteNotebooks:
             return fake_nbclient if name == "nbclient" else fake_nbformat
 
         monkeypatch.setattr(check_notebooks, "import_module", fake_import)
-        monkeypatch.delenv("MPLBACKEND", raising=False)
+        monkeypatch.setenv("MPLBACKEND", "TkAgg")
         monkeypatch.delenv("IPYTHONDIR", raising=False)
         monkeypatch.delenv("MPLCONFIGDIR", raising=False)
         options = check_options(tmp_path, mode="execute", paths=(notebook,))
@@ -303,20 +352,43 @@ class TestExecuteNotebooks:
             "resources": {"metadata": {"path": str(tmp_path)}},
         }
         assert check_notebooks.os.environ["MPLBACKEND"] == "Agg"
-        assert check_notebooks.os.environ["IPYTHONDIR"].endswith("target/notebooks/.ipython")
-        assert check_notebooks.os.environ["MPLCONFIGDIR"].endswith("target/notebooks/.matplotlib")
+        assert Path(check_notebooks.os.environ["IPYTHONDIR"]) == tmp_path / "target" / "notebooks" / ".ipython"
+        assert Path(check_notebooks.os.environ["MPLCONFIGDIR"]) == tmp_path / "target" / "notebooks" / ".matplotlib"
 
 
 class TestClearNotebooks:
     def test_clears_outputs_and_counts(self, tmp_path: Path) -> None:
         notebook = tmp_path / "dirty.ipynb"
-        write_notebook(notebook, [code_cell(outputs=[{"output_type": "stream"}], execution_count=3)])
+        write_notebook(
+            notebook,
+            [
+                code_cell(
+                    metadata={"execution": {"iopub.status.busy": "2026-01-01T00:00:00Z"}, "tags": ["keep"]},
+                    outputs=[{"output_type": "stream"}],
+                    execution_count=3,
+                )
+            ],
+        )
 
         assert check_notebooks.clear_notebook(notebook) is True
 
         loaded = check_notebooks.load_notebook(notebook).document
         assert loaded.cells[0].output_count == 0
         assert loaded.cells[0].execution_count is None
+        serialized = notebook.read_text(encoding="utf-8")
+        raw = json.loads(serialized)
+        assert raw["cells"][0]["metadata"] == {"tags": ["keep"]}
+        assert serialized.startswith('{\n  "cells": [')
+        assert serialized.endswith("\n")
+
+    def test_clears_execution_metadata_without_other_generated_state(self, tmp_path: Path) -> None:
+        notebook = tmp_path / "metadata.ipynb"
+        write_notebook(notebook, [code_cell(metadata={"execution": {"shell.execute_reply": "timestamp"}})])
+
+        assert check_notebooks.clear_notebook(notebook) is True
+
+        raw = json.loads(notebook.read_text(encoding="utf-8"))
+        assert raw["cells"][0]["metadata"] == {}
 
     def test_does_not_rewrite_clean_notebook(self, tmp_path: Path) -> None:
         notebook = tmp_path / "clean.ipynb"
@@ -350,6 +422,23 @@ class TestCli:
         stderr = capsys.readouterr().err
         assert "error:" in stderr
         assert "Traceback" not in stderr
+
+    def test_main_reports_missing_notebook_dependency_with_locked_uv_guidance(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        notebook = tmp_path / "notebooks" / "valid.ipynb"
+        write_notebook(notebook, [code_cell()])
+
+        def missing_dependency(name: str) -> None:
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+
+        monkeypatch.setattr(check_notebooks, "import_module", missing_dependency)
+
+        assert check_notebooks.main(["execute", str(notebook), "--repo-root", str(tmp_path)]) == 1
+        assert capsys.readouterr().err == "error: nbclient is required; run the checker through `uv run --locked`\n"
 
     def test_returns_success_when_no_notebooks_are_found(
         self,

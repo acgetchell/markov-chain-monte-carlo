@@ -8,6 +8,7 @@ import pytest
 import tag_release
 from tag_release import (
     _GITHUB_TAG_ANNOTATION_LIMIT,
+    ReleaseVersion,
     _github_anchor,
     extract_changelog_section,
     find_changelog,
@@ -69,6 +70,21 @@ class TestParseVersion:
     def test_no_prefix(self) -> None:
         with pytest.raises(ValueError, match="SemVer format"):
             parse_version("1.2.3")
+
+    def test_direct_construction_rejects_invalid_tag(self) -> None:
+        with pytest.raises(ValueError, match="SemVer format"):
+            ReleaseVersion(tag="release-1.2.3", number="1.2.3")
+
+    def test_direct_construction_rejects_mismatched_number(self) -> None:
+        with pytest.raises(ValueError, match="does not match tag"):
+            ReleaseVersion(tag="v1.2.3", number="9.9.9")
+
+    def test_cli_preserves_semver_guidance(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as error:
+            tag_release.parse_args(["1.2.3"])
+
+        assert error.value.code == 2
+        assert "Tag version should follow SemVer format 'vX.Y.Z'" in capsys.readouterr().err
 
 
 class TestParseGitHubRepositoryUrl:

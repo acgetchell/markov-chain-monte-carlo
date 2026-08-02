@@ -37,7 +37,8 @@ Before you begin, ensure you have:
 1. **Rust 1.97.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
-4. **uv** (Python 3.14 tooling): install from [astral.sh/uv][uv]
+4. **uv** (Python 3.14 tooling): install the repository-pinned version with
+   `curl -LsSf "https://astral.sh/uv/$(just --evaluate uv_version)/install.sh" | sh` (see [astral.sh/uv][uv])
 
 ### Quick Start
 
