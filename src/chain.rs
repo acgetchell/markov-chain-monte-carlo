@@ -100,7 +100,7 @@ fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError
 pub struct Step<I> {
     /// Step outcome encoded as a single invariant-bearing value.
     outcome: StepOutcome,
-    /// Proposal-specific metadata for the concrete proposal or no-plan outcome.
+    /// Proposal-specific metadata for the concrete proposal or no-proposal outcome.
     info: Option<I>,
     /// Cached log-probability before the step.
     log_prob_before: f64,
@@ -113,8 +113,8 @@ pub struct Step<I> {
 impl<I> Step<I> {
     /// Build telemetry for a no-proposal self-loop.
     ///
-    /// This keeps the [`Step`] field-level contract synchronized whenever a
-    /// delayed proposal returns `Ok(None)`.
+    /// This keeps the [`Step`] field-level contract synchronized whenever an
+    /// in-place or delayed proposal produces no concrete transition.
     pub(crate) const fn no_proposal(info: Option<I>, log_prob_before: f64) -> Self {
         Self {
             outcome: StepOutcome::NoProposal,
@@ -127,7 +127,7 @@ impl<I> Step<I> {
 
     /// Build telemetry for an accepted concrete proposal.
     ///
-    /// This records the accepted outcome together with the post-commit
+    /// This records the accepted outcome together with the post-step
     /// log-probability used by the chain cache.
     pub(crate) const fn accepted_proposal(
         info: I,
@@ -162,12 +162,12 @@ impl<I> Step<I> {
     ///
     /// The outcome and optional telemetry fields are constructed together, so
     /// callers cannot create contradictory combinations such as an accepted
-    /// step without a post-commit log-probability.
+    /// step without a post-step log-probability.
     pub const fn outcome(&self) -> StepOutcome {
         self.outcome
     }
 
-    /// Proposal-specific metadata for the concrete proposal or no-plan outcome.
+    /// Proposal-specific metadata for the concrete proposal or no-proposal outcome.
     #[must_use]
     pub const fn info(&self) -> Option<&I> {
         self.info.as_ref()
@@ -271,7 +271,7 @@ impl<I> Step<I> {
 #[non_exhaustive]
 #[must_use]
 pub enum StepOutcome {
-    /// A concrete proposal was accepted and committed.
+    /// A concrete proposal was accepted and retained.
     Accepted,
     /// A concrete proposal was produced and then rejected by the
     /// Metropolis-Hastings acceptance draw.
@@ -282,7 +282,7 @@ pub enum StepOutcome {
 }
 
 impl StepOutcome {
-    /// Whether this outcome accepted and committed a concrete proposal.
+    /// Whether this outcome accepted and retained a concrete proposal.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::delayed::StepOutcome;
@@ -494,6 +494,80 @@ impl<E: Error + 'static> Error for DelayedStepError<E> {
     }
 }
 
+/// Select how an in-place transition reports its completed outcome.
+///
+/// The policy keeps one transition algorithm for structured single-step calls
+/// and telemetry-free bulk sampling. Implementations are statically dispatched,
+/// so the bulk path does not construct proposal metadata or a [`Step`].
+trait MutTelemetryMode<S, P: ProposalMut<S> + ?Sized> {
+    /// Proposal data retained until the acceptance decision completes.
+    type Captured;
+    /// Value returned to the caller after the transition completes.
+    type Output;
+
+    /// Complete a step for which no concrete proposal was available.
+    fn no_proposal(proposal: &mut P, log_prob_before: f64) -> Self::Output;
+
+    /// Capture data from a validated concrete proposal before possible rollback.
+    fn capture(proposal: &P, state: &S, token: &P::Undo) -> Self::Captured;
+
+    /// Complete an accepted concrete proposal.
+    fn accepted(
+        captured: Self::Captured,
+        log_prob_before: f64,
+        log_prob_after: f64,
+        log_alpha: f64,
+    ) -> Self::Output;
+
+    /// Complete a rejected concrete proposal after rollback.
+    fn rejected(captured: Self::Captured, log_prob_before: f64, log_alpha: f64) -> Self::Output;
+}
+
+/// In-place transition policy that returns full structured telemetry.
+struct CaptureMutTelemetry;
+
+impl<S, P: ProposalMut<S> + ?Sized> MutTelemetryMode<S, P> for CaptureMutTelemetry {
+    type Captured = P::Info;
+    type Output = Step<P::Info>;
+
+    fn no_proposal(proposal: &mut P, log_prob_before: f64) -> Self::Output {
+        Step::no_proposal(proposal.no_proposal_info(), log_prob_before)
+    }
+
+    fn capture(proposal: &P, state: &S, token: &P::Undo) -> Self::Captured {
+        proposal.info(state, token)
+    }
+
+    fn accepted(
+        info: Self::Captured,
+        log_prob_before: f64,
+        log_prob_after: f64,
+        log_alpha: f64,
+    ) -> Self::Output {
+        Step::accepted_proposal(info, log_prob_before, log_prob_after, log_alpha)
+    }
+
+    fn rejected(info: Self::Captured, log_prob_before: f64, log_alpha: f64) -> Self::Output {
+        Step::rejected_proposal(info, log_prob_before, log_alpha)
+    }
+}
+
+/// In-place transition policy that omits all telemetry work.
+struct DiscardMutTelemetry;
+
+impl<S, P: ProposalMut<S> + ?Sized> MutTelemetryMode<S, P> for DiscardMutTelemetry {
+    type Captured = ();
+    type Output = ();
+
+    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) {}
+
+    fn capture(_proposal: &P, _state: &S, _token: &P::Undo) {}
+
+    fn accepted((): Self::Captured, _log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
+
+    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
+}
+
 /// A single MCMC chain.
 #[derive(Debug)]
 #[must_use]
@@ -700,8 +774,9 @@ impl<S> Chain<S> {
     /// undo token; on rejection (or NaN error) the state is rolled back
     /// automatically.
     ///
-    /// Returns `Ok(true)` if the move was accepted, `Ok(false)` if rejected
-    /// (including when the proposal returns `None`).
+    /// Returns structured [`Step`] telemetry that distinguishes acceptance,
+    /// Metropolis-Hastings rejection, and proposal absence while preserving
+    /// proposal-specific metadata.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
@@ -713,14 +788,18 @@ impl<S> Chain<S> {
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += r.random_range(-1.0..1.0); Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(S(0.0), &T)?;
-    /// let accepted = chain.step_mut(&T, &P, &mut rng)?;
+    /// let mut proposal = P;
+    /// let step = chain.step_mut(&T, &mut proposal, &mut rng)?;
+    /// assert!(step.outcome().has_proposal());
     /// assert_eq!(chain.total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -733,12 +812,46 @@ impl<S> Chain<S> {
     pub fn step_mut<T: Target<S>, P: ProposalMut<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
-        proposal: &P,
+        proposal: &mut P,
         rng: &mut R,
-    ) -> Result<bool, McmcError> {
+    ) -> Result<Step<P::Info>, McmcError> {
+        self.step_mut_with_mode::<CaptureMutTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    /// Perform an in-place step without constructing proposal telemetry.
+    ///
+    /// Bulk sampler methods use this path when their return type does not expose
+    /// per-step metadata. The transition mechanics are shared with [`step_mut`](Self::step_mut).
+    pub(crate) fn step_mut_without_telemetry<
+        T: Target<S>,
+        P: ProposalMut<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
+        &mut self,
+        target: &T,
+        proposal: &mut P,
+        rng: &mut R,
+    ) -> Result<(), McmcError> {
+        self.step_mut_with_mode::<DiscardMutTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    /// Execute one in-place transition with a statically selected telemetry policy.
+    fn step_mut_with_mode<
+        M: MutTelemetryMode<S, P>,
+        T: Target<S>,
+        P: ProposalMut<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
+        &mut self,
+        target: &T,
+        proposal: &mut P,
+        rng: &mut R,
+    ) -> Result<M::Output, McmcError> {
+        let log_prob_before = self.log_prob;
         let Some(token) = proposal.propose_mut(&mut self.state, rng) else {
+            let output = M::no_proposal(proposal, log_prob_before);
             self.rejected = self.rejected.saturating_add(1);
-            return Ok(false);
+            return Ok(output);
         };
 
         let log_prob_new = target.log_prob(&self.state);
@@ -754,17 +867,24 @@ impl<S> Chain<S> {
         }
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
+        let captured = M::capture(proposal, &self.state, &token);
 
         let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            Ok(M::accepted(
+                captured,
+                log_prob_before,
+                log_prob_new,
+                log_alpha,
+            ))
         } else {
             proposal.undo(&mut self.state, token);
             self.rejected = self.rejected.saturating_add(1);
+            Ok(M::rejected(captured, log_prob_before, log_alpha))
         }
-        Ok(accept)
     }
 
     /// Perform a single delayed-commit Metropolis-Hastings step.
@@ -1828,8 +1948,9 @@ mod tests {
         struct InfQMutProposal;
         impl ProposalMut<MutScalar> for InfQMutProposal {
             type Undo = f64;
+            type Info = ();
             fn propose_mut<R: Rng + ?Sized>(
-                &self,
+                &mut self,
                 state: &mut MutScalar,
                 _rng: &mut R,
             ) -> Option<f64> {
@@ -1837,7 +1958,8 @@ mod tests {
                 state.0 = 0.0;
                 Some(old)
             }
-            fn undo(&self, state: &mut MutScalar, old: f64) {
+            fn info(&self, _state: &MutScalar, _old: &f64) {}
+            fn undo(&mut self, state: &mut MutScalar, old: f64) {
                 state.0 = old;
             }
             fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
@@ -1845,9 +1967,10 @@ mod tests {
             }
         }
         let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let mut proposal = InfQMutProposal;
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = chain.step_mut(&Normal, &InfQMutProposal, &mut rng);
+        let result = chain.step_mut(&Normal, &mut proposal, &mut rng);
         assert_matches!(result, Err(McmcError::InfiniteLogQRatio));
         assert_eq!(
             chain.state,
@@ -1869,10 +1992,10 @@ mod tests {
             }
         }
         let mut chain = Chain::new(MutScalar(1.0), &InfAtOrigin).unwrap();
-        let proposal = FixedMutProposal(0.0);
+        let mut proposal = FixedMutProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = chain.step_mut(&InfAtOrigin, &proposal, &mut rng);
+        let result = chain.step_mut(&InfAtOrigin, &mut proposal, &mut rng);
         assert_matches!(result, Err(McmcError::InfiniteProposedLogProb));
         assert_eq!(
             chain.state,
@@ -1968,12 +2091,20 @@ mod tests {
     struct FixedMutProposal(f64);
     impl ProposalMut<MutScalar> for FixedMutProposal {
         type Undo = f64; // store old value
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
             let old = state.0;
             state.0 = self.0;
             Some(old)
         }
-        fn undo(&self, state: &mut MutScalar, old: f64) {
+        fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut MutScalar, old: f64) {
             state.0 = old;
         }
     }
@@ -1982,22 +2113,67 @@ mod tests {
     struct NoMoveProposal;
     impl ProposalMut<MutScalar> for NoMoveProposal {
         type Undo = ();
-        fn propose_mut<R: Rng + ?Sized>(&self, _state: &mut MutScalar, _rng: &mut R) -> Option<()> {
+        type Info = ();
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            _state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<()> {
             None
         }
-        fn undo(&self, _state: &mut MutScalar, _token: ()) {}
+        fn info(&self, _state: &MutScalar, _token: &()) {}
+        fn undo(&mut self, _state: &mut MutScalar, _token: ()) {}
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum MutMoveFamily {
+        Add,
+    }
+
+    struct FamilyNoMoveProposal {
+        last_family: Option<MutMoveFamily>,
+    }
+
+    impl ProposalMut<MutScalar> for FamilyNoMoveProposal {
+        type Undo = ();
+        type Info = MutMoveFamily;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            _state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<()> {
+            self.last_family = Some(MutMoveFamily::Add);
+            None
+        }
+
+        fn info(&self, _state: &MutScalar, _token: &()) -> Self::Info {
+            unreachable!("no proposal should not produce concrete proposal info")
+        }
+
+        fn no_proposal_info(&mut self) -> Option<Self::Info> {
+            self.last_family.take()
+        }
+
+        fn undo(&mut self, _state: &mut MutScalar, _token: ()) {}
     }
 
     /// Proposal that probes a mutation, rolls it back internally, and returns None.
     struct ProbeThenNoMoveProposal;
     impl ProposalMut<MutScalar> for ProbeThenNoMoveProposal {
         type Undo = ();
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<()> {
+        type Info = ();
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<()> {
             state.0 += 1.0;
             state.0 -= 1.0;
             None
         }
-        fn undo(&self, _state: &mut MutScalar, _token: ()) {}
+        fn info(&self, _state: &MutScalar, _token: &()) {}
+        fn undo(&mut self, _state: &mut MutScalar, _token: ()) {}
     }
 
     // --- step_mut acceptance ---
@@ -2006,12 +2182,17 @@ mod tests {
     fn step_mut_accepts_uphill() {
         // From x=2.0 (log_prob=-2) to x=0.0 (log_prob=0): always accept
         let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
-        let proposal = FixedMutProposal(0.0);
+        let mut proposal = FixedMutProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
-        assert!(accepted, "Should accept move to higher probability");
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.info(), Some(&0.0));
+        assert_eq!(step.rejection_reason(), None);
+        assert_relative_eq!(step.log_prob_before(), -2.0, epsilon = 1e-12);
+        assert_eq!(step.log_prob_after(), Some(0.0));
+        assert_eq!(step.log_alpha(), Some(2.0));
         assert_eq!(chain.state, MutScalar(0.0));
         assert_eq!(chain.accepted(), 1);
         assert_eq!(chain.rejected(), 0);
@@ -2021,12 +2202,20 @@ mod tests {
     fn step_mut_rejects_downhill() {
         // From x=0.0 (log_prob=0) to x=100.0 (log_prob=-5000): virtually always reject
         let mut chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let proposal = FixedMutProposal(100.0);
+        let mut proposal = FixedMutProposal(100.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
-        assert!(!accepted, "Should reject move to much lower probability");
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(step.info(), Some(&100.0));
+        assert_eq!(
+            step.rejection_reason(),
+            Some(StepRejectionReason::RejectedProposal)
+        );
+        assert_eq!(step.log_prob_before(), 0.0);
+        assert_eq!(step.log_prob_after(), None);
+        assert_eq!(step.log_alpha(), Some(-5000.0));
         // State should be rolled back to original
         assert_eq!(
             chain.state,
@@ -2043,13 +2232,37 @@ mod tests {
     fn step_mut_none_rejects() {
         let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
         let log_prob = chain.log_prob();
+        let mut proposal = NoMoveProposal;
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&Normal, &NoMoveProposal, &mut rng).unwrap();
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
-        assert!(!accepted, "Should return false when proposal returns None");
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(step.info(), None);
+        assert_eq!(
+            step.rejection_reason(),
+            Some(StepRejectionReason::NoProposal)
+        );
+        assert_eq!(step.log_prob_before(), log_prob);
+        assert_eq!(step.log_prob_after(), None);
+        assert_eq!(step.log_alpha(), None);
         assert_eq!(chain.state, MutScalar(1.0), "State should be unchanged");
         assert_relative_eq!(chain.log_prob(), log_prob);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 1);
+    }
+
+    #[test]
+    fn step_mut_none_can_report_family_info() {
+        let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let mut proposal = FamilyNoMoveProposal { last_family: None };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
+
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(step.info(), Some(&MutMoveFamily::Add));
+        assert_eq!(proposal.last_family, None);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
     }
@@ -2058,13 +2271,12 @@ mod tests {
     fn step_mut_none_allows_probe() {
         let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
         let log_prob = chain.log_prob();
+        let mut proposal = ProbeThenNoMoveProposal;
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain
-            .step_mut(&Normal, &ProbeThenNoMoveProposal, &mut rng)
-            .unwrap();
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
-        assert!(!accepted, "Should return false when no move is produced");
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
         assert_eq!(
             chain.state,
             MutScalar(1.0),
@@ -2090,10 +2302,10 @@ mod tests {
             }
         }
         let mut chain = Chain::new(MutScalar(1.0), &NanAtOrigin).unwrap();
-        let proposal = FixedMutProposal(0.0);
+        let mut proposal = FixedMutProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = chain.step_mut(&NanAtOrigin, &proposal, &mut rng);
+        let result = chain.step_mut(&NanAtOrigin, &mut proposal, &mut rng);
         assert_matches!(result, Err(McmcError::NanProposedLogProb));
         assert_eq!(
             chain.state,
@@ -2107,8 +2319,9 @@ mod tests {
         struct NanQProposal;
         impl ProposalMut<MutScalar> for NanQProposal {
             type Undo = f64;
+            type Info = ();
             fn propose_mut<R: Rng + ?Sized>(
-                &self,
+                &mut self,
                 state: &mut MutScalar,
                 _rng: &mut R,
             ) -> Option<f64> {
@@ -2116,7 +2329,8 @@ mod tests {
                 state.0 = 0.0;
                 Some(old)
             }
-            fn undo(&self, state: &mut MutScalar, old: f64) {
+            fn info(&self, _state: &MutScalar, _old: &f64) {}
+            fn undo(&mut self, state: &mut MutScalar, old: f64) {
                 state.0 = old;
             }
             fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
@@ -2124,9 +2338,10 @@ mod tests {
             }
         }
         let mut chain = Chain::new(MutScalar(1.0), &Normal).unwrap();
+        let mut proposal = NanQProposal;
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = chain.step_mut(&Normal, &NanQProposal, &mut rng);
+        let result = chain.step_mut(&Normal, &mut proposal, &mut rng);
         assert_matches!(result, Err(McmcError::NanLogQRatio));
         assert_eq!(
             chain.state,
@@ -2145,8 +2360,9 @@ mod tests {
         }
         impl ProposalMut<MutScalar> for MutRandomWalk {
             type Undo = f64;
+            type Info = f64;
             fn propose_mut<R: Rng + ?Sized>(
-                &self,
+                &mut self,
                 state: &mut MutScalar,
                 rng: &mut R,
             ) -> Option<f64> {
@@ -2155,24 +2371,27 @@ mod tests {
                 state.0 += delta;
                 Some(old)
             }
-            fn undo(&self, state: &mut MutScalar, old: f64) {
+            fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+                state.0
+            }
+            fn undo(&mut self, state: &mut MutScalar, old: f64) {
                 state.0 = old;
             }
         }
 
-        let proposal = MutRandomWalk { width: 1.0 };
+        let mut proposal = MutRandomWalk { width: 1.0 };
         let steps = 100;
 
         let mut chain1 = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut rng1 = StdRng::seed_from_u64(12345);
         for _ in 0..steps {
-            chain1.step_mut(&Normal, &proposal, &mut rng1).unwrap();
+            let _ = chain1.step_mut(&Normal, &mut proposal, &mut rng1).unwrap();
         }
 
         let mut chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(12345);
         for _ in 0..steps {
-            chain2.step_mut(&Normal, &proposal, &mut rng2).unwrap();
+            let _ = chain2.step_mut(&Normal, &mut proposal, &mut rng2).unwrap();
         }
 
         assert_eq!(
@@ -2192,8 +2411,9 @@ mod tests {
         }
         impl ProposalMut<MutScalar> for MutRandomWalk {
             type Undo = f64;
+            type Info = f64;
             fn propose_mut<R: Rng + ?Sized>(
-                &self,
+                &mut self,
                 state: &mut MutScalar,
                 rng: &mut R,
             ) -> Option<f64> {
@@ -2201,25 +2421,28 @@ mod tests {
                 state.0 += rng.random_range(-self.width..self.width);
                 Some(old)
             }
-            fn undo(&self, state: &mut MutScalar, old: f64) {
+            fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+                state.0
+            }
+            fn undo(&mut self, state: &mut MutScalar, old: f64) {
                 state.0 = old;
             }
         }
 
-        let proposal = MutRandomWalk { width: 1.0 };
+        let mut proposal = MutRandomWalk { width: 1.0 };
         let mut chain = Chain::new(MutScalar(5.0), &Normal).unwrap();
         let mut rng = StdRng::seed_from_u64(42);
 
         // Burn-in
         for _ in 0..1_000 {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
         }
 
         // Collect samples
         let n = 10_000;
         let mut sum = 0.0;
         for _ in 0..n {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
             sum += chain.state.0;
         }
         let mean = sum / f64::from(n);
@@ -2240,12 +2463,12 @@ mod tests {
         // MutScalar intentionally does not derive Clone.
         // This test verifies the ProposalMut path compiles and works.
         let mut chain = Chain::new(MutScalar(5.0), &Normal).unwrap();
-        let proposal = FixedMutProposal(0.0);
+        let mut proposal = FixedMutProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
         // Should accept (moving to mode)
-        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
-        assert!(accepted);
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(chain.state, MutScalar(0.0));
     }
 
@@ -3183,12 +3406,20 @@ mod tests {
     }
     impl ProposalMut<MutScalar> for AsymmetricMutProposal {
         type Undo = f64;
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
             let old = state.0;
             state.0 = self.target_value;
             Some(old)
         }
-        fn undo(&self, state: &mut MutScalar, old: f64) {
+        fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut MutScalar, old: f64) {
             state.0 = old;
         }
         fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
@@ -3202,12 +3433,20 @@ mod tests {
     }
     impl ProposalMut<MutScalar> for StateDependentMutProposal {
         type Undo = f64;
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, _rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
             let old = state.0;
             state.0 = self.target_value;
             Some(old)
         }
-        fn undo(&self, state: &mut MutScalar, old: f64) {
+        fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut MutScalar, old: f64) {
             state.0 = old;
         }
         fn log_q_ratio(&self, state: &MutScalar, old: &f64) -> f64 {
@@ -3259,53 +3498,47 @@ mod tests {
     fn step_mut_respects_log_q() {
         // Acceptance via step_mut with positive log_q
         let mut chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let proposal = AsymmetricMutProposal {
+        let mut proposal = AsymmetricMutProposal {
             target_value: 1.0,
             log_q: 100.0,
         };
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
-        assert!(accepted, "Large positive log_q should force acceptance");
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(chain.state, MutScalar(1.0));
 
         // Rejection via step_mut with negative log_q
         let mut chain2 = Chain::new(MutScalar(2.0), &Normal).unwrap();
-        let proposal2 = AsymmetricMutProposal {
+        let mut proposal2 = AsymmetricMutProposal {
             target_value: 0.0,
             log_q: -100.0,
         };
         let mut rng2 = StdRng::seed_from_u64(42);
 
-        let accepted2 = chain2.step_mut(&Normal, &proposal2, &mut rng2).unwrap();
-        assert!(!accepted2, "Large negative log_q should force rejection");
+        let step2 = chain2.step_mut(&Normal, &mut proposal2, &mut rng2).unwrap();
+        assert_eq!(step2.outcome(), StepOutcome::RejectedProposal);
         assert_eq!(chain2.state, MutScalar(2.0));
     }
 
     #[test]
     fn step_mut_log_q_sees_old_and_new() {
         let mut chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
-        let proposal = StateDependentMutProposal { target_value: 0.0 };
+        let mut proposal = StateDependentMutProposal { target_value: 0.0 };
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+        let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
-        assert!(
-            accepted,
-            "old - new log q-ratio should contribute to acceptance"
-        );
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(chain.state, MutScalar(0.0));
 
         let mut chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let proposal2 = StateDependentMutProposal { target_value: 2.0 };
+        let mut proposal2 = StateDependentMutProposal { target_value: 2.0 };
         let mut rng2 = StdRng::seed_from_u64(42);
 
-        let accepted2 = chain2.step_mut(&Normal, &proposal2, &mut rng2).unwrap();
+        let step2 = chain2.step_mut(&Normal, &mut proposal2, &mut rng2).unwrap();
 
-        assert!(
-            !accepted2,
-            "new state and old-state undo token should both affect log q-ratio"
-        );
+        assert_eq!(step2.outcome(), StepOutcome::RejectedProposal);
         assert_eq!(chain2.state, MutScalar(0.0));
     }
 
@@ -3397,15 +3630,14 @@ mod tests {
         }
 
         let mut chain = Chain::new(MutScalar(0.0), &AlwaysNegInf).unwrap();
-        let proposal = FixedMutProposal(1.0);
+        let mut proposal = FixedMutProposal(1.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        let accepted = chain.step_mut(&AlwaysNegInf, &proposal, &mut rng).unwrap();
+        let step = chain
+            .step_mut(&AlwaysNegInf, &mut proposal, &mut rng)
+            .unwrap();
 
-        assert!(
-            !accepted,
-            "Should reject when both states have -inf log_prob"
-        );
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
         assert_eq!(
             chain.state,
             MutScalar(0.0),

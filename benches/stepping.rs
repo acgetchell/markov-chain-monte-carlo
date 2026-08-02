@@ -68,8 +68,13 @@ struct SpinFlip;
 
 impl ProposalMut<SpinChain> for SpinFlip {
     type Undo = usize;
+    type Info = usize;
 
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
+    fn propose_mut<R: Rng + ?Sized>(
+        &mut self,
+        state: &mut SpinChain,
+        rng: &mut R,
+    ) -> Option<usize> {
         if state.spins.is_empty() {
             return None;
         }
@@ -78,7 +83,11 @@ impl ProposalMut<SpinChain> for SpinFlip {
         Some(idx)
     }
 
-    fn undo(&self, state: &mut SpinChain, idx: usize) {
+    fn info(&self, _state: &SpinChain, idx: &usize) -> usize {
+        *idx
+    }
+
+    fn undo(&mut self, state: &mut SpinChain, idx: usize) {
         state.spins[idx] *= -1;
     }
 }
@@ -201,7 +210,6 @@ fn bench_chain_steps(c: &mut Criterion) {
     let flat = FlatTarget;
     let proposal = RandomWalk { width: 1.0 };
     let spin_target = Alignment { beta: 8.0 };
-    let spin_proposal = SpinFlip;
 
     c.bench_function("chain/step_by_value", |b| {
         let mut chain = scalar_chain(&target);
@@ -217,12 +225,13 @@ fn bench_chain_steps(c: &mut Criterion) {
 
     c.bench_function("chain/step_mut_accept", |b| {
         let mut chain = spin_chain(&Alignment { beta: 0.0 });
+        let mut spin_proposal = SpinFlip;
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            black_box(
+            let _ = black_box(
                 chain
-                    .step_mut(&flat, &spin_proposal, &mut rng)
+                    .step_mut(&flat, &mut spin_proposal, &mut rng)
                     .or_abort("in-place chain step on flat target"),
             );
             black_box(chain.state().spins[0]);
@@ -231,12 +240,13 @@ fn bench_chain_steps(c: &mut Criterion) {
 
     c.bench_function("chain/step_mut_reject_rollback", |b| {
         let mut chain = spin_chain(&spin_target);
+        let mut spin_proposal = SpinFlip;
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            black_box(
+            let _ = black_box(
                 chain
-                    .step_mut(&spin_target, &spin_proposal, &mut rng)
+                    .step_mut(&spin_target, &mut spin_proposal, &mut rng)
                     .or_abort("in-place chain step with rollback"),
             );
             black_box(chain.state().spins[0]);
@@ -297,7 +307,6 @@ fn bench_sampler_runs(c: &mut Criterion) {
     let target = Normal;
     let proposal = RandomWalk { width: 1.0 };
     let flat = FlatTarget;
-    let spin_proposal = SpinFlip;
 
     c.bench_function("sampler/run_by_value_100", |b| {
         let mut rng = StdRng::seed_from_u64(SEED);
@@ -317,7 +326,7 @@ fn bench_sampler_runs(c: &mut Criterion) {
         let mut sampler = Sampler::new(
             spin_chain(&Alignment { beta: 0.0 }),
             &flat,
-            &spin_proposal,
+            SpinFlip,
             &mut rng,
         )
         .or_abort("sampler in-place setup");

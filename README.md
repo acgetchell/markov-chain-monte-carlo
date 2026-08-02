@@ -156,7 +156,10 @@ fn main() -> Result<(), McmcError> {
 ## 🧭 Choosing an API
 
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
-- Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple.
+- Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple; its `Info` metadata is returned in structured `Step`
+  telemetry for accepted, rejected, and unavailable proposals.
+- Drive `Sampler::step_mut` explicitly when every transition needs metadata. Bulk `Sampler::run_mut*` methods deliberately skip `Info` construction and
+  proposal telemetry hooks, so metadata that would be discarded is not constructed.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
 - Use `AdditiveTarget` when the target log weight is the sum of model, bias, energy, action, or externally supplied regularizer terms.
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
@@ -167,9 +170,12 @@ fn main() -> Result<(), McmcError> {
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 
-When migrating from the previous thinning and delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `ThinningInterval`, handle the
-underlying sampler or observation error directly instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding
-`outcome()`, `info()`, `log_prob_before()`, `log_prob_after()`, and `log_alpha()` accessors.
+When migrating from the previous in-place API, add `ProposalMut::Info`, implement `info` (and optionally `no_proposal_info`), make proposal mutation hooks
+accept `&mut self`, and read the `Step` returned by `Chain::step_mut` or `Sampler::step_mut` instead of a boolean. Rejection must restore both the state and
+proposal-internal transition state. Keep telemetry hooks observational because bulk execution may skip them. For earlier thinning and
+delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `ThinningInterval`, handle the underlying sampler or observation error directly
+instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding `outcome()`, `info()`, `log_prob_before()`,
+`log_prob_after()`, and `log_alpha()` accessors.
 
 ## 📦 Cargo features
 
