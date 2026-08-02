@@ -7,8 +7,8 @@ name = "markov-chain-monte-carlo-tooling"
 version = "0.4.0"
 description = "Python utility scripts for the markov-chain-monte-carlo Rust library"
 readme = "README.md"
-requires-python = ">=3.12"
-license = { text = "BSD-3-Clause" }
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
 authors = [
     { name = "Adam Getchell" },
 ]
@@ -48,7 +48,7 @@ notebook = [
 
 [tool.ruff]
 line-length = 160
-target-version = "py312"
+target-version = "py314"
 src = [ "scripts" ]
 
 [tool.ruff.lint]

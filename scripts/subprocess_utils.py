@@ -14,8 +14,10 @@ Ported from the delaunay project's scripts/subprocess_utils.py (minimal subset).
 
 import shutil
 import subprocess
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ExecutableNotFoundError(Exception):
@@ -131,5 +133,21 @@ def run_git_command_with_input(
         [git_path, *args],
         cwd=cwd,
         input=input_data,
+        **run_kwargs,
+    )
+
+
+def run_safe_command(
+    command: str,
+    args: list[str],
+    cwd: Path | None = None,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
+    """Run a named command through its resolved path and hardened kwargs."""
+    command_path = get_safe_executable(command)
+    run_kwargs = _build_run_kwargs(f"run_safe_command for {command}", **kwargs)
+    return subprocess.run(  # noqa: S603,PLW1510
+        [command_path, *args],
+        cwd=cwd,
         **run_kwargs,
     )

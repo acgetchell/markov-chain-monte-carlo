@@ -1,7 +1,5 @@
 """Tests for subprocess_utils.py."""
 
-from __future__ import annotations
-
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +12,7 @@ from subprocess_utils import (
     get_safe_executable,
     run_git_command,
     run_git_command_with_input,
+    run_safe_command,
 )
 
 if TYPE_CHECKING:
@@ -147,3 +146,24 @@ class TestRunGitCommandWithInput:
         kwargs: dict[str, Any] = {"executable": "/malicious/fake-git"}
         with pytest.raises(ValueError, match="Overriding 'executable' is not allowed"):
             run_git_command_with_input(["hash-object", "--stdin"], "content", **kwargs)
+
+
+class TestRunSafeCommand:
+    def test_resolves_arbitrary_command_and_preserves_hardening(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: dict[str, Any] = {}
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda command: f"/tools/{command}")
+
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls["args"] = args
+            calls["kwargs"] = kwargs
+            return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+        monkeypatch.setattr(subprocess_utils.subprocess, "run", fake_run)
+
+        result = run_safe_command("ruff", ["check", "-"], input="value = 1\n", timeout=30)
+
+        assert result.stdout == "ok"
+        assert calls["args"] == ["/tools/ruff", "check", "-"]
+        assert calls["kwargs"]["input"] == "value = 1\n"
+        assert calls["kwargs"]["timeout"] == 30
+        assert calls["kwargs"]["check"] is True

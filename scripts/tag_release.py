@@ -12,14 +12,14 @@ Usage:
 Ported from the delaunay project's changelog_utils.py (tag-creation subset).
 """
 
-from __future__ import annotations
-
 import argparse
 import logging
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import NewType
 
 from subprocess_utils import (
     ExecutableNotFoundError,
@@ -60,16 +60,42 @@ _SEMVER_RE = re.compile(
 )
 
 
+GitHubRepositoryUrl = NewType("GitHubRepositoryUrl", str)
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseVersion:
+    """Validated SemVer release tag and its unprefixed version number."""
+
+    tag: str
+    number: str
+
+    @classmethod
+    def parse(cls, raw: str) -> ReleaseVersion:
+        """Parse a strict ``vX.Y.Z`` SemVer release tag."""
+        if not _SEMVER_RE.fullmatch(raw):
+            msg = f"Tag version should follow SemVer format 'vX.Y.Z' (e.g., v0.3.5, v1.2.3-rc.1). Got: {raw}"
+            raise ValueError(msg)
+        return cls(tag=raw, number=raw.removeprefix("v"))
+
+
+@dataclass(frozen=True, slots=True)
+class TagOptions:
+    """Validated tag-release command-line options."""
+
+    version: ReleaseVersion
+    force: bool
+    debug: bool
+
+
 def validate_semver(tag_version: str) -> None:
     """Raise ``ValueError`` if *tag_version* is not valid ``vX.Y.Z`` SemVer."""
-    if not _SEMVER_RE.match(tag_version):
-        msg = f"Tag version should follow SemVer format 'vX.Y.Z' (e.g., v0.3.5, v1.2.3-rc.1). Got: {tag_version}"
-        raise ValueError(msg)
+    ReleaseVersion.parse(tag_version)
 
 
 def parse_version(tag_version: str) -> str:
-    """Return version string without leading ``v``."""
-    return tag_version.removeprefix("v")
+    """Parse a release tag and return its version number without ``v``."""
+    return ReleaseVersion.parse(tag_version).number
 
 
 # ---------------------------------------------------------------------------
@@ -153,10 +179,8 @@ def _delete_tag(tag_version: str) -> None:
     run_git_command(["tag", "-d", tag_version])
 
 
-def _get_repo_url() -> str:
-    """Detect the GitHub HTTPS URL from the ``origin`` remote."""
-    result = run_git_command(["remote", "get-url", "origin"])
-    raw = result.stdout.strip()
+def parse_github_repository_url(raw: str) -> GitHubRepositoryUrl:
+    """Parse a supported GitHub remote into its canonical HTTPS URL."""
     patterns = [
         r"^git@github\.com:(?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$",
         r"^https://github\.com/(?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$",
@@ -165,8 +189,15 @@ def _get_repo_url() -> str:
     for pat in patterns:
         m = re.match(pat, raw)
         if m:
-            return f"https://github.com/{m.group('slug')}"
-    return raw  # best-effort fallback
+            return GitHubRepositoryUrl(f"https://github.com/{m.group('slug')}")
+    msg = f"origin remote is not a supported GitHub URL: {raw!r}"
+    raise ValueError(msg)
+
+
+def _get_repo_url() -> GitHubRepositoryUrl:
+    """Detect and parse the GitHub HTTPS URL from the ``origin`` remote."""
+    result = run_git_command(["remote", "get-url", "origin"])
+    return parse_github_repository_url(result.stdout.strip())
 
 
 def _version_header_re(version: str) -> re.Pattern[str]:
@@ -200,21 +231,21 @@ def _github_anchor(changelog: Path, version: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def create_tag(tag_version: str, *, force: bool = False) -> None:
+def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> None:
     """Create an annotated git tag with changelog content.
 
     If the changelog section exceeds GitHub's 125KB limit, creates the tag
     with a short reference message instead.
     """
-    validate_semver(tag_version)
-    version = parse_version(tag_version)
+    release = ReleaseVersion.parse(tag_version) if isinstance(tag_version, str) else tag_version
+    tag = release.tag
+    version = release.number
 
     # Check for existing tag (but don't delete yet — validate first)
-    tag_existed = _tag_exists(tag_version)
+    tag_existed = _tag_exists(tag)
     if tag_existed and not force:
-        print(f"{_YELLOW}Tag '{tag_version}' already exists.{_RESET}", file=sys.stderr)
-        print(f"Use --force to recreate, or delete manually: git tag -d {tag_version}", file=sys.stderr)
-        sys.exit(1)
+        msg = f"Tag '{tag}' already exists; use --force to recreate it or delete it manually"
+        raise FileExistsError(msg)
 
     # Extract changelog section (before any mutation)
     changelog = find_changelog()
@@ -229,7 +260,7 @@ def create_tag(tag_version: str, *, force: bool = False) -> None:
         tag_message = (
             f"Version {version}\n\n"
             f"This release contains extensive changes. See full changelog:\n"
-            f"<{repo_url}/blob/{tag_version}/CHANGELOG.md#{anchor}>\n\n"
+            f"<{repo_url}/blob/{tag}/CHANGELOG.md#{anchor}>\n\n"
             f"For detailed release notes, refer to CHANGELOG.md in the repository.\n"
         )
         is_truncated = True
@@ -247,23 +278,23 @@ def create_tag(tag_version: str, *, force: bool = False) -> None:
 
     # Delete existing tag only after all validation succeeds
     if tag_existed and force:
-        print(f"{_BLUE}Deleting existing tag '{tag_version}'...{_RESET}")
-        _delete_tag(tag_version)
+        print(f"{_BLUE}Deleting existing tag '{tag}'...{_RESET}")
+        _delete_tag(tag)
 
     # Create annotated tag
     label = "reference" if is_truncated else "full changelog"
-    print(f"{_BLUE}Creating annotated tag '{tag_version}' with {label} content...{_RESET}")
-    run_git_command_with_input(["tag", "-a", tag_version, "-F", "-", "--cleanup=verbatim"], input_data=tag_message)
+    print(f"{_BLUE}Creating annotated tag '{tag}' with {label} content...{_RESET}")
+    run_git_command_with_input(["tag", "-a", tag, "-F", "-", "--cleanup=verbatim"], input_data=tag_message)
 
     # Success
-    print(f"{_GREEN}✓ Successfully created tag '{tag_version}'{_RESET}")
+    print(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")
     print()
     print("Next steps:")
     if force:
-        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag_version}{_RESET}")
+        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag}{_RESET}")
     else:
-        print(f"  1. Push the tag: {_BLUE}git push origin {tag_version}{_RESET}")
-    print(f"  2. Create GitHub release: {_BLUE}gh release create {tag_version} --title {tag_version} --notes-from-tag{_RESET}")
+        print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
+    print(f"  2. Create GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag{_RESET}")
     if is_truncated:
         print(f"\n{_YELLOW}Note: Tag annotation references CHANGELOG.md due to size (>125KB).{_RESET}")
 
@@ -273,34 +304,42 @@ def create_tag(tag_version: str, *, force: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """CLI entry point for ``tag-release``."""
+def parse_args(argv: list[str] | None = None) -> TagOptions:
+    """Parse command-line values into trusted tag-release options."""
     parser = argparse.ArgumentParser(
         prog="tag-release",
         description="Create an annotated git tag from a CHANGELOG.md section.",
     )
-    parser.add_argument("version", help="Tag version (e.g. v1.2.3)")
+    parser.add_argument("version", type=ReleaseVersion.parse, help="Tag version (e.g. v1.2.3)")
     parser.add_argument("--force", action="store_true", help="Recreate tag if it already exists")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    args = parser.parse_args()
+    namespace = parser.parse_args(argv)
+    return TagOptions(version=namespace.version, force=namespace.force, debug=namespace.debug)
 
-    if args.debug:
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for ``tag-release``."""
+    options = parse_args(argv)
+
+    if options.debug:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
     else:
         logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
     try:
-        create_tag(args.version, force=args.force)
+        create_tag(options.version, force=options.force)
     except (
         ValueError,
         FileNotFoundError,
+        FileExistsError,
         LookupError,
         ExecutableNotFoundError,
         subprocess.CalledProcessError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

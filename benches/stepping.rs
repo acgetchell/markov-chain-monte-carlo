@@ -158,21 +158,33 @@ impl DelayedProposal<Scalar> for NoDelayedPlan {
     }
 }
 
-/// Require a benchmark setup or step operation to succeed, panicking with context
-/// so Criterion failures identify the benchmark path that failed.
-fn require<T, E: fmt::Display>(result: Result<T, E>, context: &str) -> T {
-    match result {
-        Ok(value) => value,
-        Err(err) => panic!("{context}: {err}"),
+/// Convert a fallible benchmark operation into its value or panic with context.
+trait OrAbort {
+    /// Successful value produced by the operation.
+    type Output;
+
+    /// Return the successful value or panic with the named benchmark context.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the benchmark operation returns an error.
+    fn or_abort(self, context: &str) -> Self::Output;
+}
+
+impl<T, E: fmt::Display> OrAbort for Result<T, E> {
+    type Output = T;
+
+    fn or_abort(self, context: &str) -> Self::Output {
+        match self {
+            Ok(value) => value,
+            Err(err) => panic!("{context}: {err}"),
+        }
     }
 }
 
 /// Build a scalar chain with a valid cached log-probability for scalar benches.
 fn scalar_chain(target: &impl Target<Scalar>) -> Chain<Scalar> {
-    require(
-        Chain::new(Scalar(0.0), target),
-        "valid scalar benchmark state",
-    )
+    Chain::new(Scalar(0.0), target).or_abort("valid scalar benchmark state")
 }
 
 /// Build a non-`Clone` spin-chain state used to exercise in-place rollback.
@@ -180,7 +192,7 @@ fn spin_chain(target: &Alignment) -> Chain<SpinChain> {
     let state = SpinChain {
         spins: vec![1; SPIN_COUNT],
     };
-    require(Chain::new(state, target), "valid spin benchmark state")
+    Chain::new(state, target).or_abort("valid spin benchmark state")
 }
 
 /// Register single-step chain benchmarks for by-value, in-place, and rollback paths.
@@ -196,10 +208,9 @@ fn bench_chain_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            require(
-                chain.step(&target, &proposal, &mut rng),
-                "chain step by value",
-            );
+            chain
+                .step(&target, &proposal, &mut rng)
+                .or_abort("chain step by value");
             black_box(chain.state().0);
         });
     });
@@ -209,10 +220,11 @@ fn bench_chain_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            black_box(require(
-                chain.step_mut(&flat, &spin_proposal, &mut rng),
-                "in-place chain step on flat target",
-            ));
+            black_box(
+                chain
+                    .step_mut(&flat, &spin_proposal, &mut rng)
+                    .or_abort("in-place chain step on flat target"),
+            );
             black_box(chain.state().spins[0]);
         });
     });
@@ -222,10 +234,11 @@ fn bench_chain_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            black_box(require(
-                chain.step_mut(&spin_target, &spin_proposal, &mut rng),
-                "in-place chain step with rollback",
-            ));
+            black_box(
+                chain
+                    .step_mut(&spin_target, &spin_proposal, &mut rng)
+                    .or_abort("in-place chain step with rollback"),
+            );
             black_box(chain.state().spins[0]);
         });
     });
@@ -242,10 +255,9 @@ fn bench_delayed_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            let step = require(
-                chain.step_delayed(&flat, &mut proposal, &mut rng),
-                "delayed accepted chain step",
-            );
+            let step = chain
+                .step_delayed(&flat, &mut proposal, &mut rng)
+                .or_abort("delayed accepted chain step");
             black_box(step.outcome.is_accepted());
             black_box(chain.state().0);
         });
@@ -257,10 +269,9 @@ fn bench_delayed_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            let step = require(
-                chain.step_delayed(&normal, &mut proposal, &mut rng),
-                "delayed rejected chain step",
-            );
+            let step = chain
+                .step_delayed(&normal, &mut proposal, &mut rng)
+                .or_abort("delayed rejected chain step");
             black_box(step.outcome.is_accepted());
             black_box(chain.state().0);
         });
@@ -272,10 +283,9 @@ fn bench_delayed_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            let step = require(
-                chain.step_delayed(&normal, &mut proposal, &mut rng),
-                "delayed no-plan chain step",
-            );
+            let step = chain
+                .step_delayed(&normal, &mut proposal, &mut rng)
+                .or_abort("delayed no-plan chain step");
             black_box(step.outcome.has_proposal());
             black_box(chain.rejected());
         });
@@ -291,37 +301,31 @@ fn bench_sampler_runs(c: &mut Criterion) {
 
     c.bench_function("sampler/run_by_value_100", |b| {
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut sampler = require(
-            Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng),
-            "sampler by-value setup",
-        );
+        let mut sampler = Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng)
+            .or_abort("sampler by-value setup");
 
         b.iter(|| {
-            require(
-                sampler.run(black_box(BULK_STEPS)),
-                "sampler by-value bulk run",
-            );
+            sampler
+                .run(black_box(BULK_STEPS))
+                .or_abort("sampler by-value bulk run");
             black_box(sampler.chain_ref().state().0);
         });
     });
 
     c.bench_function("sampler/run_mut_100", |b| {
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut sampler = require(
-            Sampler::new(
-                spin_chain(&Alignment { beta: 0.0 }),
-                &flat,
-                &spin_proposal,
-                &mut rng,
-            ),
-            "sampler in-place setup",
-        );
+        let mut sampler = Sampler::new(
+            spin_chain(&Alignment { beta: 0.0 }),
+            &flat,
+            &spin_proposal,
+            &mut rng,
+        )
+        .or_abort("sampler in-place setup");
 
         b.iter(|| {
-            require(
-                sampler.run_mut(black_box(BULK_STEPS)),
-                "sampler in-place bulk run",
-            );
+            sampler
+                .run_mut(black_box(BULK_STEPS))
+                .or_abort("sampler in-place bulk run");
             black_box(sampler.chain_ref().state().spins[0]);
         });
     });
@@ -329,16 +333,13 @@ fn bench_sampler_runs(c: &mut Criterion) {
     c.bench_function("sampler/run_delayed_100", |b| {
         let mut delayed = DelayedWalk { delta: 1.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut sampler = require(
-            Sampler::new(scalar_chain(&flat), &flat, &mut delayed, &mut rng),
-            "sampler delayed setup",
-        );
+        let mut sampler = Sampler::new(scalar_chain(&flat), &flat, &mut delayed, &mut rng)
+            .or_abort("sampler delayed setup");
 
         b.iter(|| {
-            require(
-                sampler.run_delayed(black_box(BULK_STEPS)),
-                "sampler delayed bulk run",
-            );
+            sampler
+                .run_delayed(black_box(BULK_STEPS))
+                .or_abort("sampler delayed bulk run");
             black_box(sampler.chain_ref().state().0);
         });
     });
@@ -351,17 +352,14 @@ fn bench_observing(c: &mut Criterion) {
 
     c.bench_function("observing/run_observing_buffer_100", |b| {
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut sampler = require(
-            Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng),
-            "observing buffer sampler setup",
-        );
+        let mut sampler = Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng)
+            .or_abort("observing buffer sampler setup");
         let mut square = |state: &Scalar| state.0 * state.0;
 
         b.iter(|| {
-            let observations = require(
-                sampler.run_observing(black_box(BULK_STEPS), &mut square),
-                "observing buffer run",
-            );
+            let observations = sampler
+                .run_observing(black_box(BULK_STEPS), &mut square)
+                .or_abort("observing buffer run");
             black_box(observations.as_slice());
         });
     });
@@ -372,10 +370,9 @@ fn bench_observing(c: &mut Criterion) {
             |(mut chain, mut rng)| {
                 let mut sum = 0.0;
                 for _ in 0..black_box(BULK_STEPS) {
-                    require(
-                        chain.step(&target, &proposal, &mut rng),
-                        "manual observing chain step",
-                    );
+                    chain
+                        .step(&target, &proposal, &mut rng)
+                        .or_abort("manual observing chain step");
                     let sample = chain.state().0;
                     sum = sample.mul_add(sample, sum);
                 }
@@ -389,16 +386,13 @@ fn bench_observing(c: &mut Criterion) {
         b.iter_batched(
             || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
             |(chain, mut rng)| {
-                let mut sampler = require(
-                    Sampler::new(chain, &target, &proposal, &mut rng),
-                    "online stats sampler setup",
-                );
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)
+                    .or_abort("online stats sampler setup");
                 let mut square = |state: &Scalar| state.0 * state.0;
                 let mut stats = OnlineStats::new();
-                require(
-                    sampler.run_observing_into(black_box(BULK_STEPS), &mut square, &mut stats),
-                    "online stats observing run",
-                );
+                sampler
+                    .run_observing_into(black_box(BULK_STEPS), &mut square, &mut stats)
+                    .or_abort("online stats observing run");
                 black_box(stats.count());
             },
             BatchSize::SmallInput,
@@ -409,16 +403,13 @@ fn bench_observing(c: &mut Criterion) {
         b.iter_batched(
             || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
             |(chain, mut rng)| {
-                let mut sampler = require(
-                    Sampler::new(chain, &target, &proposal, &mut rng),
-                    "binning sampler setup",
-                );
+                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)
+                    .or_abort("binning sampler setup");
                 let mut square = |state: &Scalar| state.0 * state.0;
                 let mut bins = BinningAnalysis::new();
-                require(
-                    sampler.run_observing_into(black_box(BULK_STEPS), &mut square, &mut bins),
-                    "binning observing run",
-                );
+                sampler
+                    .run_observing_into(black_box(BULK_STEPS), &mut square, &mut bins)
+                    .or_abort("binning observing run");
                 black_box(bins.standard_error());
             },
             BatchSize::SmallInput,

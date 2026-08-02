@@ -1,7 +1,5 @@
 """Tests for tag_release.py — annotated tag creation with size-limit handling."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +11,7 @@ from tag_release import (
     _github_anchor,
     extract_changelog_section,
     find_changelog,
+    parse_github_repository_url,
     parse_version,
     validate_semver,
 )
@@ -68,7 +67,25 @@ class TestParseVersion:
         assert parse_version("v1.2.3") == "1.2.3"
 
     def test_no_prefix(self) -> None:
-        assert parse_version("1.2.3") == "1.2.3"
+        with pytest.raises(ValueError, match="SemVer format"):
+            parse_version("1.2.3")
+
+
+class TestParseGitHubRepositoryUrl:
+    @pytest.mark.parametrize(
+        "remote",
+        [
+            "git@github.com:acgetchell/markov-chain-monte-carlo.git",
+            "https://github.com/acgetchell/markov-chain-monte-carlo.git",
+            "ssh://git@github.com/acgetchell/markov-chain-monte-carlo.git",
+        ],
+    )
+    def test_normalizes_supported_github_remotes(self, remote: str) -> None:
+        assert parse_github_repository_url(remote) == "https://github.com/acgetchell/markov-chain-monte-carlo"
+
+    def test_rejects_non_github_remote(self) -> None:
+        with pytest.raises(ValueError, match="not a supported GitHub URL"):
+            parse_github_repository_url("https://example.com/owner/repo.git")
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +315,8 @@ class TestCreateTag:
         assert len(tag_message) < 1000
 
     @patch("tag_release._tag_exists", return_value=True)
-    def test_existing_tag_without_force_exits(self, _mock_exists: MagicMock) -> None:
-        with pytest.raises(SystemExit):
+    def test_existing_tag_without_force_is_rejected(self, _mock_exists: MagicMock) -> None:
+        with pytest.raises(FileExistsError, match="already exists"):
             tag_release.create_tag("v1.0.0", force=False)
 
     @patch("tag_release.run_git_command_with_input")

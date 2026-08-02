@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.97.1 and edition 2024.
+This repository is a single Rust library crate using Rust 1.97.1 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
 
 ## Core Commands
 
@@ -14,8 +14,13 @@ just ci-repository-tooling  # Repository tooling subset
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # All lint groups
 just setup            # Install/verify external dev tools
-just test             # Lib + doc tests
-just test-all         # Lib + doc + integration + Python tooling tests
+just test             # Focused unit + doc tests
+just test-unit        # Focused library unit tests
+just test-integration # Focused integration tests
+just test-rust-ci     # Release lib + integration tests in one nextest pass
+just test-rust        # Broad Rust CI tests + doctests
+just test-all         # Broad Rust + Python tooling tests
+just notebook-check   # Notebook lint + fast headless execution
 just bench-compile    # Compile Criterion benchmarks without measuring
 just bench            # Criterion benchmarks
 just examples         # Run all examples
@@ -28,6 +33,8 @@ just examples         # Run all examples
 - `just fmt-check` - Rust formatting check
 - `just clippy` - Clippy with `pedantic`, `nursery`, and `cargo` warnings
 - `just python-check` - Ruff formatting/linting and Ty type checking for Python tooling
+- `just notebook-lint` - notebook JSON, output hygiene, cell compilation, Ruff, and Ty checks
+- `just validate-json` - JSON syntax validation
 - `just yaml-check` - YAML formatting check through dprint Pretty YAML
 - `just action-lint` - GitHub Actions validation through `actionlint`
 - `just zizmor` - GitHub Actions security analysis through `zizmor`
@@ -45,15 +52,26 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-config` - JSON, TOML, YAML, GitHub Actions, and Actions security validation
 - `just lint-docs` - Markdown formatting and spellcheck
 
-`just ci` remains the comprehensive local and GitHub Actions entrypoint. It runs repository tooling checks, Python support-script tests, Rust correctness
-checks, documentation, library tests, doctests, integration tests, deterministic example-output validation, and benchmark harness compilation.
+`just ci` is the comprehensive local and GitHub Actions entrypoint. Its dependency list is a flat union of focused validators: GitHub Actions, Markdown,
+spelling, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and core Clippy, documentation, broad Rust runnable tests, doctests,
+benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or `test-all` bundles.
 
-The full command is factored into named subsets so CI-shape trade-offs are explicit and easy to time without changing coverage:
+Runnable library unit and integration tests share one release-profile nextest invocation through `just test-rust-ci`:
 
-- `just ci-rust` - Rust formatting, Clippy, documentation, library tests, doctests, integration tests, and deterministic example-output validation.
-- `just ci-portability` - fast compile checking, library tests, doctests, integration tests, and deterministic example-output validation for platform smoke
+```bash
+cargo nextest run --locked --release --profile ci --lib --tests --verbose
+```
+
+Doctests remain in `just test-doc` because nextest does not execute rustdoc examples. `just clippy` checks the core library;
+`just clippy-all-targets` remains an optional manual sweep because tests, examples, and benches already have focused CI validators.
+
+The named subsets remain available for focused timing or platform work, but `just ci` does not compose through them:
+
+- `just ci-rust` - Rust formatting, core Clippy, documentation, broad release-profile Rust tests, doctests, and deterministic example-output validation.
+- `just ci-portability` - fast compile checking, broad release-profile Rust tests, doctests, and deterministic example-output validation for platform smoke
   checks.
-- `just ci-repository-tooling` - Python, YAML, GitHub Actions, TOML, Markdown, spelling, Semgrep, Semgrep rule tests, and Python support-script tests.
+- `just ci-repository-tooling` - Python checks and tests, notebook linting, JSON, YAML, GitHub Actions, TOML, Markdown, spelling, Semgrep, and Semgrep rule
+  tests.
 
 The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
 comprehensive validation gate.
@@ -90,8 +108,8 @@ Run `just setup` or `just setup-tools` to install and verify external tools:
 - `uv`
 - `zizmor`
 
-The setup recipe uses Cargo for Rust tools and `uv sync --group dev` for project-managed Python tools. Semgrep, Ruff, Ty, actionlint, and the changelog helper
-tests are pinned in `pyproject.toml` and invoked through `uv`.
+The setup recipe uses Cargo for Rust tools and `uv sync --locked --group dev` for project-managed Python 3.14 tools. Semgrep, Ruff, Ty, actionlint, and the
+support-script tests are pinned in `pyproject.toml` and invoked through uv 0.12.1.
 
 ## Line Length
 
@@ -100,14 +118,31 @@ remains on the narrower `rustfmt` `max_width = 100` setting because wide Rust si
 
 ## Testing
 
-- All tests: `just test-all`
-- Fast Rust tests (library tests through nextest plus rustdoc doctests): `just test`
-- Integration tests through nextest: `just test-integration`
+- All default Rust and Python tests: `just test-all`
+- Focused library unit tests plus rustdoc doctests: `just test`
+- Focused unit tests: `just test-unit`
+- Focused integration tests: `just test-integration`
+- Broad release-profile unit and integration tests: `just test-rust-ci`
+- Broad Rust runnable tests plus doctests: `just test-rust`
 - Python tooling tests: `just test-python`
 - Single runnable test by name filter: `cargo nextest run chain_samples_near_mode`
 - Examples: `just examples` builds all examples once, then runs the compiled binaries.
 - Property-based Rust tests live in integration files named `tests/proptest_*.rs`; keep `src` unit tests deterministic unless a private helper requires a
   local test.
+
+For the fast development cycle, run the smallest changed test, doctest, or integration-test crate first. For final validation of non-core changes, compose
+the relevant focused buckets once without replaying broader overlapping suites. Run `just ci` for core Rust changes or whenever GitHub-equivalent evidence is
+required.
+
+## Notebooks
+
+`just notebook-lint` validates every source notebook without execution: JSON shape and stable unique cell IDs, empty outputs and execution counts, cell-aware
+Python compilation, and extracted-code Ruff format/check plus Ty. `just notebook-check` then generates the Ising example artifact and executes the fast
+notebook set headlessly with `MPLBACKEND=Agg`.
+
+Executed notebooks, IPython state, and Matplotlib caches are written below `target/notebooks/`; source notebooks remain unchanged. Heavier notebooks must be
+listed explicitly in the `slow_notebooks` justfile variable and run only through `just notebook-check-slow`. Use `just notebook-clear-outputs-all` for
+intentional in-place cleanup before committing.
 
 ## Benchmarks
 
