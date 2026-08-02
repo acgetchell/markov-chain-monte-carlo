@@ -642,7 +642,7 @@ impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
 ///
 /// Implement [`no_plan_info`](Self::no_plan_info) when planning may select a
 /// move family before discovering that no concrete site exists.  [`crate::Chain`]
-/// stores that metadata in [`crate::DelayedStep::info`] even though the step is
+/// stores that metadata through [`crate::DelayedStep::info`] even though the step is
 /// counted as a rejection with no proposal.
 pub trait DelayedProposal<S> {
     /// Concrete move descriptor produced before the Metropolis-Hastings decision.
@@ -744,8 +744,8 @@ pub trait DelayedProposal<S> {
     ///
     /// let step = chain.step_delayed(&Flat, &mut proposal, &mut rng)?;
     ///
-    /// assert_eq!(step.outcome, StepOutcome::NoProposal);
-    /// assert_eq!(step.info, Some(MoveFamily::Add));
+    /// assert_eq!(step.outcome(), StepOutcome::NoProposal);
+    /// assert_eq!(step.info(), Some(&MoveFamily::Add));
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     fn no_plan_info(&mut self) -> Option<Self::Info> {

@@ -82,6 +82,72 @@ pub struct DiscreteProposalRatio {
     forward_site_count: usize,
 }
 
+pub struct Sampler;
+
+impl Sampler {
+    // ruleid: mcmc.rust.thinning-interval-parameters-use-refined-type
+    pub fn run_with_thinning(&mut self, steps: usize, thin_interval: usize) {
+        let _ = (steps, thin_interval);
+    }
+
+    // ruleid: mcmc.rust.thinning-interval-parameters-use-refined-type
+    pub fn try_run_observing_with_thinning<O>(
+        &mut self,
+        steps: usize,
+        thin_interval: usize,
+        observable: &mut O,
+    ) {
+        let _ = (steps, thin_interval, observable);
+    }
+}
+
+pub struct ThinningInterval;
+
+impl Sampler {
+    // ok: mcmc.rust.thinning-interval-parameters-use-refined-type
+    pub fn run_mut_with_thinning(
+        &mut self,
+        steps: usize,
+        thin_interval: ThinningInterval,
+    ) {
+        let _ = (steps, thin_interval);
+    }
+}
+
+mod mutable_step {
+    pub struct StepOutcome;
+
+    pub struct Step<I> {
+        // ruleid: mcmc.rust.step-telemetry-fields-private
+        pub outcome: StepOutcome,
+        // ruleid: mcmc.rust.step-telemetry-fields-private
+        pub info: Option<I>,
+        // ruleid: mcmc.rust.step-telemetry-fields-private
+        pub log_prob_before: f64,
+        // ruleid: mcmc.rust.step-telemetry-fields-private
+        pub log_prob_after: Option<f64>,
+        // ruleid: mcmc.rust.step-telemetry-fields-private
+        pub log_alpha: Option<f64>,
+    }
+}
+
+mod private_step {
+    pub struct StepOutcome;
+
+    pub struct Step<I> {
+        // ok: mcmc.rust.step-telemetry-fields-private
+        outcome: StepOutcome,
+        // ok: mcmc.rust.step-telemetry-fields-private
+        info: Option<I>,
+        // ok: mcmc.rust.step-telemetry-fields-private
+        log_prob_before: f64,
+        // ok: mcmc.rust.step-telemetry-fields-private
+        log_prob_after: Option<f64>,
+        // ok: mcmc.rust.step-telemetry-fields-private
+        log_alpha: Option<f64>,
+    }
+}
+
 // ruleid: mcmc.rust.no-box-dyn-error-in-src
 fn erased_error() -> Result<(), Box<dyn Error>> {
     Ok(())

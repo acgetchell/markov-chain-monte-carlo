@@ -517,6 +517,8 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 2 mcmc.rust.no-stdio-diagnostics-in-src src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-nonfinite-unwrap-defaults src/project_rules/rust_style.rs
     expect_semgrep_count 3 mcmc.rust.no-production-unwrap-panic src/project_rules/rust_style.rs
+    expect_semgrep_count 2 mcmc.rust.thinning-interval-parameters-use-refined-type src/project_rules/rust_style.rs
+    expect_semgrep_count 5 mcmc.rust.step-telemetry-fields-private src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-box-dyn-error-in-src src/project_rules/rust_style.rs
     expect_semgrep_count 2 mcmc.rust.public-error-enums-non-exhaustive src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-clippy-allow-lints src/project_rules/rust_style.rs

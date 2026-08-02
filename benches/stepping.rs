@@ -258,7 +258,7 @@ fn bench_delayed_steps(c: &mut Criterion) {
             let step = chain
                 .step_delayed(&flat, &mut proposal, &mut rng)
                 .or_abort("delayed accepted chain step");
-            black_box(step.outcome.is_accepted());
+            black_box(step.outcome().is_accepted());
             black_box(chain.state().0);
         });
     });
@@ -272,7 +272,7 @@ fn bench_delayed_steps(c: &mut Criterion) {
             let step = chain
                 .step_delayed(&normal, &mut proposal, &mut rng)
                 .or_abort("delayed rejected chain step");
-            black_box(step.outcome.is_accepted());
+            black_box(step.outcome().is_accepted());
             black_box(chain.state().0);
         });
     });
@@ -286,7 +286,7 @@ fn bench_delayed_steps(c: &mut Criterion) {
             let step = chain
                 .step_delayed(&normal, &mut proposal, &mut rng)
                 .or_abort("delayed no-plan chain step");
-            black_box(step.outcome.has_proposal());
+            black_box(step.outcome().has_proposal());
             black_box(chain.rejected());
         });
     });

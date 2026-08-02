@@ -177,7 +177,7 @@ impl From<StepOutcome> for TraceStepOutcome {
 
 impl<I> From<&Step<I>> for TraceStepOutcome {
     fn from(step: &Step<I>) -> Self {
-        step.outcome.into()
+        step.outcome().into()
     }
 }
 
@@ -999,13 +999,7 @@ mod tests {
 
     #[test]
     fn delayed_step_reference_converts_to_trace_outcome() {
-        let step = Step {
-            outcome: StepOutcome::NoProposal,
-            info: None::<()>,
-            log_prob_before: 0.0,
-            log_prob_after: None,
-            log_alpha: None,
-        };
+        let step = Step::no_proposal(None::<()>, 0.0);
 
         assert_eq!(
             TraceStepOutcome::from(&step),
