@@ -773,24 +773,28 @@ where
 /// struct Flip;
 /// impl ProposalMut<bool> for Flip {
 ///     type Undo = bool;
+///     type Info = bool;
 ///
-///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
 ///         let old = *state;
 ///         *state = !*state;
 ///         Some(old)
 ///     }
 ///
-///     fn undo(&self, state: &mut bool, token: bool) {
+///     fn info(&self, state: &bool, _token: &bool) -> bool { *state }
+///
+///     fn undo(&mut self, state: &mut bool, token: bool) {
 ///         *state = token;
 ///     }
 /// }
 ///
 /// let mut rng = StdRng::seed_from_u64(42);
+/// let mut proposal = Flip;
 /// let report = verify_detailed_balance_mut(
 ///     &false,
 ///     &true,
 ///     &Flat,
-///     &Flip,
+///     &mut proposal,
 ///     &mut rng,
 ///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
 /// )?;
@@ -809,7 +813,7 @@ pub fn verify_detailed_balance_mut<S, T, P, R>(
     current: &S,
     proposed: &S,
     target: &T,
-    proposal: &P,
+    proposal: &mut P,
     rng: &mut R,
     config: DetailedBalanceConfig,
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
@@ -838,24 +842,28 @@ where
 /// struct Flip;
 /// impl ProposalMut<bool> for Flip {
 ///     type Undo = bool;
+///     type Info = bool;
 ///
-///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
 ///         let old = *state;
 ///         *state = !*state;
 ///         Some(old)
 ///     }
 ///
-///     fn undo(&self, state: &mut bool, token: bool) {
+///     fn info(&self, state: &bool, _token: &bool) -> bool { *state }
+///
+///     fn undo(&mut self, state: &mut bool, token: bool) {
 ///         *state = token;
 ///     }
 /// }
 ///
 /// let pairs = [(false, true), (true, false)];
 /// let mut rng = StdRng::seed_from_u64(42);
+/// let mut proposal = Flip;
 /// let batch = verify_detailed_balance_mut_many(
 ///     pairs.iter().map(|(current, proposed)| (current, proposed)),
 ///     &Flat,
-///     &Flip,
+///     &mut proposal,
 ///     &mut rng,
 ///     DetailedBalanceConfig::new(128, 1e-12, 1)?,
 /// );
@@ -869,7 +877,7 @@ where
 pub fn verify_detailed_balance_mut_many<'a, S, T, P, R, I>(
     pairs: I,
     target: &T,
-    proposal: &P,
+    proposal: &mut P,
     rng: &mut R,
     config: DetailedBalanceConfig,
 ) -> DetailedBalanceBatchReport
@@ -1168,7 +1176,7 @@ fn verify_detailed_balance_mut_unchecked<S, T, P, R>(
     current: &S,
     proposed: &S,
     target: &T,
-    proposal: &P,
+    proposal: &mut P,
     rng: &mut R,
     config: DetailedBalanceConfig,
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
@@ -1415,11 +1423,15 @@ where
 
 /// Sample an in-place proposal from cloned endpoints and score each exact hit
 /// with the proposal's undo-token log ratio.
+///
+/// Every concrete proposal is hypothetical, so it is undone after scoring and
+/// before any evaluation error is propagated. This restores both the cloned
+/// endpoint and proposal-internal transition state between trials.
 fn estimate_mut_transition<S, T, P, R>(
     from: &S,
     to: &S,
     target: &T,
-    proposal: &P,
+    proposal: &mut P,
     rng: &mut R,
     request: TransitionRequest,
 ) -> Result<TransitionEstimate, DetailedBalanceError>
@@ -1433,16 +1445,27 @@ where
     for _ in 0..request.samples {
         let mut candidate = from.clone();
         let Some(token) = proposal.propose_mut(&mut candidate, rng) else {
+            let _ = proposal.no_proposal_info();
             continue;
         };
-        if candidate.eq(to) {
+
+        let result = (|| -> Result<Option<f64>, DetailedBalanceError> {
+            if !candidate.eq(to) {
+                return Ok(None);
+            }
+
             let proposed_log_prob = target.log_prob(&candidate);
             check_log_prob(DetailedBalanceState::Proposed, proposed_log_prob)?;
             let log_q_ratio = proposal.log_q_ratio(&candidate, &token);
             check_log_q_ratio(request.direction, log_q_ratio)?;
-            estimate.push(acceptance_probability(
+            Ok(Some(acceptance_probability(
                 proposed_log_prob - request.from_log_prob + log_q_ratio,
-            ));
+            )))
+        })();
+
+        proposal.undo(&mut candidate, token);
+        if let Some(weight) = result? {
+            estimate.push(weight);
         }
     }
     Ok(estimate)
@@ -1676,32 +1699,51 @@ mod tests {
         }
     }
 
-    struct FlipMut;
+    #[derive(Default)]
+    struct FlipMut {
+        pending: bool,
+        undo_calls: usize,
+    }
+
     impl ProposalMut<bool> for FlipMut {
         type Undo = bool;
+        type Info = bool;
 
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+        fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
+            assert!(!self.pending, "previous hypothetical move was not undone");
+            self.pending = true;
             let old = *state;
             *state = !*state;
             Some(old)
         }
 
-        fn undo(&self, state: &mut bool, token: bool) {
+        fn info(&self, state: &bool, _token: &bool) -> bool {
+            *state
+        }
+
+        fn undo(&mut self, state: &mut bool, token: bool) {
             *state = token;
+            self.pending = false;
+            self.undo_calls += 1;
         }
     }
 
     struct BadLogQMut;
     impl ProposalMut<bool> for BadLogQMut {
         type Undo = bool;
+        type Info = bool;
 
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+        fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
             let old = *state;
             *state = !*state;
             Some(old)
         }
 
-        fn undo(&self, state: &mut bool, token: bool) {
+        fn info(&self, state: &bool, _token: &bool) -> bool {
+            *state
+        }
+
+        fn undo(&mut self, state: &mut bool, token: bool) {
             *state = token;
         }
 
@@ -1710,18 +1752,32 @@ mod tests {
         }
     }
 
-    struct InfiniteLogQMut;
+    #[derive(Default)]
+    struct InfiniteLogQMut {
+        pending: bool,
+        undo_calls: usize,
+    }
+
     impl ProposalMut<bool> for InfiniteLogQMut {
         type Undo = bool;
+        type Info = bool;
 
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+        fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
+            assert!(!self.pending, "previous hypothetical move was not undone");
+            self.pending = true;
             let old = *state;
             *state = !*state;
             Some(old)
         }
 
-        fn undo(&self, state: &mut bool, token: bool) {
+        fn info(&self, state: &bool, _token: &bool) -> bool {
+            *state
+        }
+
+        fn undo(&mut self, state: &mut bool, token: bool) {
             *state = token;
+            self.pending = false;
+            self.undo_calls += 1;
         }
 
         fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
@@ -1729,15 +1785,33 @@ mod tests {
         }
     }
 
-    struct NoMoveMut;
+    #[derive(Default)]
+    struct NoMoveMut {
+        pending_info: bool,
+        no_proposal_info_calls: usize,
+    }
+
     impl ProposalMut<bool> for NoMoveMut {
         type Undo = bool;
+        type Info = bool;
 
-        fn propose_mut<R: Rng + ?Sized>(&self, _: &mut bool, _: &mut R) -> Option<bool> {
+        fn propose_mut<R: Rng + ?Sized>(&mut self, _: &mut bool, _: &mut R) -> Option<bool> {
+            self.pending_info = true;
             None
         }
 
-        fn undo(&self, state: &mut bool, token: bool) {
+        fn info(&self, state: &bool, _token: &bool) -> bool {
+            *state
+        }
+
+        fn no_proposal_info(&mut self) -> Option<bool> {
+            let info = self.pending_info.then_some(false);
+            self.pending_info = false;
+            self.no_proposal_info_calls += 1;
+            info
+        }
+
+        fn undo(&mut self, state: &mut bool, token: bool) {
             *state = token;
         }
     }
@@ -2286,11 +2360,12 @@ mod tests {
     #[test]
     fn verifies_mutable_two_state_transition() {
         let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = FlipMut::default();
         let report = verify_detailed_balance_mut(
             &false,
             &true,
             &TwoStateTarget,
-            &FlipMut,
+            &mut proposal,
             &mut rng,
             small_config(),
         )
@@ -2299,6 +2374,8 @@ mod tests {
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
         assert!(report.is_within_tolerance(1e-12));
+        assert!(!proposal.pending);
+        assert_eq!(proposal.undo_calls, 256);
     }
 
     #[test]
@@ -2409,11 +2486,12 @@ mod tests {
     #[test]
     fn mutable_rejects_bad_log_q_ratio() {
         let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = BadLogQMut;
         let err = verify_detailed_balance_mut(
             &false,
             &true,
             &TwoStateTarget,
-            &BadLogQMut,
+            &mut proposal,
             &mut rng,
             small_config(),
         )
@@ -2553,11 +2631,12 @@ mod tests {
             } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
         );
 
+        let mut proposal = InfiniteLogQMut::default();
         let err = verify_detailed_balance_mut(
             &false,
             &true,
             &TwoStateTarget,
-            &InfiniteLogQMut,
+            &mut proposal,
             &mut rng,
             small_config(),
         )
@@ -2569,6 +2648,8 @@ mod tests {
                 log_q_ratio,
             } if log_q_ratio.is_infinite() && log_q_ratio.is_sign_positive()
         );
+        assert!(!proposal.pending);
+        assert_eq!(proposal.undo_calls, 1);
 
         let mut proposal = InfiniteLogQDelayed;
         let err = verify_detailed_balance_delayed(
@@ -2613,11 +2694,12 @@ mod tests {
     #[test]
     fn none_proposals_report_insufficient_hits() {
         let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = NoMoveMut::default();
         let err = verify_detailed_balance_mut(
             &false,
             &true,
             &TwoStateTarget,
-            &NoMoveMut,
+            &mut proposal,
             &mut rng,
             small_config(),
         )
@@ -2630,6 +2712,8 @@ mod tests {
                 min_hits: 1,
             }
         );
+        assert!(!proposal.pending_info);
+        assert_eq!(proposal.no_proposal_info_calls, 256);
 
         let mut proposal = NoPlanDelayed;
         let err = verify_detailed_balance_delayed(
@@ -2798,10 +2882,11 @@ mod tests {
     fn mutable_batch_reports_all_failures() {
         let mut rng = StdRng::seed_from_u64(42);
         let pairs = [(false, true), (true, false)];
+        let mut proposal = BadLogQMut;
         let batch = verify_detailed_balance_mut_many(
             pairs.iter().map(|(current, proposed)| (current, proposed)),
             &TwoStateTarget,
-            &BadLogQMut,
+            &mut proposal,
             &mut rng,
             small_config(),
         );

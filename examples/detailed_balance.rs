@@ -26,14 +26,19 @@ impl Proposal<bool> for Flip {
 struct FlipMut;
 impl ProposalMut<bool> for FlipMut {
     type Undo = bool;
+    type Info = bool;
 
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut bool, _: &mut R) -> Option<bool> {
+    fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
         let previous = *state;
         *state = !*state;
         Some(previous)
     }
 
-    fn undo(&self, state: &mut bool, token: bool) {
+    fn info(&self, state: &bool, _token: &bool) -> bool {
+        *state
+    }
+
+    fn undo(&mut self, state: &mut bool, token: bool) {
         *state = token;
     }
 }
@@ -84,7 +89,15 @@ fn main() -> Result<(), DetailedBalanceError> {
     let by_value = verify_detailed_balance(&false, &true, &target, &Flip, &mut rng, config)?;
 
     let mut rng = StdRng::seed_from_u64(42);
-    let in_place = verify_detailed_balance_mut(&false, &true, &target, &FlipMut, &mut rng, config)?;
+    let mut in_place_proposal = FlipMut;
+    let in_place = verify_detailed_balance_mut(
+        &false,
+        &true,
+        &target,
+        &mut in_place_proposal,
+        &mut rng,
+        config,
+    )?;
 
     let pairs = [(false, true), (true, false)];
     let mut rng = StdRng::seed_from_u64(42);

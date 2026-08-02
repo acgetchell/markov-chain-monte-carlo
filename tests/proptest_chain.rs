@@ -46,12 +46,16 @@ struct MutWalk {
 }
 impl ProposalMut<Scalar> for MutWalk {
     type Undo = f64;
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut Scalar, rng: &mut R) -> Option<f64> {
+    type Info = f64;
+    fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut Scalar, rng: &mut R) -> Option<f64> {
         let old = state.0;
         state.0 += rng.random_range(-self.width..self.width);
         Some(old)
     }
-    fn undo(&self, state: &mut Scalar, old: f64) {
+    fn info(&self, state: &Scalar, _old: &f64) -> f64 {
+        state.0
+    }
+    fn undo(&mut self, state: &mut Scalar, old: f64) {
         state.0 = old;
     }
 }
@@ -114,11 +118,11 @@ proptest! {
         seed in any::<u64>(),
     ) {
         let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
-        let proposal = MutWalk { width };
+        let mut proposal = MutWalk { width };
         let mut rng = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
         }
 
         let expected = Normal.log_prob(chain.state());
@@ -164,7 +168,7 @@ proptest! {
         seed in any::<u64>(),
     ) {
         let clone_proposal = CloneWalk { width };
-        let mut_proposal = MutWalk { width };
+        let mut mut_proposal = MutWalk { width };
 
         let mut chain_clone = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng_clone = StdRng::seed_from_u64(seed);
@@ -174,7 +178,9 @@ proptest! {
 
         for _ in 0..steps {
             chain_clone.step(&Normal, &clone_proposal, &mut rng_clone).unwrap();
-            chain_mut.step_mut(&Normal, &mut_proposal, &mut rng_mut).unwrap();
+            let _ = chain_mut
+                .step_mut(&Normal, &mut mut_proposal, &mut rng_mut)
+                .unwrap();
         }
 
         prop_assert_eq!(
@@ -237,11 +243,11 @@ proptest! {
         seed in any::<u64>(),
     ) {
         let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
-        let proposal = MutWalk { width };
+        let mut proposal = MutWalk { width };
         let mut rng = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
         }
 
         prop_assert_eq!(
@@ -363,19 +369,19 @@ proptest! {
         steps in 1u32..500,
         seed in any::<u64>(),
     ) {
-        let proposal = MutWalk { width };
+        let mut proposal = MutWalk { width };
 
         // Raw chain
         let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng = StdRng::seed_from_u64(seed);
         for _ in 0..steps {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
         }
 
         // Sampler
         let chain2 = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(seed);
-        let mut sampler = Sampler::new(chain2, &Normal, &proposal, &mut rng2).unwrap();
+        let mut sampler = Sampler::new(chain2, &Normal, MutWalk { width }, &mut rng2).unwrap();
         sampler.run_mut(steps as usize).unwrap();
 
         prop_assert_eq!(chain.state(), sampler.chain_ref().state());
@@ -393,21 +399,30 @@ proptest! {
         split in 0u32..500,
         seed in any::<u64>(),
     ) {
-        let proposal = MutWalk { width };
         let steps = steps as usize;
         let first = split as usize % (steps + 1);
         let second = steps - first;
 
         let one_shot_chain = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut one_shot_rng = StdRng::seed_from_u64(seed);
-        let mut one_shot =
-            Sampler::new(one_shot_chain, &Normal, &proposal, &mut one_shot_rng).unwrap();
+        let mut one_shot = Sampler::new(
+            one_shot_chain,
+            &Normal,
+            MutWalk { width },
+            &mut one_shot_rng,
+        )
+        .unwrap();
         one_shot.run_mut(steps).unwrap();
 
         let chunked_chain = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut chunked_rng = StdRng::seed_from_u64(seed);
-        let mut chunked =
-            Sampler::new(chunked_chain, &Normal, &proposal, &mut chunked_rng).unwrap();
+        let mut chunked = Sampler::new(
+            chunked_chain,
+            &Normal,
+            MutWalk { width },
+            &mut chunked_rng,
+        )
+        .unwrap();
 
         let first_total_steps = {
             let continuation = chunked.run_mut_chunk(first).unwrap();

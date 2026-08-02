@@ -68,7 +68,7 @@ The library enforces several local invariants:
 - Acceptance decisions are computed in log space.
 - Log-space acceptance avoids underflow in tail probabilities.
 - `NaN` and positive-infinite target log-probabilities or proposal ratios are rejected.
-- In-place proposals roll back on rejection or invalid proposed values.
+- In-place proposals roll back target state and proposal-internal transition state on rejection or invalid proposed values.
 - Delayed proposals separate planning, scoring, acceptance, and commit so mutations happen only after acceptance.
 - Sampling counters and cached log-probabilities stay synchronized through library-owned transitions.
 
@@ -86,6 +86,9 @@ The crate includes diagnostics that help users test assumptions:
 
 Detailed-balance checks are especially useful for new proposal kernels, but they remain empirical tests over selected transitions. Passing them does not
 establish irreducibility, aperiodicity, or adequate mixing.
+
+For in-place proposals, every concrete hypothetical proposal is undone before the next trial, and no-proposal telemetry is consumed. The proposal must still
+represent a fixed kernel: freeze online adaptation before validation, and keep any transition-relevant mutable state inside the `undo` contract.
 
 ## User Responsibilities
 

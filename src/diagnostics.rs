@@ -13,11 +13,12 @@
 //! information:
 //!
 //! - In-place stepping ([`Chain::step_mut`](crate::Chain::step_mut) and
-//!   [`Sampler::step_mut`](crate::Sampler::step_mut)) returns `bool`; convert
-//!   it with [`TraceStepOutcome::from_proposal_acceptance`].
+//!   [`Sampler::step_mut`](crate::Sampler::step_mut) returns a [`Step`] with
+//!   proposal metadata and an exact [`StepOutcome`].
 //! - Delayed stepping ([`Chain::step_delayed`](crate::Chain::step_delayed) and
-//!   [`Sampler::step_delayed`](crate::Sampler::step_delayed)) returns a
-//!   [`Step`]/[`StepOutcome`]; convert it with the [`From`] implementations on
+//!   [`Sampler::step_delayed`](crate::Sampler::step_delayed)) returns the same
+//!   [`Step`]/[`StepOutcome`] telemetry shape.
+//! - Convert either structured step with the [`From`] implementations on
 //!   [`TraceStepOutcome`].
 //! - By-value stepping ([`Chain::step`](crate::Chain::step) and
 //!   [`Sampler::step`](crate::Sampler::step)) returns `Result<(), _>` with no
@@ -128,10 +129,10 @@ impl TraceStepOutcome {
 
     /// Convert a concrete proposal's boolean acceptance result.
     ///
-    /// This is the natural adapter for [`crate::Chain::step_mut`] and
-    /// [`crate::Sampler::step_mut`] when the caller knows the in-place proposal
-    /// produced a concrete move.  A `false` value is recorded as
-    /// [`Self::rejected_proposal`], not [`Self::no_proposal`].
+    /// Use [`From<&crate::Step<_>>`](Self) for crate-produced structured step
+    /// telemetry. This adapter is for external sources that expose only a
+    /// concrete proposal's boolean acceptance result. A `false` value is
+    /// recorded as [`Self::rejected_proposal`], not [`Self::no_proposal`].
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::TraceStepOutcome;
@@ -152,7 +153,7 @@ impl TraceStepOutcome {
         }
     }
 
-    /// Whether the step accepted and committed a concrete proposal.
+    /// Whether the step accepted and retained a concrete proposal.
     #[must_use]
     pub const fn is_accepted(self) -> bool {
         self.accepted

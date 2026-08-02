@@ -31,18 +31,27 @@ For continuous proposals, exact endpoint hits are usually too rare for the curre
 ## In-Place Proposals
 
 Use `ProposalMut<S>` when cloning the full state is expensive. The proposal mutates state and returns an undo token that must restore the exact previous state
-on rejection.
+and any proposal-internal state that can affect later transitions on rejection.
+
+Treat `Info`, `info`, and `no_proposal_info` as telemetry only. They must not change future transition behavior: bulk `Sampler::run_mut*` methods skip these
+hooks when they do not return `Step` values. Drive `Sampler::step_mut` explicitly when every transition needs metadata.
 
 Useful checks:
 
 - Verify that `propose_mut` returning `None` instead of `Option<Undo>::Some` leaves the state unchanged.
 - Verify `undo` restores the exact previous state for every successful proposal.
+- Verify rejection also restores proposal-internal transition state.
 - Test invalid log-probability and invalid log-ratio paths.
 - Use `verify_detailed_balance_mut` on small representative states that implement `Clone + PartialEq`.
 - Use `verify_detailed_balance_mut_many` for batches of local moves.
 
-The detailed-balance helper clones endpoints so it can resample transitions from a clean state. That cloning is intentional test overhead, not a production
-sampling requirement.
+The detailed-balance helper clones endpoints so it can resample transitions from a clean state. After every concrete hypothetical proposal it calls `undo`,
+including proposals that do not match the requested destination and proposals whose density is invalid. It also consumes no-proposal telemetry. Each trial
+therefore begins from a clean endpoint and rollback-governed proposal transition state. The cloning is intentional test overhead, not a production sampling
+requirement.
+
+These diagnostics assume a fixed proposal kernel. Freeze online adaptation before calling them; proposal state outside the `undo` contract makes repeated
+transition estimates nonstationary and invalidates the detailed-balance check.
 
 ## Delayed Proposals
 

@@ -205,7 +205,9 @@
 //!
 //! For state spaces where cloning is expensive, use [`ProposalMut`] with
 //! [`Chain::step_mut`].  The proposal mutates the state in place and returns
-//! a small undo token for rollback on rejection:
+//! a small undo token for rollback on rejection. Each completed step returns
+//! [`Step`] telemetry containing the proposal's [`ProposalMut::Info`], outcome,
+//! and acceptance numerics:
 //!
 //! ```
 //! use markov_chain_monte_carlo::prelude::in_place::*;
@@ -230,13 +232,15 @@
 //! struct SpinFlip;
 //! impl ProposalMut<SpinChain> for SpinFlip {
 //!     type Undo = usize;
-//!     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
+//!     type Info = usize;
+//!     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
 //!         if state.spins.is_empty() { return None; }
 //!         let idx = rng.random_range(0..state.spins.len());
 //!         state.spins[idx] *= -1;
 //!         Some(idx)
 //!     }
-//!     fn undo(&self, state: &mut SpinChain, idx: usize) {
+//!     fn info(&self, _state: &SpinChain, idx: &usize) -> usize { *idx }
+//!     fn undo(&mut self, state: &mut SpinChain, idx: usize) {
 //!         state.spins[idx] *= -1;  // flipping twice = identity
 //!     }
 //! }
@@ -245,15 +249,18 @@
 //!     let mut rng = StdRng::seed_from_u64(42);
 //!     let state = SpinChain { spins: vec![1; 20] };
 //!     let mut chain = Chain::new(state, &Ising)?;
+//!     let mut proposal = SpinFlip;
 //!
 //!     for _ in 0..1000 {
-//!         chain.step_mut(&Ising, &SpinFlip, &mut rng)?;
+//!         let _ = chain.step_mut(&Ising, &mut proposal, &mut rng)?;
 //!     }
 //!
 //!     assert!(chain.acceptance_rate() > 0.0);
 //!     Ok(())
 //! }
 //! ```
+//!
+//! For bulk in-place sampling, use [`Sampler::run_mut`] instead.
 //!
 //! # Delayed commit proposals
 //!
@@ -469,12 +476,12 @@ pub use observable::{
 };
 pub use sampler::{
     InvalidThinningInterval, ObservedDelayedIntoRunResult, ObservedDelayedStep,
-    ObservedDelayedStepResult, ObservedIntoRunResult, Sampler, ThinnedObservedDelayedIntoRunResult,
-    ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval,
-    TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult, TryObservedDelayedStepResult,
-    TryObservedIntoRunResult, TryObservedMutStepResult, TryObservedRunResult,
-    TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
-    TryThinnedObservedRunResult,
+    ObservedDelayedStepResult, ObservedIntoRunResult, ObservedMutStep, Sampler,
+    ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult, ThinnedRunResult,
+    ThinningInterval, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
+    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
+    TryObservedRunResult, TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult,
+    TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use testing::{
@@ -557,17 +564,19 @@ pub mod prelude {
 
     /// Prelude for in-place proposals with rollback.
     ///
-    /// This imports the shared sampling types plus [`crate::ProposalMut`], without
-    /// importing the by-value or delayed proposal traits.
+    /// This imports the shared sampling types, [`crate::ProposalMut`], and
+    /// structured [`crate::Step`] telemetry without importing the by-value or
+    /// delayed proposal traits.
     pub mod in_place {
         pub use crate::{
             AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
             DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
-            Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
-            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace, TraceError,
-            TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            Observable, ObservedIntoRunResult, ObservedMutStep, ObservedStepError,
+            ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer, Sampler, StatisticsError,
+            Step, StepOutcome, StepRejectionReason, Target, ThinnedObservedIntoRunResult,
+            ThinnedRunResult, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
+            TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+            TryObservedMutStepResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -623,10 +632,10 @@ mod public_api_smoke_tests {
         DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
         DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
         DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
-        InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, OnlineStats, Proposal,
-        ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, StepOutcome,
-        StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord,
-        TraceRecorder, TraceStepOutcome,
+        InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
+        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step,
+        StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord,
+        TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
@@ -647,12 +656,15 @@ mod public_api_smoke_tests {
 
     impl ProposalMut<f64> for Smoke {
         type Undo = ();
+        type Info = ();
 
-        fn propose_mut<R: Rng + ?Sized>(&self, _: &mut f64, _: &mut R) -> Option<Self::Undo> {
+        fn propose_mut<R: Rng + ?Sized>(&mut self, _: &mut f64, _: &mut R) -> Option<Self::Undo> {
             Some(())
         }
 
-        fn undo(&self, _: &mut f64, (): Self::Undo) {}
+        fn info(&self, _: &f64, _token: &Self::Undo) {}
+
+        fn undo(&mut self, _: &mut f64, (): Self::Undo) {}
     }
 
     impl delayed::DelayedProposal<f64> for Smoke {
@@ -728,6 +740,8 @@ mod public_api_smoke_tests {
         let _: Option<ThinningInterval> = None;
         let _: Option<InvalidThinningInterval> = None;
         let _: Option<ObservedDelayedStep<(), f64>> = None;
+        let _: Option<ObservedMutStep<(), f64>> = None;
+        let _: Option<TryObservedMutStepResult<(), f64, Infallible>> = None;
         let _: Option<BinningAnalysis> = None;
         let _: Option<BinningEstimate> = None;
         let _: Option<OnlineStats> = None;
@@ -766,6 +780,11 @@ mod public_api_smoke_tests {
         let _: Option<in_place::TraceRecord> = None;
         let _: Option<in_place::TraceRecorder> = None;
         let _: Option<in_place::TraceStepOutcome> = None;
+        let _: Option<in_place::Step<()>> = None;
+        let _: Option<in_place::StepOutcome> = None;
+        let _: Option<in_place::StepRejectionReason> = None;
+        let _: Option<in_place::ObservedMutStep<(), f64>> = None;
+        let _: Option<in_place::TryObservedMutStepResult<(), f64, Infallible>> = None;
         let _: Option<in_place::DiscreteProposalRatio> = None;
         let _: Option<in_place::DiscreteProposalRatioError> = None;
         let _: Option<

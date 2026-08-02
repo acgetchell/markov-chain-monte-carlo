@@ -543,9 +543,16 @@ impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &mut P {
 ///
 /// * [`Undo`](ProposalMut::Undo) — a small token that captures
 ///   exactly what is needed to reverse a move.
+/// * [`Info`](ProposalMut::Info) — user-facing metadata returned with the
+///   completed step.
 pub trait ProposalMut<S> {
     /// Token that records how to reverse a proposed move.
     type Undo;
+    /// User-facing metadata returned in structured step telemetry.
+    ///
+    /// Bulk sampler methods whose return type does not include a [`crate::Step`]
+    /// do not construct this metadata.
+    type Info;
 
     /// Mutate `state` in place, returning `Some(undo_token)` on success
     /// or `None` if no valid move could be found.
@@ -554,11 +561,45 @@ pub trait ProposalMut<S> {
     /// proposal mutates state before discovering that the move is invalid, it
     /// must undo those changes before returning `None`.  Once `Some(token)` is
     /// returned, [`undo`](ProposalMut::undo) must be able to restore the exact
-    /// prior state.
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo>;
+    /// prior state and any proposal-internal transition state changed by the
+    /// attempt. Returning `None` must likewise leave transition-relevant
+    /// proposal state unchanged; telemetry-only scratch may remain for
+    /// [`no_proposal_info`](Self::no_proposal_info) to consume.
+    fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, rng: &mut R) -> Option<Self::Undo>;
+
+    /// Produce telemetry metadata for a concrete in-place proposal.
+    ///
+    /// `state` is the already-mutated proposed state and `token` is the undo
+    /// token returned by [`propose_mut`](Self::propose_mut). This hook runs
+    /// after the proposed log-probability and proposal ratio have been
+    /// validated, but before a rejected move is undone.
+    ///
+    /// This hook is observational: it must not change target state or proposal
+    /// state that affects future transitions. Bulk sampler methods do not call
+    /// it when they discard per-step telemetry.
+    fn info(&self, state: &S, token: &Self::Undo) -> Self::Info;
+
+    /// Produce telemetry metadata when no concrete proposal was available.
+    ///
+    /// The default returns no metadata. Stateful proposals may record a move
+    /// family or search outcome during [`propose_mut`](Self::propose_mut) and
+    /// return it here without an external side channel. Any mutation performed
+    /// here must be limited to consuming telemetry-only scratch storage and
+    /// must not affect future transitions. Bulk sampler methods do not call
+    /// this hook when they discard per-step telemetry. Scratch retained across
+    /// [`propose_mut`](Self::propose_mut) calls must therefore remain bounded
+    /// even when this hook is never invoked, for example by using a fixed-size
+    /// or single-overwritten slot.
+    fn no_proposal_info(&mut self) -> Option<Self::Info> {
+        None
+    }
 
     /// Reverse a previously applied move using its undo token.
-    fn undo(&self, state: &mut S, token: Self::Undo);
+    ///
+    /// Implementations must also restore proposal-internal transition state
+    /// associated with the attempted move. Telemetry-only scratch storage need
+    /// not be restored because it cannot affect future transitions.
+    fn undo(&mut self, state: &mut S, token: Self::Undo);
 
     /// Log proposal ratio for the in-place move.
     ///
@@ -574,30 +615,23 @@ pub trait ProposalMut<S> {
     }
 }
 
-impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &P {
-    type Undo = P::Undo;
-
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo> {
-        (**self).propose_mut(state, rng)
-    }
-
-    fn undo(&self, state: &mut S, token: Self::Undo) {
-        (**self).undo(state, token);
-    }
-
-    fn log_q_ratio(&self, state: &S, token: &Self::Undo) -> f64 {
-        (**self).log_q_ratio(state, token)
-    }
-}
-
 impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
     type Undo = P::Undo;
+    type Info = P::Info;
 
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, rng: &mut R) -> Option<Self::Undo> {
+    fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, rng: &mut R) -> Option<Self::Undo> {
         (**self).propose_mut(state, rng)
     }
 
-    fn undo(&self, state: &mut S, token: Self::Undo) {
+    fn info(&self, state: &S, token: &Self::Undo) -> Self::Info {
+        (**self).info(state, token)
+    }
+
+    fn no_proposal_info(&mut self) -> Option<Self::Info> {
+        (**self).no_proposal_info()
+    }
+
+    fn undo(&mut self, state: &mut S, token: Self::Undo) {
         (**self).undo(state, token);
     }
 
@@ -893,12 +927,20 @@ mod tests {
     struct SymmetricMutProposal;
     impl ProposalMut<Scalar> for SymmetricMutProposal {
         type Undo = f64;
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut Scalar, _rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
             let old = state.0;
             state.0 += 1.0;
             Some(old)
         }
-        fn undo(&self, state: &mut Scalar, old: f64) {
+        fn info(&self, state: &Scalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut Scalar, old: f64) {
             state.0 = old;
         }
         // log_q_ratio intentionally not overridden — uses default
@@ -938,16 +980,16 @@ mod tests {
     }
 
     #[test]
-    fn shared_mut_proposal_forwards() {
-        let proposal = SymmetricMutProposal;
-        let shared = &proposal;
+    fn owned_mut_proposal_works() {
+        let mut proposal = SymmetricMutProposal;
         let mut state = Scalar(2.0);
-        let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
+        let token = proposal.propose_mut(&mut state, &mut rng()).unwrap();
 
         assert_relative_eq!(state.0, 3.0);
-        assert_relative_eq!(shared.log_q_ratio(&state, &token), 0.0);
+        assert_relative_eq!(proposal.info(&state, &token), 3.0);
+        assert_relative_eq!(proposal.log_q_ratio(&state, &token), 0.0);
 
-        shared.undo(&mut state, token);
+        proposal.undo(&mut state, token);
         assert_relative_eq!(state.0, 2.0);
     }
 

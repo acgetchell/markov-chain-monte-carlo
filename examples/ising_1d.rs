@@ -128,8 +128,13 @@ struct SpinFlip;
 
 impl ProposalMut<SpinChain> for SpinFlip {
     type Undo = usize;
+    type Info = usize;
 
-    fn propose_mut<R: Rng + ?Sized>(&self, state: &mut SpinChain, rng: &mut R) -> Option<usize> {
+    fn propose_mut<R: Rng + ?Sized>(
+        &mut self,
+        state: &mut SpinChain,
+        rng: &mut R,
+    ) -> Option<usize> {
         if state.spins.is_empty() {
             return None;
         }
@@ -138,7 +143,11 @@ impl ProposalMut<SpinChain> for SpinFlip {
         Some(idx)
     }
 
-    fn undo(&self, state: &mut SpinChain, idx: usize) {
+    fn info(&self, _state: &SpinChain, idx: &usize) -> usize {
+        *idx
+    }
+
+    fn undo(&mut self, state: &mut SpinChain, idx: usize) {
         state.spins[idx] *= -1; // flipping twice = identity
     }
 }
@@ -157,9 +166,8 @@ fn main() -> Result<(), ExampleError> {
     let coupling = 1.0;
 
     let target = Ising { coupling, beta };
-    let proposal = SpinFlip;
     let chain = Chain::new(SpinChain::all_up(n_spins), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
+    let mut sampler = Sampler::new(chain, &target, SpinFlip, &mut rng)?;
 
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
     println!(
@@ -184,16 +192,12 @@ fn main() -> Result<(), ExampleError> {
     let mut mag_sq_sum = 0.0;
     let mut trace = TraceRecorder::new(ChainId::new(0), ["energy", "magnetization"])?;
     for _ in 0..n_samples {
-        let accepted = sampler.step_mut()?;
+        let step = sampler.step_mut()?;
         let chain = sampler.chain_ref();
         let state = chain.state();
         let energy = target.energy(state);
         let m = state.magnetization();
-        trace.record(
-            chain,
-            TraceStepOutcome::from_proposal_acceptance(accepted),
-            [energy, m],
-        )?;
+        trace.record(chain, TraceStepOutcome::from(&step), [energy, m])?;
         mag_sum += m;
         mag_sq_sum += m * m;
     }

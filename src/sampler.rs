@@ -7,12 +7,15 @@ use rand::Rng;
 
 use crate::{
     Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
-    ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Target,
+    ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Step, Target,
     TryAccumulator, TryObservable,
 };
 
 /// Delayed-step telemetry paired with a measurement from the resulting state.
 pub type ObservedDelayedStep<I, O> = (DelayedStep<I>, O);
+
+/// In-place step telemetry paired with a measurement from the resulting state.
+pub type ObservedMutStep<I, O> = (Step<I>, O);
 
 /// Result returned by delayed observing steps.
 pub type ObservedDelayedStepResult<I, O, E> =
@@ -22,7 +25,8 @@ pub type ObservedDelayedStepResult<I, O, E> =
 pub type TryObservedStepResult<O, E> = Result<O, ObservedStepError<McmcError, E>>;
 
 /// Result returned by fallible in-place observing steps.
-pub type TryObservedMutStepResult<O, E> = Result<(bool, O), ObservedStepError<McmcError, E>>;
+pub type TryObservedMutStepResult<I, O, E> =
+    Result<ObservedMutStep<I, O>, ObservedStepError<McmcError, E>>;
 
 /// Result returned by fallible by-value or in-place observing runs.
 pub type TryObservedRunResult<O, E> = Result<SampleBuffer<O>, ObservedStepError<McmcError, E>>;
@@ -1308,8 +1312,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
 impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// Perform a single in-place Metropolis–Hastings step with rollback.
     ///
-    /// Delegates to [`Chain::step_mut`].  Returns `Ok(true)` if accepted,
-    /// `Ok(false)` if rejected.
+    /// Delegates to [`Chain::step_mut`] and returns structured telemetry for
+    /// the completed step.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
@@ -1321,15 +1325,18 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += r.random_range(-1.0..1.0); Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
-    /// let accepted = sampler.step_mut()?;
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)?;
+    /// let step = sampler.step_mut()?;
+    /// assert!(step.outcome().has_proposal());
     /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -1338,13 +1345,22 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// Returns [`McmcError`] on NaN or +∞ log-probability or NaN log q-ratio
     /// (state is rolled back before the error is returned).
-    pub fn step_mut(&mut self) -> Result<bool, McmcError> {
-        self.chain.step_mut(self.target, &self.proposal, self.rng)
+    pub fn step_mut(&mut self) -> Result<Step<P::Info>, McmcError> {
+        self.chain
+            .step_mut(self.target, &mut self.proposal, self.rng)
+    }
+
+    /// Perform one in-place transition without constructing step telemetry.
+    fn step_mut_without_telemetry(&mut self) -> Result<(), McmcError> {
+        self.chain
+            .step_mut_without_telemetry(self.target, &mut self.proposal, self.rng)
     }
 
     /// Run `steps` in-place Metropolis–Hastings steps.
     ///
-    /// Stops and returns the first error encountered.
+    /// Stops and returns the first error encountered. This bulk path does not
+    /// call [`ProposalMut::info`] or [`ProposalMut::no_proposal_info`]; call
+    /// [`step_mut`](Self::step_mut) directly when per-step telemetry is needed.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
@@ -1360,14 +1376,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct Flip;
     /// # impl ProposalMut<Spins> for Flip {
     /// #     type Undo = usize;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut Spins, r: &mut R) -> Option<usize> {
+    /// #     type Info = usize;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut Spins, r: &mut R) -> Option<usize> {
     /// #         let i = r.random_range(0..s.0.len()); s.0[i] *= -1; Some(i)
     /// #     }
-    /// #     fn undo(&self, s: &mut Spins, i: usize) { s.0[i] *= -1; }
+    /// #     fn info(&self, _: &Spins, i: &usize) -> usize { *i }
+    /// #     fn undo(&mut self, s: &mut Spins, i: usize) { s.0[i] *= -1; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(Spins(vec![1; 20]), &Ising)?;
-    /// let mut sampler = Sampler::new(chain, &Ising, &Flip, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Ising, Flip, &mut rng)?;
     ///
     /// sampler.run_mut(1000)?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1000);
@@ -1379,7 +1397,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// Returns [`McmcError`] on the first step that fails.
     pub fn run_mut(&mut self, steps: usize) -> Result<(), McmcError> {
         for _ in 0..steps {
-            self.step_mut()?;
+            self.step_mut_without_telemetry()?;
         }
         Ok(())
     }
@@ -1403,21 +1421,24 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
+    ///     type Info = i32;
     ///
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
     ///
-    ///     fn undo(&self, state: &mut S, old: i32) {
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///
+    ///     fn undo(&mut self, state: &mut S, old: i32) {
     ///         state.0 = old;
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
     ///
     /// let continuation = sampler.run_mut_chunk(3)?;
     /// assert_eq!(continuation.state().0, 3);
@@ -1453,17 +1474,19 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     type Info = i32;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
-    ///     fn undo(&self, state: &mut S, old: i32) { state.0 = old; }
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///     fn undo(&mut self, state: &mut S, old: i32) { state.0 = old; }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let states = sampler.run_mut_with_thinning(5, thin_interval)?;
@@ -1486,17 +1509,14 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         self.collect_with_thinning_core(
             steps,
             thin_interval,
-            |sampler| {
-                sampler.step_mut()?;
-                Ok(())
-            },
+            Sampler::step_mut_without_telemetry,
             |sampler| Ok(sampler.chain.state().clone()),
         )
     }
 
     /// Perform one in-place step and observe the resulting chain state.
     ///
-    /// Returns the step acceptance flag together with the measurement.
+    /// Returns structured step telemetry together with the measurement.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
@@ -1508,17 +1528,20 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
-    /// let (_accepted, sample) = sampler.step_mut_observing(&mut coordinate)?;
+    /// let (step, sample) = sampler.step_mut_observing(&mut coordinate)?;
+    /// assert!(step.outcome().has_proposal());
     /// assert!(sample >= 0.0);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -1530,9 +1553,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     pub fn step_mut_observing<O: Observable<S> + ?Sized>(
         &mut self,
         observable: &mut O,
-    ) -> Result<(bool, O::Output), McmcError> {
-        let accepted = self.step_mut()?;
-        Ok((accepted, observable.observe(self.chain.state())))
+    ) -> Result<ObservedMutStep<P::Info, O::Output>, McmcError> {
+        let step = self.step_mut()?;
+        Ok((step, observable.observe(self.chain.state())))
     }
 
     /// Run in-place steps and collect one observation after each step.
@@ -1547,14 +1570,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     ///
     /// let samples = sampler.run_mut_observing(16, &mut coordinate)?;
@@ -1572,8 +1597,8 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ) -> Result<SampleBuffer<O::Output>, McmcError> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            let (_, sample) = self.step_mut_observing(observable)?;
-            samples.push(sample);
+            self.step_mut_without_telemetry()?;
+            samples.push(observable.observe(self.chain.state()));
         }
         Ok(samples)
     }
@@ -1595,17 +1620,19 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     type Info = i32;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
-    ///     fn undo(&self, state: &mut S, old: i32) { state.0 = old; }
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///     fn undo(&mut self, state: &mut S, old: i32) { state.0 = old; }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
@@ -1628,10 +1655,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         self.collect_with_thinning_core(
             steps,
             thin_interval,
-            |sampler| {
-                sampler.step_mut()?;
-                Ok(())
-            },
+            Sampler::step_mut_without_telemetry,
             |sampler| Ok(observable.observe(sampler.chain.state())),
         )
     }
@@ -1652,14 +1676,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| state.0;
     /// let mut bins = BinningAnalysis::new();
@@ -1685,9 +1711,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let (_, sample) = self
-                .step_mut_observing(observable)
+            self.step_mut_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
+            let sample = observable.observe(self.chain.state());
             accumulator
                 .try_push(sample)
                 .map_err(ObservedStreamError::Accumulation)?;
@@ -1713,18 +1739,20 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     type Info = i32;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
-    ///     fn undo(&self, state: &mut S, old: i32) { state.0 = old; }
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///     fn undo(&mut self, state: &mut S, old: i32) { state.0 = old; }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
@@ -1756,8 +1784,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
             steps,
             thin_interval,
             |sampler| {
-                sampler.step_mut().map_err(ObservedStreamError::Step)?;
-                Ok(())
+                sampler
+                    .step_mut_without_telemetry()
+                    .map_err(ObservedStreamError::Step)
             },
             |sampler| {
                 accumulator
@@ -1779,20 +1808,23 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)
     ///     .map_err(ObservedStepError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
     /// };
     ///
-    /// let (_accepted, sample) = sampler.try_step_mut_observing(&mut finite)?;
+    /// let (step, sample) = sampler.try_step_mut_observing(&mut finite)?;
+    /// assert!(step.outcome().has_proposal());
     /// assert!(sample.is_finite());
     /// # Ok::<(), ObservedStepError<McmcError, &'static str>>(())
     /// ```
@@ -1804,12 +1836,12 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     pub fn try_step_mut_observing<O: TryObservable<S> + ?Sized>(
         &mut self,
         observable: &mut O,
-    ) -> TryObservedMutStepResult<O::Output, O::Error> {
-        let accepted = self.step_mut().map_err(ObservedStepError::Step)?;
+    ) -> TryObservedMutStepResult<P::Info, O::Output, O::Error> {
+        let step = self.step_mut().map_err(ObservedStepError::Step)?;
         let sample = observable
             .try_observe(self.chain.state())
             .map_err(ObservedStepError::Observation)?;
-        Ok((accepted, sample))
+        Ok((step, sample))
     }
 
     /// Run in-place steps and collect fallible observations.
@@ -1824,14 +1856,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)
     ///     .map_err(ObservedStepError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
@@ -1852,7 +1886,11 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ) -> TryObservedRunResult<O::Output, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            let (_, sample) = self.try_step_mut_observing(observable)?;
+            self.step_mut_without_telemetry()
+                .map_err(ObservedStepError::Step)?;
+            let sample = observable
+                .try_observe(self.chain.state())
+                .map_err(ObservedStepError::Observation)?;
             samples.push(sample);
         }
         Ok(samples)
@@ -1876,18 +1914,20 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     type Info = i32;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
-    ///     fn undo(&self, state: &mut S, old: i32) { state.0 = old; }
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///     fn undo(&mut self, state: &mut S, old: i32) { state.0 = old; }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
     ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
@@ -1913,8 +1953,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
             steps,
             thin_interval,
             |sampler| {
-                sampler.step_mut().map_err(ObservedStepError::Step)?;
-                Ok(())
+                sampler
+                    .step_mut_without_telemetry()
+                    .map_err(ObservedStepError::Step)
             },
             |sampler| {
                 observable
@@ -1936,14 +1977,16 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// # struct P;
     /// # impl ProposalMut<S> for P {
     /// #     type Undo = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&self, s: &mut S, _r: &mut R) -> Option<f64> {
+    /// #     type Info = f64;
+    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
     /// #         let old = s.0; s.0 += 1.0; Some(old)
     /// #     }
-    /// #     fn undo(&self, s: &mut S, old: f64) { s.0 = old; }
+    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T).map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &T, P, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut finite = |state: &S| {
     ///     if state.0.is_finite() { Ok(state.0) } else { Err("non-finite") }
@@ -1970,9 +2013,11 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let (_, sample) = self
-                .try_step_mut_observing(observable)
-                .map_err(stream_observed_error)?;
+            self.step_mut_without_telemetry()
+                .map_err(ObservedStreamError::Step)?;
+            let sample = observable
+                .try_observe(self.chain.state())
+                .map_err(ObservedStreamError::Observation)?;
             accumulator
                 .try_push(sample)
                 .map_err(ObservedStreamError::Accumulation)?;
@@ -1998,18 +2043,20 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// struct Increment;
     /// impl ProposalMut<S> for Increment {
     ///     type Undo = i32;
-    ///     fn propose_mut<R: Rng + ?Sized>(&self, state: &mut S, _: &mut R) -> Option<i32> {
+    ///     type Info = i32;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
     ///         state.0 += 1;
     ///         Some(old)
     ///     }
-    ///     fn undo(&self, state: &mut S, old: i32) { state.0 = old; }
+    ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
+    ///     fn undo(&mut self, state: &mut S, old: i32) { state.0 = old; }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
@@ -2041,8 +2088,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
             steps,
             thin_interval,
             |sampler| {
-                sampler.step_mut().map_err(ObservedStreamError::Step)?;
-                Ok(())
+                sampler
+                    .step_mut_without_telemetry()
+                    .map_err(ObservedStreamError::Step)
             },
             |sampler| {
                 let sample = observable
@@ -3240,7 +3288,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, 
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use std::assert_matches;
+    use std::{assert_matches, cell::Cell};
 
     use approx::assert_relative_eq;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -3299,26 +3347,114 @@ mod tests {
     }
     impl ProposalMut<MutScalar> for MutWalk {
         type Undo = f64;
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut MutScalar, rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            rng: &mut R,
+        ) -> Option<f64> {
             let old = state.0;
             state.0 += rng.random_range(-self.width..self.width);
             Some(old)
         }
-        fn undo(&self, state: &mut MutScalar, old: f64) {
+        fn info(&self, state: &MutScalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut MutScalar, old: f64) {
             state.0 = old;
         }
     }
 
     impl ProposalMut<Scalar> for MutWalk {
         type Undo = f64;
-        fn propose_mut<R: Rng + ?Sized>(&self, state: &mut Scalar, rng: &mut R) -> Option<f64> {
+        type Info = f64;
+        fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut Scalar, rng: &mut R) -> Option<f64> {
             let old = state.0;
             state.0 += rng.random_range(-self.width..self.width);
             Some(old)
         }
-        fn undo(&self, state: &mut Scalar, old: f64) {
+        fn info(&self, state: &Scalar, _old: &f64) -> f64 {
+            state.0
+        }
+        fn undo(&mut self, state: &mut Scalar, old: f64) {
             state.0 = old;
         }
+    }
+
+    #[derive(Default)]
+    struct CountingInfoProposal {
+        info_calls: Cell<usize>,
+    }
+
+    impl ProposalMut<MutScalar> for CountingInfoProposal {
+        type Undo = f64;
+        type Info = f64;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
+            Some(state.0)
+        }
+
+        fn info(&self, state: &MutScalar, _token: &f64) -> f64 {
+            self.info_calls.set(self.info_calls.get() + 1);
+            state.0
+        }
+
+        fn undo(&mut self, state: &mut MutScalar, token: f64) {
+            state.0 = token;
+        }
+    }
+
+    impl ProposalMut<Scalar> for CountingInfoProposal {
+        type Undo = f64;
+        type Info = f64;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
+            Some(state.0)
+        }
+
+        fn info(&self, state: &Scalar, _token: &f64) -> f64 {
+            self.info_calls.set(self.info_calls.get() + 1);
+            state.0
+        }
+
+        fn undo(&mut self, state: &mut Scalar, token: f64) {
+            state.0 = token;
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingNoProposalInfo {
+        no_proposal_info_calls: usize,
+    }
+
+    impl ProposalMut<MutScalar> for CountingNoProposalInfo {
+        type Undo = ();
+        type Info = ();
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            _state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<()> {
+            None
+        }
+
+        fn info(&self, _state: &MutScalar, _token: &()) {}
+
+        fn no_proposal_info(&mut self) -> Option<()> {
+            self.no_proposal_info_calls += 1;
+            Some(())
+        }
+
+        fn undo(&mut self, _state: &mut MutScalar, _token: ()) {}
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3862,9 +3998,9 @@ mod tests {
     fn step_mut_advances_chain() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
 
-        sampler.step_mut().unwrap();
+        let _ = sampler.step_mut().unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
@@ -3872,10 +4008,70 @@ mod tests {
     fn run_mut_n_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
 
         sampler.run_mut(500).unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 500);
+    }
+
+    #[test]
+    fn bulk_mut_runs_skip_concrete_proposal_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let mut sampler = sampler!(chain, &Normal, CountingInfoProposal::default(), &mut rng);
+        let mut coordinate = |state: &MutScalar| state.0;
+        let mut try_coordinate = |state: &MutScalar| Ok::<f64, Infallible>(state.0);
+        let mut observed = Vec::new();
+        let mut try_observed = Vec::new();
+        let thin_interval = ThinningInterval::MIN;
+
+        sampler.run_mut(4).unwrap();
+        let _samples = sampler.run_mut_observing(4, &mut coordinate).unwrap();
+        let _thinned_samples = sampler
+            .run_mut_observing_with_thinning(2, thin_interval, &mut coordinate)
+            .unwrap();
+        sampler
+            .run_mut_observing_into(2, &mut coordinate, &mut observed)
+            .unwrap();
+        sampler
+            .run_mut_observing_into_with_thinning(2, thin_interval, &mut coordinate, &mut observed)
+            .unwrap();
+        let _try_samples = sampler
+            .try_run_mut_observing(2, &mut try_coordinate)
+            .unwrap();
+        let _try_thinned_samples = sampler
+            .try_run_mut_observing_with_thinning(2, thin_interval, &mut try_coordinate)
+            .unwrap();
+        sampler
+            .try_run_mut_observing_into(2, &mut try_coordinate, &mut try_observed)
+            .unwrap();
+        sampler
+            .try_run_mut_observing_into_with_thinning(
+                2,
+                thin_interval,
+                &mut try_coordinate,
+                &mut try_observed,
+            )
+            .unwrap();
+
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 0);
+        let step = sampler.step_mut().unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 1);
+    }
+
+    #[test]
+    fn bulk_mut_runs_skip_no_proposal_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
+        let mut sampler = sampler!(chain, &Normal, CountingNoProposalInfo::default(), &mut rng,);
+
+        sampler.run_mut(8).unwrap();
+
+        assert_eq!(sampler.proposal_ref().no_proposal_info_calls, 0);
+        let step = sampler.step_mut().unwrap();
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(sampler.proposal_ref().no_proposal_info_calls, 1);
     }
 
     #[test]
@@ -3884,7 +4080,7 @@ mod tests {
         let mut sampler = sampler!(
             scalar_chain(0.0),
             &Normal,
-            &MutWalk { width: 1.0 },
+            CountingInfoProposal::default(),
             &mut rng,
         );
 
@@ -3892,17 +4088,16 @@ mod tests {
 
         assert_eq!(states.len(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 7);
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 0);
+
+        let _step = sampler.step_mut().unwrap();
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 1);
     }
 
     #[test]
     fn run_mut_with_thinning_skips_collection_when_interval_exceeds_steps() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(
-            scalar_chain(0.0),
-            &Normal,
-            &MutWalk { width: 1.0 },
-            &mut rng,
-        );
+        let mut sampler = sampler!(scalar_chain(0.0), &Normal, MutWalk { width: 1.0 }, &mut rng,);
 
         let states = sampler.run_mut_with_thinning(3, thin(4)).unwrap();
 
@@ -3914,7 +4109,7 @@ mod tests {
     fn run_mut_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
 
         let measurements = sampler.run_mut_observing(25, &mut coordinate).unwrap();
@@ -3927,7 +4122,7 @@ mod tests {
     fn run_mut_observing_into_streams_to_binning_analysis() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| state.0;
         let mut bins = BinningAnalysis::new();
 
@@ -3946,7 +4141,7 @@ mod tests {
         let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
-            &MutWalk { width: 1.0 },
+            MutWalk { width: 1.0 },
             &mut rng,
         );
         let mut calls = 0;
@@ -3970,7 +4165,7 @@ mod tests {
         let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
-            &MutWalk { width: 1.0 },
+            MutWalk { width: 1.0 },
             &mut rng,
         );
         let mut coordinate = |state: &MutScalar| state.0;
@@ -3990,7 +4185,7 @@ mod tests {
         let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
-            &MutWalk { width: 1.0 },
+            MutWalk { width: 1.0 },
             &mut rng,
         );
         let mut calls = 0;
@@ -4015,7 +4210,7 @@ mod tests {
         let mut sampler = sampler!(
             mut_scalar_chain(0.0),
             &Normal,
-            &MutWalk { width: 1.0 },
+            MutWalk { width: 1.0 },
             &mut rng,
         );
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
@@ -4033,11 +4228,12 @@ mod tests {
     fn try_step_mut_observing_collects() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
 
-        let (_accepted, sample) = sampler.try_step_mut_observing(&mut coordinate).unwrap();
+        let (step, sample) = sampler.try_step_mut_observing(&mut coordinate).unwrap();
 
+        assert!(step.outcome().has_proposal());
         assert!(sample.is_finite());
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
@@ -4046,7 +4242,7 @@ mod tests {
     fn try_run_mut_observing_errors() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut observable = |_state: &MutScalar| Err::<f64, _>(ObservationFailure::Failed);
 
         let result = sampler.try_run_mut_observing(1, &mut observable);
@@ -4062,7 +4258,7 @@ mod tests {
     fn try_run_mut_observing_collects_successes() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
 
         let measurements = sampler.try_run_mut_observing(5, &mut coordinate).unwrap();
@@ -4076,7 +4272,7 @@ mod tests {
     fn try_run_mut_observing_into_streams_successes() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut coordinate = |state: &MutScalar| Ok::<f64, ObservationFailure>(state.0);
         let mut stats = OnlineStats::new();
 
@@ -4092,7 +4288,7 @@ mod tests {
     fn try_run_mut_observing_into_reports_accumulation_error() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut sampler = sampler!(chain, &Normal, &MutWalk { width: 1.0 }, &mut rng);
+        let mut sampler = sampler!(chain, &Normal, MutWalk { width: 1.0 }, &mut rng);
         let mut invalid = |_state: &MutScalar| Ok::<f64, ObservationFailure>(f64::INFINITY);
         let mut stats = OnlineStats::new();
 
@@ -4625,20 +4821,20 @@ mod tests {
 
     #[test]
     fn sampler_mut_matches_raw_chain() {
-        let proposal = MutWalk { width: 1.0 };
+        let mut proposal = MutWalk { width: 1.0 };
         let steps = 100;
 
         // Raw chain
         let mut chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..steps {
-            chain.step_mut(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
         }
 
         // Sampler
         let chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(chain2, &Normal, &proposal, &mut rng2);
+        let mut sampler = sampler!(chain2, &Normal, MutWalk { width: 1.0 }, &mut rng2);
         sampler.run_mut(steps).unwrap();
 
         assert_eq!(chain.state, *sampler.chain_ref().state());
