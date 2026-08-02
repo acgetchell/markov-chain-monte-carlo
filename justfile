@@ -15,9 +15,11 @@ rumdl_version := "0.2.48"
 sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
 typos_version := "1.48.0"
-uv_version := "0.12.0"
+uv_version := "0.12.1"
 zizmor_version := "1.29.0"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
+fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
+slow_notebooks := ""
 
 # Common cargo-llvm-cov arguments for all coverage runs.
 # Excludes examples from reports while allowing tests to exercise library code.
@@ -30,11 +32,10 @@ _build-examples:
     cargo build --locked --examples
 
 # Internal helpers: ensure external tooling is installed
-_ensure-actionlint:
+_ensure-actionlint: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
-    uv run actionlint -version >/dev/null
+    uv run --locked actionlint -version >/dev/null
 
 _ensure-cargo-llvm-cov:
     #!/usr/bin/env bash
@@ -136,6 +137,15 @@ _ensure-uv:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v uv >/dev/null || { echo "❌ 'uv' not found. Install with the official installer: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }
+    installed_version="$(uv --version 2>/dev/null || true)"
+    if [[ "$installed_version" =~ ^uv[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        installed_version="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$installed_version" != "{{ uv_version }}" ]]; then
+        echo "❌ 'uv' version mismatch: expected {{ uv_version }}, found ${installed_version:-unknown}."
+        echo "   Install it with: curl -LsSf https://astral.sh/uv/{{ uv_version }}/install.sh | sh"
+        exit 1
+    fi
 
 _ensure-zizmor:
     #!/usr/bin/env bash
@@ -159,7 +169,7 @@ action-lint: _ensure-actionlint
         files+=("$file")
     done < <(git ls-files -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 uv run actionlint
+        printf '%s\0' "${files[@]}" | xargs -0 uv run --locked actionlint
     else
         echo "No workflow files found to lint."
     fi
@@ -181,14 +191,14 @@ changelog: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_CLIFF_OFFLINE=true git-cliff -o CHANGELOG.md
-    uv run postprocess-changelog
+    uv run --locked postprocess-changelog
 
 # Regenerate CHANGELOG.md for a release tag before the tag exists
 changelog-unreleased version: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_CLIFF_OFFLINE=true git-cliff --tag {{ version }} -o CHANGELOG.md
-    uv run postprocess-changelog
+    uv run --locked postprocess-changelog
 
 # Non-mutating validation gate
 check: check-rust check-repository-tooling
@@ -199,20 +209,21 @@ check-fast:
     cargo check --locked
 
 # Repository tooling that does not need to be repeated across operating systems.
-check-repository-tooling: python-check notebook-lint yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
 check-rust: fmt-check clippy
     @echo "✅ Rust checks complete!"
 
-# CI simulation: comprehensive validation.
-# Depends on repository tooling, including `zizmor` GitHub Actions security analysis.
-ci: ci-repository-tooling ci-rust notebook-check bench-compile
+# CI simulation: flat union of GitHub-equivalent focused validators.
+# Runnable Rust unit and integration tests share one release-profile nextest pass;
+# rustdoc doctests remain separate because nextest does not execute them.
+ci: action-lint zizmor markdown-check spell-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
-ci-portability: check-fast test test-integration validate-examples
+ci-portability: check-fast test-rust-ci test-doc validate-examples
     @echo "✅ Portability CI checks complete!"
 
 # CI subset for repository tooling and support-script tests.
@@ -220,7 +231,7 @@ ci-repository-tooling: check-repository-tooling test-python
     @echo "✅ Repository tooling CI checks complete!"
 
 # CI subset for Rust correctness.
-ci-rust: check-rust doc test test-integration validate-examples
+ci-rust: check-rust doc test-rust-ci test-doc validate-examples
     @echo "✅ Rust CI checks complete!"
 
 # Clean build artifacts
@@ -229,9 +240,13 @@ clean:
     rm -rf target/llvm-cov
     rm -rf coverage
 
-# Clippy linting
+# Core library Clippy linting used by the default validation gates.
 clippy:
-    CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+    CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+
+# Optional broad Clippy sweep; tests, examples, and benches have focused validators in CI.
+clippy-all-targets:
+    CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
 # Coverage analysis for local development (HTML output)
 coverage: _ensure-cargo-llvm-cov
@@ -305,13 +320,15 @@ help-workflows:
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
     @echo "  just lint-docs      # Markdown and spelling checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
-    @echo "  just notebook-lint  # Validate notebooks without executing cells"
-    @echo "  just notebook-check # Execute notebooks after generating example artifacts"
+    @echo "  just notebook-lint  # Validate JSON, output hygiene, and extracted Python"
+    @echo "  just notebook-check # Lint all notebooks and execute the fast notebook set"
+    @echo "  just notebook-check-slow # Include explicitly configured heavy notebooks"
     @echo "  just zizmor         # GitHub Actions security analysis"
     @echo ""
     @echo "Testing:"
-    @echo "  just test           # Lib + doc tests"
-    @echo "  just test-all       # Lib + doc + integration + Python tooling tests"
+    @echo "  just test           # Focused unit + doctest buckets"
+    @echo "  just test-rust      # Broad release Rust tests + doctests"
+    @echo "  just test-all       # Broad Rust + Python tooling tests"
     @echo "  just bench          # Run Criterion benchmarks"
     @echo "  just bench-compile  # Compile benchmarks without measuring"
     @echo "  just coverage       # Generate and open HTML coverage report"
@@ -362,17 +379,37 @@ markdown-fix: _ensure-rumdl
 
 markdown-lint: markdown-check
 
-notebook-check: notebook-sync
+notebook-check: notebook-lint notebook-execute-fast
+    @echo "📓 Fast notebook checks complete!"
+
+notebook-check-slow: notebook-check notebook-execute-slow
+    @echo "📓 Slow notebook checks complete!"
+
+notebook-clear-outputs-all: notebook-sync
+    uv run --locked --group dev --group notebook check-notebooks clear --repo-root .
+
+notebook-execute-fast: notebook-sync
     #!/usr/bin/env bash
     set -euo pipefail
     just example ising_1d
-    MPLBACKEND=Agg uv run --group dev --group notebook check-notebooks execute
+    notebooks=( {{ fast_notebooks }} )
+    MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks
+
+notebook-execute-slow: _ensure-uv
+    #!/usr/bin/env bash
+    set -euo pipefail
+    notebooks=( {{ slow_notebooks }} )
+    if [ "${#notebooks[@]}" -eq 0 ]; then
+        echo "No slow notebooks configured."
+        exit 0
+    fi
+    MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks --timeout 1800
 
 notebook-lint: _ensure-uv
-    uv run --group dev check-notebooks lint
+    uv run --locked --group dev --group notebook check-notebooks lint --repo-root .
 
 notebook-sync: _ensure-uv
-    uv sync --group dev --group notebook
+    uv sync --locked --group dev --group notebook
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 publish-check: _ensure-jq
@@ -437,24 +474,24 @@ publish-check: _ensure-jq
     echo "✅ Publish check passed!"
 
 python-check: python-typecheck
-    uv run ruff format --check scripts/
-    uv run ruff check scripts/
+    uv run --locked ruff format --check scripts/
+    uv run --locked ruff check scripts/
 
 python-fix: python-sync
-    uv run ruff check scripts/ --fix
-    uv run ruff format scripts/
+    uv run --locked ruff check scripts/ --fix
+    uv run --locked ruff format scripts/
 
 python-lint: python-check
 
 python-sync: _ensure-uv
-    uv sync --group dev
+    uv sync --locked --group dev
 
 python-typecheck: python-sync
-    uv run ty check scripts/
+    uv run --locked ty check scripts/
 
 # Repository-owned Semgrep rules for project-specific diagnostics.
 semgrep: _ensure-uv
-    uv run semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml .
+    uv run --locked semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml .
 
 semgrep-test: _ensure-uv
     #!/usr/bin/env bash
@@ -468,7 +505,7 @@ semgrep-test: _ensure-uv
         local json
         local count
 
-        json="$(uv run semgrep scan --metrics off --json --quiet --strict --config ../../semgrep.yaml "$target")"
+        json="$(uv run --locked semgrep scan --metrics off --json --quiet --strict --config ../../semgrep.yaml "$target")"
         count="$(printf '%s\n' "$json" | { grep -o "\"check_id\":\"$rule\"" || true; } | wc -l | tr -d '[:space:]')"
 
         if [[ "$count" != "$expected" ]]; then
@@ -485,7 +522,7 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 1 mcmc.rust.no-clippy-allow-lints src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.expect-requires-reason src/project_rules/rust_style.rs
 
-    uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml examples/deep_import.rs
+    uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml examples/deep_import.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-examples-benches examples/erased_error.rs
     expect_semgrep_count 0 mcmc.rust.no-box-dyn-error-in-examples-benches examples/typed_error.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-examples-benches benches/erased_error.rs
@@ -499,11 +536,11 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 1 mcmc.github-actions.external-action-approved-allowlist github-actions/workflow_actions.yml
     expect_semgrep_count 1 mcmc.github-actions.external-action-version-comment github-actions/workflow_actions.yml
     expect_semgrep_count 2 mcmc.docs.check-before-fix-command-order docs/check_fix_order.md
-    uv run semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
+    uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
 setup: setup-tools
 
-setup-tools:
+setup-tools: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -548,15 +585,9 @@ setup-tools:
     fi
     echo ""
 
-    if have uv; then
-        echo "Ensuring uv-managed Python tools..."
-        uv sync --group dev
-        echo ""
-    else
-        echo "❌ uv missing; cannot install project-managed Python tools."
-        echo "Install uv and re-run: just setup-tools"
-        exit 1
-    fi
+    echo "Ensuring uv-managed Python tools..."
+    uv sync --locked --group dev
+    echo ""
 
     echo "Verifying required commands..."
     missing=0
@@ -581,13 +612,13 @@ setup-tools:
         exit 1
     fi
 
-    uv run actionlint -version >/dev/null
+    uv run --locked actionlint -version >/dev/null
     echo "  ✓ actionlint (uv)"
-    uv run semgrep --version >/dev/null
+    uv run --locked semgrep --version >/dev/null
     echo "  ✓ semgrep (uv)"
-    uv run ruff --version >/dev/null
+    uv run --locked ruff --version >/dev/null
     echo "  ✓ ruff (uv)"
-    uv run ty --version >/dev/null
+    uv run --locked ty --version >/dev/null
     echo "  ✓ ty (uv)"
 
     echo ""
@@ -598,17 +629,17 @@ spell-check: _ensure-typos
 
 # Create an annotated git tag from the CHANGELOG.md section for the given version
 tag version: python-sync
-    uv run tag-release {{ version }}
+    uv run --locked tag-release {{ version }}
 
 # Recreate an existing tag from the CHANGELOG.md section for the given version
 tag-force version: python-sync
-    uv run tag-release {{ version }} --force
+    uv run --locked tag-release {{ version }} --force
 
-# Testing: runnable Rust tests use nextest; rustdoc doctests remain on cargo test.
-test: test-lib test-doc
+# Focused local Rust buckets: unit tests plus rustdoc doctests.
+test: test-unit test-doc
 
-# All tests (lib + doc + integration + Python tooling)
-test-all: test test-integration test-python
+# Broad Rust correctness plus Python tooling tests.
+test-all: test-rust test-python
     @echo "✅ All tests passed"
 
 test-doc:
@@ -618,11 +649,23 @@ test-doc:
 test-integration: _ensure-cargo-nextest
     cargo nextest run --locked --test '*' --verbose
 
-test-lib: _ensure-cargo-nextest
+# Focused library unit tests for changed-surface validation.
+test-unit: _ensure-cargo-nextest
     cargo nextest run --locked --lib --verbose
 
+# Backward-compatible alias for the former recipe name.
+test-lib: test-unit
+
+# Broad release-profile Rust CI bucket: lib unit and integration tests together.
+test-rust-ci: _ensure-cargo-nextest
+    cargo nextest run --locked --release --profile ci --lib --tests --verbose
+
+# Broad Rust test workflow; doctests remain a separate cargo-test bucket.
+test-rust: test-rust-ci test-doc
+    @echo "✅ Rust tests passed"
+
 test-python: python-sync
-    uv run pytest -q
+    uv run --locked pytest -q
 
 toml-fix: toml-fmt
 

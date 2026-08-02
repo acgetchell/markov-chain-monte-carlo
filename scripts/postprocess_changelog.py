@@ -12,11 +12,17 @@ Usage:
     postprocess-changelog path/to/CHANGELOG.md
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class PostprocessOptions:
+    """Validated changelog post-processing options."""
+
+    path: Path
 
 
 def postprocess(path: Path) -> None:
@@ -29,8 +35,8 @@ def postprocess(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def main() -> None:
-    """CLI entry point for ``postprocess-changelog``."""
+def parse_args(argv: list[str] | None = None) -> PostprocessOptions:
+    """Parse command-line values into trusted post-processing options."""
     parser = argparse.ArgumentParser(
         prog="postprocess-changelog",
         description="Apply markdown hygiene to a git-cliff generated CHANGELOG.md.",
@@ -38,18 +44,26 @@ def main() -> None:
     parser.add_argument(
         "path",
         nargs="?",
-        default="CHANGELOG.md",
+        type=Path,
+        default=Path("CHANGELOG.md"),
         help="Path to CHANGELOG.md (default: CHANGELOG.md)",
     )
-    args = parser.parse_args()
+    namespace = parser.parse_args(argv)
+    return PostprocessOptions(path=namespace.path)
 
-    changelog = Path(args.path)
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for ``postprocess-changelog``."""
+    options = parse_args(argv)
+
+    changelog = options.path
     if not changelog.is_file():
         print(f"Error: {changelog} not found", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     postprocess(changelog)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

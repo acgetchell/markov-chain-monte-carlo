@@ -1,7 +1,5 @@
 """Tests for postprocess_changelog.py — trailing blank line hygiene."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from postprocess_changelog import postprocess

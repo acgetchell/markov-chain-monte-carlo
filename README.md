@@ -197,7 +197,7 @@ For proposal-specific testing patterns, see the
 
 The Ising trace notebook lives at
 [`notebooks/ising_trace_analysis.ipynb`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/notebooks/ising_trace_analysis.ipynb). Run
-`just example ising_1d` first to generate `target/ising_1d_trace.csv`.
+`just notebook-check` to generate `target/ising_1d_trace.csv`, validate the source notebook, and write a headlessly executed copy under `target/notebooks/`.
 
 ## 📖 Documentation
 

@@ -66,8 +66,8 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, Clippy, Python checks, YAML, GitHub Actions, Actions security, TOML,
-  Markdown, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, core-library Clippy, Python and notebook checks, JSON, YAML, GitHub
+  Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **GitHub Actions security**: Validate workflows with `just zizmor` (uses `zizmor`)
@@ -93,8 +93,8 @@ just ci               # Full CI simulation (checks + tests + examples)
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install/verify external dev tools
-just test             # Lib + doc tests (fast)
-just test-all         # All tests (lib + doc + integration + Python tooling)
+just test             # Focused unit + doc tests (fast)
+just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
 ```
 

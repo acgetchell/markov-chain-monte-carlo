@@ -37,7 +37,8 @@ Before you begin, ensure you have:
 1. **Rust 1.97.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
-4. **uv** (Python tooling): install from [astral.sh/uv][uv]
+4. **uv** (Python 3.14 tooling): install the repository-pinned version with
+   `curl -LsSf "https://astral.sh/uv/$(just --evaluate uv_version)/install.sh" | sh` (see [astral.sh/uv][uv])
 
 ### Quick Start
 
@@ -58,8 +59,8 @@ Before you begin, ensure you have:
 3. **Run tests**:
 
    ```bash
-   just test            # Lib + doc tests (fast)
-   just test-all        # Lib + doc + integration + Python tooling tests
+   just test            # Focused unit + doc tests (fast)
+   just test-all        # Broad release Rust + doc + Python tooling tests
    ```
 
 4. **Try the examples**:
@@ -144,8 +145,9 @@ just setup           # Install / verify external dev tools
 just check           # Run linters / validators (non-mutating)
 just ci              # Full local CI simulation (mirrors .github/workflows/ci.yml)
 just fix             # Apply formatters / auto-fixes (mutating)
-just test            # Lib + doc tests (fast)
-just test-all        # All tests (lib + doc + integration + Python tooling)
+just test            # Focused unit + doc tests (fast)
+just test-rust       # Broad release Rust tests + doctests
+just test-all        # Broad Rust + Python tooling tests
 just examples        # Run all examples
 just bench           # Run Criterion benchmarks
 just bench-compile   # Compile benchmarks without measuring
@@ -168,19 +170,22 @@ just help-workflows  # Detailed workflow guidance
    git checkout -b feat/your-feature
    ```
 
-2. **Iterate:**
+2. **Iterate with the smallest changed-surface validator:**
 
    ```bash
    # edit code and docs
-   just test            # quick: lib + doc tests
+   just test-unit       # library unit-test changes
+   just test-doc        # doctest-only changes
+   just test-integration # one integration-test crate or the integration bucket
+   just notebook-lint   # notebook or notebook-checker changes
    just fix             # apply formatters
    ```
 
-3. **Pre-push validation:**
+3. **Compose each relevant focused bucket once for final non-core changes.** For core Rust changes or a GitHub-equivalent local run, use the full gate:
 
    ```bash
-   just check           # all non-mutating linters
-   just ci              # full local CI simulation
+   just check           # non-mutating linters and validators
+   just ci              # flat GitHub-equivalent validation union
    ```
 
 4. **Submit:**
@@ -202,15 +207,16 @@ just help-workflows  # Detailed workflow guidance
 
 ### Linting Configuration
 
-`just clippy` runs:
+`just clippy` checks the core library surface used by the default gates:
 
 ```bash
-CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
+CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 ```
 
 Cargo owns the warning-as-error policy so changing the policy does not invalidate compiled artifacts. The explicit `-W` flags remain because they enable
 Clippy lint groups; `CARGO_BUILD_WARNINGS=deny` changes the severity of enabled lints but does not select those groups. The crate forbids `unsafe_code` and
-warns on `missing_docs`; broken intra-doc links are denied.
+warns on `missing_docs`; broken intra-doc links are denied. `just clippy-all-targets` is an optional manual sweep; CI uses focused test, example, and
+benchmark validators instead of compiling those targets through Clippy as well.
 
 ### API Style
 
@@ -235,25 +241,25 @@ requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run t
 - **Library tests** — inline `#[cfg(test)] mod tests` in each source file:
 
   ```bash
-  cargo nextest run --lib
+  just test-unit
   ```
 
 - **Doctests** — examples in `///` and `//!` doc comments:
 
   ```bash
-  cargo test --doc
+  just test-doc
   ```
 
 - **Integration tests** — `tests/` directory:
 
   ```bash
-  cargo nextest run --tests
+  just test-integration
   ```
 
 - **Python tooling tests** — `pytest` over the `scripts/` helpers:
 
   ```bash
-  uv run pytest -q
+  just test-python
   ```
 
 - **Benchmark compilation** (no measurement):
@@ -262,7 +268,26 @@ requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run t
   cargo bench --no-run
   ```
 
-`just test` runs library tests through nextest plus rustdoc doctests through `cargo test --doc`; `just test-all` adds integration and Python tests.
+- **Broad Rust CI tests** — library unit and integration tests share one optimized build, while doctests remain separate:
+
+  ```bash
+  just test-rust-ci
+  just test-doc
+  ```
+
+- **Notebooks** — validate JSON, stable cells, output hygiene, cell compilation, Ruff formatting/linting, and Ty before headless execution:
+
+  ```bash
+  just notebook-lint
+  just notebook-check
+  just notebook-check-slow       # only explicitly configured heavy notebooks
+  just notebook-clear-outputs-all # mutating cleanup before committing
+  ```
+
+  Executed notebooks and runtime caches are written under `target/notebooks/`; source notebooks are never overwritten by validation.
+
+`just test` runs focused library tests through nextest plus rustdoc doctests through `cargo test --doc`; `just test-all` runs the broad release-profile Rust
+test bucket, rustdoc doctests, and Python tooling tests.
 
 ### Property-Based Tests
 
@@ -405,8 +430,8 @@ descriptions or review notes instead.
 - [ ] Doctests pass (`cargo test --doc`)
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
-- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `yaml-check`, `action-lint`, `zizmor`, `toml-fmt-check`, `toml-lint`, `markdown-check`,
-      `spell-check`, `semgrep`, `semgrep-test`)
+- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`, `toml-fmt-check`,
+      `toml-lint`, `markdown-check`, `spell-check`, `semgrep`, `semgrep-test`)
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions

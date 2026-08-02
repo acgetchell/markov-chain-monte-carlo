@@ -44,7 +44,7 @@ Before starting the adaptive diagnostics feature train, clean up validation boun
 API breaks are acceptable when they make invalid states unrepresentable or preserve validation evidence more directly.
 
 - [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
-- [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.13 and parse scripts at boundaries
+- [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
 
 ### v0.5.0 Adaptive Diagnostics
 

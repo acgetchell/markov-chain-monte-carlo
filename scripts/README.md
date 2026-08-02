@@ -7,10 +7,14 @@ Python utilities used by local repository workflows.
 ```bash
 just notebook-lint
 just notebook-check
+just notebook-check-slow
+just notebook-clear-outputs-all
 ```
 
-`just notebook-lint` validates tracked notebook JSON and compiles code cells without executing them. `just notebook-check` first generates example artifacts,
-then executes tracked notebooks in memory through `nbclient` with a non-interactive Matplotlib backend.
+`just notebook-lint` validates notebook JSON and stable cell IDs, rejects outputs and execution counts, compiles each code cell with cell-aware diagnostics,
+and checks extracted code with Ruff and Ty. `just notebook-check` generates required example artifacts and executes only the fast notebook set headlessly.
+Executed notebooks and runtime caches are written under `target/notebooks/`, leaving source notebooks unchanged. `just notebook-check-slow` adds only the
+explicitly configured heavier notebook set; `just notebook-clear-outputs-all` intentionally clears source outputs and counts in place.
 
 ## Changelog
 
