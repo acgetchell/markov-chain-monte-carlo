@@ -586,7 +586,10 @@ pub trait ProposalMut<S> {
     /// return it here without an external side channel. Any mutation performed
     /// here must be limited to consuming telemetry-only scratch storage and
     /// must not affect future transitions. Bulk sampler methods do not call
-    /// this hook when they discard per-step telemetry.
+    /// this hook when they discard per-step telemetry. Scratch retained across
+    /// [`propose_mut`](Self::propose_mut) calls must therefore remain bounded
+    /// even when this hook is never invoked, for example by using a fixed-size
+    /// or single-overwritten slot.
     fn no_proposal_info(&mut self) -> Option<Self::Info> {
         None
     }

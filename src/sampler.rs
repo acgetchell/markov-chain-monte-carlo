@@ -3408,6 +3408,28 @@ mod tests {
         }
     }
 
+    impl ProposalMut<Scalar> for CountingInfoProposal {
+        type Undo = f64;
+        type Info = f64;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
+            Some(state.0)
+        }
+
+        fn info(&self, state: &Scalar, _token: &f64) -> f64 {
+            self.info_calls.set(self.info_calls.get() + 1);
+            state.0
+        }
+
+        fn undo(&mut self, state: &mut Scalar, token: f64) {
+            state.0 = token;
+        }
+    }
+
     #[derive(Default)]
     struct CountingNoProposalInfo {
         no_proposal_info_calls: usize,
@@ -4055,12 +4077,21 @@ mod tests {
     #[test]
     fn run_mut_with_thinning_collects_every_kth_state() {
         let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(scalar_chain(0.0), &Normal, MutWalk { width: 1.0 }, &mut rng,);
+        let mut sampler = sampler!(
+            scalar_chain(0.0),
+            &Normal,
+            CountingInfoProposal::default(),
+            &mut rng,
+        );
 
         let states = sampler.run_mut_with_thinning(7, thin(3)).unwrap();
 
         assert_eq!(states.len(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 7);
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 0);
+
+        let _step = sampler.step_mut().unwrap();
+        assert_eq!(sampler.proposal_ref().info_calls.get(), 1);
     }
 
     #[test]

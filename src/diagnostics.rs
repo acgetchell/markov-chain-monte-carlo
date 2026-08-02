@@ -13,7 +13,7 @@
 //! information:
 //!
 //! - In-place stepping ([`Chain::step_mut`](crate::Chain::step_mut) and
-//!   [`Sampler::step_mut`](crate::Sampler::step_mut)) returns a [`Step`] with
+//!   [`Sampler::step_mut`](crate::Sampler::step_mut) returns a [`Step`] with
 //!   proposal metadata and an exact [`StepOutcome`].
 //! - Delayed stepping ([`Chain::step_delayed`](crate::Chain::step_delayed) and
 //!   [`Sampler::step_delayed`](crate::Sampler::step_delayed)) returns the same

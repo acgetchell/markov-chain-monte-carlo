@@ -157,7 +157,7 @@ fn main() -> Result<(), McmcError> {
 
 - Start with `Proposal` and `Chain::step` when state cloning is cheap.
 - Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple; its `Info` metadata is returned in structured `Step`
-  telemetry for accepted, rejected, and unavailable proposals.
+  telemetry for accepted and rejected proposals. `StepOutcome::NoProposal` carries metadata only when `ProposalMut::no_proposal_info` provides it.
 - Drive `Sampler::step_mut` explicitly when every transition needs metadata. Bulk `Sampler::run_mut*` methods deliberately skip `Info` construction and
   proposal telemetry hooks, so metadata that would be discarded is not constructed.
 - Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.

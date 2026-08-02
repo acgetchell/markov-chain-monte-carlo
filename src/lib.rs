@@ -260,6 +260,8 @@
 //! }
 //! ```
 //!
+//! For bulk in-place sampling, use [`Sampler::run_mut`] instead.
+//!
 //! # Delayed commit proposals
 //!
 //! Use [`DelayedProposal`] with [`Chain::step_delayed`] when a proposal can

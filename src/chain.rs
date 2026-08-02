@@ -866,7 +866,7 @@ impl<S> Chain<S> {
             return Err(err);
         }
 
-        let log_alpha = log_prob_new - self.log_prob + log_q;
+        let log_alpha = log_prob_new - log_prob_before + log_q;
         let captured = M::capture(proposal, &self.state, &token);
 
         let accept = accept_log_alpha(log_alpha, rng);
