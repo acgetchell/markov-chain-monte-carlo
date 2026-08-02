@@ -99,15 +99,15 @@ fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError
 #[must_use]
 pub struct Step<I> {
     /// Step outcome encoded as a single invariant-bearing value.
-    pub outcome: StepOutcome,
+    outcome: StepOutcome,
     /// Proposal-specific metadata for the concrete proposal or no-plan outcome.
-    pub info: Option<I>,
+    info: Option<I>,
     /// Cached log-probability before the step.
-    pub log_prob_before: f64,
+    log_prob_before: f64,
     /// Cached log-probability after the step, when it changed.
-    pub log_prob_after: Option<f64>,
+    log_prob_after: Option<f64>,
     /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
-    pub log_alpha: Option<f64>,
+    log_alpha: Option<f64>,
 }
 
 impl<I> Step<I> {
@@ -156,6 +156,45 @@ impl<I> Step<I> {
             log_prob_after: None,
             log_alpha: Some(log_alpha),
         }
+    }
+
+    /// Outcome of the completed step.
+    ///
+    /// The outcome and optional telemetry fields are constructed together, so
+    /// callers cannot create contradictory combinations such as an accepted
+    /// step without a post-commit log-probability.
+    pub const fn outcome(&self) -> StepOutcome {
+        self.outcome
+    }
+
+    /// Proposal-specific metadata for the concrete proposal or no-plan outcome.
+    #[must_use]
+    pub const fn info(&self) -> Option<&I> {
+        self.info.as_ref()
+    }
+
+    /// Cached log-probability before the step.
+    #[must_use]
+    pub const fn log_prob_before(&self) -> f64 {
+        self.log_prob_before
+    }
+
+    /// Cached log-probability after the step, when it changed.
+    ///
+    /// This is `Some` exactly when [`Self::outcome`] is
+    /// [`StepOutcome::Accepted`].
+    #[must_use]
+    pub const fn log_prob_after(&self) -> Option<f64> {
+        self.log_prob_after
+    }
+
+    /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
+    ///
+    /// This is `Some` for accepted and rejected concrete proposals and `None`
+    /// when no proposal was available.
+    #[must_use]
+    pub const fn log_alpha(&self) -> Option<f64> {
+        self.log_alpha
     }
 
     /// Why a step was rejected, or `None` when it was accepted.
@@ -213,7 +252,7 @@ impl<I> Step<I> {
     /// let mut chain = Chain::new((), &Flat).map_err(DelayedStepError::Mcmc)?;
     /// let step = chain.step_delayed(&Flat, &mut proposal, &mut rng)?;
     ///
-    /// assert_eq!(step.outcome, StepOutcome::NoProposal);
+    /// assert_eq!(step.outcome(), StepOutcome::NoProposal);
     /// assert_eq!(step.rejection_reason(), Some(StepRejectionReason::NoProposal));
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -801,7 +840,7 @@ impl<S> Chain<S> {
     /// let mut chain = Chain::new(-1, &target)?;
     ///
     /// let step = chain.step_delayed(&target, &mut proposal, &mut rng)?;
-    /// assert_eq!(step.outcome, StepOutcome::Accepted);
+    /// assert_eq!(step.outcome(), StepOutcome::Accepted);
     /// assert_eq!(*chain.state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -937,7 +976,7 @@ impl<S> Chain<S> {
     /// let mut chain = Chain::new(-1, &target)?;
     ///
     /// let step = chain.step_delayed_checked(&target, &mut proposal, &mut rng)?;
-    /// assert_eq!(step.outcome, StepOutcome::Accepted);
+    /// assert_eq!(step.outcome(), StepOutcome::Accepted);
     /// assert_eq!(*chain.state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -1653,9 +1692,9 @@ mod tests {
             .step_delayed(&target, &mut proposal, &mut rng)
             .unwrap();
 
-        assert!(step.outcome.has_proposal());
-        assert_relative_eq!(step.log_alpha.unwrap(), -2.0_f64.ln(), epsilon = 1e-12);
-        assert_eq!(step.info, Some(true));
+        assert!(step.outcome().has_proposal());
+        assert_relative_eq!(step.log_alpha().unwrap(), -2.0_f64.ln(), epsilon = 1e-12);
+        assert_eq!(step.info(), Some(&true));
     }
 
     #[test]
@@ -1674,9 +1713,9 @@ mod tests {
             .step_delayed(&target, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::Accepted);
-        assert_relative_eq!(step.log_alpha.unwrap(), 3.0_f64.ln(), epsilon = 1e-12);
-        assert_eq!(step.info, Some(true));
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_relative_eq!(step.log_alpha().unwrap(), 3.0_f64.ln(), epsilon = 1e-12);
+        assert_eq!(step.info(), Some(&true));
         assert!(*chain.state());
         assert_eq!(chain.accepted(), 1);
         assert_eq!(chain.rejected(), 0);
@@ -2449,14 +2488,14 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::Accepted);
-        assert!(step.outcome.is_accepted());
-        assert!(step.outcome.has_proposal());
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert!(step.outcome().is_accepted());
+        assert!(step.outcome().has_proposal());
         assert!(step.rejection_reason().is_none());
-        assert_eq!(step.info, Some(0.0));
-        assert_relative_eq!(step.log_prob_before, -2.0, epsilon = 1e-12);
-        assert_eq!(step.log_prob_after, Some(0.0));
-        assert_eq!(step.log_alpha, Some(2.0));
+        assert_eq!(step.info(), Some(&0.0));
+        assert_relative_eq!(step.log_prob_before(), -2.0, epsilon = 1e-12);
+        assert_eq!(step.log_prob_after(), Some(0.0));
+        assert_eq!(step.log_alpha(), Some(2.0));
         assert_eq!(chain.state, MutScalar(0.0));
         assert_eq!(chain.accepted(), 1);
         assert_eq!(chain.rejected(), 0);
@@ -2472,17 +2511,17 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::RejectedProposal);
-        assert!(!step.outcome.is_accepted());
-        assert!(step.outcome.has_proposal());
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert!(!step.outcome().is_accepted());
+        assert!(step.outcome().has_proposal());
         assert_eq!(
             step.rejection_reason(),
             Some(StepRejectionReason::RejectedProposal)
         );
-        assert_eq!(step.info, Some(100.0));
-        assert_relative_eq!(step.log_prob_before, 0.0);
-        assert_eq!(step.log_prob_after, None);
-        assert_eq!(step.log_alpha, Some(-5000.0));
+        assert_eq!(step.info(), Some(&100.0));
+        assert_relative_eq!(step.log_prob_before(), 0.0);
+        assert_eq!(step.log_prob_after(), None);
+        assert_eq!(step.log_alpha(), Some(-5000.0));
         assert_eq!(chain.state, MutScalar(0.0));
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
@@ -2499,17 +2538,17 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::NoProposal);
-        assert!(!step.outcome.is_accepted());
-        assert!(!step.outcome.has_proposal());
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert!(!step.outcome().is_accepted());
+        assert!(!step.outcome().has_proposal());
         assert_eq!(
             step.rejection_reason(),
             Some(StepRejectionReason::NoProposal)
         );
-        assert_eq!(step.info, None);
-        assert_relative_eq!(step.log_prob_before, log_prob);
-        assert_eq!(step.log_prob_after, None);
-        assert_eq!(step.log_alpha, None);
+        assert_eq!(step.info(), None);
+        assert_relative_eq!(step.log_prob_before(), log_prob);
+        assert_eq!(step.log_prob_after(), None);
+        assert_eq!(step.log_alpha(), None);
         assert_eq!(chain.state, MutScalar(1.0));
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
@@ -2525,14 +2564,14 @@ mod tests {
             .step_delayed(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::NoProposal);
-        assert!(!step.outcome.is_accepted());
-        assert!(!step.outcome.has_proposal());
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert!(!step.outcome().is_accepted());
+        assert!(!step.outcome().has_proposal());
         assert_eq!(
             step.rejection_reason(),
             Some(StepRejectionReason::NoProposal)
         );
-        assert_eq!(step.info, Some(MoveFamily::Add));
+        assert_eq!(step.info(), Some(&MoveFamily::Add));
         assert_eq!(proposal.last_family, None);
         assert_eq!(chain.accepted(), 0);
         assert_eq!(chain.rejected(), 1);
@@ -2836,7 +2875,7 @@ mod tests {
             .step_delayed_checked(&Normal, &mut proposal, &mut rng)
             .unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::Accepted);
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(chain.state, Scalar(0.0));
         assert_relative_eq!(chain.log_prob(), 0.0);
         assert_eq!(chain.accepted(), 1);

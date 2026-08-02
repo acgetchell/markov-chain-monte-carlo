@@ -208,6 +208,7 @@ This module owns:
 
 - current state and current log-probability
 - accepted/rejected counters
+- invariant-preserving delayed-step telemetry and its read-only accessors
 - by-value `step`
 - in-place `step_mut`
 - state accessors and replacement helpers
@@ -223,6 +224,7 @@ This module owns:
 
 - single-step forwarding methods
 - bulk `run` and `run_mut` loops
+- `ThinningInterval` parsing and shared thinned-run loops
 - observing variants that measure derived quantities after sampling steps
 - by-value `Iterator` support
 - access to the bundled `Chain`

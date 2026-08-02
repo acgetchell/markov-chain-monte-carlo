@@ -76,6 +76,8 @@
 //! for those streaming measurement loops.  Samplers also provide
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
+//! Parse raw positive intervals once with [`ThinningInterval::new`], then pass
+//! the proof-bearing interval to any thinned method.
 //! For workflows that choose the next step budget from the updated state, use
 //! [`Sampler::run_chunk`], [`Sampler::run_mut_chunk`], or
 //! [`Sampler::run_delayed_chunk`].  They run the next chunk on the same RNG
@@ -332,7 +334,7 @@
 //!     let mut chain = Chain::new(-1, &target).map_err(DelayedStepError::Mcmc)?;
 //!
 //!     let step = chain.step_delayed(&target, &mut proposal, &mut rng)?;
-//!     assert_eq!(step.outcome, StepOutcome::Accepted);
+//!     assert_eq!(step.outcome(), StepOutcome::Accepted);
 //!     assert_eq!(*chain.state(), 0);
 //!     Ok(())
 //! }
@@ -466,12 +468,12 @@ pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
 pub use sampler::{
-    ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
-    ObservedIntoRunResult, Sampler, ThinnedObservedDelayedIntoRunResult,
-    ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, TryObservedDelayedIntoRunResult,
-    TryObservedDelayedRunResult, TryObservedDelayedStepResult, TryObservedIntoRunResult,
-    TryObservedMutStepResult, TryObservedRunResult, TryObservedStepResult,
-    TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
+    InvalidThinningInterval, ObservedDelayedIntoRunResult, ObservedDelayedStep,
+    ObservedDelayedStepResult, ObservedIntoRunResult, Sampler, ThinnedObservedDelayedIntoRunResult,
+    ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval,
+    TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult, TryObservedDelayedStepResult,
+    TryObservedIntoRunResult, TryObservedMutStepResult, TryObservedRunResult,
+    TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
     TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
@@ -530,11 +532,11 @@ pub use traits::{
 pub mod prelude {
     pub use crate::{
         AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-        McmcError, Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError,
-        OnlineStats, SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-        ThinnedRunResult, ThinningError, Trace, TraceError, TraceRecord, TraceRecorder,
-        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-        TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+        InvalidThinningInterval, McmcError, Observable, ObservedIntoRunResult, ObservedStepError,
+        ObservedStreamError, OnlineStats, SampleBuffer, Sampler, StatisticsError, Target,
+        ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace, TraceError,
+        TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
+        TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -544,10 +546,10 @@ pub mod prelude {
     pub mod by_value {
         pub use crate::{
             AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-            DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
-            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, Proposal,
-            SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-            ThinnedRunResult, ThinningError, Trace, TraceError, TraceRecord, TraceRecorder,
+            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
+            Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            Proposal, SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
+            ThinnedRunResult, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
             TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
             TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
@@ -560,10 +562,10 @@ pub mod prelude {
     pub mod in_place {
         pub use crate::{
             AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-            DiscreteProposalRatio, DiscreteProposalRatioError, McmcError, Observable,
-            ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
+            Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
             ProposalMut, SampleBuffer, Sampler, StatisticsError, Target,
-            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningError, Trace, TraceError,
+            ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace, TraceError,
             TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
             TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
         };
@@ -577,10 +579,11 @@ pub mod prelude {
         pub use crate::{
             AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
             DelayedProposal, DelayedStep, DelayedStepError, DiscreteProposalRatio,
-            DiscreteProposalRatioError, McmcError, Observable, ObservedDelayedIntoRunResult,
-            ObservedDelayedStep, ObservedDelayedStepResult, ObservedStepError, ObservedStreamError,
-            OnlineStats, SampleBuffer, Sampler, StatisticsError, StepOutcome, StepRejectionReason,
-            Target, ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningError, Trace,
+            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
+            ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
+            ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
+            StatisticsError, StepOutcome, StepRejectionReason, Target,
+            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace,
             TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator,
             TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
             TryThinnedObservedRunResult,
@@ -619,10 +622,11 @@ mod public_api_smoke_tests {
         AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
         DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
         DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
-        DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, McmcError, Observable,
-        ObservedDelayedStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler,
-        StatisticsError, Step, StepOutcome, StepRejectionReason, Target, ThinningError, Trace,
-        TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
+        DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
+        InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, OnlineStats, Proposal,
+        ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, StepOutcome,
+        StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord,
+        TraceRecorder, TraceStepOutcome,
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
@@ -721,7 +725,8 @@ mod public_api_smoke_tests {
         let _: Option<McmcError> = None;
         let _: Option<SampleBuffer<f64>> = None;
         let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
-        let _: Option<ThinningError<McmcError>> = None;
+        let _: Option<ThinningInterval> = None;
+        let _: Option<InvalidThinningInterval> = None;
         let _: Option<ObservedDelayedStep<(), f64>> = None;
         let _: Option<BinningAnalysis> = None;
         let _: Option<BinningEstimate> = None;

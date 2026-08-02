@@ -1,6 +1,6 @@
 //! Ergonomic sampling wrapper that bundles a chain with its components.
 
-use core::convert::Infallible;
+use core::{convert::Infallible, num::NonZeroUsize};
 use std::{error::Error, fmt};
 
 use rand::Rng;
@@ -49,7 +49,7 @@ pub type TryObservedDelayedIntoRunResult<P, O, A> =
     TryObservedIntoRunResult<DelayedStepError<P>, O, A>;
 
 /// Result returned by thinned sampler runs.
-pub type ThinnedRunResult<T, E> = Result<T, ThinningError<E>>;
+pub type ThinnedRunResult<T, E> = Result<T, E>;
 
 /// Result returned by thinned fallible-observation runs.
 pub type TryThinnedObservedRunResult<O, StepError, ObservationError> =
@@ -71,39 +71,100 @@ pub type ThinnedObservedDelayedIntoRunResult<P, A> =
 pub type TryThinnedObservedDelayedIntoRunResult<P, O, A> =
     TryThinnedObservedIntoRunResult<DelayedStepError<P>, O, A>;
 
-/// Error returned by thinned sampler runs.
+/// Positive interval between retained samples in a thinned run.
+///
+/// Constructing this type parses a raw `usize` once, allowing every thinned
+/// sampler method to rely on a nonzero divisor without repeating validation.
+///
+/// ```
+/// use markov_chain_monte_carlo::{InvalidThinningInterval, ThinningInterval};
+///
+/// let interval = ThinningInterval::new(4)?;
+/// assert_eq!(interval.get(), 4);
+/// assert!(ThinningInterval::new(0).is_err());
+/// # Ok::<(), InvalidThinningInterval>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[must_use]
+pub struct ThinningInterval(NonZeroUsize);
+
+impl ThinningInterval {
+    /// The smallest valid thinning interval, which retains every step.
+    pub const MIN: Self = Self(NonZeroUsize::MIN);
+
+    /// Parse a raw positive thinning interval.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidThinningInterval`] when `thin_interval` is zero.
+    pub const fn new(thin_interval: usize) -> Result<Self, InvalidThinningInterval> {
+        let Some(thin_interval) = NonZeroUsize::new(thin_interval) else {
+            return Err(InvalidThinningInterval { thin_interval });
+        };
+        Ok(Self(thin_interval))
+    }
+
+    /// Return the validated raw interval.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+
+    /// Add to this interval, saturating at [`usize::MAX`].
+    ///
+    /// This is primarily useful for compile-time interval constants while
+    /// preserving the nonzero invariant.
+    pub const fn saturating_add(self, amount: usize) -> Self {
+        Self(self.0.saturating_add(amount))
+    }
+}
+
+impl TryFrom<usize> for ThinningInterval {
+    type Error = InvalidThinningInterval;
+
+    fn try_from(thin_interval: usize) -> Result<Self, Self::Error> {
+        Self::new(thin_interval)
+    }
+}
+
+impl From<NonZeroUsize> for ThinningInterval {
+    fn from(thin_interval: NonZeroUsize) -> Self {
+        Self(thin_interval)
+    }
+}
+
+impl From<ThinningInterval> for NonZeroUsize {
+    fn from(thin_interval: ThinningInterval) -> Self {
+        thin_interval.0
+    }
+}
+
+/// Error returned when parsing a zero [`ThinningInterval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ThinningError<E> {
-    /// The requested thinning interval is invalid.
-    InvalidInterval {
-        /// The invalid interval supplied by the caller.
-        thin_interval: usize,
-    },
-    /// The underlying sampler run failed.
-    Run(E),
+pub struct InvalidThinningInterval {
+    thin_interval: usize,
 }
 
-impl<E: fmt::Display> fmt::Display for ThinningError<E> {
+impl InvalidThinningInterval {
+    /// Return the rejected raw interval.
+    #[must_use]
+    pub const fn value(self) -> usize {
+        self.thin_interval
+    }
+}
+
+impl fmt::Display for InvalidThinningInterval {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidInterval { thin_interval } => write!(
-                f,
-                "invalid thinning interval {thin_interval}: expected a value greater than zero"
-            ),
-            Self::Run(err) => write!(f, "{err}"),
-        }
+        write!(
+            f,
+            "invalid thinning interval {}: expected a value greater than zero",
+            self.thin_interval
+        )
     }
 }
 
-impl<E: Error + 'static> Error for ThinningError<E> {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidInterval { .. } => None,
-            Self::Run(err) => Some(err),
-        }
-    }
-}
+impl Error for InvalidThinningInterval {}
 
 /// Lift a step/observation error into the streaming error type.
 ///
@@ -116,18 +177,9 @@ fn stream_observed_error<S, O, A>(err: ObservedStepError<S, O>) -> ObservedStrea
     }
 }
 
-/// Validate a thinning interval supplied to a public sampler method.
-const fn validate_thin_interval<E>(thin_interval: usize) -> Result<(), ThinningError<E>> {
-    if thin_interval == 0 {
-        return Err(ThinningError::InvalidInterval { thin_interval });
-    }
-    Ok(())
-}
-
 /// Number of observations produced by observing every `thin_interval` steps.
-fn thinned_capacity<E>(steps: usize, thin_interval: usize) -> Result<usize, ThinningError<E>> {
-    validate_thin_interval(thin_interval)?;
-    Ok(steps / thin_interval)
+const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usize {
+    steps / thin_interval.get()
 }
 
 /// Bundles a [`Chain`] with its target, proposal, and RNG for ergonomic
@@ -400,27 +452,15 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         self.chain.reset_counters();
     }
 
-    /// Run the shared validate/step/modulo-gate loop for thinned methods.
-    fn run_thinning_core<E>(
-        &mut self,
-        steps: usize,
-        thin_interval: usize,
-        step_once: impl FnMut(&mut Self) -> Result<(), E>,
-        emit: impl FnMut(&Self) -> Result<(), E>,
-    ) -> ThinnedRunResult<(), E> {
-        validate_thin_interval(thin_interval)?;
-        self.run_thinning_loop(steps, thin_interval, step_once, emit)
-    }
-
     /// Collect samples from the shared thinning loop into a [`SampleBuffer`].
     fn collect_with_thinning_core<O, E>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         step_once: impl FnMut(&mut Self) -> Result<(), E>,
         mut emit: impl FnMut(&Self) -> Result<O, E>,
     ) -> ThinnedRunResult<SampleBuffer<O>, E> {
-        let mut samples = SampleBuffer::with_capacity(thinned_capacity::<E>(steps, thin_interval)?);
+        let mut samples = SampleBuffer::with_capacity(thinned_capacity(steps, thin_interval));
         self.run_thinning_loop(steps, thin_interval, step_once, |sampler| {
             samples.push(emit(sampler)?);
             Ok(())
@@ -432,14 +472,14 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     fn run_thinning_loop<E>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         mut step_once: impl FnMut(&mut Self) -> Result<(), E>,
         mut emit: impl FnMut(&Self) -> Result<(), E>,
     ) -> ThinnedRunResult<(), E> {
         for step in 1..=steps {
-            step_once(self).map_err(ThinningError::Run)?;
-            if step % thin_interval == 0 {
-                emit(self).map_err(ThinningError::Run)?;
+            step_once(self)?;
+            if step % thin_interval.get() == 0 {
+                emit(self)?;
             }
         }
         Ok(())
@@ -701,7 +741,6 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// `thin_interval = 2` collects states after steps 2 and 4.
     ///
     /// ```
-    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -719,26 +758,23 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ThinningError::Run)?;
+    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let states = sampler.run_with_thinning(5, 2)?;
+    /// let states = sampler.run_with_thinning(5, thin_interval)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
-    ///
-    /// let err = sampler.run_with_thinning(1, 0).unwrap_err();
-    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
-    /// # Ok::<(), ThinningError<McmcError>>(())
+    /// # Ok::<(), McmcError>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step that fails.
+    /// Returns [`McmcError`] on the first step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_with_thinning(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
     ) -> ThinnedRunResult<SampleBuffer<S>, McmcError>
     where
         S: Clone,
@@ -835,7 +871,6 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// `thin_interval = 2` observes after steps 2 and 4.
     ///
     /// ```
-    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -851,29 +886,25 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(0, &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ThinningError::Run)?;
+    /// let chain = Chain::new(0, &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
     /// let mut coordinate = |state: &i32| *state;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.run_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples =
+    ///     sampler.run_observing_with_thinning(5, thin_interval, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    ///
-    /// let err = sampler
-    ///     .run_observing_with_thinning(1, 0, &mut coordinate)
-    ///     .unwrap_err();
-    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
-    /// # Ok::<(), ThinningError<McmcError>>(())
+    /// # Ok::<(), McmcError>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step that fails.
+    /// Returns [`McmcError`] on the first step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
         self.collect_with_thinning_core(steps, thin_interval, Self::step, |sampler| {
@@ -964,28 +995,29 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.run_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
     /// assert_eq!(sampler.chain_ref().total_steps(), 5);
-    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> ThinnedObservedIntoRunResult<McmcError, A::Error>
@@ -993,7 +1025,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| sampler.step().map_err(ObservedStreamError::Step),
@@ -1115,27 +1147,27 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.try_run_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples =
+    ///     sampler.try_run_observing_with_thinning(5, thin_interval, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), ThinningError<ObservedStepError<McmcError, Infallible>>>(())
+    /// # Ok::<(), ObservedStepError<McmcError, Infallible>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step or thinned observation
-    /// failure.
+    /// Returns [`ObservedStepError`] on the first step or thinned observation
+    /// failure. The [`ThinningInterval`] argument proves the divisor is
+    /// nonzero.
     pub fn try_run_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> TryThinnedObservedRunResult<O::Output, McmcError, O::Error> {
         self.collect_with_thinning_core(
@@ -1226,27 +1258,28 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.try_run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.try_run_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn try_run_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> TryThinnedObservedIntoRunResult<McmcError, O::Error, A::Error>
@@ -1254,7 +1287,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| sampler.step().map_err(ObservedStreamError::Step),
@@ -1408,7 +1441,6 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// divisible by `thin_interval`.
     ///
     /// ```
-    /// # use std::assert_matches;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
@@ -1430,26 +1462,23 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ThinningError::Run)?;
+    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let states = sampler.run_mut_with_thinning(5, 2)?;
+    /// let states = sampler.run_mut_with_thinning(5, thin_interval)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
-    ///
-    /// let err = sampler.run_mut_with_thinning(1, 0).unwrap_err();
-    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
-    /// # Ok::<(), ThinningError<McmcError>>(())
+    /// # Ok::<(), McmcError>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step that fails.
+    /// Returns [`McmcError`] on the first step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_mut_with_thinning(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
     ) -> ThinnedRunResult<SampleBuffer<S>, McmcError>
     where
         S: Clone,
@@ -1575,24 +1604,25 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
-    /// let chain = Chain::new(S(0), &Flat).map_err(ThinningError::Run)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ThinningError::Run)?;
+    /// let chain = Chain::new(S(0), &Flat)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples =
+    ///     sampler.run_mut_observing_with_thinning(5, thin_interval, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), ThinningError<McmcError>>(())
+    /// # Ok::<(), McmcError>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step that fails.
+    /// Returns [`McmcError`] on the first step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_mut_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
         self.collect_with_thinning_core(
@@ -1693,27 +1723,28 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.run_mut_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.run_mut_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_mut_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> ThinnedObservedIntoRunResult<McmcError, A::Error>
@@ -1721,7 +1752,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| {
@@ -1855,27 +1886,27 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.try_run_mut_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples =
+    ///     sampler.try_run_mut_observing_with_thinning(5, thin_interval, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), ThinningError<ObservedStepError<McmcError, Infallible>>>(())
+    /// # Ok::<(), ObservedStepError<McmcError, Infallible>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first step or thinned observation
-    /// failure.
+    /// Returns [`ObservedStepError`] on the first step or thinned observation
+    /// failure. The [`ThinningInterval`] argument proves the divisor is
+    /// nonzero.
     pub fn try_run_mut_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> TryThinnedObservedRunResult<O::Output, McmcError, O::Error> {
         self.collect_with_thinning_core(
@@ -1977,27 +2008,28 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.try_run_mut_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.try_run_mut_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), ThinningError<ObservedStreamError<McmcError, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn try_run_mut_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> TryThinnedObservedIntoRunResult<McmcError, O::Error, A::Error>
@@ -2005,7 +2037,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| {
@@ -2084,7 +2116,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let step = sampler.step_delayed()?;
-    /// assert_eq!(step.outcome, StepOutcome::Accepted);
+    /// assert_eq!(step.outcome(), StepOutcome::Accepted);
     /// assert_eq!(*sampler.chain_ref().state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -2163,7 +2195,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let step = sampler.step_delayed_checked()?;
-    /// assert_eq!(step.outcome, StepOutcome::Accepted);
+    /// assert_eq!(step.outcome(), StepOutcome::Accepted);
     /// assert_eq!(*sampler.chain_ref().state(), 0);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -2415,8 +2447,8 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut families = Vec::new();
     /// let continuation = sampler.run_delayed_chunk_observing(3, |step, state| {
     ///     assert!(step.rejection_reason().is_none());
-    ///     if let Some(family) = step.info {
-    ///         families.push((family, *state));
+    ///     if let Some(family) = step.info() {
+    ///         families.push((*family, *state));
     ///     }
     /// })?;
     ///
@@ -2502,28 +2534,24 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &target)
-    ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
-    ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(DelayedStepError::Mcmc)?;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let states = sampler.run_delayed_with_thinning(5, 2)?;
+    /// let states = sampler.run_delayed_with_thinning(5, thin_interval)?;
     /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
-    ///
-    /// let err = sampler.run_delayed_with_thinning(1, 0).unwrap_err();
-    /// assert_matches!(err, ThinningError::InvalidInterval { thin_interval: 0 });
-    /// # Ok::<(), ThinningError<DelayedStepError<Infallible>>>(())
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first delayed step that fails.
+    /// Returns [`DelayedStepError`] on the first delayed step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_delayed_with_thinning(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
     ) -> ThinnedRunResult<SampleBuffer<S>, DelayedStepError<P::Error>>
     where
         S: Clone,
@@ -2686,26 +2714,26 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut proposal = Increment;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
-    ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
-    ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(DelayedStepError::Mcmc)?;
     /// let mut coordinate = |state: &i32| *state;
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples =
+    ///     sampler.run_delayed_observing_with_thinning(5, thin_interval, &mut coordinate)?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), ThinningError<DelayedStepError<Infallible>>>(())
+    /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first delayed step that fails.
+    /// Returns [`DelayedStepError`] on the first delayed step that fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_delayed_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> ThinnedRunResult<SampleBuffer<O::Output>, DelayedStepError<P::Error>> {
         self.collect_with_thinning_core(
@@ -2811,28 +2839,29 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.run_delayed_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.run_delayed_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), ThinningError<ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn run_delayed_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> ThinnedObservedDelayedIntoRunResult<P::Error, A::Error>
@@ -2840,7 +2869,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| {
@@ -2987,28 +3016,29 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStepError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// let samples = sampler.try_run_delayed_observing_with_thinning(5, 2, &mut coordinate)?;
+    /// let samples = sampler.try_run_delayed_observing_with_thinning(
+    ///     5, thin_interval, &mut coordinate,
+    /// )?;
     /// assert_eq!(samples.as_slice(), &[2, 4]);
-    /// # Ok::<(), ThinningError<ObservedStepError<DelayedStepError<Infallible>, Infallible>>>(())
+    /// # Ok::<(), ObservedStepError<DelayedStepError<Infallible>, Infallible>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] on the first delayed step or thinned
-    /// observation failure.
+    /// Returns [`ObservedStepError`] on the first delayed step or thinned
+    /// observation failure. The [`ThinningInterval`] argument proves the
+    /// divisor is nonzero.
     pub fn try_run_delayed_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
     ) -> TryThinnedObservedRunResult<O::Output, DelayedStepError<P::Error>, O::Error> {
         self.collect_with_thinning_core(
@@ -3116,28 +3146,29 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
     ///     .map_err(DelayedStepError::Mcmc)
-    ///     .map_err(ObservedStreamError::Step)
-    ///     .map_err(ThinningError::Run)?;
+    ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
+    /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
-    /// sampler.try_run_delayed_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)?;
+    /// sampler.try_run_delayed_observing_into_with_thinning(
+    ///     5, thin_interval, &mut coordinate, &mut stats,
+    /// )?;
     /// assert_eq!(stats.count(), 2);
-    /// # Ok::<(), ThinningError<ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>>(())
+    /// # Ok::<(), ObservedStreamError<DelayedStepError<Infallible>, Infallible, StatisticsError>>(())
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`ThinningError::InvalidInterval`] if `thin_interval` is zero,
-    /// or [`ThinningError::Run`] when the underlying stream fails.
+    /// Returns [`ObservedStreamError`] when the underlying stream fails. The
+    /// [`ThinningInterval`] argument proves the divisor is nonzero.
     pub fn try_run_delayed_observing_into_with_thinning<O, A>(
         &mut self,
         steps: usize,
-        thin_interval: usize,
+        thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
     ) -> TryThinnedObservedDelayedIntoRunResult<P::Error, O::Error, A::Error>
@@ -3145,7 +3176,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
-        self.run_thinning_core(
+        self.run_thinning_loop(
             steps,
             thin_interval,
             |sampler| {
@@ -3218,6 +3249,10 @@ mod tests {
     use crate::{BinningAnalysis, OnlineStats, StatisticsError, StepOutcome};
 
     // --- Shared fixtures ---
+
+    fn thin(value: usize) -> ThinningInterval {
+        ThinningInterval::new(value).unwrap()
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     struct Scalar(f64);
@@ -3425,9 +3460,11 @@ mod tests {
     }
 
     #[test]
-    fn thinning_error_display_names_invalid_interval() {
-        let err: ThinningError<McmcError> = ThinningError::InvalidInterval { thin_interval: 0 };
+    fn thinning_interval_rejects_zero() {
+        let err = ThinningInterval::new(0).unwrap_err();
 
+        assert_eq!(err.value(), 0);
+        assert_eq!(ThinningInterval::try_from(0), Err(err));
         assert_eq!(
             err.to_string(),
             "invalid thinning interval 0: expected a value greater than zero"
@@ -3436,11 +3473,18 @@ mod tests {
     }
 
     #[test]
-    fn thinning_error_preserves_underlying_source() {
-        let err = ThinningError::Run(McmcError::NanLogQRatio);
+    fn thinning_interval_preserves_positive_values() {
+        let interval = ThinningInterval::new(3).unwrap();
+        let maximum = ThinningInterval::new(usize::MAX).unwrap();
+        let nonzero = NonZeroUsize::from(interval);
 
-        assert_eq!(err.to_string(), "proposal returned NaN log q-ratio");
-        assert!(Error::source(&err).is_some());
+        assert_eq!(ThinningInterval::MIN.get(), 1);
+        assert_eq!(interval.get(), 3);
+        assert_eq!(maximum.get(), usize::MAX);
+        assert_eq!(maximum.saturating_add(1), maximum);
+        assert_eq!(ThinningInterval::try_from(3), Ok(interval));
+        assert_eq!(ThinningInterval::from(nonzero), interval);
+        assert_eq!(ThinningInterval::MIN.saturating_add(2), interval);
     }
 
     // --- By-value: step and run ---
@@ -3470,7 +3514,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
 
-        let states = sampler.run_with_thinning(5, 2).unwrap();
+        let states = sampler.run_with_thinning(5, thin(2)).unwrap();
 
         assert_eq!(states.len(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 5);
@@ -3481,24 +3525,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
 
-        let states = sampler.run_with_thinning(3, 4).unwrap();
+        let states = sampler.run_with_thinning(3, thin(4)).unwrap();
 
         assert!(states.is_empty());
         assert_eq!(sampler.chain_ref().total_steps(), 3);
-    }
-
-    #[test]
-    fn run_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
-
-        let result = sampler.run_with_thinning(5, 0);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -3507,9 +3537,9 @@ mod tests {
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut sampler = sampler!(chain, &Normal, &NanLogQProposal, &mut rng);
 
-        let result = sampler.run_with_thinning(5, 2);
+        let result = sampler.run_with_thinning(5, thin(2));
 
-        assert_matches!(result, Err(ThinningError::Run(McmcError::NanLogQRatio)));
+        assert_matches!(result, Err(McmcError::NanLogQRatio));
         assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
@@ -3585,7 +3615,7 @@ mod tests {
         };
 
         let measurements = sampler
-            .run_observing_with_thinning(5, 2, &mut coordinate)
+            .run_observing_with_thinning(5, thin(2), &mut coordinate)
             .unwrap();
 
         assert_eq!(measurements.len(), 2);
@@ -3604,7 +3634,7 @@ mod tests {
         };
 
         let measurements = sampler
-            .run_observing_with_thinning(3, 4, &mut coordinate)
+            .run_observing_with_thinning(3, thin(4), &mut coordinate)
             .unwrap();
 
         assert!(measurements.is_empty());
@@ -3620,7 +3650,7 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)
+            .run_observing_into_with_thinning(5, thin(2), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 2);
@@ -3637,13 +3667,11 @@ mod tests {
             Err::<f64, _>(ObservationFailure::Failed)
         };
 
-        let result = sampler.try_run_observing_with_thinning(5, 2, &mut observable);
+        let result = sampler.try_run_observing_with_thinning(5, thin(2), &mut observable);
 
         assert_matches!(
             result,
-            Err(ThinningError::Run(ObservedStepError::Observation(
-                ObservationFailure::Failed
-            )))
+            Err(ObservedStepError::Observation(ObservationFailure::Failed))
         );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
@@ -3657,43 +3685,11 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .try_run_observing_into_with_thinning(5, 2, &mut coordinate, &mut stats)
+            .try_run_observing_into_with_thinning(5, thin(2), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 5);
-    }
-
-    #[test]
-    fn run_observing_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
-        let mut coordinate = |state: &Scalar| state.0;
-
-        let result = sampler.run_observing_with_thinning(5, 0, &mut coordinate);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
-    }
-
-    #[test]
-    fn run_observing_into_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(scalar_chain(0.0), &Normal, &Walk { width: 1.0 }, &mut rng);
-        let mut coordinate = |state: &Scalar| state.0;
-        let mut stats = OnlineStats::new();
-
-        let result = sampler.run_observing_into_with_thinning(5, 0, &mut coordinate, &mut stats);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(stats.count(), 0);
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -3710,13 +3706,16 @@ mod tests {
 
         // Interval 1 would emit every successful step; NanLogQProposal fails
         // the first step, proving the step error is reported before emission.
-        let result = sampler.run_observing_into_with_thinning(5, 1, &mut coordinate, &mut stats);
+        let result = sampler.run_observing_into_with_thinning(
+            5,
+            ThinningInterval::MIN,
+            &mut coordinate,
+            &mut stats,
+        );
 
         assert_matches!(
             result,
-            Err(ThinningError::Run(ObservedStreamError::Step(
-                McmcError::NanLogQRatio
-            )))
+            Err(ObservedStreamError::Step(McmcError::NanLogQRatio))
         );
         assert!(!observed);
         assert_eq!(stats.count(), 0);
@@ -3889,7 +3888,7 @@ mod tests {
             &mut rng,
         );
 
-        let states = sampler.run_mut_with_thinning(7, 3).unwrap();
+        let states = sampler.run_mut_with_thinning(7, thin(3)).unwrap();
 
         assert_eq!(states.len(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 7);
@@ -3905,29 +3904,10 @@ mod tests {
             &mut rng,
         );
 
-        let states = sampler.run_mut_with_thinning(3, 4).unwrap();
+        let states = sampler.run_mut_with_thinning(3, thin(4)).unwrap();
 
         assert!(states.is_empty());
         assert_eq!(sampler.chain_ref().total_steps(), 3);
-    }
-
-    #[test]
-    fn run_mut_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(
-            scalar_chain(0.0),
-            &Normal,
-            &MutWalk { width: 1.0 },
-            &mut rng,
-        );
-
-        let result = sampler.run_mut_with_thinning(5, 0);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -3976,7 +3956,7 @@ mod tests {
         };
 
         let measurements = sampler
-            .run_mut_observing_with_thinning(7, 3, &mut coordinate)
+            .run_mut_observing_with_thinning(7, thin(3), &mut coordinate)
             .unwrap();
 
         assert_eq!(measurements.len(), 2);
@@ -3997,7 +3977,7 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .run_mut_observing_into_with_thinning(7, 3, &mut coordinate, &mut stats)
+            .run_mut_observing_into_with_thinning(7, thin(3), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 2);
@@ -4019,13 +3999,11 @@ mod tests {
             Err::<f64, _>(ObservationFailure::Failed)
         };
 
-        let result = sampler.try_run_mut_observing_with_thinning(7, 3, &mut observable);
+        let result = sampler.try_run_mut_observing_with_thinning(7, thin(3), &mut observable);
 
         assert_matches!(
             result,
-            Err(ThinningError::Run(ObservedStepError::Observation(
-                ObservationFailure::Failed
-            )))
+            Err(ObservedStepError::Observation(ObservationFailure::Failed))
         );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 3);
@@ -4044,31 +4022,11 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .try_run_mut_observing_into_with_thinning(7, 3, &mut coordinate, &mut stats)
+            .try_run_mut_observing_into_with_thinning(7, thin(3), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 2);
         assert_eq!(sampler.chain_ref().total_steps(), 7);
-    }
-
-    #[test]
-    fn run_mut_observing_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(
-            mut_scalar_chain(0.0),
-            &Normal,
-            &MutWalk { width: 1.0 },
-            &mut rng,
-        );
-        let mut coordinate = |state: &MutScalar| state.0;
-
-        let result = sampler.run_mut_observing_with_thinning(5, 0, &mut coordinate);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -4236,7 +4194,7 @@ mod tests {
 
         let step = sampler.step_delayed().unwrap();
 
-        assert_eq!(step.outcome, StepOutcome::Accepted);
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
@@ -4265,10 +4223,10 @@ mod tests {
         let mut observed_states = Vec::new();
         let continuation = sampler
             .run_delayed_chunk_observing(3, |step, state| {
-                outcomes.push(step.outcome);
+                outcomes.push(step.outcome());
                 assert!(step.rejection_reason().is_none());
-                if let Some(family) = step.info {
-                    families.push(family);
+                if let Some(family) = step.info() {
+                    families.push(*family);
                 }
                 observed_states.push(state.0);
             })
@@ -4321,7 +4279,7 @@ mod tests {
         let mut proposal = DelayedToZero;
         let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
 
-        let states = sampler.run_delayed_with_thinning(6, 2).unwrap();
+        let states = sampler.run_delayed_with_thinning(6, thin(2)).unwrap();
 
         assert_eq!(states.as_slice(), &[Scalar(0.0), Scalar(0.0), Scalar(0.0)]);
         assert_eq!(sampler.chain_ref().total_steps(), 6);
@@ -4333,25 +4291,10 @@ mod tests {
         let mut proposal = DelayedToZero;
         let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
 
-        let states = sampler.run_delayed_with_thinning(3, 4).unwrap();
+        let states = sampler.run_delayed_with_thinning(3, thin(4)).unwrap();
 
         assert!(states.is_empty());
         assert_eq!(sampler.chain_ref().total_steps(), 3);
-    }
-
-    #[test]
-    fn run_delayed_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut proposal = DelayedToZero;
-        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
-
-        let result = sampler.run_delayed_with_thinning(5, 0);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -4398,7 +4341,7 @@ mod tests {
         };
 
         let measurements = sampler
-            .run_delayed_observing_with_thinning(6, 2, &mut coordinate)
+            .run_delayed_observing_with_thinning(6, thin(2), &mut coordinate)
             .unwrap();
 
         assert_eq!(measurements.as_slice(), &[0.0; 3]);
@@ -4415,31 +4358,12 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .run_delayed_observing_into_with_thinning(6, 2, &mut coordinate, &mut stats)
+            .run_delayed_observing_into_with_thinning(6, thin(2), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 3);
         assert_eq!(stats.mean(), Some(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 6);
-    }
-
-    #[test]
-    fn run_delayed_observing_into_with_thinning_reports_zero_interval() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut proposal = DelayedToZero;
-        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
-        let mut coordinate = |state: &MutScalar| state.0;
-        let mut stats = OnlineStats::new();
-
-        let result =
-            sampler.run_delayed_observing_into_with_thinning(5, 0, &mut coordinate, &mut stats);
-
-        assert_matches!(
-            result,
-            Err(ThinningError::InvalidInterval { thin_interval: 0 })
-        );
-        assert_eq!(stats.count(), 0);
-        assert_eq!(sampler.chain_ref().total_steps(), 0);
     }
 
     #[test]
@@ -4487,13 +4411,11 @@ mod tests {
             Err::<f64, _>(ObservationFailure::Failed)
         };
 
-        let result = sampler.try_run_delayed_observing_with_thinning(6, 2, &mut observable);
+        let result = sampler.try_run_delayed_observing_with_thinning(6, thin(2), &mut observable);
 
         assert_matches!(
             result,
-            Err(ThinningError::Run(ObservedStepError::Observation(
-                ObservationFailure::Failed
-            )))
+            Err(ObservedStepError::Observation(ObservationFailure::Failed))
         );
         assert_eq!(calls, 1);
         assert_eq!(sampler.chain_ref().total_steps(), 2);
@@ -4508,7 +4430,7 @@ mod tests {
         let mut stats = OnlineStats::new();
 
         sampler
-            .try_run_delayed_observing_into_with_thinning(6, 2, &mut coordinate, &mut stats)
+            .try_run_delayed_observing_into_with_thinning(6, thin(2), &mut coordinate, &mut stats)
             .unwrap();
 
         assert_eq!(stats.count(), 3);
@@ -4637,7 +4559,7 @@ mod tests {
         let mut observed = Vec::new();
 
         let result = sampler.run_delayed_chunk_observing(3, |step, state| {
-            observed.push((step.outcome, step.info, state.0));
+            observed.push((step.outcome(), step.info().copied(), state.0));
         });
 
         assert_matches!(

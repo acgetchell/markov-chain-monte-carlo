@@ -166,6 +166,40 @@ rules:
               }
           - pattern-regex: '^\s*forward_site_count\s*:\s*usize\b'
 
+  - id: mcmc.rust.thinning-interval-parameters-use-refined-type
+    languages:
+      - rust
+    severity: WARNING
+    message: "Accept ThinningInterval in *_with_thinning APIs so zero is rejected before sampler execution."
+    metadata:
+      category: correctness
+      rationale: "A proof-bearing interval removes repeated zero checks and makes division by zero unrepresentable in thinning loops."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    pattern-regex: >-
+      (?s)^\s*pub\s+fn\s+[A-Za-z_][A-Za-z0-9_]*_with_thinning(?:\s*<[^\{;]*>)?\s*\([^)]*\bthin_interval\s*:\s*usize\b
+
+  - id: mcmc.rust.step-telemetry-fields-private
+    languages:
+      - rust
+    severity: WARNING
+    message: "Keep Step telemetry fields private and expose read-only accessors so outcome-dependent fields cannot be mutated independently."
+    metadata:
+      category: correctness
+      rationale: "Accepted, rejected, and no-proposal telemetry require coordinated outcome, log-probability, and acceptance-ratio fields."
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/semgrep/src/**/*.rs"
+    patterns:
+      - pattern-inside: |
+          pub struct Step<$INFO> {
+              ...
+          }
+      - pattern-regex: '^\s*pub\s+(?:outcome|info|log_prob_before|log_prob_after|log_alpha)\s*:'
+
   - id: mcmc.rust.no-public-unit-validators
     languages:
       - rust

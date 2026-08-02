@@ -161,10 +161,15 @@ fn main() -> Result<(), McmcError> {
 - Use `AdditiveTarget` when the target log weight is the sum of model, bias, energy, action, or externally supplied regularizer terms.
 - Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
 - Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
+- Parse raw positive thinning counts with `ThinningInterval::new`, then reuse the validated interval across `Sampler::*_with_thinning` calls.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
 - Use `TraceRecorder` when you need reusable numeric traces with chain IDs, acceptance metadata, target log-probabilities, and CSV export.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
+
+When migrating from the previous thinning and delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `ThinningInterval`, handle the
+underlying sampler or observation error directly instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding
+`outcome()`, `info()`, `log_prob_before()`, `log_prob_after()`, and `log_alpha()` accessors.
 
 ## 📦 Cargo features
 

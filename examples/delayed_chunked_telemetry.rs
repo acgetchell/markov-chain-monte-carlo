@@ -127,7 +127,7 @@ fn main() -> Result<(), DelayedStepError<Infallible>> {
     for chunk in 1..=chunks {
         let continuation = sampler.run_delayed_chunk_observing(chunk_len, |step, state| {
             // Selected family is available for every step, including no-site loops.
-            if let Some(family) = step.info {
+            if let Some(family) = step.info() {
                 match family {
                     Move::Up => up += 1,
                     Move::Down => down += 1,
@@ -137,7 +137,7 @@ fn main() -> Result<(), DelayedStepError<Infallible>> {
             // The sampler owns the accept/reject draw; we only classify the
             // recorded outcome. `rejection_reason` is non-exhaustive, so the
             // breakdown keeps a wildcard arm for forward compatibility.
-            if step.outcome.is_accepted() {
+            if step.outcome().is_accepted() {
                 accepted += 1;
             } else {
                 rejected += 1;
