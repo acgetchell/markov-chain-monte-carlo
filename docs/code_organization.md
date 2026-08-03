@@ -33,6 +33,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── codeql.yml
 │       ├── dependabot-auto-merge.yml
 │       ├── rust-clippy.yml
+│       ├── release-benchmarks.yml
 │       ├── semgrep-sarif.yml
 │       └── zizmor.yml
 ├── .gitignore
@@ -53,7 +54,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── cliff.toml
 ├── clippy.toml
 ├── docs/
+│   ├── BENCHMARKING.md
 │   ├── RELEASING.md
+│   ├── archive/
+│   │   └── performance/
+│   │       └── README.md
 │   ├── assets/
 │   │   └── ising_energy_trace.png
 │   ├── code_organization.md
@@ -80,13 +85,18 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── rustfmt.toml
 ├── scripts/
 │   ├── README.md
+│   ├── archive_performance.py
+│   ├── bench_compare.py
 │   ├── check_notebooks.py
 │   ├── postprocess_changelog.py
 │   ├── subprocess_utils.py
 │   ├── tag_release.py
 │   └── tests/
 │       ├── __init__.py
+│       ├── test_archive_performance.py
+│       ├── test_bench_compare.py
 │       ├── test_check_notebooks.py
+│       ├── test_justfile_discoverability.py
 │       ├── test_postprocess_changelog.py
 │       ├── test_subprocess_utils.py
 │       └── test_tag_release.py
@@ -140,9 +150,10 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `notebooks/` — notebook consumers for example-generated artifacts such as exported diagnostic traces.
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
-- `docs/` — topic guides that support the public API documentation without duplicating README or crate-level contract material.
+- `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
+  README or crate-level contract material. `docs/PERFORMANCE.md` is added when the first curated report is promoted.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
-- `scripts/` — Python helpers for notebook checks, changelog post-processing, and release tagging.
+- `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, and release tagging.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 
@@ -271,8 +282,9 @@ Notebook files live in `notebooks/` and should consume generated artifacts rathe
 
 ## Benchmarks
 
-Benchmarks live in `benches/` and use Criterion. Keep them deterministic and focused on library invariants rather than distribution convergence. The stepping
-suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops, and observing overhead.
+Benchmarks live in `benches/` and use Criterion. Keep their inputs reproducible with fixed seeds and per-iteration state resets, and focus them on library
+invariants rather than distribution convergence. The stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops,
+and observing overhead.
 
 ## See also
 

@@ -137,6 +137,8 @@ architectural placement question.
 ### Just Command Runner
 
 This project uses [Just] as the primary task automation tool. The justfile defines every dev workflow.
+Run bare `just` for the curated workflow guide and `just --list` for the complete grouped recipe reference. Public recipes are documented, grouped, and kept
+in lexicographic source order so both views remain easy to scan.
 
 **Essential Just commands:**
 
@@ -346,6 +348,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc       # fail on rustdoc warnings
 Long-form discussion lives under `docs/`. Update these alongside code changes that affect them.
 
 - [`docs/code_organization.md`](docs/code_organization.md) — per-module "where does new code go?" guidance for `src/*.rs`
+- [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) — local regression checks, release comparisons, durable assets, and report promotion
 - [`docs/reviewer_guide.md`](docs/reviewer_guide.md) — short reading path for scientific and engineering reviewers
 - [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion that expands the README scientific-basis summary
 - [`docs/proposal_validation.md`](docs/proposal_validation.md) — proposal-author testing patterns and `verify_detailed_balance*` usage
@@ -358,10 +361,17 @@ Long-form discussion lives under `docs/`. Update these alongside code changes th
 Benchmarks live in [`benches/`](benches/) and use [Criterion](https://docs.rs/criterion).
 
 ```bash
-just bench           # run all benchmarks
-just bench-compile   # compile benchmark harness without measuring
+just bench-latest           # run the fixed-seed release-signal set
+just bench-latest-vs-last   # rerun and compare with the saved local baseline
+just performance-local      # compare the current tree with the latest stable release
+just bench                  # run all benchmarks for broader profiling
+just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
+
+Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to update the curated report and
+`just performance-github-assets` for comparisons that consume durable release artifacts without local measurements. See
+[`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
 Performance guidelines:
 

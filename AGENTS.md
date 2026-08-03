@@ -156,6 +156,7 @@ The repository's docs have overlapping topics but distinct roles. When in doubt,
   claim, and how to reproduce local checks.
 - **`docs/scientific_basis.md`** — Metropolis–Hastings contract and scope discussion that expands the README scientific-basis summary.
 - **`docs/proposal_validation.md`** — proposal-author testing patterns and `verify_detailed_balance*` usage.
+- **`docs/BENCHMARKING.md`** — benchmark command contracts, release-signal scope, durable release assets, comparison limits, and report promotion.
 - **`docs/roadmap.md`** — planned feature work.
 - **`docs/dev/rust.md`** — Rust toolchain notes and tooling deep-dive.
 - **`docs/RELEASING.md`** — release procedure (also referenced from `## Publishing note` below).

@@ -11,6 +11,7 @@ clippy_sarif_version := "0.8.0"
 dprint_version := "0.55.2"
 git_cliff_version := "2.13.1"
 just_version := "1.57.0"
+python_version := "3.14"
 rumdl_version := "0.2.48"
 sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
@@ -161,32 +162,61 @@ _ensure-zizmor:
     fi
 
 # GitHub Actions workflow validation
+[group('validation')]
 action-lint: _ensure-actionlint
     #!/usr/bin/env bash
     set -euo pipefail
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
+    done < <(git ls-files -co --exclude-standard -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 uv run --locked actionlint
     else
         echo "No workflow files found to lint."
     fi
 
-# Benchmarks
+# Run the Criterion benchmark suite.
+[group('benchmarks and performance')]
 bench:
     cargo bench --locked --bench stepping
 
+# Render existing Criterion measurements against an explicit saved baseline.
+[group('benchmarks and performance')]
+bench-compare baseline="last": python-sync
+    uv run --locked bench-compare {{ quote(baseline) }}
+
 # Compile benchmark harnesses without running Criterion measurements.
+[group('benchmarks and performance')]
 bench-compile:
     cargo bench --locked --all-features --no-run
 
-# Build
+# Run the fixed-seed MCMC release-signal benchmark set.
+[group('benchmarks and performance')]
+bench-latest: bench
+
+# Run latest measurements and compare them with a saved Criterion baseline.
+[group('benchmarks and performance')]
+bench-latest-vs-last baseline="last": bench-latest python-sync
+    uv run --locked bench-compare {{ quote(baseline) }}
+
+# Save the complete MCMC release-signal set under a Criterion baseline name.
+[group('benchmarks and performance')]
+bench-save-baseline tag:
+    cargo bench --locked --bench stepping -- --save-baseline {{ quote(tag) }}
+
+# Save the current release signal under the conventional local `last` name.
+[group('benchmarks and performance')]
+bench-save-last:
+    just bench-save-baseline last
+
+# Build the library.
+[group('build and setup')]
 build:
     cargo build --locked
 
 # Changelog generation (git-cliff + post-processing)
+[group('release')]
 changelog: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
@@ -194,6 +224,7 @@ changelog: _ensure-git-cliff python-sync
     uv run --locked postprocess-changelog
 
 # Regenerate CHANGELOG.md for a release tag before the tag exists
+[group('release')]
 changelog-unreleased version: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
@@ -201,54 +232,66 @@ changelog-unreleased version: _ensure-git-cliff python-sync
     uv run --locked postprocess-changelog
 
 # Non-mutating validation gate
+[group('workflows')]
 check: check-rust check-repository-tooling
     @echo "✅ Checks complete!"
 
 # Fast compile check (no binary produced)
+[group('build and setup')]
 check-fast:
     cargo check --locked
 
 # Repository tooling that does not need to be repeated across operating systems.
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+[group('validation')]
+check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
+[group('validation')]
 check-rust: fmt-check clippy
     @echo "✅ Rust checks complete!"
 
-# CI simulation: flat union of GitHub-equivalent focused validators.
 # Runnable Rust unit and integration tests share one release-profile nextest pass;
 # rustdoc doctests remain separate because nextest does not execute them.
-ci: action-lint zizmor markdown-check spell-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
+# Run the flat union of GitHub-equivalent validators and tests.
+[group('workflows')]
+ci: action-lint zizmor justfile-fmt-check markdown-check spell-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
+[group('workflows')]
 ci-portability: check-fast test-rust-ci test-doc validate-examples
     @echo "✅ Portability CI checks complete!"
 
 # CI subset for repository tooling and support-script tests.
+[group('workflows')]
 ci-repository-tooling: check-repository-tooling test-python
     @echo "✅ Repository tooling CI checks complete!"
 
 # CI subset for Rust correctness.
+[group('workflows')]
 ci-rust: check-rust doc test-rust-ci test-doc validate-examples
     @echo "✅ Rust CI checks complete!"
 
 # Clean build artifacts
+[group('build and setup')]
 clean:
     cargo clean
     rm -rf target/llvm-cov
     rm -rf coverage
 
 # Core library Clippy linting used by the default validation gates.
+[group('validation')]
 clippy:
     CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
 # Optional broad Clippy sweep; tests, examples, and benches have focused validators in CI.
+[group('validation')]
 clippy-all-targets:
     CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
 # Coverage analysis for local development (HTML output)
+[group('tests and coverage')]
 coverage: _ensure-cargo-llvm-cov
     #!/usr/bin/env bash
     set -euo pipefail
@@ -258,6 +301,7 @@ coverage: _ensure-cargo-llvm-cov
     echo "Coverage report generated: target/llvm-cov/html/index.html"
 
 # Coverage analysis for CI (XML output for codecov)
+[group('tests and coverage')]
 coverage-ci: _ensure-cargo-llvm-cov
     #!/usr/bin/env bash
     set -euo pipefail
@@ -265,18 +309,23 @@ coverage-ci: _ensure-cargo-llvm-cov
     mkdir -p coverage
     cargo llvm-cov {{ _coverage_base_args }} --cobertura --output-path coverage/cobertura.xml
 
-# Default recipe shows available commands
-default:
-    @just --list
+# Show curated workflows when Just is invoked without a recipe.
+[default]
+[private]
+default: help-workflows
 
-# Documentation
+# Build rustdoc for the library.
+[group('validation')]
 doc:
     cargo doc --locked --no-deps --document-private-items
 
 # Run one example by name, e.g. `just example ising_1d`.
+[group('tests and coverage')]
 example name:
     cargo run --locked --example "{{ name }}"
 
+# Build and run every Rust example.
+[group('tests and coverage')]
 examples: _build-examples
     #!/usr/bin/env bash
     set -euo pipefail
@@ -289,17 +338,22 @@ examples: _build-examples
     done
 
 # Fix (mutating): apply formatters
-fix: fmt markdown-fix yaml-fix python-fix toml-fix
+[group('workflows')]
+fix: fmt justfile-fmt markdown-fix yaml-fix python-fix toml-fix
     @echo "✅ Fixes applied!"
 
-# Rust formatting
+# Format Rust source files.
+[group('validation')]
 fmt:
     cargo fmt --all
 
-# Rust format check
+# Check Rust source formatting without modifying files.
+[group('validation')]
 fmt-check:
     cargo fmt --all -- --check
 
+# Show the curated entry points for common repository workflows.
+[group('workflows')]
 help-workflows:
     @echo "Common Just workflows:"
     @echo "  just check          # Run lint/validators (non-mutating)"
@@ -320,6 +374,7 @@ help-workflows:
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
     @echo "  just lint-docs      # Markdown and spelling checks"
     @echo "  just python-check   # Ruff + Ty checks for Python tooling"
+    @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
     @echo "  just notebook-lint  # Validate JSON, output hygiene, and extracted Python"
     @echo "  just notebook-check # Lint all notebooks and execute the fast notebook set"
     @echo "  just notebook-check-slow # Include explicitly configured heavy notebooks"
@@ -330,21 +385,50 @@ help-workflows:
     @echo "  just test-rust      # Broad release Rust tests + doctests"
     @echo "  just test-all       # Broad Rust + Python tooling tests"
     @echo "  just bench          # Run Criterion benchmarks"
+    @echo "  just bench-latest   # Run the fixed-seed release-signal set"
+    @echo "  just bench-latest-vs-last # Measure and compare against the saved 'last' baseline"
+    @echo "  just bench-compare [baseline] # Render existing measurements against a baseline"
+    @echo "  just bench-save-baseline <tag> # Save a named local Criterion baseline"
+    @echo "  just bench-save-last # Save the conventional local 'last' baseline"
     @echo "  just bench-compile  # Compile benchmarks without measuring"
+    @echo "  just performance-local # Compare the current tree with the latest stable release"
+    @echo "  just performance-github-assets # Compare durable GitHub Release assets"
+    @echo "  just performance-release # Promote/archive the release-to-release report"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
     @echo "  just example <name> # Run one example, e.g. just example ising_1d"
     @echo "  just examples       # Run all examples"
+    @echo ""
+    @echo "Use 'just --list' for the complete grouped recipe reference."
+
+# Format the Just command layer canonically.
+[group('validation')]
+justfile-fmt:
+    just --fmt
+
+# Check Justfile formatting without modifying it.
+[group('validation')]
+justfile-fmt-check:
+    just --fmt --check
 
 # All linting: code + documentation + configuration
+[group('validation')]
 lint: lint-code lint-docs lint-config
 
+# Check Rust, Python, and repository-owned Semgrep rules.
+[group('validation')]
 lint-code: fmt-check clippy python-check semgrep semgrep-test
 
-lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmor
+# Check JSON, TOML, YAML, GitHub Actions, and Just configuration.
+[group('validation')]
+lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmor justfile-fmt-check
 
+# Check Markdown and spelling.
+[group('validation')]
 lint-docs: markdown-check spell-check
 
+# Check Markdown formatting and lint rules.
+[group('validation')]
 markdown-check: _ensure-rumdl
     #!/usr/bin/env bash
     set -euo pipefail
@@ -354,13 +438,15 @@ markdown-check: _ensure-rumdl
             CHANGELOG.md) continue ;;
         esac
         files+=("$file")
-    done < <(git ls-files -z '*.md')
+    done < <(git ls-files -co --exclude-standard -z '*.md')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check
     else
         echo "No Markdown files found to check."
     fi
 
+# Apply Markdown formatting and lint fixes.
+[group('validation')]
 markdown-fix: _ensure-rumdl
     #!/usr/bin/env bash
     set -euo pipefail
@@ -370,24 +456,34 @@ markdown-fix: _ensure-rumdl
             CHANGELOG.md) continue ;;
         esac
         files+=("$file")
-    done < <(git ls-files -z '*.md')
+    done < <(git ls-files -co --exclude-standard -z '*.md')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check --fix
     else
         echo "No Markdown files found to format."
     fi
 
+# Alias for the canonical Markdown check.
+[group('validation')]
 markdown-lint: markdown-check
 
+# Lint and execute the configured fast notebook set.
+[group('notebooks')]
 notebook-check: notebook-lint notebook-execute-fast
     @echo "📓 Fast notebook checks complete!"
 
+# Lint and execute the configured fast and slow notebook sets.
+[group('notebooks')]
 notebook-check-slow: notebook-check notebook-execute-slow
     @echo "📓 Slow notebook checks complete!"
 
+# Clear outputs from every source notebook explicitly.
+[group('notebooks')]
 notebook-clear-outputs-all: notebook-sync
     uv run --locked --group dev --group notebook check-notebooks clear --repo-root .
 
+# Execute the configured fast notebook set headlessly.
+[group('notebooks')]
 notebook-execute-fast: notebook-sync
     #!/usr/bin/env bash
     set -euo pipefail
@@ -395,6 +491,8 @@ notebook-execute-fast: notebook-sync
     notebooks=( {{ fast_notebooks }} )
     MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks
 
+# Execute the explicitly configured slow notebook set headlessly.
+[group('notebooks')]
 notebook-execute-slow: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
@@ -405,13 +503,57 @@ notebook-execute-slow: _ensure-uv
     fi
     MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks --timeout 1800
 
+# Validate source notebook structure and extracted Python without execution.
+[group('notebooks')]
 notebook-lint: _ensure-uv
     uv run --locked --group dev --group notebook check-notebooks lint --repo-root .
 
+# Synchronize the notebook-capable Python environment.
+[group('notebooks')]
 notebook-sync: _ensure-uv
     uv sync --locked --group dev --group notebook
 
+# Compare stored GitHub Release benchmark assets without local benchmark runs.
+[group('benchmarks and performance')]
+performance-github-assets current_tag="" baseline_tag="": python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    current_tag={{ quote(current_tag) }}
+    baseline_tag={{ quote(baseline_tag) }}
+    if [[ -n "$current_tag" || -n "$baseline_tag" ]]; then
+        if [[ -z "$current_tag" || -z "$baseline_tag" ]]; then
+            echo "current_tag and baseline_tag must be provided together" >&2
+            exit 2
+        fi
+        uv run --locked archive-performance "$current_tag" "$baseline_tag" --github-assets --output target/bench-reports/github-assets-performance.md
+    else
+        uv run --locked archive-performance --published-latest --github-assets --output target/bench-reports/github-assets-performance.md
+    fi
+
+# Compare the current tree with the latest stable published release locally.
+[group('benchmarks and performance')]
+performance-local: python-sync
+    uv run --locked archive-performance --current-vs-latest --output target/bench-reports/performance.md
+
+# Generate a release-to-release report, promote it, and archive the previous report.
+[group('benchmarks and performance')]
+performance-release current_tag="" baseline_tag="": python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    current_tag={{ quote(current_tag) }}
+    baseline_tag={{ quote(baseline_tag) }}
+    if [[ -n "$current_tag" || -n "$baseline_tag" ]]; then
+        if [[ -z "$current_tag" || -z "$baseline_tag" ]]; then
+            echo "current_tag and baseline_tag must be provided together" >&2
+            exit 2
+        fi
+        uv run --locked archive-performance "$current_tag" "$baseline_tag" --promote
+    else
+        uv run --locked archive-performance --infer-release --promote
+    fi
+
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
+[group('release')]
 publish-check: _ensure-jq
     #!/usr/bin/env bash
     set -euo pipefail
@@ -473,26 +615,52 @@ publish-check: _ensure-jq
     echo ""
     echo "✅ Publish check passed!"
 
+# Check Python support scripts with Ruff and Ty.
+[group('validation')]
 python-check: python-typecheck
     uv run --locked ruff format --check scripts/
     uv run --locked ruff check scripts/
 
+# Apply Ruff fixes and formatting to Python support scripts.
+[group('validation')]
 python-fix: python-sync
     uv run --locked ruff check scripts/ --fix
     uv run --locked ruff format scripts/
 
+# Alias for the canonical Python check.
+[group('validation')]
 python-lint: python-check
 
+# Synchronize the development Python environment.
+[group('build and setup')]
 python-sync: _ensure-uv
     uv sync --locked --group dev
 
+# Type-check Python support scripts with Ty.
+[group('validation')]
 python-typecheck: python-sync
     uv run --locked ty check scripts/
 
 # Repository-owned Semgrep rules for project-specific diagnostics.
+[group('validation')]
 semgrep: _ensure-uv
-    uv run --locked semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        case "$file" in
+            tests/semgrep/*) continue ;;
+        esac
+        files+=("$file")
+    done < <(git ls-files -co --exclude-standard -z)
+    if [ "${#files[@]}" -gt 0 ]; then
+        uv run --locked semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml "${files[@]}"
+    else
+        echo "No tracked or untracked repository files found to scan."
+    fi
 
+# Validate repository-owned Semgrep rules against annotated fixtures.
+[group('validation')]
 semgrep-test: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
@@ -540,8 +708,12 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 2 mcmc.docs.check-before-fix-command-order docs/check_fix_order.md
     uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
+# Install or verify the complete development environment.
+[group('build and setup')]
 setup: setup-tools
 
+# Install or synchronize external development tools.
+[group('build and setup')]
 setup-tools: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
@@ -626,51 +798,70 @@ setup-tools: _ensure-uv
     echo ""
     echo "✅ Tooling setup complete."
 
+# Check repository spelling.
+[group('validation')]
 spell-check: _ensure-typos
     typos --config typos.toml --force-exclude .
 
 # Create an annotated git tag from the CHANGELOG.md section for the given version
+[group('release')]
 tag version: python-sync
     uv run --locked tag-release {{ version }}
 
 # Recreate an existing tag from the CHANGELOG.md section for the given version
+[group('release')]
 tag-force version: python-sync
     uv run --locked tag-release {{ version }} --force
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
+[group('tests and coverage')]
 test: test-unit test-doc
 
 # Broad Rust correctness plus Python tooling tests.
+[group('tests and coverage')]
 test-all: test-rust test-python
     @echo "✅ All tests passed"
 
+# Run rustdoc doctests.
+[group('tests and coverage')]
 test-doc:
     cargo test --locked --doc --verbose
 
 # Integration tests
+[group('tests and coverage')]
 test-integration: _ensure-cargo-nextest
     cargo nextest run --locked --test '*' --verbose
 
-# Focused library unit tests for changed-surface validation.
-test-unit: _ensure-cargo-nextest
-    cargo nextest run --locked --lib --verbose
-
 # Backward-compatible alias for the former recipe name.
+[group('tests and coverage')]
 test-lib: test-unit
 
-# Broad release-profile Rust CI bucket: lib unit and integration tests together.
-test-rust-ci: _ensure-cargo-nextest
-    cargo nextest run --locked --release --profile ci --lib --tests --verbose
-
-# Broad Rust test workflow; doctests remain a separate cargo-test bucket.
-test-rust: test-rust-ci test-doc
-    @echo "✅ Rust tests passed"
-
+# Run Python support-script tests.
+[group('tests and coverage')]
 test-python: python-sync
     uv run --locked pytest -q
 
+# Broad Rust test workflow; doctests remain a separate cargo-test bucket.
+[group('tests and coverage')]
+test-rust: test-rust-ci test-doc
+    @echo "✅ Rust tests passed"
+
+# Broad release-profile Rust CI bucket: lib unit and integration tests together.
+[group('tests and coverage')]
+test-rust-ci: _ensure-cargo-nextest
+    cargo nextest run --locked --release --profile ci --lib --tests --verbose
+
+# Focused library unit tests for changed-surface validation.
+[group('tests and coverage')]
+test-unit: _ensure-cargo-nextest
+    cargo nextest run --locked --lib --verbose
+
+# Apply canonical TOML formatting.
+[group('validation')]
 toml-fix: toml-fmt
 
+# Format tracked TOML files.
+[group('validation')]
 toml-fmt: _ensure-taplo
     #!/usr/bin/env bash
     set -euo pipefail
@@ -684,6 +875,8 @@ toml-fmt: _ensure-taplo
         echo "No TOML files found to format."
     fi
 
+# Check tracked TOML formatting without modifying files.
+[group('validation')]
 toml-fmt-check: _ensure-taplo
     #!/usr/bin/env bash
     set -euo pipefail
@@ -697,6 +890,8 @@ toml-fmt-check: _ensure-taplo
         echo "No TOML files found to check."
     fi
 
+# Lint tracked TOML files.
+[group('validation')]
 toml-lint: _ensure-taplo
     #!/usr/bin/env bash
     set -euo pipefail
@@ -711,6 +906,7 @@ toml-lint: _ensure-taplo
     fi
 
 # Validate example output (seeded, deterministic)
+[group('tests and coverage')]
 validate-examples: _build-examples
     #!/usr/bin/env bash
     set -euo pipefail
@@ -743,6 +939,8 @@ validate-examples: _build-examples
     validate_example delayed_chunked_telemetry "Per-step telemetry" "Delayed chunked telemetry complete"
     validate_example additive_target_bias "AdditiveTarget bias example" "observed P(true)"
 
+# Validate tracked JSON files.
+[group('validation')]
 validate-json: _ensure-jq
     #!/usr/bin/env bash
     set -euo pipefail
@@ -757,6 +955,7 @@ validate-json: _ensure-jq
     fi
 
 # YAML formatting check
+[group('validation')]
 yaml-check: _ensure-dprint
     #!/usr/bin/env bash
     set -euo pipefail
@@ -771,6 +970,7 @@ yaml-check: _ensure-dprint
     fi
 
 # YAML formatting
+[group('validation')]
 yaml-fix: _ensure-dprint
     #!/usr/bin/env bash
     set -euo pipefail
@@ -784,8 +984,11 @@ yaml-fix: _ensure-dprint
         echo "No YAML files found to format."
     fi
 
+# Alias for the canonical YAML check.
+[group('validation')]
 yaml-lint: yaml-check
 
 # GitHub Actions security analysis
+[group('validation')]
 zizmor: _ensure-zizmor
     zizmor .github
