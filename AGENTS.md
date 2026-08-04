@@ -88,6 +88,11 @@ changing numerical semantics, or changing acceptance/error behavior.
   private helper cannot be exercised through a public or crate-visible path.
 - Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
+### Python Tooling
+
+- Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
+  `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
+
 ## Common Commands
 
 ```bash
@@ -99,6 +104,9 @@ just setup            # Install/verify external dev tools
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
+just release-check    # Validate synchronized release metadata and references
+just performance-release  # Persist, validate, and promote release benchmark evidence
+just performance-rerender # Rebuild the curated report from saved release evidence
 ```
 
 For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).

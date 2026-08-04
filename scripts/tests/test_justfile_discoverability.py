@@ -21,6 +21,7 @@ RELEASE_PERFORMANCE_RECIPES = {
     "performance-github-assets",
     "performance-local",
     "performance-release",
+    "performance-rerender",
 }
 
 

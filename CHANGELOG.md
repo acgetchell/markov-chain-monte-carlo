@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-04
+
+### Added
+
+- [**breaking**] Add structured in-place proposal telemetry [#125](https://github.com/acgetchell/markov-chain-monte-carlo/pull/125) [`dc1820f`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/dc1820f7178371e362b4fea9304c344b957a5502)
+
+  - Return invariant-bearing `Step&lt;Info&gt;` metadata from in-place single-step APIs.
+  - Support stateful proposal hooks with rollback of transition-relevant proposal state.
+  - Skip discarded telemetry construction throughout bulk sampling.
+  - Keep mutable detailed-balance trials rollback-safe and document fixed-kernel requirements.
+- Add release performance benchmarking [#126](https://github.com/acgetchell/markov-chain-monte-carlo/pull/126) [`5979880`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/59798807820e0b5926b0fc7374aee9b924607591)
+
+  - Add fixed-seed Criterion workloads and Just commands for local, saved-baseline, release-asset, and curated comparisons.
+  - Publish durable release baselines with provenance metadata and archive prior curated reports.
+  - Enforce release-pair and report invariants while documenting the prospective two-release rollout.
+  - Group and validate the Just command surface with Justfile-sourced workflow pins.
+
+### Changed
+
+- [**breaking**] Make thinning and step telemetry invariant-safe [#124](https://github.com/acgetchell/markov-chain-monte-carlo/pull/124) [`0b1e6a9`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/0b1e6a91a5d991431b62f3d3ee4bd1bc0bb1501d)
+
+  - Parse positive thinning intervals once with ThinningInterval and propagate underlying run errors directly.
+  - Keep Step telemetry internally consistent through private fields and read-only accessors.
+  - Add repository guardrails against raw thinning parameters and public telemetry fields.
+
+### Documentation
+
+- Prepare reviewer-facing MCMC documentation [#88](https://github.com/acgetchell/markov-chain-monte-carlo/pull/88) [`cd861ee`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/cd861ee7e0b8604e31e8e19bf39e12bc26298222)
+
+  * docs: prepare reviewer-facing MCMC documentation
+
+  - Add a reviewer guide that points scientific and engineering reviewers to the README, scientific basis, proposal validation, roadmap, references, and local checks.
+  - Refocus the README and scientific basis docs around the Metropolis-Hastings contract, externally supplied regularizer terms, and explicit non-claims for convergence or learned-proposal training.
+  - Keep crate-level rustdoc focused on programming contracts while moving project orientation into the README and topic docs.
+  - Clarify example comments for normal, Ising, and additive-target workflows.
+  - Pin the markdown and spelling tool versions used by the validation gate.
+
+  * Changed: Update internal RUMDL and TYPOS tooling in CI
+
+  * Changed: Correct example branch type in contributing guide
+
+### Fixed
+
+- Harden v0.4.1 release preparation [#134](https://github.com/acgetchell/markov-chain-monte-carlo/pull/134) [`56d2cb5`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/56d2cb5a6a8e9e5909fe2c6da2c76704f4f81004)
+
+  - Preserve existing tags and generated release artifacts when replacement fails.
+  - Run release tests with all features and filter development-dependency noise from changelogs.
+  - Trim crate contents and align audit, example, and pre-v1 compatibility guidance.
+
+### Maintenance
+
+- [**breaking**] Require Rust 1.97.1 [#113](https://github.com/acgetchell/markov-chain-monte-carlo/pull/113) [`55323fc`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/55323fcb47ef154e35113e46b15c9de553b2b8ab)
+
+  - Raise the crate MSRV and contributor toolchain to Rust 1.97.1.
+  - Adopt Cargo-owned Clippy warning denial and update dprint and rumdl pins.
+  - Set explicit GitHub release titles from version tags.
+- Group GitHub Actions updates [`d07bb85`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d07bb8501ffd767374cceac281d16096d7fd0e78)
+
+  - Consolidate action version bumps into a single weekly Dependabot pull request.
+- Automate Dependabot reviews and merges [`b86ca7f`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/b86ca7fe572df8a60a98ec64c590ec7c3c3339e1)
+
+  - Request CodeRabbit reviews and enable guarded squash auto-merge for Dependabot PRs.
+- Stagger weekly Dependabot updates [`dcc9a89`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/dcc9a891774d6227324b136861d0c0b646fbbf88)
+
+  - Schedule GitHub Actions, Cargo, and uv updates on Wednesday mornings in Pacific time.
+- Finalize review enforcement and refresh badges [`d62debd`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d62debd0347c737bdbd6f426ae90a46d0779e0af)
+
+  - Fail the CodeRabbit commit status when its review does not pass.
+  - Serve DOI, crate, download, and license badges through Badgen.
+  - Align the local zizmor guard with version 1.29.0.
+- Require Python 3.14 and strengthen validation [#123](https://github.com/acgetchell/markov-chain-monte-carlo/pull/123) [`c15f859`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/c15f859a9fd5d16e15110e9091d55833feefa7ba)
+
+  - Require Python 3.14 and uv 0.12.1 for locked tooling environments.
+  - Parse support-script and notebook inputs into validated types, with source-safe headless notebook execution.
+  - Flatten CI into focused validators with a shared release-profile Rust test bucket.
+  - Replace the benchmark result helper with the postfix `OrAbort` trait.
+- Align dependency automation and tool pins [`771ae2a`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/771ae2acf38fb84bcadfa6aee1dc30ae08905180)
+
+  - Group version and security updates separately across managed ecosystems.
+  - Match just, rumdl, and typos-cli pins to the local toolchain.
+
 ## [0.4.0] - 2026-05-30
 
 ### Added
@@ -408,6 +489,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit: scaffold MCMC crate [`5d7f706`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/5d7f706da2d7c41af619a2f5669cdcd56dae94ba)
 
+[0.4.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.2.0...v0.2.1

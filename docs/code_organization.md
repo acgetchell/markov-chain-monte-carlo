@@ -55,6 +55,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── clippy.toml
 ├── docs/
 │   ├── BENCHMARKING.md
+│   ├── PERFORMANCE.md
 │   ├── RELEASING.md
 │   ├── archive/
 │   │   └── performance/
@@ -89,6 +90,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── bench_compare.py
 │   ├── check_notebooks.py
 │   ├── postprocess_changelog.py
+│   ├── release_check.py
 │   ├── subprocess_utils.py
 │   ├── tag_release.py
 │   └── tests/
@@ -98,6 +100,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── test_check_notebooks.py
 │       ├── test_justfile_discoverability.py
 │       ├── test_postprocess_changelog.py
+│       ├── test_release_check.py
 │       ├── test_subprocess_utils.py
 │       └── test_tag_release.py
 ├── semgrep.yaml
@@ -151,9 +154,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
-  README or crate-level contract material. `docs/PERFORMANCE.md` is added when the first curated report is promoted.
+  README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report; update it through `just performance-release` or
+  `just performance-rerender`, not by hand.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
-- `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, and release tagging.
+- `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, release metadata validation, and
+  release tagging.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 
@@ -282,9 +287,10 @@ Notebook files live in `notebooks/` and should consume generated artifacts rathe
 
 ## Benchmarks
 
-Benchmarks live in `benches/` and use Criterion. Keep their inputs reproducible with fixed seeds and per-iteration state resets, and focus them on library
-invariants rather than distribution convergence. The stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops,
-and observing overhead.
+Benchmarks live in `benches/` and use Criterion. Keep their inputs reproducible with fixed seeds and preserve each named workload's setup and state/RNG
+lifecycle contract; do not assume a universal per-iteration reset policy. The authoritative contracts live in [`docs/BENCHMARKING.md`](BENCHMARKING.md).
+The stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops, and observing overhead rather than distribution
+convergence.
 
 ## See also
 

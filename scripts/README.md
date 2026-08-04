@@ -9,15 +9,27 @@ just bench-compare [baseline]
 just performance-local
 just performance-github-assets [current-tag baseline-tag]
 just performance-release [current-tag baseline-tag]
+just performance-rerender
 ```
 
 `bench-compare` discovers Criterion samples below `target/criterion`, compares `new` with a saved baseline, and writes Markdown under
 `target/bench-reports/`. For current-working-tree comparisons, `archive-performance` resolves the latest stable release and measures both revisions in isolated
-worktrees. GitHub Release comparisons resolve two published tags and consume their durable assets without local measurements. Release-promotion runs infer or
-accept a release pair, measure it in isolated worktrees, and safely promote one curated report into `docs/PERFORMANCE.md` while preserving prior pairs under
-`docs/archive/performance/`.
+worktrees. GitHub Release comparisons resolve two published tags and consume their durable assets without local measurements. Each measurement-producing
+`performance-*` command writes deterministic CSV plus structured JSON provenance below `target/bench-reports/`, reloads those files, and renders Markdown from
+the validated artifact. Release-promotion runs infer or accept a release pair, measure it in isolated worktrees, and safely promote one curated report into
+`docs/PERFORMANCE.md` while preserving prior pairs under `docs/archive/performance/`. `performance-rerender` promotes the saved release artifact without
+GitHub access, Git worktrees, or Cargo.
 
 The benchmark command contracts and interpretation limits live in [`docs/BENCHMARKING.md`](../docs/BENCHMARKING.md).
+
+## Release Metadata
+
+```bash
+just release-check
+```
+
+`release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
+`CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation.
 
 ## Notebooks
 

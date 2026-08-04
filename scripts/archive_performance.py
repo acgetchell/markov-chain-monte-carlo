@@ -7,6 +7,9 @@ archives attached to GitHub Releases and never run Cargo.
 """
 
 import argparse
+import csv
+import hashlib
+import io
 import json
 import platform
 import re
@@ -20,9 +23,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
-from bench_compare import ComparisonSet, ReportSettings, _write_text, collect_comparisons, render_report
+from bench_compare import Comparison, ComparisonSet, Estimate, ReportSettings, _write_text, collect_comparisons, render_report
 from subprocess_utils import ExecutableNotFoundError, run_git_command, run_git_command_with_input, run_safe_command
 
 if TYPE_CHECKING:
@@ -35,6 +38,23 @@ _VERSION_RE = re.compile(r"^\*\*markov-chain-monte-carlo\*\* (?P<version>v[0-9]+
 _BASELINE_RE = re.compile(r"^Comparison against baseline \*\*(?P<baseline>v[0-9]+\.[0-9]+\.[0-9]+)\*\*:", re.MULTILINE)
 _COMMAND_TIMEOUT_SECONDS = 600
 _BENCHMARK_TIMEOUT_SECONDS = 7200
+_CSV_SCHEMA = "criterion-comparison/v1"
+_PROVENANCE_SCHEMA = "mcmc-performance-provenance/v1"
+_BENCHMARK_SUITE = "stepping"
+_BENCHMARK_SCOPE = "release-signal"
+_CSV_COLUMNS = (
+    "schema_version",
+    "suite",
+    "scope",
+    "benchmark",
+    "coverage",
+    "baseline_point_ns",
+    "baseline_lower_ns",
+    "baseline_upper_ns",
+    "current_point_ns",
+    "current_lower_ns",
+    "current_upper_ns",
+)
 
 type ResolutionMode = Literal["explicit", "published-latest", "infer-release", "current-vs-latest"]
 
@@ -70,6 +90,42 @@ class ReleaseMetadata:
     architecture: str
     rustc: str
     criterion_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class SampleProvenance:
+    """Structured identity and inputs for one measured Criterion sample."""
+
+    tag: str
+    commit: str
+    operating_system: str
+    architecture: str
+    rustc: str
+    criterion_version: str
+    source_digest_sha256: str | None
+    cargo_lock_sha256: str | None
+    benchmark_harness_sha256: str | None
+    command: tuple[str, ...] | None
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementProvenance:
+    """Machine-readable provenance for a comparison's two samples."""
+
+    mode: Literal["local-isolated-worktrees", "github-release-assets"]
+    working_tree_applied: bool
+    current: SampleProvenance
+    baseline: SampleProvenance
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonArtifact:
+    """Validated measurements and rendering metadata for one release pair."""
+
+    pair: ReportId
+    comparison_set: ComparisonSet
+    settings: ReportSettings
+    measurement: MeasurementProvenance
 
 
 def normalize_tag(tag: str) -> str:
@@ -306,6 +362,423 @@ def _publish_texts(outputs: tuple[tuple[Path, str], ...]) -> None:
         raise
 
 
+def _sample_mapping(sample: tuple[tuple[str, Estimate], ...], label: str) -> dict[str, Estimate]:
+    """Validate one deterministically ordered sample and return a lookup."""
+    names = [name for name, _estimate in sample]
+    if names != sorted(names):
+        msg = f"{label} sample rows must be sorted by benchmark name"
+        raise ValueError(msg)
+    if len(names) != len(set(names)):
+        msg = f"{label} sample contains duplicate benchmark names"
+        raise ValueError(msg)
+    for name in names:
+        if not name or name != name.strip() or any(character in name for character in "\0\n\r"):
+            msg = f"{label} sample contains an invalid benchmark name: {name!r}"
+            raise ValueError(msg)
+    return dict(sample)
+
+
+def _comparison_set_from_samples(current: dict[str, Estimate], baseline: dict[str, Estimate]) -> ComparisonSet:
+    """Construct the canonical comparison and coverage view of two samples."""
+    shared = sorted(current.keys() & baseline.keys())
+    return ComparisonSet(
+        comparisons=tuple(Comparison(name, baseline[name], current[name]) for name in shared),
+        missing_baseline=tuple(sorted(current.keys() - baseline.keys())),
+        missing_current=tuple(sorted(baseline.keys() - current.keys())),
+        current_sample=tuple(sorted(current.items())),
+        baseline_sample=tuple(sorted(baseline.items())),
+    )
+
+
+def _validated_comparison_set(comparison_set: ComparisonSet) -> ComparisonSet:
+    """Reject internally inconsistent derived coverage fields."""
+    current = _sample_mapping(comparison_set.current_sample, "current")
+    baseline = _sample_mapping(comparison_set.baseline_sample, "baseline")
+    canonical = _comparison_set_from_samples(current, baseline)
+    if comparison_set != canonical:
+        msg = "comparison rows or coverage notes do not match the stored current and baseline samples"
+        raise ValueError(msg)
+    return canonical
+
+
+def _format_float(value: float | None) -> str:
+    return "" if value is None else repr(value)
+
+
+def serialize_comparison_csv(comparison_set: ComparisonSet) -> str:
+    """Serialize both samples as deterministic, analysis-friendly CSV."""
+    validated = _validated_comparison_set(comparison_set)
+    current = dict(validated.current_sample)
+    baseline = dict(validated.baseline_sample)
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(_CSV_COLUMNS)
+    for benchmark in sorted(current.keys() | baseline.keys()):
+        current_estimate = current.get(benchmark)
+        baseline_estimate = baseline.get(benchmark)
+        if current_estimate is not None and baseline_estimate is not None:
+            coverage = "comparable"
+        elif current_estimate is not None:
+            coverage = "current_only"
+        else:
+            coverage = "baseline_only"
+        writer.writerow(
+            (
+                _CSV_SCHEMA,
+                _BENCHMARK_SUITE,
+                _BENCHMARK_SCOPE,
+                benchmark,
+                coverage,
+                _format_float(None if baseline_estimate is None else baseline_estimate.point_ns),
+                _format_float(None if baseline_estimate is None else baseline_estimate.lower_ns),
+                _format_float(None if baseline_estimate is None else baseline_estimate.upper_ns),
+                _format_float(None if current_estimate is None else current_estimate.point_ns),
+                _format_float(None if current_estimate is None else current_estimate.lower_ns),
+                _format_float(None if current_estimate is None else current_estimate.upper_ns),
+            )
+        )
+    return output.getvalue()
+
+
+def _parse_estimate_fields(row: dict[str, str], prefix: str, *, required: bool, row_number: int) -> Estimate | None:
+    fields = tuple(row[f"{prefix}_{part}_ns"] for part in ("point", "lower", "upper"))
+    if not required:
+        if any(fields):
+            msg = f"CSV row {row_number} must leave absent {prefix} estimate fields blank"
+            raise ValueError(msg)
+        return None
+    if not fields[0]:
+        msg = f"CSV row {row_number} is missing {prefix}_point_ns"
+        raise ValueError(msg)
+    if bool(fields[1]) != bool(fields[2]):
+        msg = f"CSV row {row_number} must provide both {prefix} confidence bounds or neither"
+        raise ValueError(msg)
+    try:
+        point = float(fields[0])
+        lower = float(fields[1]) if fields[1] else None
+        upper = float(fields[2]) if fields[2] else None
+    except ValueError as error:
+        msg = f"CSV row {row_number} contains a non-numeric {prefix} estimate"
+        raise ValueError(msg) from error
+    return Estimate(point, lower, upper)
+
+
+def parse_comparison_csv(text: str) -> ComparisonSet:
+    """Parse and strictly validate a versioned comparison CSV document."""
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), strict=True))
+    except csv.Error as error:
+        msg = f"comparison CSV is malformed: {error}"
+        raise ValueError(msg) from error
+    if not rows:
+        msg = "comparison CSV is empty"
+        raise ValueError(msg)
+    if tuple(rows[0]) != _CSV_COLUMNS:
+        msg = "comparison CSV has an unsupported or reordered header"
+        raise ValueError(msg)
+    if len(rows) == 1:
+        msg = "comparison CSV contains no benchmark rows"
+        raise ValueError(msg)
+    current: dict[str, Estimate] = {}
+    baseline: dict[str, Estimate] = {}
+    previous_name: str | None = None
+    for row_number, values in enumerate(rows[1:], start=2):
+        if len(values) != len(_CSV_COLUMNS):
+            msg = f"CSV row {row_number} has {len(values)} fields; expected {len(_CSV_COLUMNS)}"
+            raise ValueError(msg)
+        row = dict(zip(_CSV_COLUMNS, values, strict=True))
+        if row["schema_version"] != _CSV_SCHEMA or row["suite"] != _BENCHMARK_SUITE or row["scope"] != _BENCHMARK_SCOPE:
+            msg = f"CSV row {row_number} has unsupported schema, suite, or scope metadata"
+            raise ValueError(msg)
+        benchmark = row["benchmark"]
+        if not benchmark or benchmark != benchmark.strip() or any(character in benchmark for character in "\0\n\r"):
+            msg = f"CSV row {row_number} has an invalid benchmark name"
+            raise ValueError(msg)
+        if previous_name is not None and benchmark <= previous_name:
+            msg = f"CSV benchmark rows must be unique and sorted: {benchmark!r}"
+            raise ValueError(msg)
+        previous_name = benchmark
+        coverage = row["coverage"]
+        if coverage not in {"comparable", "current_only", "baseline_only"}:
+            msg = f"CSV row {row_number} has unsupported coverage {coverage!r}"
+            raise ValueError(msg)
+        has_current = coverage != "baseline_only"
+        has_baseline = coverage != "current_only"
+        current_estimate = _parse_estimate_fields(row, "current", required=has_current, row_number=row_number)
+        baseline_estimate = _parse_estimate_fields(row, "baseline", required=has_baseline, row_number=row_number)
+        if current_estimate is not None:
+            current[benchmark] = current_estimate
+        if baseline_estimate is not None:
+            baseline[benchmark] = baseline_estimate
+    return _comparison_set_from_samples(current, baseline)
+
+
+def _sample_provenance_document(sample: SampleProvenance) -> dict[str, object]:
+    return {
+        "architecture": sample.architecture,
+        "benchmark_harness_sha256": sample.benchmark_harness_sha256,
+        "cargo_lock_sha256": sample.cargo_lock_sha256,
+        "command": None if sample.command is None else list(sample.command),
+        "commit": sample.commit,
+        "criterion_version": sample.criterion_version,
+        "operating_system": sample.operating_system,
+        "rustc": sample.rustc,
+        "source_digest_sha256": sample.source_digest_sha256,
+        "tag": sample.tag,
+    }
+
+
+def serialize_provenance(artifact: ComparisonArtifact) -> str:
+    """Serialize report settings and measurement provenance deterministically."""
+    csv_sha256 = hashlib.sha256(serialize_comparison_csv(artifact.comparison_set).encode("utf-8")).hexdigest()
+    document = {
+        "csv_sha256": csv_sha256,
+        "csv_schema": _CSV_SCHEMA,
+        "measurement": {
+            "baseline": _sample_provenance_document(artifact.measurement.baseline),
+            "current": _sample_provenance_document(artifact.measurement.current),
+            "mode": artifact.measurement.mode,
+            "working_tree_applied": artifact.measurement.working_tree_applied,
+        },
+        "release": {
+            "baseline_tag": artifact.pair.baseline_tag,
+            "current_tag": artifact.pair.current_tag,
+        },
+        "report": {
+            "baseline_label": artifact.settings.baseline_label,
+            "current_label": artifact.settings.current_label,
+            "measurement_context": list(artifact.settings.measurement_context),
+            "revision": artifact.settings.revision,
+            "statistic": artifact.settings.statistic,
+        },
+        "schema": _PROVENANCE_SCHEMA,
+    }
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+
+def _object_field(document: dict[str, object], field: str, context: str) -> dict[str, object]:
+    value = document.get(field)
+    if not isinstance(value, dict):
+        msg = f"{context} field {field!r} must be an object"
+        raise TypeError(msg)
+    return {str(key): item for key, item in value.items()}
+
+
+def _required_string(document: dict[str, object], field: str, context: str) -> str:
+    value = document.get(field)
+    if not isinstance(value, str) or not value.strip():
+        msg = f"{context} field {field!r} must be a non-empty string"
+        raise TypeError(msg)
+    return value
+
+
+def _optional_sha256(document: dict[str, object], field: str, context: str) -> str | None:
+    value = document.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        msg = f"{context} field {field!r} must be null or a lowercase SHA-256 digest"
+        raise ValueError(msg)
+    return value
+
+
+def _parse_sample_provenance(document: dict[str, object], *, expected_tag: str, context: str) -> SampleProvenance:
+    expected_fields = {
+        "architecture",
+        "benchmark_harness_sha256",
+        "cargo_lock_sha256",
+        "command",
+        "commit",
+        "criterion_version",
+        "operating_system",
+        "rustc",
+        "source_digest_sha256",
+        "tag",
+    }
+    if set(document) != expected_fields:
+        msg = f"{context} fields do not match the provenance schema"
+        raise ValueError(msg)
+    tag = normalize_tag(_required_string(document, "tag", context))
+    if tag != expected_tag:
+        msg = f"{context} tag {tag} does not match release pair tag {expected_tag}"
+        raise ValueError(msg)
+    commit = _required_string(document, "commit", context)
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        msg = f"{context} commit must be a full lowercase Git SHA"
+        raise ValueError(msg)
+    raw_command = document.get("command")
+    command: tuple[str, ...] | None
+    if raw_command is None:
+        command = None
+    elif isinstance(raw_command, list) and raw_command and all(isinstance(part, str) and part for part in raw_command):
+        command = tuple(cast("list[str]", raw_command))
+    else:
+        msg = f"{context} command must be null or a non-empty string array"
+        raise TypeError(msg)
+    return SampleProvenance(
+        tag=tag,
+        commit=commit,
+        operating_system=_required_string(document, "operating_system", context),
+        architecture=_required_string(document, "architecture", context),
+        rustc=_required_string(document, "rustc", context),
+        criterion_version=_required_string(document, "criterion_version", context),
+        source_digest_sha256=_optional_sha256(document, "source_digest_sha256", context),
+        cargo_lock_sha256=_optional_sha256(document, "cargo_lock_sha256", context),
+        benchmark_harness_sha256=_optional_sha256(document, "benchmark_harness_sha256", context),
+        command=command,
+    )
+
+
+def _parse_release_pair(document: dict[str, object]) -> ReportId:
+    release = _object_field(document, "release", "comparison provenance")
+    if set(release) != {"baseline_tag", "current_tag"}:
+        msg = "release provenance fields do not match the supported schema"
+        raise ValueError(msg)
+    return ReportId(
+        normalize_tag(_required_string(release, "current_tag", "release provenance")),
+        normalize_tag(_required_string(release, "baseline_tag", "release provenance")),
+    )
+
+
+def _parse_report_settings(document: dict[str, object], pair: ReportId) -> ReportSettings:
+    report = _object_field(document, "report", "comparison provenance")
+    if set(report) != {"baseline_label", "current_label", "measurement_context", "revision", "statistic"}:
+        msg = "report provenance fields do not match the supported schema"
+        raise ValueError(msg)
+    statistic = _required_string(report, "statistic", "report provenance")
+    if statistic not in {"mean", "median"}:
+        msg = f"report provenance has unsupported statistic {statistic!r}"
+        raise ValueError(msg)
+    raw_context = report.get("measurement_context")
+    if not isinstance(raw_context, list) or not all(isinstance(item, str) and item for item in raw_context):
+        msg = "report provenance measurement_context must be a string array"
+        raise TypeError(msg)
+    settings = ReportSettings(
+        current_label=_required_string(report, "current_label", "report provenance"),
+        baseline_label=_required_string(report, "baseline_label", "report provenance"),
+        statistic=statistic,
+        revision=_required_string(report, "revision", "report provenance"),
+        measurement_context=tuple(cast("list[str]", raw_context)),
+    )
+    if settings.baseline_label != pair.baseline_tag:
+        msg = "report baseline label does not match the release pair"
+        raise ValueError(msg)
+    return settings
+
+
+def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -> MeasurementProvenance:
+    measurement = _object_field(document, "measurement", "comparison provenance")
+    if set(measurement) != {"baseline", "current", "mode", "working_tree_applied"}:
+        msg = "measurement provenance fields do not match the supported schema"
+        raise ValueError(msg)
+    mode = _required_string(measurement, "mode", "measurement provenance")
+    if mode not in {"local-isolated-worktrees", "github-release-assets"}:
+        msg = f"measurement provenance has unsupported mode {mode!r}"
+        raise ValueError(msg)
+    working_tree_applied = measurement.get("working_tree_applied")
+    if not isinstance(working_tree_applied, bool):
+        msg = "measurement provenance working_tree_applied must be boolean"
+        raise TypeError(msg)
+    current = _parse_sample_provenance(
+        _object_field(measurement, "current", "measurement provenance"),
+        expected_tag=pair.current_tag,
+        context="current sample provenance",
+    )
+    baseline = _parse_sample_provenance(
+        _object_field(measurement, "baseline", "measurement provenance"),
+        expected_tag=pair.baseline_tag,
+        context="baseline sample provenance",
+    )
+    local_values = (
+        current.source_digest_sha256,
+        current.cargo_lock_sha256,
+        current.benchmark_harness_sha256,
+        current.command,
+        baseline.source_digest_sha256,
+        baseline.cargo_lock_sha256,
+        baseline.benchmark_harness_sha256,
+        baseline.command,
+    )
+    if mode == "local-isolated-worktrees" and any(value is None for value in local_values):
+        msg = "local measurement provenance requires commands and source-input hashes for both samples"
+        raise ValueError(msg)
+    if mode == "github-release-assets" and (working_tree_applied or any(value is not None for value in local_values)):
+        msg = "GitHub asset provenance cannot claim local commands, source hashes, or working-tree changes"
+        raise ValueError(msg)
+    return MeasurementProvenance(mode, working_tree_applied, current, baseline)
+
+
+def parse_provenance(text: str) -> tuple[ReportId, ReportSettings, MeasurementProvenance, str]:
+    """Parse the strict JSON sidecar paired with a comparison CSV."""
+    try:
+        raw_document = json.loads(text)
+    except json.JSONDecodeError as error:
+        msg = f"comparison provenance is not valid JSON: {error}"
+        raise ValueError(msg) from error
+    if not isinstance(raw_document, dict):
+        msg = "comparison provenance must be a JSON object"
+        raise TypeError(msg)
+    document = {str(key): value for key, value in raw_document.items()}
+    if set(document) != {"csv_sha256", "csv_schema", "measurement", "release", "report", "schema"}:
+        msg = "comparison provenance fields do not match the supported schema"
+        raise ValueError(msg)
+    if document.get("schema") != _PROVENANCE_SCHEMA or document.get("csv_schema") != _CSV_SCHEMA:
+        msg = "comparison provenance has an unsupported schema"
+        raise ValueError(msg)
+    pair = _parse_release_pair(document)
+    settings = _parse_report_settings(document, pair)
+    measurement = _parse_measurement_provenance(document, pair)
+    csv_sha256 = _required_string(document, "csv_sha256", "comparison provenance")
+    if re.fullmatch(r"[0-9a-f]{64}", csv_sha256) is None:
+        msg = "comparison provenance csv_sha256 must be a lowercase SHA-256 digest"
+        raise ValueError(msg)
+    expected_label = f"{pair.current_tag} working tree" if measurement.working_tree_applied else pair.current_tag
+    if settings.current_label != expected_label:
+        msg = "report current label does not match the measurement source mode"
+        raise ValueError(msg)
+    if settings.revision != measurement.current.commit[:7]:
+        msg = "report revision does not match the current sample commit"
+        raise ValueError(msg)
+    return pair, settings, measurement, csv_sha256
+
+
+def provenance_path(csv_path: Path) -> Path:
+    """Return the deterministic JSON sidecar path for one comparison CSV."""
+    return csv_path.with_suffix(".provenance.json")
+
+
+def _artifact_from_text(csv_text: str, provenance_text: str) -> ComparisonArtifact:
+    comparison_set = parse_comparison_csv(csv_text)
+    pair, settings, measurement, expected_csv_sha256 = parse_provenance(provenance_text)
+    actual_csv_sha256 = hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
+    if actual_csv_sha256 != expected_csv_sha256:
+        msg = "comparison CSV does not match its provenance SHA-256 digest"
+        raise ValueError(msg)
+    if not comparison_set.comparisons:
+        msg = f"comparison artifact has no comparable rows for {pair.current_tag} vs {pair.baseline_tag}"
+        raise ValueError(msg)
+    return ComparisonArtifact(pair, comparison_set, settings, measurement)
+
+
+def load_comparison_artifact(csv_path: Path) -> ComparisonArtifact:
+    """Load and validate a CSV comparison and its adjacent provenance JSON."""
+    sidecar = provenance_path(csv_path)
+    return _artifact_from_text(csv_path.read_text(encoding="utf-8"), sidecar.read_text(encoding="utf-8"))
+
+
+def save_comparison_artifact(artifact: ComparisonArtifact, csv_path: Path) -> ComparisonArtifact:
+    """Transactionally save, reload, and validate a comparison artifact pair."""
+    csv_text = serialize_comparison_csv(artifact.comparison_set)
+    provenance_text = serialize_provenance(artifact)
+    parsed = _artifact_from_text(csv_text, provenance_text)
+    if parsed != artifact:
+        msg = "comparison artifact changed during serialization"
+        raise ValueError(msg)
+    sidecar = provenance_path(csv_path)
+    _publish_texts(((csv_path, csv_text), (sidecar, provenance_text)))
+    return load_comparison_artifact(csv_path)
+
+
 def promote_report(
     *,
     source_text: str,
@@ -450,19 +923,86 @@ def _release_metadata(criterion_dir: Path, expected_tag: str) -> ReleaseMetadata
     return metadata
 
 
-def _local_measurement_context(current_checkout: Path, baseline_checkout: Path, *, working_tree: bool) -> tuple[str, ...]:
-    """Describe enough local context to identify and interpret both samples."""
-    current_commit = run_git_command(["--no-pager", "rev-parse", "HEAD"], cwd=current_checkout, timeout=30).stdout.strip()
-    baseline_commit = run_git_command(["--no-pager", "rev-parse", "HEAD"], cwd=baseline_checkout, timeout=30).stdout.strip()
-    current_rustc = run_safe_command("rustc", ["--version"], cwd=current_checkout, timeout=30).stdout.strip()
-    baseline_rustc = run_safe_command("rustc", ["--version"], cwd=baseline_checkout, timeout=30).stdout.strip()
-    source = "current `HEAD` with tracked and untracked working-tree changes applied" if working_tree else "exact current release tag"
-    return (
-        "Source mode: same-host isolated worktrees; " + source + ".",
-        f"Host: `{platform.platform()}` on `{platform.machine()}`.",
-        f"Current commit: `{current_commit}`; rustc: `{current_rustc}`; Criterion: `{_criterion_dependency_version(current_checkout)}`.",
-        f"Baseline commit: `{baseline_commit}`; rustc: `{baseline_rustc}`; Criterion: `{_criterion_dependency_version(baseline_checkout)}`.",
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _source_digest(checkout: Path) -> str:
+    """Hash the Rust/package inputs that define the measured implementation."""
+    rust_sources = sorted((checkout / "src").rglob("*.rs"))
+    required_paths = [
+        checkout / "Cargo.toml",
+        checkout / "Cargo.lock",
+        checkout / "rust-toolchain.toml",
+        checkout / "benches" / "stepping.rs",
+    ]
+    paths = [*required_paths, *rust_sources]
+    missing = [path for path in paths if not path.is_file()]
+    if not rust_sources:
+        missing.append(checkout / "src" / "*.rs")
+    if missing:
+        msg = f"cannot hash benchmark inputs; missing {', '.join(str(path) for path in missing)}"
+        raise FileNotFoundError(msg)
+    digest = hashlib.sha256()
+    for path in paths:
+        if not path.is_file():
+            continue
+        relative = path.relative_to(checkout).as_posix().encode()
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def _local_sample_provenance(checkout: Path, tag: str, command: tuple[str, ...]) -> SampleProvenance:
+    return SampleProvenance(
+        tag=tag,
+        commit=run_git_command(["--no-pager", "rev-parse", "HEAD"], cwd=checkout, timeout=30).stdout.strip(),
+        operating_system=platform.platform(),
+        architecture=platform.machine(),
+        rustc=run_safe_command("rustc", ["--version"], cwd=checkout, timeout=30).stdout.strip(),
+        criterion_version=_criterion_dependency_version(checkout),
+        source_digest_sha256=_source_digest(checkout),
+        cargo_lock_sha256=_file_sha256(checkout / "Cargo.lock"),
+        benchmark_harness_sha256=_file_sha256(checkout / "benches" / "stepping.rs"),
+        command=command,
     )
+
+
+def _local_measurement_provenance(
+    current_checkout: Path,
+    baseline_checkout: Path,
+    pair: ReportId,
+    *,
+    working_tree: bool,
+) -> MeasurementProvenance:
+    baseline_command = ("cargo", "bench", "--locked", "--bench", "stepping", "--", "--save-baseline", pair.baseline_tag)
+    current_command = ("cargo", "bench", "--locked", "--bench", "stepping")
+    return MeasurementProvenance(
+        mode="local-isolated-worktrees",
+        working_tree_applied=working_tree,
+        current=_local_sample_provenance(current_checkout, pair.current_tag, current_command),
+        baseline=_local_sample_provenance(baseline_checkout, pair.baseline_tag, baseline_command),
+    )
+
+
+def _local_measurement_context(measurement: MeasurementProvenance) -> tuple[str, ...]:
+    """Render concise human context from structured local provenance."""
+    source = "current `HEAD` with tracked and untracked working-tree changes applied" if measurement.working_tree_applied else "exact current release tag"
+    current_harness = measurement.current.benchmark_harness_sha256 or "unavailable"
+    baseline_harness = measurement.baseline.benchmark_harness_sha256 or "unavailable"
+    context = [
+        "Source mode: same-host isolated worktrees; " + source + ".",
+        f"Host: `{measurement.current.operating_system}` on `{measurement.current.architecture}`.",
+        (f"Current commit: `{measurement.current.commit}`; rustc: `{measurement.current.rustc}`; Criterion: `{measurement.current.criterion_version}`."),
+        (f"Baseline commit: `{measurement.baseline.commit}`; rustc: `{measurement.baseline.rustc}`; Criterion: `{measurement.baseline.criterion_version}`."),
+        f"Benchmark harness SHA-256 prefixes: current `{current_harness[:12]}`; baseline `{baseline_harness[:12]}`.",
+    ]
+    if current_harness != baseline_harness:
+        context.append("Benchmark harness hashes differ; verify that every shared name retains the same workload contract.")
+    return tuple(context)
 
 
 def _asset_measurement_context(current: ReleaseMetadata, baseline: ReleaseMetadata) -> tuple[str, ...]:
@@ -477,6 +1017,29 @@ def _asset_measurement_context(current: ReleaseMetadata, baseline: ReleaseMetada
             f"Baseline `{baseline.tag}`: commit `{baseline.commit}`; `{baseline.operating_system}` / `{baseline.architecture}`; rustc: `{baseline.rustc}`; "
             f"Criterion: `{baseline.criterion_version}`."
         ),
+    )
+
+
+def _asset_measurement_provenance(current: ReleaseMetadata, baseline: ReleaseMetadata) -> MeasurementProvenance:
+    def sample(metadata: ReleaseMetadata) -> SampleProvenance:
+        return SampleProvenance(
+            tag=metadata.tag,
+            commit=metadata.commit,
+            operating_system=metadata.operating_system,
+            architecture=metadata.architecture,
+            rustc=metadata.rustc,
+            criterion_version=metadata.criterion_version,
+            source_digest_sha256=None,
+            cargo_lock_sha256=None,
+            benchmark_harness_sha256=None,
+            command=None,
+        )
+
+    return MeasurementProvenance(
+        mode="github-release-assets",
+        working_tree_applied=False,
+        current=sample(current),
+        baseline=sample(baseline),
     )
 
 
@@ -506,36 +1069,28 @@ def copy_criterion_sample(
     return copied
 
 
-def _render_comparison(
+def _comparison_artifact(
     criterion_dir: Path,
     pair: ReportId,
     *,
-    current_label: str,
-    revision: str,
-    measurement_context: tuple[str, ...],
-) -> str:
+    settings: ReportSettings,
+    measurement: MeasurementProvenance,
+) -> ComparisonArtifact:
     comparison_set: ComparisonSet = collect_comparisons(criterion_dir, pair.baseline_tag)
     if not comparison_set.comparisons:
         msg = f"no comparable Criterion rows found for {pair.current_tag} vs {pair.baseline_tag}"
         raise RuntimeError(msg)
-    settings = ReportSettings(
-        current_label=current_label,
-        baseline_label=pair.baseline_tag,
-        statistic="median",
-        revision=revision,
-        measurement_context=measurement_context,
-    )
-    return render_report(comparison_set, settings)
+    return ComparisonArtifact(pair, comparison_set, settings, measurement)
 
 
-def generate_local_report(
+def generate_local_artifact(
     repo_root: Path,
     pair: ReportId,
     *,
     current_reference: str,
     apply_working_tree: bool,
-) -> str:
-    """Measure two revisions in isolated worktrees and render their overlap."""
+) -> ComparisonArtifact:
+    """Measure two revisions in isolated worktrees and collect an artifact."""
     _ensure_local_tag(repo_root, pair.baseline_tag)
     if current_reference != "HEAD":
         _ensure_local_tag(repo_root, current_reference)
@@ -554,16 +1109,42 @@ def generate_local_report(
                     source_sample=pair.baseline_tag,
                     destination_sample=pair.baseline_tag,
                 )
-                revision = run_git_command(["--no-pager", "rev-parse", "--short", "HEAD"], cwd=current_checkout, timeout=30).stdout.strip()
+                measurement = _local_measurement_provenance(
+                    current_checkout,
+                    baseline_checkout,
+                    pair,
+                    working_tree=apply_working_tree,
+                )
                 label = f"{pair.current_tag} working tree" if apply_working_tree else pair.current_tag
-                context = _local_measurement_context(current_checkout, baseline_checkout, working_tree=apply_working_tree)
-                return _render_comparison(
+                return _comparison_artifact(
                     current_criterion,
                     pair,
-                    current_label=label,
-                    revision=revision,
-                    measurement_context=context,
+                    settings=ReportSettings(
+                        current_label=label,
+                        baseline_label=pair.baseline_tag,
+                        statistic="median",
+                        revision=measurement.current.commit[:7],
+                        measurement_context=_local_measurement_context(measurement),
+                    ),
+                    measurement=measurement,
                 )
+
+
+def generate_local_report(
+    repo_root: Path,
+    pair: ReportId,
+    *,
+    current_reference: str,
+    apply_working_tree: bool,
+) -> str:
+    """Compatibility wrapper that renders a newly generated local artifact."""
+    artifact = generate_local_artifact(
+        repo_root,
+        pair,
+        current_reference=current_reference,
+        apply_working_tree=apply_working_tree,
+    )
+    return render_report(artifact.comparison_set, artifact.settings)
 
 
 def safe_extract_tar(archive: Path, destination: Path) -> None:
@@ -598,8 +1179,8 @@ def _download_release_asset(repo_root: Path, tag: str, destination: Path) -> Pat
     return path
 
 
-def generate_github_asset_report(repo_root: Path, pair: ReportId) -> str:
-    """Render a historical comparison solely from GitHub Release assets."""
+def generate_github_asset_artifact(repo_root: Path, pair: ReportId) -> ComparisonArtifact:
+    """Collect a historical comparison solely from GitHub Release assets."""
     with tempfile.TemporaryDirectory(prefix="mcmc-performance-assets-") as temporary_name:
         root = Path(temporary_name)
         current_archive = _download_release_asset(repo_root, pair.current_tag, root / "downloads-current")
@@ -625,13 +1206,25 @@ def generate_github_asset_report(repo_root: Path, pair: ReportId) -> str:
             source_sample=pair.baseline_tag,
             destination_sample=pair.baseline_tag,
         )
-        return _render_comparison(
+        measurement = _asset_measurement_provenance(current_metadata, baseline_metadata)
+        return _comparison_artifact(
             combined,
             pair,
-            current_label=pair.current_tag,
-            revision=current_metadata.commit[:7],
-            measurement_context=_asset_measurement_context(current_metadata, baseline_metadata),
+            settings=ReportSettings(
+                current_label=pair.current_tag,
+                baseline_label=pair.baseline_tag,
+                statistic="median",
+                revision=current_metadata.commit[:7],
+                measurement_context=_asset_measurement_context(current_metadata, baseline_metadata),
+            ),
+            measurement=measurement,
         )
+
+
+def generate_github_asset_report(repo_root: Path, pair: ReportId) -> str:
+    """Compatibility wrapper that renders a newly generated asset artifact."""
+    artifact = generate_github_asset_artifact(repo_root, pair)
+    return render_report(artifact.comparison_set, artifact.settings)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -643,6 +1236,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     modes.add_argument("--infer-release", action="store_true")
     modes.add_argument("--current-vs-latest", action="store_true")
     parser.add_argument("--github-assets", action="store_true", help="Use durable GitHub Release assets without local benchmark runs.")
+    parser.add_argument("--measurements-output", help="Write the comparison CSV and adjacent provenance JSON to this path.")
+    parser.add_argument("--rerender", metavar="CSV", help="Render an existing comparison CSV and adjacent provenance JSON without measuring.")
     parser.add_argument("--promote", action="store_true", help="Promote the report to docs/PERFORMANCE.md and archive the previous report.")
     parser.add_argument("--output", default="target/bench-reports/performance.md")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]))
@@ -683,32 +1278,64 @@ def _format_command_failure(error: subprocess.CalledProcessError) -> str:
     return "\n".join(parts)
 
 
+def _validate_rerender_combination(args: argparse.Namespace) -> None:
+    """Keep rerendering independent of GitHub, Git, Cargo, and pair inference."""
+    if args.rerender is None:
+        return
+    if (
+        args.current_tag is not None
+        or args.baseline_tag is not None
+        or args.published_latest
+        or args.infer_release
+        or args.current_vs_latest
+        or args.github_assets
+        or args.measurements_output is not None
+    ):
+        msg = "--rerender cannot be combined with tags, measurement modes, --github-assets, or --measurements-output"
+        raise ValueError(msg)
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Generate a local or historical report and optionally promote it."""
+    """Generate or rerender a report and optionally promote it."""
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     repo_root = Path(args.repo_root).resolve()
-    mode = _resolution_mode(args)
     try:
-        _validate_mode_combination(mode, github_assets=bool(args.github_assets), promote=bool(args.promote))
-        releases = () if mode == "explicit" else _published_releases(repo_root)
-        pair = resolve_release_pair(
-            mode=mode,
-            releases=releases,
-            package_tag=current_package_tag(repo_root),
-            current_tag=args.current_tag,
-            baseline_tag=args.baseline_tag,
-        )
-        if args.github_assets:
-            report = generate_github_asset_report(repo_root, pair)
+        _validate_rerender_combination(args)
+        if args.rerender is not None:
+            measurements_path = Path(args.rerender)
+            if not measurements_path.is_absolute():
+                measurements_path = repo_root / measurements_path
+            artifact = load_comparison_artifact(measurements_path)
+            pair = artifact.pair
         else:
-            published_tags = {release.tag for release in releases}
-            current_tag_is_published = mode == "explicit" or (mode == "infer-release" and pair.current_tag in published_tags)
-            report = generate_local_report(
-                repo_root,
-                pair,
-                current_reference=pair.current_tag if current_tag_is_published else "HEAD",
-                apply_working_tree=not current_tag_is_published,
+            mode = _resolution_mode(args)
+            _validate_mode_combination(mode, github_assets=bool(args.github_assets), promote=bool(args.promote))
+            releases = () if mode == "explicit" else _published_releases(repo_root)
+            pair = resolve_release_pair(
+                mode=mode,
+                releases=releases,
+                package_tag=current_package_tag(repo_root),
+                current_tag=args.current_tag,
+                baseline_tag=args.baseline_tag,
             )
+            if args.github_assets:
+                generated = generate_github_asset_artifact(repo_root, pair)
+            else:
+                published_tags = {release.tag for release in releases}
+                current_tag_is_published = mode == "explicit" or (mode == "infer-release" and pair.current_tag in published_tags)
+                generated = generate_local_artifact(
+                    repo_root,
+                    pair,
+                    current_reference=pair.current_tag if current_tag_is_published else "HEAD",
+                    apply_working_tree=not current_tag_is_published,
+                )
+            raw_measurements_path = args.measurements_output or "target/bench-reports/performance.csv"
+            measurements_path = Path(raw_measurements_path)
+            if not measurements_path.is_absolute():
+                measurements_path = repo_root / measurements_path
+            artifact = save_comparison_artifact(generated, measurements_path)
+            print(f"Wrote {measurements_path} and {provenance_path(measurements_path)}")
+        report = render_report(artifact.comparison_set, artifact.settings)
         if args.promote:
             promote_report(
                 source_text=report,

@@ -1,4 +1,5 @@
 import json
+import math
 from typing import TYPE_CHECKING
 
 import pytest
@@ -35,7 +36,7 @@ def test_collect_comparisons_reports_shared_and_missing_rows(tmp_path: Path) -> 
 
     assert len(collected.comparisons) == 1
     assert collected.comparisons[0].benchmark == "chain/step_by_value"
-    assert collected.comparisons[0].percent_change == pytest.approx(-20.0)
+    assert collected.comparisons[0].percent_reduction == pytest.approx(20.0)
     assert collected.comparisons[0].speedup == pytest.approx(1.25)
     assert collected.missing_baseline == ("observing/new_metric",)
     assert collected.missing_current == ("chain/removed_metric",)
@@ -62,10 +63,67 @@ def test_render_report_includes_release_pair_and_coverage_notes(tmp_path: Path) 
     assert "## Measurement Context" in report
     assert "Source mode: fixture." in report
     assert "| `chain/step_by_value` |" in report
-    assert "-20.00%" in report
-    assert "current lower" in report
+    assert "+20.00%" in report
+    assert "1.25x faster" in report
+    assert "CI relation" not in report
     assert "Current-only rows without a saved baseline:" in report
     assert "`chain/new_path`" in report
+    assert max(map(len, report.splitlines())) <= 160
+
+
+@pytest.mark.parametrize(
+    ("baseline", "current", "expected"),
+    [
+        (100.0, 80.0, "1.25x faster"),
+        (100.0, 125.0, "1.25x slower"),
+        (100.0, 100.07, "1.001x slower"),
+        (100.0, 100.02, "1.0002x slower"),
+        (100.0, 99.98, "1.0002x faster"),
+        (100.0, 100.0, "unchanged"),
+    ],
+)
+def test_format_relative_performance_names_direction(baseline: float, current: float, expected: str) -> None:
+    comparison = bench_compare.Comparison(
+        benchmark="fixture",
+        baseline=bench_compare.Estimate(baseline, None, None),
+        current=bench_compare.Estimate(current, None, None),
+    )
+
+    assert bench_compare._format_relative_performance(comparison) == expected
+
+
+def test_format_relative_performance_bounds_precision_for_near_unity_factor() -> None:
+    comparison = bench_compare.Comparison(
+        benchmark="fixture",
+        baseline=bench_compare.Estimate(math.nextafter(1.0, math.inf), None, None),
+        current=bench_compare.Estimate(1.0, None, None),
+    )
+
+    assert bench_compare._format_relative_performance(comparison) == "1.0000000000000002x faster"
+
+
+def test_render_report_escapes_markdown_delimiters_in_benchmark_names() -> None:
+    comparison_set = bench_compare.ComparisonSet(
+        comparisons=(
+            bench_compare.Comparison(
+                "group/row|`tick",
+                bench_compare.Estimate(100.0, None, None),
+                bench_compare.Estimate(90.0, None, None),
+            ),
+        ),
+        missing_baseline=("group/current|only",),
+        missing_current=(),
+        current_sample=(),
+        baseline_sample=(),
+    )
+
+    report = bench_compare.render_report(
+        comparison_set,
+        bench_compare.ReportSettings("v0.4.1", "v0.4.0", "median", "abc1234"),
+    )
+
+    assert r"| ``group/row\|`tick`` |" in report
+    assert r"- `group/current\|only`" in report
 
 
 def test_main_supports_an_explicit_saved_baseline(tmp_path: Path) -> None:

@@ -20,6 +20,8 @@ from subprocess_utils import ExecutableNotFoundError, run_git_command
 
 type Statistic = Literal["mean", "median"]
 
+_MAX_FACTOR_PRECISION = 16
+
 
 @dataclass(frozen=True, slots=True)
 class Estimate:
@@ -55,9 +57,9 @@ class Comparison:
     current: Estimate
 
     @property
-    def percent_change(self) -> float:
-        """Return signed current-vs-baseline change; negative is faster."""
-        return ((self.current.point_ns - self.baseline.point_ns) / self.baseline.point_ns) * 100.0
+    def percent_reduction(self) -> float:
+        """Return time reduction versus baseline; positive is faster."""
+        return ((self.baseline.point_ns - self.current.point_ns) / self.baseline.point_ns) * 100.0
 
     @property
     def speedup(self) -> float:
@@ -73,6 +75,7 @@ class ComparisonSet:
     missing_baseline: tuple[str, ...]
     missing_current: tuple[str, ...]
     current_sample: tuple[tuple[str, Estimate], ...]
+    baseline_sample: tuple[tuple[str, Estimate], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +166,7 @@ def collect_comparisons(
         missing_baseline=tuple(sorted(current.keys() - baseline.keys())),
         missing_current=tuple(sorted(baseline.keys() - current.keys())),
         current_sample=tuple(sorted(current.items())),
+        baseline_sample=tuple(sorted(baseline.items())),
     )
 
 
@@ -183,16 +187,33 @@ def _format_estimate(estimate: Estimate) -> str:
     return f"{point} ({_format_duration(estimate.lower_ns)} - {_format_duration(estimate.upper_ns)})"
 
 
-def _interval_relation(comparison: Comparison) -> str:
-    baseline = comparison.baseline
-    current = comparison.current
-    if baseline.lower_ns is None or baseline.upper_ns is None or current.lower_ns is None or current.upper_ns is None:
-        return "unknown"
-    if current.upper_ns < baseline.lower_ns:
-        return "current lower"
-    if baseline.upper_ns < current.lower_ns:
-        return "current higher"
-    return "overlap"
+def _format_relative_performance(comparison: Comparison) -> str:
+    """Describe the current duration as an explicit faster/slower factor."""
+    speedup = comparison.speedup
+    if speedup == 1.0:
+        return "unchanged"
+    factor = speedup if speedup > 1.0 else 1.0 / speedup
+    precision = 3 if factor < 1.01 else 2
+    while precision < _MAX_FACTOR_PRECISION and round(factor, precision) == 1.0:
+        precision += 1
+    direction = "faster" if speedup > 1.0 else "slower"
+    return f"{factor:.{precision}f}x {direction}"
+
+
+def _markdown_code_span(value: str) -> str:
+    """Render arbitrary benchmark text safely inside Markdown and pipe tables."""
+    longest_backtick_run = 0
+    current_backtick_run = 0
+    for character in value:
+        if character == "`":
+            current_backtick_run += 1
+            longest_backtick_run = max(longest_backtick_run, current_backtick_run)
+        else:
+            current_backtick_run = 0
+    delimiter = "`" * (longest_backtick_run + 1)
+    escaped = value.replace("|", r"\|")
+    padding = " " if value.startswith("`") or value.endswith("`") else ""
+    return f"{delimiter}{padding}{escaped}{padding}{delimiter}"
 
 
 def _git_revision(root: Path) -> str:
@@ -215,10 +236,9 @@ def render_report(
         "",
         f"Comparison against baseline **{settings.baseline_label}**:",
         "",
-        (
-            "Negative change means the current point estimate is lower. The CI relation describes only overlap between Criterion's marginal intervals; "
-            "it is not a paired significance test."
-        ),
+        "Positive time reduction means the current duration is lower (faster); negative means it is higher (slower).",
+        "The relative-performance column states how many times the current version is faster or slower.",
+        "Shown confidence intervals are Criterion's marginal intervals; they are not a paired significance test.",
     ]
     if settings.measurement_context:
         lines.extend(["", "## Measurement Context", ""])
@@ -228,26 +248,26 @@ def render_report(
             "",
             "## Results",
             "",
-            "| Benchmark | Baseline | Current | Change | Baseline/current | CI relation |",
-            "|:----------|---------:|--------:|-------:|-----------------:|:------------|",
+            "| Benchmark | Baseline | Current | Time reduction | Current vs baseline |",
+            "|:----------|---------:|--------:|---------------:|--------------------:|",
         ]
     )
     for comparison in comparison_set.comparisons:
         lines.append(
-            f"| `{comparison.benchmark}` | {_format_estimate(comparison.baseline)} | {_format_estimate(comparison.current)} | "
-            f"{comparison.percent_change:+.2f}% | {comparison.speedup:.2f}x | {_interval_relation(comparison)} |"
+            f"| {_markdown_code_span(comparison.benchmark)} | {_format_estimate(comparison.baseline)} | {_format_estimate(comparison.current)} | "
+            f"{comparison.percent_reduction:+.2f}% | {_format_relative_performance(comparison)} |"
         )
 
     if comparison_set.missing_baseline or comparison_set.missing_current:
         lines.extend(["", "## Coverage Notes", ""])
         if comparison_set.missing_baseline:
             lines.append("Current-only rows without a saved baseline:")
-            lines.extend(f"- `{name}`" for name in comparison_set.missing_baseline)
+            lines.extend(f"- {_markdown_code_span(name)}" for name in comparison_set.missing_baseline)
         if comparison_set.missing_current:
             if comparison_set.missing_baseline:
                 lines.append("")
             lines.append("Baseline-only rows without a current sample:")
-            lines.extend(f"- `{name}`" for name in comparison_set.missing_current)
+            lines.extend(f"- {_markdown_code_span(name)}" for name in comparison_set.missing_current)
 
     lines.extend(
         [
@@ -258,13 +278,13 @@ def render_report(
             "just performance-local",
             "just performance-github-assets",
             "just performance-release",
+            "just performance-rerender",
             "just performance-release <current-tag> <baseline-tag>",
             "```",
             "",
-            (
-                "Local reports live under `target/bench-reports/`. The curated release report is `docs/PERFORMANCE.md`; older curated reports are indexed "
-                "under `docs/archive/performance/`."
-            ),
+            "Generated Markdown, CSV measurements, and JSON provenance live under `target/bench-reports/`.",
+            "The curated release report is `docs/PERFORMANCE.md`.",
+            "Older curated reports are indexed under `docs/archive/performance/`.",
             "",
             "See `docs/BENCHMARKING.md` for command semantics and reproducibility limits.",
             "",

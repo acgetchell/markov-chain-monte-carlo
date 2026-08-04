@@ -35,16 +35,16 @@ Resumable chunked runs shipped as `Sampler::run_chunk`, `run_mut_chunk`, and `ru
 measurements in their own buffers and accumulate across chunks today. Revisit the combined shape once `causal-triangulations` integrates against v0.4.0 and
 shows whether the callback-plus-continuation composition is sufficient in practice.
 
-## Planned Milestones
-
 ### v0.4.1 Invariant and Tooling Hardening
 
-Before starting the adaptive diagnostics feature train, clean up validation boundaries and Python tooling while the v0.4 sampler integration API is still fresh.
-API breaks are acceptable when they make invalid states unrepresentable or preserve validation evidence more directly.
+The v0.4.1 milestone hardened validation boundaries, Python tooling, and release evidence while the v0.4 sampler integration API was still fresh. API breaks
+were accepted where they made invalid states unrepresentable or preserved validation evidence more directly.
 
-- [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
-- [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
+- [x] [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
+- [x] [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
 - [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
+
+## Planned Milestones
 
 ### v0.5.0 Adaptive Diagnostics
 
