@@ -490,6 +490,32 @@ def test_source_digest_changes_with_measured_rust_inputs(tmp_path: Path) -> None
     assert archive_performance._source_digest(tmp_path) != original
 
 
+def test_source_digest_rejects_source_removed_after_enumeration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    files = {
+        "Cargo.toml": "[package]\nname = 'fixture'\n",
+        "Cargo.lock": "version = 4\n",
+        "rust-toolchain.toml": "[toolchain]\nchannel = 'stable'\n",
+        "benches/stepping.rs": "fn benchmark() {}\n",
+        "src/lib.rs": "pub fn sample() {}\n",
+    }
+    for relative, content in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    original_rglob = Path.rglob
+
+    def remove_sources_after_enumeration(path: Path, pattern: str) -> Iterator[Path]:
+        sources = list(original_rglob(path, pattern))
+        for source in sources:
+            source.unlink()
+        return iter(sources)
+
+    monkeypatch.setattr(Path, "rglob", remove_sources_after_enumeration)
+
+    with pytest.raises(FileNotFoundError, match=r"cannot hash benchmark inputs; missing .*src/lib\.rs"):
+        archive_performance._source_digest(tmp_path)
+
+
 def test_promote_report_archives_the_previous_pair_and_updates_index(tmp_path: Path) -> None:
     current = tmp_path / "docs" / "PERFORMANCE.md"
     archive_dir = tmp_path / "docs" / "archive" / "performance"

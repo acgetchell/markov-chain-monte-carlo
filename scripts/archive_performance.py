@@ -937,7 +937,7 @@ def _source_digest(checkout: Path) -> str:
         checkout / "benches" / "stepping.rs",
     ]
     paths = [*required_paths, *rust_sources]
-    missing = [path for path in required_paths if not path.is_file()]
+    missing = [path for path in paths if not path.is_file()]
     if not rust_sources:
         missing.append(checkout / "src" / "*.rs")
     if missing:
