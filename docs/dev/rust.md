@@ -42,6 +42,7 @@ just examples         # Run all examples
 - `just toml-lint` - TOML validation through Taplo
 - `just markdown-check` - Markdown formatting check through rumdl
 - `just spell-check` - Spellcheck through `typos`
+- `just release-check` - synchronized release metadata and active current-version reference validation
 - `just semgrep` - Repository-owned Rust and Python policy rules
 - `just semgrep-test` - Tests for the repository-owned Semgrep rules
 
@@ -53,8 +54,9 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-docs` - Markdown formatting and spellcheck
 
 `just ci` is the comprehensive local and GitHub Actions entrypoint. Its dependency list is a flat union of focused validators: GitHub Actions, Markdown,
-spelling, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and core Clippy, documentation, broad Rust runnable tests, doctests,
-benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or `test-all` bundles.
+spelling, release metadata, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and core Clippy, documentation, broad Rust runnable
+tests, doctests, benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or `test-all`
+bundles.
 
 Runnable library unit and integration tests across all public features share one release-profile nextest invocation through `just test-rust-ci`:
 
@@ -146,7 +148,9 @@ intentional in-place cleanup before committing.
 
 ## Benchmarks
 
-Benchmarks use Criterion with fixed seeds and reset each timed workload to the same starting state. Run all benchmarks with:
+Benchmarks use Criterion with fixed seeds and workload-specific fixture lifecycles. Chain-step, 100-step sampler, and buffered-observation workloads create
+their state and RNG once outside `b.iter` and measure steady-state execution as those values advance. The manual accumulator, `OnlineStats`, and
+`BinningAnalysis` comparisons use `iter_batched` to provide a fresh chain and RNG outside each timed batch. Run all benchmarks with:
 
 ```bash
 just bench

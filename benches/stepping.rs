@@ -15,6 +15,9 @@ use rand::{Rng, RngExt, SeedableRng};
 const SEED: u64 = 42;
 const BULK_STEPS: usize = 100;
 const SPIN_COUNT: usize = 256;
+// A single boundary-spin flip has log acceptance ratio -2 * beta. This value
+// is below every representable `ln(Open01)` draw, making rollback deterministic.
+const REJECTION_BETA: f64 = 512.0;
 
 #[derive(Clone, Copy)]
 struct Scalar(f64);
@@ -210,7 +213,9 @@ fn bench_chain_steps(c: &mut Criterion) {
     let target = Normal;
     let flat = FlatTarget;
     let proposal = RandomWalk { width: 1.0 };
-    let spin_target = Alignment { beta: 8.0 };
+    let spin_target = Alignment {
+        beta: REJECTION_BETA,
+    };
 
     {
         let mut chain = spin_chain(&Alignment { beta: 0.0 });
@@ -235,59 +240,48 @@ fn bench_chain_steps(c: &mut Criterion) {
         assert!(chain.state().spins.iter().all(|&spin| spin == 1));
     }
 
+    // These names retain their v0.4.0 steady-state lifecycle contracts. Keep
+    // fixture construction outside `b.iter`, or rename a changed workload.
     c.bench_function("chain/step_by_value", |b| {
-        b.iter_batched(
-            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
-            |(mut chain, mut rng)| {
-                chain
-                    .step(&target, &proposal, &mut rng)
-                    .or_abort("chain step by value");
-                black_box(chain.state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = scalar_chain(&target);
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            chain
+                .step(&target, &proposal, &mut rng)
+                .or_abort("chain step by value");
+            black_box(chain.state().0);
+        });
     });
 
     c.bench_function("chain/step_mut_accept", |b| {
-        b.iter_batched(
-            || {
-                (
-                    spin_chain(&Alignment { beta: 0.0 }),
-                    SpinFlip,
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(mut chain, mut spin_proposal, mut rng)| {
-                let _ = black_box(
-                    chain
-                        .step_mut(&flat, &mut spin_proposal, &mut rng)
-                        .or_abort("in-place chain step on flat target"),
-                );
-                black_box(chain.state().spins[0]);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = spin_chain(&Alignment { beta: 0.0 });
+        let mut spin_proposal = SpinFlip;
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            let _ = black_box(
+                chain
+                    .step_mut(&flat, &mut spin_proposal, &mut rng)
+                    .or_abort("in-place chain step on flat target"),
+            );
+            black_box(chain.state().spins[0]);
+        });
     });
 
     c.bench_function("chain/step_mut_reject_rollback", |b| {
-        b.iter_batched(
-            || {
-                (
-                    spin_chain(&spin_target),
-                    SpinFlip,
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(mut chain, mut spin_proposal, mut rng)| {
-                let _ = black_box(
-                    chain
-                        .step_mut(&spin_target, &mut spin_proposal, &mut rng)
-                        .or_abort("in-place chain step with rollback"),
-                );
-                black_box(chain.state().spins[0]);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = spin_chain(&spin_target);
+        let mut spin_proposal = SpinFlip;
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            let _ = black_box(
+                chain
+                    .step_mut(&spin_target, &mut spin_proposal, &mut rng)
+                    .or_abort("in-place chain step with rollback"),
+            );
+            black_box(chain.state().spins[0]);
+        });
     });
 }
 
@@ -329,64 +323,47 @@ fn bench_delayed_steps(c: &mut Criterion) {
         assert_eq!(outcome, StepOutcome::NoProposal);
     }
 
+    // These names retain their v0.4.0 steady-state lifecycle contracts.
     c.bench_function("chain/step_delayed_accept_commit", |b| {
-        b.iter_batched(
-            || {
-                (
-                    scalar_chain(&flat),
-                    DelayedWalk { delta: 1.0 },
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(mut chain, mut proposal, mut rng)| {
-                let step = chain
-                    .step_delayed(&flat, &mut proposal, &mut rng)
-                    .or_abort("delayed accepted chain step");
-                let _ = black_box(step.outcome());
-                black_box(chain.state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = scalar_chain(&flat);
+        let mut proposal = DelayedWalk { delta: 1.0 };
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            let step = chain
+                .step_delayed(&flat, &mut proposal, &mut rng)
+                .or_abort("delayed accepted chain step");
+            let _ = black_box(step.outcome());
+            black_box(chain.state().0);
+        });
     });
 
     c.bench_function("chain/step_delayed_reject_plan", |b| {
-        b.iter_batched(
-            || {
-                (
-                    scalar_chain(&normal),
-                    DelayedWalk { delta: 100.0 },
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(mut chain, mut proposal, mut rng)| {
-                let step = chain
-                    .step_delayed(&normal, &mut proposal, &mut rng)
-                    .or_abort("delayed rejected chain step");
-                let _ = black_box(step.outcome());
-                black_box(chain.state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = scalar_chain(&normal);
+        let mut proposal = DelayedWalk { delta: 100.0 };
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            let step = chain
+                .step_delayed(&normal, &mut proposal, &mut rng)
+                .or_abort("delayed rejected chain step");
+            let _ = black_box(step.outcome());
+            black_box(chain.state().0);
+        });
     });
 
     c.bench_function("chain/step_delayed_no_plan", |b| {
-        b.iter_batched(
-            || {
-                (
-                    scalar_chain(&normal),
-                    NoDelayedPlan,
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(mut chain, mut proposal, mut rng)| {
-                let step = chain
-                    .step_delayed(&normal, &mut proposal, &mut rng)
-                    .or_abort("delayed no-plan chain step");
-                let _ = black_box(step.outcome());
-                black_box(chain.rejected());
-            },
-            BatchSize::SmallInput,
-        );
+        let mut chain = scalar_chain(&normal);
+        let mut proposal = NoDelayedPlan;
+        let mut rng = StdRng::seed_from_u64(SEED);
+
+        b.iter(|| {
+            let step = chain
+                .step_delayed(&normal, &mut proposal, &mut rng)
+                .or_abort("delayed no-plan chain step");
+            let _ = black_box(step.outcome());
+            black_box(chain.rejected());
+        });
     });
 }
 
@@ -396,60 +373,51 @@ fn bench_sampler_runs(c: &mut Criterion) {
     let proposal = RandomWalk { width: 1.0 };
     let flat = FlatTarget;
 
+    // Sampler construction is setup; each timed iteration advances the same
+    // sampler by 100 steps, matching the v0.4.0 throughput contract.
     c.bench_function("sampler/run_by_value_100", |b| {
-        b.iter_batched(
-            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)
-                    .or_abort("sampler by-value setup");
-                sampler
-                    .run(black_box(BULK_STEPS))
-                    .or_abort("sampler by-value bulk run");
-                black_box(sampler.chain_ref().state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng)
+            .or_abort("sampler by-value setup");
+
+        b.iter(|| {
+            sampler
+                .run(black_box(BULK_STEPS))
+                .or_abort("sampler by-value bulk run");
+            black_box(sampler.chain_ref().state().0);
+        });
     });
 
     c.bench_function("sampler/run_mut_100", |b| {
-        b.iter_batched(
-            || {
-                (
-                    spin_chain(&Alignment { beta: 0.0 }),
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, SpinFlip, &mut rng)
-                    .or_abort("sampler in-place setup");
-                sampler
-                    .run_mut(black_box(BULK_STEPS))
-                    .or_abort("sampler in-place bulk run");
-                black_box(sampler.chain_ref().state().spins[0]);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(
+            spin_chain(&Alignment { beta: 0.0 }),
+            &flat,
+            SpinFlip,
+            &mut rng,
+        )
+        .or_abort("sampler in-place setup");
+
+        b.iter(|| {
+            sampler
+                .run_mut(black_box(BULK_STEPS))
+                .or_abort("sampler in-place bulk run");
+            black_box(sampler.chain_ref().state().spins[0]);
+        });
     });
 
     c.bench_function("sampler/run_delayed_100", |b| {
-        b.iter_batched(
-            || {
-                (
-                    scalar_chain(&flat),
-                    DelayedWalk { delta: 1.0 },
-                    StdRng::seed_from_u64(SEED),
-                )
-            },
-            |(chain, mut delayed, mut rng)| {
-                let mut sampler = Sampler::new(chain, &flat, &mut delayed, &mut rng)
-                    .or_abort("sampler delayed setup");
-                sampler
-                    .run_delayed(black_box(BULK_STEPS))
-                    .or_abort("sampler delayed bulk run");
-                black_box(sampler.chain_ref().state().0);
-            },
-            BatchSize::SmallInput,
-        );
+        let mut delayed = DelayedWalk { delta: 1.0 };
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(scalar_chain(&flat), &flat, &mut delayed, &mut rng)
+            .or_abort("sampler delayed setup");
+
+        b.iter(|| {
+            sampler
+                .run_delayed(black_box(BULK_STEPS))
+                .or_abort("sampler delayed bulk run");
+            black_box(sampler.chain_ref().state().0);
+        });
     });
 }
 
@@ -458,22 +426,24 @@ fn bench_observing(c: &mut Criterion) {
     let target = Normal;
     let proposal = RandomWalk { width: 1.0 };
 
+    // The buffered workflow retains its steady-state sampler contract. The
+    // returned Vec allocation, use, and destruction are part of the workload.
     c.bench_function("observing/run_observing_buffer_100", |b| {
-        b.iter_batched(
-            || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),
-            |(chain, mut rng)| {
-                let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)
-                    .or_abort("observing buffer sampler setup");
-                let mut square = |state: &Scalar| state.0 * state.0;
-                let observations = sampler
-                    .run_observing(black_box(BULK_STEPS), &mut square)
-                    .or_abort("observing buffer run");
-                black_box(observations.as_slice());
-            },
-            BatchSize::SmallInput,
-        );
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut sampler = Sampler::new(scalar_chain(&target), &target, &proposal, &mut rng)
+            .or_abort("observing buffer sampler setup");
+        let mut square = |state: &Scalar| state.0 * state.0;
+
+        b.iter(|| {
+            let observations = sampler
+                .run_observing(black_box(BULK_STEPS), &mut square)
+                .or_abort("observing buffer run");
+            black_box(observations.as_slice());
+        });
     });
 
+    // These three legacy comparison workloads use fresh fixed-seed batches.
+    // Criterion excludes tuple creation but includes each 100-step workflow.
     c.bench_function("observing/manual_online_sum_100", |b| {
         b.iter_batched(
             || (scalar_chain(&target), StdRng::seed_from_u64(SEED)),

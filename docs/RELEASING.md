@@ -80,11 +80,16 @@ Pass the tag form, including the leading `v`, so compare links point at the even
 For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch
 release unless they are small and explicitly intended for that patch.
 
-Review version references:
+Validate the generated release section, synchronized package and citation metadata, lockfiles, and active current-version references:
 
 ```bash
-git grep -nE '\bv?[0-9]+\.[0-9]+\.[0-9]+\b' -- README.md docs/ Cargo.toml Cargo.lock CITATION.cff pyproject.toml uv.lock CHANGELOG.md
+just release-check
 ```
+
+The checker treats `Cargo.toml` as the source of truth. It checks the root package in `Cargo.lock`, the Python tooling package in `pyproject.toml` and
+`uv.lock`, `CITATION.cff`, the latest generated `CHANGELOG.md` release, versioned installation examples, release-pinned README links, and the current tag in
+explicit `performance-release` examples. Historical changelog entries, archived documentation, release-asset comparison pairs, and test fixtures remain
+independent of the current package version.
 
 ### 4. Update the release performance comparison
 
@@ -96,7 +101,22 @@ just performance-release
 
 Review `docs/PERFORMANCE.md` and any newly archived report under `docs/archive/performance/`. The default command reads the current tag from `Cargo.toml`. An
 unpublished current version measures the patched working tree against the latest stable release; an already-published current version measures that tag against
-the preceding stable release. Use `just performance-release <current-tag> <baseline-tag>` only for an explicit repair.
+the preceding stable release. Use `just performance-release <current-tag> <baseline-tag>` only for an explicit repair. The command must also leave
+`target/bench-reports/release-performance.csv` and `target/bench-reports/release-performance.provenance.json`; it reloads and validates these artifacts before
+promoting the Markdown report.
+
+Check the comparable-row coverage, host and toolchain, and benchmark-harness hash prefixes. If the harness hashes differ, verify every shared benchmark name
+against the lifecycle contract in [`docs/BENCHMARKING.md`](BENCHMARKING.md): state and RNG lifecycle, setup boundary, step count, target/proposal and outcome
+path, and output ownership must remain comparable. Rename a materially changed workload rather than publishing a false release-to-release comparison.
+
+Confirm that the saved measurements can reproduce the curated report without another benchmark run:
+
+```bash
+just performance-rerender
+```
+
+This rerender path reads only the CSV and JSON provenance. It does not resolve releases, create Git worktrees, or run Cargo. Keep both files with any external
+research record that cites this local comparison; the repository-owned durable measurements are the native Criterion archives attached after publication.
 
 For a same-host development comparison that does not modify committed docs, use `just performance-local`. To compare durable assets from two already-published
 releases without running Cargo locally, use `just performance-github-assets` or pass an explicit release pair. See

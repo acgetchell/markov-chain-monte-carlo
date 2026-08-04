@@ -99,6 +99,9 @@ just setup            # Install/verify external dev tools
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
+just release-check    # Validate synchronized release metadata and references
+just performance-release  # Persist, validate, and promote release benchmark evidence
+just performance-rerender # Rebuild the curated report from saved release evidence
 ```
 
 For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).

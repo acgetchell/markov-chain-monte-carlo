@@ -364,13 +364,15 @@ Benchmarks live in [`benches/`](benches/) and use [Criterion](https://docs.rs/cr
 just bench-latest           # run the fixed-seed release-signal set
 just bench-latest-vs-last   # rerun and compare with the saved local baseline
 just performance-local      # compare the current tree with the latest stable release
+just performance-rerender   # rebuild the curated report from saved release measurements
 just bench                  # run all benchmarks for broader profiling
 just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to update the curated report and
-`just performance-github-assets` for comparisons that consume durable release artifacts without local measurements. See
+Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to save validated CSV/JSON evidence
+and update the curated report, `just performance-rerender` to reproduce that report without remeasuring, and `just performance-github-assets` for comparisons
+that consume durable release artifacts without local measurements. See
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
 Performance guidelines:
@@ -441,7 +443,7 @@ descriptions or review notes instead.
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
 - [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`, `toml-fmt-check`,
-      `toml-lint`, `markdown-check`, `spell-check`, `semgrep`, `semgrep-test`)
+      `toml-lint`, `markdown-check`, `spell-check`, `release-check`, `semgrep`, `semgrep-test`)
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions
@@ -477,14 +479,19 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 
 1. Update version metadata in `Cargo.toml`, `CITATION.cff`, and `pyproject.toml`; refresh `Cargo.lock` and `uv.lock`.
 2. Regenerate `CHANGELOG.md` for the new tag: `just changelog-unreleased v0.X.Y`.
-3. **Run `just check`** to confirm the local validation gate passes.
-4. Commit and push the version bumps.
-5. Tag the release: `just tag v0.X.Y`.
-6. Publish to crates.io.
+3. Run `just release-check` to confirm the release metadata and active current-version references agree.
+4. Run `just performance-release`, review the curated report, and confirm it reproduces with `just performance-rerender`.
+5. Run `just fix`, `just ci`, and `just publish-check` for the final local release validation.
+6. Commit and push the release PR.
+7. After merge, tag the release with `just tag v0.X.Y` and create the GitHub Release.
+8. Publish to crates.io.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
-This project follows [Semantic Versioning](https://semver.org/):
+Breaking API changes and MSRV bumps are allowed in any release up to and including v1.0.0, including patch releases. The release number during this
+pre-stability period reflects project scope rather than compatibility impact alone; breaking changes still use `feat!` or a `BREAKING CHANGE:` trailer.
+
+After v1.0.0, this project follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR**: breaking API changes (also flagged by `feat!`/`BREAKING CHANGE:` in commit messages)
 - **MINOR**: new features (backwards compatible)

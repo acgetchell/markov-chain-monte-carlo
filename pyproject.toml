@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markov-chain-monte-carlo-tooling"
-version = "0.4.0"
+version = "0.4.1"
 description = "Python utility scripts for the markov-chain-monte-carlo Rust library"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -26,11 +26,12 @@ archive-performance = "archive_performance:main"
 bench-compare = "bench_compare:main"
 check-notebooks = "check_notebooks:main"
 postprocess-changelog = "postprocess_changelog:main"
+release-check = "release_check:main"
 tag-release = "tag_release:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "subprocess_utils", "tag_release" ]
+py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "release_check", "subprocess_utils", "tag_release" ]
 
 [dependency-groups]
 dev = [
@@ -92,6 +93,7 @@ known-first-party = [
     "bench_compare",
     "check_notebooks",
     "postprocess_changelog",
+    "release_check",
     "subprocess_utils",
     "tag_release",
 ]

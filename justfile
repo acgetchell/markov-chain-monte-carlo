@@ -12,7 +12,7 @@ dprint_version := "0.55.2"
 git_cliff_version := "2.13.1"
 just_version := "1.58.0"
 python_version := "3.14"
-rumdl_version := "0.2.49"
+rumdl_version := "0.2.50"
 sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
 typos_version := "1.49.0"
@@ -243,7 +243,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check semgrep semgrep-test
+check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep semgrep-test
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -255,7 +255,7 @@ check-rust: fmt-check clippy
 # rustdoc doctests remain separate because nextest does not execute them.
 # Run the flat union of GitHub-equivalent validators and tests.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
+ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -366,6 +366,7 @@ help-workflows:
     @echo "  just setup          # Install/verify external dev tools"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
     @echo "  just changelog-unreleased <ver>  # Regenerate CHANGELOG.md for a release tag"
+    @echo "  just release-check  # Validate synchronized release metadata and references"
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo ""
     @echo "Quality groups:"
@@ -394,6 +395,7 @@ help-workflows:
     @echo "  just performance-local # Compare the current tree with the latest stable release"
     @echo "  just performance-github-assets # Compare durable GitHub Release assets"
     @echo "  just performance-release # Promote/archive the release-to-release report"
+    @echo "  just performance-rerender # Rebuild the curated report from saved measurements"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
     @echo "  just example <name> # Run one example, e.g. just example ising_1d"
@@ -525,15 +527,15 @@ performance-github-assets current_tag="" baseline_tag="": python-sync
             echo "current_tag and baseline_tag must be provided together" >&2
             exit 2
         fi
-        uv run --locked archive-performance "$current_tag" "$baseline_tag" --github-assets --output target/bench-reports/github-assets-performance.md
+        uv run --locked archive-performance "$current_tag" "$baseline_tag" --github-assets --measurements-output target/bench-reports/github-assets-performance.csv --output target/bench-reports/github-assets-performance.md
     else
-        uv run --locked archive-performance --published-latest --github-assets --output target/bench-reports/github-assets-performance.md
+        uv run --locked archive-performance --published-latest --github-assets --measurements-output target/bench-reports/github-assets-performance.csv --output target/bench-reports/github-assets-performance.md
     fi
 
 # Compare the current tree with the latest stable published release locally.
 [group('benchmarks and performance')]
 performance-local: python-sync
-    uv run --locked archive-performance --current-vs-latest --output target/bench-reports/performance.md
+    uv run --locked archive-performance --current-vs-latest --measurements-output target/bench-reports/performance.csv --output target/bench-reports/performance.md
 
 # Generate a release-to-release report, promote it, and archive the previous report.
 [group('benchmarks and performance')]
@@ -547,10 +549,15 @@ performance-release current_tag="" baseline_tag="": python-sync
             echo "current_tag and baseline_tag must be provided together" >&2
             exit 2
         fi
-        uv run --locked archive-performance "$current_tag" "$baseline_tag" --promote
+        uv run --locked archive-performance "$current_tag" "$baseline_tag" --measurements-output target/bench-reports/release-performance.csv --promote
     else
-        uv run --locked archive-performance --infer-release --promote
+        uv run --locked archive-performance --infer-release --measurements-output target/bench-reports/release-performance.csv --promote
     fi
+
+# Rebuild and promote the curated report from saved, validated release measurements.
+[group('benchmarks and performance')]
+performance-rerender: python-sync
+    uv run --locked archive-performance --rerender target/bench-reports/release-performance.csv --promote
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
@@ -640,6 +647,11 @@ python-sync: _ensure-uv
 [group('validation')]
 python-typecheck: python-sync
     uv run --locked ty check scripts/
+
+# Validate synchronized release metadata and active version references.
+[group('release')]
+release-check: python-sync
+    uv run --locked release-check
 
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
