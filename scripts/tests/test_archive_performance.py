@@ -512,8 +512,9 @@ def test_source_digest_rejects_source_removed_after_enumeration(tmp_path: Path, 
 
     monkeypatch.setattr(Path, "rglob", remove_sources_after_enumeration)
 
-    with pytest.raises(FileNotFoundError, match=r"cannot hash benchmark inputs; missing .*src/lib\.rs"):
+    with pytest.raises(FileNotFoundError, match="cannot hash benchmark inputs; missing") as error:
         archive_performance._source_digest(tmp_path)
+    assert str(tmp_path / "src" / "lib.rs") in str(error.value)
 
 
 def test_promote_report_archives_the_previous_pair_and_updates_index(tmp_path: Path) -> None:

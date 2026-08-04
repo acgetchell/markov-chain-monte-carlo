@@ -295,7 +295,7 @@ def _iter_markdown_files(root: Path) -> list[Path]:
         relative_dir = Path(dirpath).relative_to(root)
         dirnames[:] = [dirname for dirname in dirnames if not (set((relative_dir / dirname).parts) & SKIP_DIRS)]
         markdown_files.extend(Path(dirpath) / filename for filename in filenames if filename.endswith(".md") and filename not in SKIP_MARKDOWN_FILES)
-    return sorted(markdown_files)
+    return sorted(markdown_files, key=lambda path: path.relative_to(root).as_posix())
 
 
 def _dependency_regex(package_name: str) -> re.Pattern[str]:

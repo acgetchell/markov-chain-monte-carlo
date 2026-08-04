@@ -207,6 +207,11 @@ just help-workflows  # Detailed workflow guidance
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
+### Python Tooling Style
+
+- Keep Python helpers and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
+  `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
+
 ### Linting Configuration
 
 `just clippy` checks the core library surface used by the default gates:

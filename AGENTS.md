@@ -88,6 +88,11 @@ changing numerical semantics, or changing acceptance/error behavior.
   private helper cannot be exercised through a public or crate-visible path.
 - Rust/tooling details live in [`docs/dev/rust.md`](docs/dev/rust.md).
 
+### Python Tooling
+
+- Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
+  `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
+
 ## Common Commands
 
 ```bash

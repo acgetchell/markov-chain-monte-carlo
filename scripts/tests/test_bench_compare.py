@@ -102,12 +102,20 @@ def test_format_relative_performance_bounds_precision_for_near_unity_factor() ->
     assert bench_compare._format_relative_performance(comparison) == "1.0000000000000002x faster"
 
 
-def test_render_report_escapes_markdown_delimiters_in_benchmark_names(tmp_path: Path) -> None:
-    criterion = tmp_path / "criterion"
-    _write_estimate(criterion, "group/row|`tick", "v0.4.0", 100.0)
-    _write_estimate(criterion, "group/row|`tick", "new", 90.0)
-    _write_estimate(criterion, "group/current|only", "new", 80.0)
-    comparison_set = bench_compare.collect_comparisons(criterion, "v0.4.0")
+def test_render_report_escapes_markdown_delimiters_in_benchmark_names() -> None:
+    comparison_set = bench_compare.ComparisonSet(
+        comparisons=(
+            bench_compare.Comparison(
+                "group/row|`tick",
+                bench_compare.Estimate(100.0, None, None),
+                bench_compare.Estimate(90.0, None, None),
+            ),
+        ),
+        missing_baseline=("group/current|only",),
+        missing_current=(),
+        current_sample=(),
+        baseline_sample=(),
+    )
 
     report = bench_compare.render_report(
         comparison_set,
