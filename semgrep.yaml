@@ -433,7 +433,7 @@ rules:
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|swatinem/rust-cache|taiki-e/cache-cargo-install-action|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@'
+      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/download-artifact|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|swatinem/rust-cache|taiki-e/cache-cargo-install-action|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@'
 
   - id: mcmc.github-actions.external-action-version-comment
     languages:

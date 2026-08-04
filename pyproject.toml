@@ -22,13 +22,15 @@ dependencies = [  ]
 "Bug Tracker" = "https://github.com/acgetchell/markov-chain-monte-carlo/issues"
 
 [project.scripts]
+archive-performance = "archive_performance:main"
+bench-compare = "bench_compare:main"
 check-notebooks = "check_notebooks:main"
 postprocess-changelog = "postprocess_changelog:main"
 tag-release = "tag_release:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "check_notebooks", "postprocess_changelog", "subprocess_utils", "tag_release" ]
+py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "subprocess_utils", "tag_release" ]
 
 [dependency-groups]
 dev = [
@@ -86,6 +88,8 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "archive_performance",
+    "bench_compare",
     "check_notebooks",
     "postprocess_changelog",
     "subprocess_utils",

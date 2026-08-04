@@ -146,10 +146,18 @@ intentional in-place cleanup before committing.
 
 ## Benchmarks
 
-Benchmarks use Criterion and are intentionally deterministic. Run all benchmarks with:
+Benchmarks use Criterion with fixed seeds and reset each timed workload to the same starting state. Run all benchmarks with:
 
 ```bash
 just bench
+```
+
+For the release-signal, saved-baseline, isolated-worktree, GitHub Release asset, and curated-report workflows, see
+[`docs/BENCHMARKING.md`](../BENCHMARKING.md). The shortest local regression loop is:
+
+```bash
+just bench-save-last
+just bench-latest-vs-last
 ```
 
 The full CI simulation (`just ci`) compiles benchmark harnesses with `just bench-compile`, but it does not run Criterion measurements. Benchmark harness
@@ -162,6 +170,9 @@ The initial `benches/stepping.rs` suite protects core transition costs:
 - delayed `Chain::step_delayed` accepted, rejected, and no-plan paths
 - bulk `Sampler` run loops
 - observing with `SampleBuffer` versus manual online accumulation
+
+The observing group also covers `OnlineStats` and `BinningAnalysis`. Release reports compare only benchmark names present in both revisions and identify
+unmatched rows explicitly.
 
 ## Coverage
 

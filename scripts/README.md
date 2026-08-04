@@ -2,6 +2,23 @@
 
 Python utilities used by local repository workflows.
 
+## Benchmark Reports
+
+```bash
+just bench-compare [baseline]
+just performance-local
+just performance-github-assets [current-tag baseline-tag]
+just performance-release [current-tag baseline-tag]
+```
+
+`bench-compare` discovers Criterion samples below `target/criterion`, compares `new` with a saved baseline, and writes Markdown under
+`target/bench-reports/`. For current-working-tree comparisons, `archive-performance` resolves the latest stable release and measures both revisions in isolated
+worktrees. GitHub Release comparisons resolve two published tags and consume their durable assets without local measurements. Release-promotion runs infer or
+accept a release pair, measure it in isolated worktrees, and safely promote one curated report into `docs/PERFORMANCE.md` while preserving prior pairs under
+`docs/archive/performance/`.
+
+The benchmark command contracts and interpretation limits live in [`docs/BENCHMARKING.md`](../docs/BENCHMARKING.md).
+
 ## Notebooks
 
 ```bash

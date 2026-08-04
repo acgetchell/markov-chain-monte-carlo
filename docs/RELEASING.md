@@ -86,7 +86,23 @@ Review version references:
 git grep -nE '\bv?[0-9]+\.[0-9]+\.[0-9]+\b' -- README.md docs/ Cargo.toml Cargo.lock CITATION.cff pyproject.toml uv.lock CHANGELOG.md
 ```
 
-### 4. Validate locally
+### 4. Update the release performance comparison
+
+After finalizing the package version, generate the curated release-to-release report:
+
+```bash
+just performance-release
+```
+
+Review `docs/PERFORMANCE.md` and any newly archived report under `docs/archive/performance/`. The default command reads the current tag from `Cargo.toml`. An
+unpublished current version measures the patched working tree against the latest stable release; an already-published current version measures that tag against
+the preceding stable release. Use `just performance-release <current-tag> <baseline-tag>` only for an explicit repair.
+
+For a same-host development comparison that does not modify committed docs, use `just performance-local`. To compare durable assets from two already-published
+releases without running Cargo locally, use `just performance-github-assets` or pass an explicit release pair. See
+[`docs/BENCHMARKING.md`](BENCHMARKING.md) for the full command contracts and measurement limits.
+
+### 5. Validate locally
 
 Run the normal release validation gates:
 
@@ -100,7 +116,7 @@ just publish-check
 output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs
 `cargo publish --locked --allow-dirty --dry-run`.
 
-### 5. Commit, push, and open the PR
+### 6. Commit, push, and open the PR
 
 Review the diff carefully:
 
@@ -136,6 +152,12 @@ Create the GitHub release:
 ```bash
 gh release create "$TAG" --title "$TAG" --notes-from-tag
 ```
+
+The `Release Benchmarks` workflow then saves the `stepping` Criterion suite and attaches
+`markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz` to the GitHub Release. Verify the release attachment exists; the workflow's 30-day Actions artifact is
+diagnostic only and is not the durable baseline. Historical releases are not backfilled; `performance-github-assets` requires two releases published through
+this workflow. During the prospective rollout, the first post-rollout release establishes the initial asset. After the second, run
+`just performance-github-assets` and verify the resulting pair before treating the release-benchmark adoption as complete.
 
 Publish to crates.io:
 

@@ -1,0 +1,164 @@
+name: Release Benchmarks
+
+# Publish durable Criterion baselines for every GitHub Release. Release jobs do
+# not restore or save dependency caches because the resulting archive is a
+# long-lived comparison input rather than a development-speed optimization.
+
+permissions:
+  contents: read
+
+on:
+  release:
+    types:
+      - published
+
+concurrency:
+  group: release-benchmarks-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      release-asset: ${{ steps.package-baseline.outputs.asset }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+
+      - name: Set up just
+        uses: ./.github/actions/setup-just
+
+      - name: Export Python version
+        id: python_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_version="$(just --evaluate python_version)"
+          if [[ -z "$python_version" ]]; then
+            echo "::error::Resolved empty python_version from justfile" >&2
+            exit 1
+          fi
+          echo "value=$python_version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.python_version.outputs.value }}
+
+      - name: Save release Criterion baseline
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: just bench-save-baseline "$RELEASE_TAG"
+
+      - name: Record release benchmark metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
+          criterion_versions = [
+              package["version"]
+              for package in lock["package"]
+              if package.get("name") == "criterion"
+          ]
+          if len(criterion_versions) != 1:
+              raise SystemExit("expected exactly one Criterion package in Cargo.lock")
+
+          metadata = {
+              "schema": 1,
+              "tag": os.environ["RELEASE_TAG"],
+              "commit": subprocess.run(
+                  ["git", "--no-pager", "rev-parse", "HEAD"],
+                  check=True,
+                  capture_output=True,
+                  encoding="utf-8",
+              ).stdout.strip(),
+              "operating_system": platform.platform(),
+              "architecture": platform.machine(),
+              "rustc": subprocess.run(
+                  ["rustc", "--version"],
+                  check=True,
+                  capture_output=True,
+                  encoding="utf-8",
+              ).stdout.strip(),
+              "criterion_version": criterion_versions[0],
+          }
+          Path("target/criterion/.mcmc-release-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Package release Criterion baseline
+        id: package-baseline
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          asset="markov-chain-monte-carlo-${RELEASE_TAG}-criterion-baseline.tar.gz"
+          tar -C target -czf "$asset" criterion
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload temporary baseline artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-baseline-${{ github.event.release.tag_name }}
+          path: ${{ steps.package-baseline.outputs.asset }}
+          retention-days: 30
+          if-no-files-found: error
+
+  publish-baseline:
+    needs: release-baseline
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download release baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bench-baseline-${{ github.event.release.tag_name }}
+
+      - name: Attach baseline to GitHub Release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ASSET: ${{ needs.release-baseline.outputs.release-asset }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" --clobber
+
+      - name: Release baseline summary
+        env:
+          RELEASE_ASSET: ${{ needs.release-baseline.outputs.release-asset }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "### Release Benchmark Baseline"
+            echo ""
+            echo "Uploaded release asset: \`$RELEASE_ASSET\`"
+          } >> "$GITHUB_STEP_SUMMARY"
