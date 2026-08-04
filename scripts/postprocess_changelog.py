@@ -13,7 +13,9 @@ Usage:
 """
 
 import argparse
+import stat
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,13 +28,30 @@ class PostprocessOptions:
 
 
 def postprocess(path: Path) -> None:
-    """Read *path*, apply hygiene fixes, and write it back."""
+    """Read *path*, apply hygiene fixes, and replace it atomically."""
     text = path.read_text(encoding="utf-8")
 
     # 1. Strip trailing blank lines — keep exactly one trailing newline.
     text = text.rstrip("\n") + "\n"
 
-    path.write_text(text, encoding="utf-8")
+    mode = stat.S_IMODE(path.stat().st_mode)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(text)
+        temporary.chmod(mode)
+        temporary.replace(path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
 
 
 def parse_args(argv: list[str] | None = None) -> PostprocessOptions:

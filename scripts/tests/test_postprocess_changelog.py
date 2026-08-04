@@ -1,6 +1,9 @@
 """Tests for postprocess_changelog.py — trailing blank line hygiene."""
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
+
+import pytest
 
 from postprocess_changelog import postprocess
 
@@ -59,3 +62,17 @@ class TestPostprocess:
         postprocess(f)
 
         assert f.read_text(encoding="utf-8") == "\n"
+
+    def test_preserves_original_if_atomic_replace_fails(self, tmp_path: Path) -> None:
+        f = tmp_path / "CHANGELOG.md"
+        original = "# Changelog\n\n- Existing entry\n\n"
+        f.write_text(original, encoding="utf-8")
+
+        with (
+            patch.object(type(f), "replace", side_effect=OSError("injected replace failure")),
+            pytest.raises(OSError, match="injected replace failure"),
+        ):
+            postprocess(f)
+
+        assert f.read_text(encoding="utf-8") == original
+        assert tuple(tmp_path.iterdir()) == (f,)

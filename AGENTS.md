@@ -49,6 +49,9 @@ Commit subjects and bodies feed `CHANGELOG.md` through `git-cliff`. Write them a
 
 #### Breaking Changes
 
+Breaking API changes are allowed in any release up to and including v1.0.0, including patch releases. Maintainers choose the pre-v1.0 release number based on
+project scope rather than the presence of a breaking-change marker alone. After v1.0.0, follow Semantic Versioning for incompatible public changes.
+
 Breaking changes must use one of these conventional commit markers so `git-cliff` can detect them:
 
 - Bang notation: `feat!: remove deprecated API`

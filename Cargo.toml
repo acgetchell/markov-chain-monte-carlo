@@ -11,6 +11,19 @@ documentation = "https://docs.rs/markov-chain-monte-carlo"
 license = "BSD-3-Clause"
 repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
 readme = "README.md"
+include = [
+    "/benches/**",
+    "/examples/**",
+    "/src/**",
+    "/tests/*.rs",
+    "/Cargo.lock",
+    "/Cargo.toml",
+    "/CHANGELOG.md",
+    "/CITATION.cff",
+    "/LICENSE",
+    "/README.md",
+    "/REFERENCES.md",
+]
 
 keywords = [ "mcmc", "markov-chain", "monte-carlo", "sampling", "metropolis-hastings" ]
 categories = [ "science", "mathematics", "algorithms" ]

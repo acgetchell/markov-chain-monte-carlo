@@ -17,7 +17,7 @@ just setup            # Install/verify external dev tools
 just test             # Focused unit + doc tests
 just test-unit        # Focused library unit tests
 just test-integration # Focused integration tests
-just test-rust-ci     # Release lib + integration tests in one nextest pass
+just test-rust-ci     # All-feature release lib + integration tests in one nextest pass
 just test-rust        # Broad Rust CI tests + doctests
 just test-all         # Broad Rust + Python tooling tests
 just notebook-check   # Notebook lint + fast headless execution
@@ -56,10 +56,10 @@ For cross-repo muscle memory, the same checks are also available through grouped
 spelling, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and core Clippy, documentation, broad Rust runnable tests, doctests,
 benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or `test-all` bundles.
 
-Runnable library unit and integration tests share one release-profile nextest invocation through `just test-rust-ci`:
+Runnable library unit and integration tests across all public features share one release-profile nextest invocation through `just test-rust-ci`:
 
 ```bash
-cargo nextest run --locked --release --profile ci --lib --tests --verbose
+cargo nextest run --locked --release --profile ci --all-features --lib --tests --verbose
 ```
 
 Doctests remain in `just test-doc` because nextest does not execute rustdoc examples. `just clippy` checks the core library;
@@ -118,11 +118,11 @@ remains on the narrower `rustfmt` `max_width = 100` setting because wide Rust si
 
 ## Testing
 
-- All default Rust and Python tests: `just test-all`
+- All Rust and Python tests: `just test-all`
 - Focused library unit tests plus rustdoc doctests: `just test`
 - Focused unit tests: `just test-unit`
 - Focused integration tests: `just test-integration`
-- Broad release-profile unit and integration tests: `just test-rust-ci`
+- Broad all-feature release-profile unit and integration tests: `just test-rust-ci`
 - Broad Rust runnable tests plus doctests: `just test-rust`
 - Python tooling tests: `just test-python`
 - Single runnable test by name filter: `cargo nextest run chain_samples_near_mode`

@@ -95,8 +95,8 @@ commit_parsers = [
     { message = '(?i)^(chore(:|\(release\):) |Changed: )?(prepare|release) v[0-9]', skip = true },
 
     # Dependency bumps: keep Rust library dependencies, skip CI/action noise.
-    { message = "^chore\\(deps\\): bump (rand|proptest|serde|serde_json)\\b", group = "Dependencies" },
-    { message = "^chore\\(deps\\): bump ", skip = true },
+    { message = "^chore\\(deps(?:-[^)]+)?\\): bump (rand|proptest|serde|serde_json)\\b", group = "Dependencies" },
+    { message = "^chore\\(deps(?:-[^)]+)?\\): bump ", skip = true },
     { message = "(?i)^bump (rand|proptest|serde|serde_json)\\b", group = "Dependencies" },
     { message = "(?i)^bump ", skip = true },
 
