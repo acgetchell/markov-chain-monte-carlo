@@ -930,14 +930,14 @@ def _file_sha256(path: Path) -> str:
 def _source_digest(checkout: Path) -> str:
     """Hash the Rust/package inputs that define the measured implementation."""
     rust_sources = sorted((checkout / "src").rglob("*.rs"))
-    paths = [
+    required_paths = [
         checkout / "Cargo.toml",
         checkout / "Cargo.lock",
         checkout / "rust-toolchain.toml",
         checkout / "benches" / "stepping.rs",
-        *rust_sources,
     ]
-    missing = [path for path in paths[:4] if not path.is_file()]
+    paths = [*required_paths, *rust_sources]
+    missing = [path for path in required_paths if not path.is_file()]
     if not rust_sources:
         missing.append(checkout / "src" / "*.rs")
     if missing:

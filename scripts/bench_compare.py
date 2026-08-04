@@ -20,6 +20,8 @@ from subprocess_utils import ExecutableNotFoundError, run_git_command
 
 type Statistic = Literal["mean", "median"]
 
+_MAX_FACTOR_PRECISION = 16
+
 
 @dataclass(frozen=True, slots=True)
 class Estimate:
@@ -192,7 +194,7 @@ def _format_relative_performance(comparison: Comparison) -> str:
         return "unchanged"
     factor = speedup if speedup > 1.0 else 1.0 / speedup
     precision = 3 if factor < 1.01 else 2
-    while round(factor, precision) == 1.0:
+    while precision < _MAX_FACTOR_PRECISION and round(factor, precision) == 1.0:
         precision += 1
     direction = "faster" if speedup > 1.0 else "slower"
     return f"{factor:.{precision}f}x {direction}"

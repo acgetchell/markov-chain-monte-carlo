@@ -1,4 +1,5 @@
 import json
+import math
 from typing import TYPE_CHECKING
 
 import pytest
@@ -89,6 +90,16 @@ def test_format_relative_performance_names_direction(baseline: float, current: f
     )
 
     assert bench_compare._format_relative_performance(comparison) == expected
+
+
+def test_format_relative_performance_bounds_precision_for_near_unity_factor() -> None:
+    comparison = bench_compare.Comparison(
+        benchmark="fixture",
+        baseline=bench_compare.Estimate(math.nextafter(1.0, math.inf), None, None),
+        current=bench_compare.Estimate(1.0, None, None),
+    )
+
+    assert bench_compare._format_relative_performance(comparison) == "1.0000000000000002x faster"
 
 
 def test_render_report_escapes_markdown_delimiters_in_benchmark_names(tmp_path: Path) -> None:

@@ -96,6 +96,7 @@ class ReferenceKind(StrEnum):
     CARGO_ADD = "cargo add command"
     CARGO_LOCK = "Cargo.lock root package"
     CHANGELOG = "latest generated changelog release"
+    CHANGELOG_COMPARISON = "current changelog comparison target"
     CITATION = "CITATION.cff version"
     DEPENDENCY_SNIPPET = "documentation dependency snippet"
     PYPROJECT = "pyproject.toml project"
@@ -262,7 +263,8 @@ def _citation_reference(path: Path) -> VersionReference:
     return references[0]
 
 
-_CHANGELOG_RELEASE_RE = re.compile(r"^##\s+\[?v?(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)\]?(?:\s|$)")
+_VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+_CHANGELOG_RELEASE_RE = re.compile(rf"^##\s+\[?v?(?P<version>{_VERSION_PATTERN})\]?(?:\s|$)")
 
 
 def _changelog_reference(path: Path) -> VersionReference:
@@ -273,6 +275,17 @@ def _changelog_reference(path: Path) -> VersionReference:
             return _version_reference(path, line_number, match.group("version"), ReferenceKind.CHANGELOG)
     msg = f"{path} has no generated release heading"
     raise ReleaseCheckError(msg)
+
+
+def _changelog_comparison_references(path: Path, version: str) -> list[VersionReference]:
+    """Return comparison targets whose link label is the current version."""
+    comparison_re = re.compile(rf"^\[{re.escape(version)}\]:\s+\S+/compare/v{_VERSION_PATTERN}\.\.\.v(?P<version>{_VERSION_PATTERN})(?:\s|$)")
+    references: list[VersionReference] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        match = comparison_re.match(line)
+        if match is not None:
+            references.append(_version_reference(path, line_number, match.group("version"), ReferenceKind.CHANGELOG_COMPARISON))
+    return references
 
 
 def _iter_markdown_files(root: Path) -> list[Path]:
@@ -370,13 +383,15 @@ def _version_references(root: Path, package: PackageInfo) -> list[VersionReferen
     """Collect all current-release references that should match Cargo.toml."""
     pyproject_path = root / "pyproject.toml"
     project = _read_python_project_info(pyproject_path)
+    changelog_path = root / "CHANGELOG.md"
     references = [
         _cargo_lock_reference(root / "Cargo.lock", package),
         _pyproject_reference(pyproject_path, project),
         _uv_lock_reference(root / "uv.lock", project),
         _citation_reference(root / "CITATION.cff"),
-        _changelog_reference(root / "CHANGELOG.md"),
+        _changelog_reference(changelog_path),
     ]
+    references.extend(_changelog_comparison_references(changelog_path, package.version))
     for path in _iter_markdown_files(root):
         references.extend(_dependency_references(path, package.name))
         references.extend(_cargo_add_references(path, package.name))

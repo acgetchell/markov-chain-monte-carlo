@@ -34,7 +34,10 @@ def _write_project(root: Path, *, metadata_version: str = _VERSION, readme: str 
         "pyproject.toml": f'[project]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\n',
         "uv.lock": (f'version = 1\n\n[[package]]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\nsource = {{ editable = "." }}\n'),
         "CITATION.cff": f"cff-version: 1.2.0\nversion: {metadata_version}\n",
-        "CHANGELOG.md": f"# Changelog\n\n## [{_VERSION}] - 2026-08-04\n\n- Release\n",
+        "CHANGELOG.md": (
+            f"# Changelog\n\n## [{_VERSION}] - 2026-08-04\n\n- Release\n\n"
+            f"[{_VERSION}]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v1.2.2...v{_VERSION}\n"
+        ),
         "README.md": readme_text,
     }
     for filename, content in files.items():
@@ -101,6 +104,21 @@ def test_find_version_mismatches_reports_stale_changelog_release(tmp_path: Path)
 
     assert len(mismatches) == 1
     assert mismatches[0].reference.kind is release_check.ReferenceKind.CHANGELOG
+    assert mismatches[0].reference.version == "1.2.2"
+
+
+def test_find_version_mismatches_reports_stale_changelog_comparison_target(tmp_path: Path) -> None:
+    """The current changelog link must compare through the Cargo version."""
+    _write_project(tmp_path)
+    (tmp_path / "CHANGELOG.md").write_text(
+        (f"# Changelog\n\n## [{_VERSION}] - 2026-08-04\n\n[{_VERSION}]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v1.2.1...v1.2.2\n"),
+        encoding="utf-8",
+    )
+
+    mismatches = release_check.find_version_mismatches(tmp_path)
+
+    assert len(mismatches) == 1
+    assert mismatches[0].reference.kind is release_check.ReferenceKind.CHANGELOG_COMPARISON
     assert mismatches[0].reference.version == "1.2.2"
 
 
