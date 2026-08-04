@@ -849,7 +849,7 @@ test-rust: test-rust-ci test-doc
 # Broad release-profile Rust CI bucket: lib unit and integration tests together.
 [group('tests and coverage')]
 test-rust-ci: _ensure-cargo-nextest
-    cargo nextest run --locked --release --profile ci --lib --tests --verbose
+    cargo nextest run --locked --release --profile ci --all-features --lib --tests --verbose
 
 # Focused library unit tests for changed-surface validation.
 [group('tests and coverage')]

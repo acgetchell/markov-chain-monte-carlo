@@ -66,7 +66,7 @@ Before you begin, ensure you have:
 4. **Try the examples**:
 
    ```bash
-   just examples        # Runs all examples (normal_1d, ising_1d, iterator_sampling, detailed_balance)
+   just examples        # Runs all six examples, including additive-target and delayed-telemetry workflows
    ```
 
 5. **Run benchmarks** (optional):
@@ -270,7 +270,7 @@ requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run t
   cargo bench --no-run
   ```
 
-- **Broad Rust CI tests** — library unit and integration tests share one optimized build, while doctests remain separate:
+- **Broad Rust CI tests** — all-feature library unit and integration tests share one optimized build, while doctests remain separate:
 
   ```bash
   just test-rust-ci

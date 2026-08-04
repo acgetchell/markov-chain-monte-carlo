@@ -189,10 +189,6 @@ def _tag_exists(tag_version: str) -> bool:
         return True
 
 
-def _delete_tag(tag_version: str) -> None:
-    run_git_command(["tag", "-d", tag_version])
-
-
 def parse_github_repository_url(raw: str) -> GitHubRepositoryUrl:
     """Parse a supported GitHub remote into its canonical HTTPS URL."""
     patterns = [
@@ -290,15 +286,16 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
             print("... (truncated for preview)")
         print("----------------------------------------")
 
-    # Delete existing tag only after all validation succeeds
-    if tag_existed and force:
-        print(f"{_BLUE}Deleting existing tag '{tag}'...{_RESET}")
-        _delete_tag(tag)
-
-    # Create annotated tag
+    # Create or atomically replace the annotated tag. Git prepares the tag
+    # object before updating the ref, so a failed command preserves any
+    # existing tag.
     label = "reference" if is_truncated else "full changelog"
     print(f"{_BLUE}Creating annotated tag '{tag}' with {label} content...{_RESET}")
-    run_git_command_with_input(["tag", "-a", tag, "-F", "-", "--cleanup=verbatim"], input_data=tag_message)
+    command = ["tag"]
+    if tag_existed and force:
+        command.append("--force")
+    command.extend(["--annotate", tag, "-F", "-", "--cleanup=verbatim"])
+    run_git_command_with_input(command, input_data=tag_message)
 
     # Success
     print(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")

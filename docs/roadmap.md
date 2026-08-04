@@ -3,9 +3,8 @@
 This roadmap records likely directions for the `markov-chain-monte-carlo` crate. It is not a stability promise; release scope depends on scientific need, API
 maturity, and validation quality.
 
-Until v1.0, API breaks are acceptable when they improve correctness, performance, or orthogonality. Patch releases should normally stay focused on fixes,
-documentation, tooling hardening, and invariant cleanup, while new sampler APIs, changed acceptance semantics, and MSRV bumps belong in minor releases so the
-feature roadmap stays understandable.
+Breaking API changes and MSRV bumps are acceptable in any release up to and including v1.0.0, including patch releases, when they improve correctness,
+performance, orthogonality, or invariant safety. Maintainers choose the pre-v1.0 release number based on project scope rather than compatibility impact alone.
 
 ## Completed
 
@@ -45,13 +44,13 @@ API breaks are acceptable when they make invalid states unrepresentable or prese
 
 - [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
 - [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
+- [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
 
 ### v0.5.0 Adaptive Diagnostics
 
 After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
 scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
 
-- [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
 - [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Adaptive Metropolis-Hastings
 - [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
 - [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal diagnostics

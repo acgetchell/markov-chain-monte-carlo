@@ -180,6 +180,58 @@ def test_promote_report_archives_the_previous_pair_and_updates_index(tmp_path: P
     assert "[v0.4.0-vs-v0.3.0](v0.4.0-vs-v0.3.0.md)" in index
 
 
+def test_promote_report_rolls_back_every_output_if_index_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = tmp_path / "docs" / "PERFORMANCE.md"
+    archive_dir = tmp_path / "docs" / "archive" / "performance"
+    index = archive_dir / "README.md"
+    current.parent.mkdir(parents=True)
+    archive_dir.mkdir(parents=True)
+    old_report = _report("v0.4.0", "v0.3.0", "old")
+    old_index = "# Existing index\n"
+    current.write_text(old_report, encoding="utf-8")
+    index.write_text(old_index, encoding="utf-8")
+    archive = archive_dir / "v0.4.0-vs-v0.3.0.md"
+    real_write = archive_performance._write_text
+    failed = False
+
+    def fail_index_once(path: Path, text: str) -> None:
+        nonlocal failed
+        if path == index and not failed:
+            failed = True
+            msg = "injected index write failure"
+            raise OSError(msg)
+        real_write(path, text)
+
+    monkeypatch.setattr(archive_performance, "_write_text", fail_index_once)
+
+    with pytest.raises(OSError, match="injected index write failure"):
+        archive_performance.promote_report(
+            source_text=_report("v0.5.0", "v0.4.0", "new"),
+            current_path=current,
+            archive_dir=archive_dir,
+            expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
+        )
+
+    assert current.read_text(encoding="utf-8") == old_report
+    assert index.read_text(encoding="utf-8") == old_index
+    assert not archive.exists()
+
+    monkeypatch.setattr(archive_performance, "_write_text", real_write)
+    archive_performance.promote_report(
+        source_text=_report("v0.5.0", "v0.4.0", "new"),
+        current_path=current,
+        archive_dir=archive_dir,
+        expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
+    )
+
+    assert "new" in current.read_text(encoding="utf-8")
+    assert archive.read_text(encoding="utf-8") == old_report
+    assert "[v0.4.0-vs-v0.3.0](v0.4.0-vs-v0.3.0.md)" in index.read_text(encoding="utf-8")
+
+
 def test_promote_report_preserves_an_existing_archive(tmp_path: Path) -> None:
     current = tmp_path / "PERFORMANCE.md"
     archive_dir = tmp_path / "archive"

@@ -259,8 +259,9 @@ def resolve_release_pair(
     return pair
 
 
-def _archive_index(archive_dir: Path) -> str:
-    reports = sorted(path.name for path in archive_dir.glob("*.md") if path.name != "README.md")
+def _archive_index(archive_dir: Path, *, additional_reports: tuple[str, ...] = ()) -> str:
+    reports = {path.name for path in archive_dir.glob("*.md") if path.name != "README.md"}
+    reports.update(additional_reports)
     lines = [
         "# Archived Performance Reports",
         "",
@@ -268,10 +269,41 @@ def _archive_index(archive_dir: Path) -> str:
         "",
     ]
     if reports:
-        lines.extend(f"- [{name.removesuffix('.md')}]({name})" for name in reports)
+        lines.extend(f"- [{name.removesuffix('.md')}]({name})" for name in sorted(reports))
     else:
         lines.append("- No archived performance reports yet.")
     return "\n".join(lines) + "\n"
+
+
+def _publish_texts(outputs: tuple[tuple[Path, str], ...]) -> None:
+    """Publish a set of text files, restoring every prior target on failure."""
+    paths = tuple(path for path, _text in outputs)
+    if len(paths) != len(set(paths)):
+        msg = "transactional publication requires unique output paths"
+        raise ValueError(msg)
+
+    previous = {path: path.read_text(encoding="utf-8") if path.exists() else None for path in paths}
+    completed: list[Path] = []
+    try:
+        for path, text in outputs:
+            _write_text(path, text)
+            completed.append(path)
+    except (OSError, RuntimeError) as error:
+        rollback_failures: list[str] = []
+        for path in reversed(completed):
+            try:
+                previous_text = previous[path]
+                if previous_text is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    _write_text(path, previous_text)
+            except (OSError, RuntimeError) as rollback_error:
+                rollback_failures.append(f"{path}: {rollback_error}")
+        if rollback_failures:
+            details = "; ".join(rollback_failures)
+            msg = f"publication failed and rollback was incomplete: {details}"
+            raise RuntimeError(msg) from error
+        raise
 
 
 def promote_report(
@@ -281,7 +313,7 @@ def promote_report(
     archive_dir: Path,
     expected: ReportId,
 ) -> None:
-    """Archive the previous curated report and atomically promote a new one."""
+    """Archive the previous curated report and promote all outputs with rollback."""
     source_id = parse_report_id(source_text)
     if source_id != expected:
         msg = (
@@ -289,15 +321,24 @@ def promote_report(
             f"found {source_id.current_tag} vs {source_id.baseline_tag}, expected {expected.current_tag} vs {expected.baseline_tag}"
         )
         raise ValueError(msg)
+    outputs: list[tuple[Path, str]] = []
+    additional_reports: list[str] = []
     if current_path.exists():
         previous_text = current_path.read_text(encoding="utf-8")
         previous_id = parse_report_id(previous_text)
         if previous_id != source_id:
             archive_path = archive_dir / previous_id.archive_name
             if not archive_path.exists():
-                _write_text(archive_path, previous_text)
-    _write_text(current_path, source_text)
-    _write_text(archive_dir / "README.md", _archive_index(archive_dir))
+                outputs.append((archive_path, previous_text))
+                additional_reports.append(archive_path.name)
+    outputs.append((current_path, source_text))
+    outputs.append(
+        (
+            archive_dir / "README.md",
+            _archive_index(archive_dir, additional_reports=tuple(additional_reports)),
+        )
+    )
+    _publish_texts(tuple(outputs))
 
 
 def _ensure_local_tag(repo_root: Path, tag: str) -> None:
