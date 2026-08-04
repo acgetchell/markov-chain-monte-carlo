@@ -146,12 +146,26 @@ def test_latest_vs_last_composes_measurement_and_report_steps() -> None:
     assert dependencies == {"bench-latest", "python-sync"}
 
 
-def test_repository_file_validators_include_untracked_files() -> None:
+def test_repository_file_commands_include_nonignored_untracked_files() -> None:
     recipes = _recipes()
+    expected = {
+        "action-lint",
+        "markdown-check",
+        "markdown-fix",
+        "semgrep",
+        "toml-fmt",
+        "toml-fmt-check",
+        "toml-lint",
+        "validate-json",
+        "yaml-check",
+        "yaml-fix",
+    }
+    discovered = {name for name, recipe in recipes.items() if "git ls-files" in json.dumps(recipe["body"])}
 
-    for name in ("action-lint", "markdown-check", "markdown-fix", "semgrep"):
+    assert discovered == expected
+    for name in expected:
         body = json.dumps(recipes[name]["body"])
-        assert "git ls-files -co --exclude-standard" in body, name
+        assert "git ls-files -co --exclude-standard -z --" in body, name
 
 
 def test_release_workflow_uses_the_canonical_baseline_recipe() -> None:

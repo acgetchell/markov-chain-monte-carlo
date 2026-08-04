@@ -67,6 +67,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
+
           python - <<'PY'
           import json
           import os
@@ -143,6 +145,7 @@ jobs:
 
       - name: Attach baseline to GitHub Release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_ASSET: ${{ needs.release-baseline.outputs.release-asset }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from bench_compare import ComparisonSet, ReportSettings, collect_comparisons, render_report
+from bench_compare import ComparisonSet, ReportSettings, _write_text, collect_comparisons, render_report
 from subprocess_utils import ExecutableNotFoundError, run_git_command, run_git_command_with_input, run_safe_command
 
 if TYPE_CHECKING:
@@ -259,29 +259,6 @@ def resolve_release_pair(
     return pair
 
 
-def _write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(text)
-        if temporary is None:
-            msg = f"failed to create a temporary output for {path}"
-            raise RuntimeError(msg)
-        temporary.replace(path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
-
-
 def _archive_index(archive_dir: Path) -> str:
     reports = sorted(path.name for path in archive_dir.glob("*.md") if path.name != "README.md")
     lines = [
@@ -372,12 +349,11 @@ def apply_current_tree(repo_root: Path, worktree: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def _run_stepping_benchmark(checkout: Path, *, save_baseline: str | None = None) -> tuple[str, ...]:
+def _run_stepping_benchmark(checkout: Path, *, save_baseline: str | None = None) -> None:
     command = ["bench", "--locked", "--bench", "stepping"]
     if save_baseline is not None:
         command.extend(["--", "--save-baseline", save_baseline])
     run_safe_command("cargo", command, cwd=checkout, timeout=_BENCHMARK_TIMEOUT_SECONDS)
-    return ("cargo", *command)
 
 
 def _criterion_dependency_version(checkout: Path) -> str:
@@ -685,12 +661,12 @@ def main(argv: list[str] | None = None) -> int:
             report = generate_github_asset_report(repo_root, pair)
         else:
             published_tags = {release.tag for release in releases}
-            repair_published_release = mode == "explicit" or (mode == "infer-release" and pair.current_tag in published_tags)
+            current_tag_is_published = mode == "explicit" or (mode == "infer-release" and pair.current_tag in published_tags)
             report = generate_local_report(
                 repo_root,
                 pair,
-                current_reference=pair.current_tag if repair_published_release else "HEAD",
-                apply_working_tree=not repair_published_release,
+                current_reference=pair.current_tag if current_tag_is_published else "HEAD",
+                apply_working_tree=not current_tag_is_published,
             )
         if args.promote:
             promote_report(

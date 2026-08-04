@@ -112,6 +112,31 @@ def test_read_estimate_rejects_invalid_timing_data(tmp_path: Path) -> None:
         bench_compare.collect_sample(criterion, "new")
 
 
+def test_collect_sample_reads_the_requested_mean_statistic(tmp_path: Path) -> None:
+    criterion = tmp_path / "criterion"
+    path = criterion / "chain" / "step_by_value" / "new" / "estimates.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({"median": {"point_estimate": 100.0}, "mean": {"point_estimate": 80.0}}),
+        encoding="utf-8",
+    )
+
+    collected = bench_compare.collect_sample(criterion, "new", statistic="mean")
+
+    assert collected["chain/step_by_value"].point_ns == 80.0
+
+
+def test_read_estimate_wraps_malformed_json_with_the_criterion_path(tmp_path: Path) -> None:
+    path = tmp_path / "criterion" / "chain" / "step_by_value" / "new" / "estimates.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"malformed Criterion JSON in .*estimates\.json") as raised:
+        bench_compare.read_estimate(path)
+
+    assert isinstance(raised.value.__cause__, json.JSONDecodeError)
+
+
 @pytest.mark.parametrize(
     ("point", "interval"),
     [

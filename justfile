@@ -169,7 +169,7 @@ action-lint: _ensure-actionlint
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z '.github/workflows/*.yml' '.github/workflows/*.yaml')
+    done < <(git ls-files -co --exclude-standard -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 uv run --locked actionlint
     else
@@ -438,7 +438,7 @@ markdown-check: _ensure-rumdl
             CHANGELOG.md) continue ;;
         esac
         files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z '*.md')
+    done < <(git ls-files -co --exclude-standard -z -- '*.md')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check
     else
@@ -456,7 +456,7 @@ markdown-fix: _ensure-rumdl
             CHANGELOG.md) continue ;;
         esac
         files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z '*.md')
+    done < <(git ls-files -co --exclude-standard -z -- '*.md')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 -n100 rumdl check --fix
     else
@@ -652,7 +652,7 @@ semgrep: _ensure-uv
             tests/semgrep/*) continue ;;
         esac
         files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z)
+    done < <(git ls-files -co --exclude-standard -z --)
     if [ "${#files[@]}" -gt 0 ]; then
         uv run --locked semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml "${files[@]}"
     else
@@ -868,7 +868,7 @@ toml-fmt: _ensure-taplo
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.toml')
+    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
     if [ "${#files[@]}" -gt 0 ]; then
         taplo fmt "${files[@]}"
     else
@@ -883,7 +883,7 @@ toml-fmt-check: _ensure-taplo
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.toml')
+    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
     if [ "${#files[@]}" -gt 0 ]; then
         taplo fmt --check "${files[@]}"
     else
@@ -898,7 +898,7 @@ toml-lint: _ensure-taplo
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.toml')
+    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
     if [ "${#files[@]}" -gt 0 ]; then
         taplo lint "${files[@]}"
     else
@@ -947,7 +947,7 @@ validate-json: _ensure-jq
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.json')
+    done < <(git ls-files -co --exclude-standard -z -- '*.json')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 -n1 jq empty
     else
@@ -962,7 +962,7 @@ yaml-check: _ensure-dprint
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.yml' '*.yaml')
+    done < <(git ls-files -co --exclude-standard -z -- '*.yml' '*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 dprint check
     else
@@ -977,7 +977,7 @@ yaml-fix: _ensure-dprint
     files=()
     while IFS= read -r -d '' file; do
         files+=("$file")
-    done < <(git ls-files -z '*.yml' '*.yaml')
+    done < <(git ls-files -co --exclude-standard -z -- '*.yml' '*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
         printf '%s\0' "${files[@]}" | xargs -0 dprint fmt
     else

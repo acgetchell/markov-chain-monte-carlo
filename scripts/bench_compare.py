@@ -72,6 +72,7 @@ class ComparisonSet:
     comparisons: tuple[Comparison, ...]
     missing_baseline: tuple[str, ...]
     missing_current: tuple[str, ...]
+    current_sample: tuple[tuple[str, Estimate], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +162,7 @@ def collect_comparisons(
         comparisons=tuple(Comparison(name, baseline[name], current[name]) for name in shared),
         missing_baseline=tuple(sorted(current.keys() - baseline.keys())),
         missing_current=tuple(sorted(baseline.keys() - current.keys())),
+        current_sample=tuple(sorted(current.items())),
     )
 
 
@@ -324,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, KeyError, TypeError, ValueError) as error:
         print(f"Invalid Criterion data: {error}", file=sys.stderr)
         return 2
-    if not collect_sample(criterion_dir, "new", statistic):
+    if not comparison_set.current_sample:
         print(f"No current Criterion results found under {criterion_dir}. Run `just bench-latest` first.", file=sys.stderr)
         return 2
     if not comparison_set.comparisons:

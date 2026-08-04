@@ -29,11 +29,30 @@ def _report(current: str, baseline: str, marker: str = "") -> str:
     )
 
 
-def _write_sample(root: Path, benchmark: str, sample: str) -> None:
+def _write_sample(root: Path, benchmark: str, sample: str, point: float = 1.0) -> None:
     sample_dir = root / benchmark / sample
     sample_dir.mkdir(parents=True, exist_ok=True)
-    (sample_dir / "estimates.json").write_text(json.dumps({"median": {"point_estimate": 1.0}}), encoding="utf-8")
+    (sample_dir / "estimates.json").write_text(json.dumps({"median": {"point_estimate": point}}), encoding="utf-8")
     (sample_dir / "sample.json").write_text("{}", encoding="utf-8")
+
+
+def _write_release_archive(root: Path, tag: str, point: float, commit: str) -> Path:
+    criterion = root / tag / "criterion"
+    _write_sample(criterion, "chain/step_by_value", tag, point)
+    metadata = {
+        "schema": 1,
+        "tag": tag,
+        "commit": commit,
+        "operating_system": "Linux",
+        "architecture": "x86_64",
+        "rustc": "rustc 1.97.1",
+        "criterion_version": "0.8.2",
+    }
+    (criterion / ".mcmc-release-metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    archive = root / f"{tag}.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(criterion, arcname="criterion")
+    return archive
 
 
 def test_stable_published_releases_filters_and_sorts() -> None:
@@ -207,10 +226,9 @@ def test_generated_working_tree_report_can_be_promoted(
         checkout.mkdir()
         yield checkout
 
-    def fake_benchmark(checkout: Path, *, save_baseline: str | None = None) -> tuple[str, ...]:
+    def fake_benchmark(checkout: Path, *, save_baseline: str | None = None) -> None:
         sample = save_baseline or "new"
         _write_sample(checkout / "target" / "criterion", "chain/step_by_value", sample)
-        return ("cargo", "bench")
 
     def fake_apply(repo_root: Path, worktree: Path) -> None:
         applied.append((repo_root, worktree))
@@ -324,6 +342,29 @@ def test_copy_criterion_sample_fails_when_asset_has_no_requested_baseline(tmp_pa
             source_sample="v0.4.0",
             destination_sample="new",
         )
+
+
+def test_generate_github_asset_report_renames_current_sample_and_renders_release_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair = archive_performance.ReportId("v0.5.0", "v0.4.0")
+    archives = {
+        pair.current_tag: _write_release_archive(tmp_path, pair.current_tag, 80.0, "a" * 40),
+        pair.baseline_tag: _write_release_archive(tmp_path, pair.baseline_tag, 100.0, "b" * 40),
+    }
+
+    def fake_download(_repo_root: Path, tag: str, _destination: Path) -> Path:
+        return archives[tag]
+
+    monkeypatch.setattr(archive_performance, "_download_release_asset", fake_download)
+
+    report = archive_performance.generate_github_asset_report(tmp_path, pair)
+
+    assert "**markov-chain-monte-carlo** v0.5.0 · `aaaaaaa`" in report
+    assert "Comparison against baseline **v0.4.0**:" in report
+    assert "Source mode: durable GitHub Release Criterion assets" in report
+    assert "| `chain/step_by_value` | 100.00 ns | 80.00 ns | -20.00% | 1.25x | unknown |" in report
 
 
 def test_release_metadata_validates_tag_and_measurement_context(tmp_path: Path) -> None:
