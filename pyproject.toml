@@ -38,7 +38,7 @@ dev = [
     "actionlint-py==1.7.12.24",
     "pytest>=9.1.1",
     "ruff>=0.16.1",
-    "semgrep==1.172.0",
+    "semgrep==1.173.0",
     "ty>=0.0.66",
 ]
 notebook = [
