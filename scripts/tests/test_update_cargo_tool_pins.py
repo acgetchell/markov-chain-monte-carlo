@@ -1,5 +1,6 @@
 """Tests for atomic repository tool-pin reconciliation."""
 
+import os
 import subprocess
 from typing import TYPE_CHECKING, Never
 
@@ -70,7 +71,12 @@ def test_reconcile_pins_preserves_symlink_and_crlf_bytes(tmp_path: Path) -> None
     original = justfile_text().replace("\n", "\r\n").encode()
     target.write_bytes(original)
     justfile = tmp_path / "justfile"
-    justfile.symlink_to(target.name)
+    try:
+        justfile.symlink_to(target.name)
+    except OSError:
+        if os.name != "nt":
+            raise
+        pytest.skip("symlink creation is unavailable on this Windows runner")
 
     changes = update_cargo_tool_pins.reconcile_pins(
         justfile,

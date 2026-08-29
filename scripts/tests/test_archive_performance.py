@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 import subprocess
 import tarfile
@@ -814,13 +815,24 @@ def test_generated_working_tree_report_can_be_promoted(
     assert "**markov-chain-monte-carlo** v0.5.0 working tree" in report
 
 
+@pytest.mark.parametrize(
+    "relative_name",
+    [
+        pytest.param("nested/fixture name.txt", id="space"),
+        pytest.param(
+            "nested/fixture\nname.txt",
+            id="newline",
+            marks=pytest.mark.skipif(os.name == "nt", reason="Windows filenames cannot contain newlines"),
+        ),
+    ],
+)
 def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    relative_name: str,
 ) -> None:
     repo_root = tmp_path / "source"
     worktree = tmp_path / "worktree"
-    relative_name = "nested/fixture\nname.txt"
     untracked = repo_root / relative_name
     untracked.parent.mkdir(parents=True)
     untracked.write_text("fixture\n", encoding="utf-8")

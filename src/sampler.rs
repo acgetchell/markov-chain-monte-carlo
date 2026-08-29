@@ -3695,6 +3695,48 @@ mod tests {
     }
 
     #[test]
+    fn observing_steps_pair_telemetry_with_the_resulting_state() {
+        struct TowardMode;
+
+        impl Proposal<Scalar> for TowardMode {
+            fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
+                Scalar(current.0 - 1.0)
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(Scalar(2.0), &Normal).unwrap();
+        let mut sampler = sampler!(chain, &Normal, &TowardMode, &mut rng);
+        let mut coordinate = |state: &Scalar| state.0;
+
+        let (step, observed) = sampler.step_observing(&mut coordinate).unwrap();
+
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.log_prob_before().to_bits(), (-2.0_f64).to_bits());
+        assert_eq!(
+            step.log_prob_after().unwrap().to_bits(),
+            (-0.5_f64).to_bits()
+        );
+        assert_eq!(observed.to_bits(), 1.0_f64.to_bits());
+        assert_eq!(sampler.chain_ref().state(), &Scalar(1.0));
+
+        let mut fallible_coordinate = |state: &Scalar| Ok::<f64, ObservationFailure>(state.0);
+        let (step, observed) = sampler
+            .try_step_observing(&mut fallible_coordinate)
+            .unwrap();
+
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.log_prob_before().to_bits(), (-0.5_f64).to_bits());
+        assert_eq!(
+            step.log_prob_after().unwrap().to_bits(),
+            (-0.0_f64).to_bits()
+        );
+        assert_eq!(observed.to_bits(), 0.0_f64.to_bits());
+        assert_eq!(sampler.chain_ref().state(), &Scalar(0.0));
+        assert_eq!(sampler.chain_ref().total_steps(), 2);
+    }
+
+    #[test]
     fn run_n_steps() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();

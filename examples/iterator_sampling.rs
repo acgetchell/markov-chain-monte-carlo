@@ -74,7 +74,7 @@ fn main() -> Result<(), McmcError> {
     let mean = sum / f64::from(n_samples);
     let variance = sum_sq / f64::from(n_samples) - mean * mean;
 
-    println!("\nResults ({n_samples} samples via iterator):");
+    println!("\nResults ({n_samples} samples via step()):");
     println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
     println!("  Sample variance: {variance:.4} (expected: 1.0)");
     println!(

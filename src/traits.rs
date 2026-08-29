@@ -1213,7 +1213,7 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_forward_weights() {
-        for weight in [0.0, -1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
+        for weight in [0.0, -1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
             let err = DiscreteProposalRatio::new(weight, 1.0, 1, 1.0, 1.0, 1).unwrap_err();
             assert_eq!(
                 err.to_string(),
@@ -1237,7 +1237,7 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_reverse_weights() {
-        for weight in [-1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
+        for weight in [-1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
             let err = DiscreteProposalRatio::new(1.0, 1.0, 1, weight, 1.0, 1).unwrap_err();
             assert_eq!(
                 err.to_string(),
@@ -1261,16 +1261,41 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_endpoint_weight_sums() {
-        let forward = DiscreteProposalRatio::new(1.0, 0.0, 1, 1.0, 1.0, 1).unwrap_err();
-        let reverse = DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, f64::NAN, 1).unwrap_err();
+        for weight_sum in [0.0, -1.0, f64::NEG_INFINITY, f64::INFINITY] {
+            let forward = DiscreteProposalRatio::new(1.0, weight_sum, 1, 1.0, 1.0, 1).unwrap_err();
+            assert_eq!(
+                forward,
+                DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum }
+            );
+            assert_eq!(
+                forward.to_string(),
+                format!(
+                    "invalid forward move-family weight sum {weight_sum}: expected a positive finite value"
+                )
+            );
+
+            let reverse = DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, weight_sum, 1).unwrap_err();
+            assert_eq!(
+                reverse,
+                DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum }
+            );
+            assert_eq!(
+                reverse.to_string(),
+                format!(
+                    "invalid reverse move-family weight sum {weight_sum}: expected a positive finite value"
+                )
+            );
+        }
 
         assert!(matches!(
-            forward,
-            DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum: 0.0 }
+            DiscreteProposalRatio::new(1.0, f64::NAN, 1, 1.0, 1.0, 1),
+            Err(DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum })
+                if weight_sum.is_nan()
         ));
         assert!(matches!(
-            reverse,
-            DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum } if weight_sum.is_nan()
+            DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, f64::NAN, 1),
+            Err(DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum })
+                if weight_sum.is_nan()
         ));
     }
 
