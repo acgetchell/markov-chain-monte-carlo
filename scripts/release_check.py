@@ -6,6 +6,7 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeGuard
@@ -27,6 +28,7 @@ SKIP_DIRS = frozenset(
     }
 )
 SKIP_MARKDOWN_FILES = frozenset({"CHANGELOG.md"})
+ZENODO_CONCEPT_DOI = "10.5281/zenodo.20033111"
 
 type ParsedObject = dict[str, object]
 
@@ -121,6 +123,35 @@ class VersionMismatch:
 
     reference: VersionReference
     package: PackageInfo
+
+
+class MetadataKind(StrEnum):
+    """A release metadata field that must agree across publication surfaces."""
+
+    CHANGELOG_DATE = "latest changelog release date"
+    CITATION_DATE = "CITATION.cff date-released"
+    CITATION_DOI = "CITATION.cff concept DOI"
+    README_DOI = "README DOI badge target"
+    REFERENCES_DOI = "REFERENCES.md concept DOI"
+
+
+@dataclass(frozen=True, slots=True)
+class MetadataReference:
+    """A parsed non-version release metadata reference with source location."""
+
+    path: Path
+    line: int
+    value: str
+    kind: MetadataKind
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class MetadataMismatch:
+    """A release metadata reference that differs from its canonical value."""
+
+    reference: MetadataReference
+    expected: str
 
 
 def _github_repository_slug(repository: str, path: Path) -> str:
@@ -264,7 +295,7 @@ def _citation_reference(path: Path) -> VersionReference:
 
 
 _VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
-_CHANGELOG_RELEASE_RE = re.compile(rf"^##\s+\[?v?(?P<version>{_VERSION_PATTERN})\]?(?:\s|$)")
+_CHANGELOG_RELEASE_RE = re.compile(rf"^##\s+\[?v?(?P<version>{_VERSION_PATTERN})\]?\s+-\s+(?P<date>\d{{4}}-\d{{2}}-\d{{2}})(?:\s|$)")
 
 
 def _changelog_reference(path: Path) -> VersionReference:
@@ -275,6 +306,86 @@ def _changelog_reference(path: Path) -> VersionReference:
             return _version_reference(path, line_number, match.group("version"), ReferenceKind.CHANGELOG)
     msg = f"{path} has no generated release heading"
     raise ReleaseCheckError(msg)
+
+
+def _metadata_reference(path: Path, line: int, value: str, kind: MetadataKind, text: str) -> MetadataReference:
+    """Build a metadata reference while preserving its diagnostic context."""
+    return MetadataReference(path=path, line=line, value=value, kind=kind, text=text.strip())
+
+
+def _single_reference(references: list[MetadataReference], path: Path, description: str) -> MetadataReference:
+    """Require exactly one parsed metadata reference."""
+    if len(references) != 1:
+        msg = f"{path} must contain exactly one {description}; found {len(references)}"
+        raise ReleaseCheckError(msg)
+    return references[0]
+
+
+def _citation_metadata_reference(path: Path, field: str, value_pattern: str, kind: MetadataKind) -> MetadataReference:
+    """Return one non-empty top-level scalar from CITATION.cff."""
+    pattern = re.compile(rf"^{re.escape(field)}:\s*(?P<quote>['\"]?)(?P<value>{value_pattern})(?P=quote)\s*(?:#.*)?$")
+    references: list[MetadataReference] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.startswith(f"{field}:"):
+            continue
+        match = pattern.fullmatch(line)
+        if match is None:
+            msg = f"{path}:{line_number}: top-level {field} must be a valid non-empty scalar"
+            raise ReleaseCheckError(msg)
+        references.append(_metadata_reference(path, line_number, match.group("value"), kind, line))
+    return _single_reference(references, path, f"top-level {field}")
+
+
+def _citation_doi_reference(path: Path) -> MetadataReference:
+    """Return the stable concept DOI from CITATION.cff."""
+    return _citation_metadata_reference(path, "doi", r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", MetadataKind.CITATION_DOI)
+
+
+def _citation_date_reference(path: Path) -> MetadataReference:
+    """Return and validate the release date from CITATION.cff."""
+    reference = _citation_metadata_reference(path, "date-released", r"\d{4}-\d{2}-\d{2}", MetadataKind.CITATION_DATE)
+    try:
+        date.fromisoformat(reference.value)
+    except ValueError as error:
+        msg = f"{path}:{reference.line}: date-released is not a valid calendar date: {reference.value}"
+        raise ReleaseCheckError(msg) from error
+    return reference
+
+
+def _changelog_date_reference(path: Path) -> MetadataReference:
+    """Return the date from the first generated changelog release heading."""
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        match = _CHANGELOG_RELEASE_RE.match(line)
+        if match is not None:
+            return _metadata_reference(path, line_number, match.group("date"), MetadataKind.CHANGELOG_DATE, line)
+    msg = f"{path} has no dated generated release heading"
+    raise ReleaseCheckError(msg)
+
+
+_README_DOI_RE = re.compile(r"\[!\[DOI\]\([^)]*\)\]\(https://doi\.org/(?P<doi>10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)\)")
+
+
+def _readme_doi_reference(path: Path) -> MetadataReference:
+    """Return the DOI targeted by the README badge."""
+    references: list[MetadataReference] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for match in _README_DOI_RE.finditer(line):
+            references.append(_metadata_reference(path, line_number, match.group("doi"), MetadataKind.README_DOI, line))
+    return _single_reference(references, path, "DOI badge target")
+
+
+_REFERENCES_DOI_RE = re.compile(r"^- DOI: <https://doi\.org/(?P<doi>10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)>\s*$")
+
+
+def _references_doi_reference(path: Path) -> MetadataReference:
+    """Return the concept DOI entry from REFERENCES.md."""
+    dois: list[MetadataReference] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        match = _REFERENCES_DOI_RE.fullmatch(line)
+        if match is None:
+            continue
+        dois.append(_metadata_reference(path, line_number, match.group("doi"), MetadataKind.REFERENCES_DOI, line))
+    return _single_reference(dois, path, "concept DOI entry")
 
 
 def _changelog_comparison_references(path: Path, version: str) -> list[VersionReference]:
@@ -406,6 +517,22 @@ def find_version_mismatches(root: Path) -> list[VersionMismatch]:
     return [VersionMismatch(reference=reference, package=package) for reference in _version_references(root, package) if reference.version != package.version]
 
 
+def find_release_metadata_mismatches(root: Path) -> list[MetadataMismatch]:
+    """Return DOI and release-date references that disagree across release surfaces."""
+    citation_doi = _citation_doi_reference(root / "CITATION.cff")
+    citation_date = _citation_date_reference(root / "CITATION.cff")
+    changelog_date = _changelog_date_reference(root / "CHANGELOG.md")
+    readme_doi = _readme_doi_reference(root / "README.md")
+    references_doi = _references_doi_reference(root / "REFERENCES.md")
+    expected = (
+        (citation_date, changelog_date.value),
+        (citation_doi, ZENODO_CONCEPT_DOI),
+        (readme_doi, ZENODO_CONCEPT_DOI),
+        (references_doi, ZENODO_CONCEPT_DOI),
+    )
+    return [MetadataMismatch(reference=reference, expected=value) for reference, value in expected if reference.value != value]
+
+
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -425,6 +552,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         package = _read_cargo_package_info(root / "Cargo.toml")
         mismatches = find_version_mismatches(root)
+        metadata_mismatches = find_release_metadata_mismatches(root)
     except (OSError, ReleaseCheckError, tomllib.TOMLDecodeError) as error:
         print(f"Could not check release-version synchronization: {error}", file=sys.stderr)
         return 1
@@ -436,6 +564,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             rel_path = reference.path.relative_to(root)
             print(
                 f"  {rel_path}:{reference.line}: {reference.kind} found {reference.version}, expected {mismatch.package.version}: {reference.text}",
+                file=sys.stderr,
+            )
+        return 1
+
+    if metadata_mismatches:
+        print("Release DOI or date references are out of sync:", file=sys.stderr)
+        for mismatch in metadata_mismatches:
+            reference = mismatch.reference
+            rel_path = reference.path.relative_to(root)
+            print(
+                f"  {rel_path}:{reference.line}: {reference.kind} found {reference.value}, expected {mismatch.expected}: {reference.text}",
                 file=sys.stderr,
             )
         return 1

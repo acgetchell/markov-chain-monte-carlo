@@ -146,7 +146,7 @@ proptest! {
         let mut rng = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
         let expected = Normal.log_prob(chain.state());
@@ -177,7 +177,9 @@ proptest! {
         let mut rng_mut = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain_clone.step(&Normal, &clone_proposal, &mut rng_clone).unwrap();
+            let _ = chain_clone
+                .step(&Normal, &clone_proposal, &mut rng_clone)
+                .unwrap();
             let _ = chain_mut
                 .step_mut(&Normal, &mut mut_proposal, &mut rng_mut)
                 .unwrap();
@@ -215,7 +217,9 @@ proptest! {
         let mut rng_delayed = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain_clone.step(&Normal, &clone_proposal, &mut rng_clone).unwrap();
+            let _ = chain_clone
+                .step(&Normal, &clone_proposal, &mut rng_clone)
+                .unwrap();
             let _ = chain_delayed
                 .step_delayed(&Normal, &mut delayed_proposal, &mut rng_delayed)
                 .unwrap();
@@ -271,7 +275,7 @@ proptest! {
         let mut rng = StdRng::seed_from_u64(seed);
 
         for _ in 0..steps {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
         prop_assert_eq!(
@@ -297,7 +301,7 @@ proptest! {
         let mut chain = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng = StdRng::seed_from_u64(seed);
         for _ in 0..steps {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
         // Sampler

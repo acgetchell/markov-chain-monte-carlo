@@ -13,12 +13,13 @@ use rand::Rng;
 ///
 /// ```text
 /// log(q(current | proposed) / q(proposed | current))
-/// = log(reverse_weight) - log(forward_weight)
+/// = log(reverse_weight) - log(reverse_weight_sum)
+/// - log(forward_weight) + log(forward_weight_sum)
 /// + log(forward_site_count) - log(reverse_site_count)
 /// ```
 ///
-/// Use [`from_counts`](Self::from_counts) when forward and reverse move-family
-/// weights are equal and cancel.
+/// Use [`from_counts`](Self::from_counts) when the forward and reverse
+/// move-family selection probabilities are equal and cancel.
 ///
 /// # Examples
 ///
@@ -36,32 +37,42 @@ use rand::Rng;
 #[must_use]
 pub struct DiscreteProposalRatio {
     forward_weight: f64,
+    forward_weight_sum: f64,
     reverse_weight: f64,
+    reverse_weight_sum: f64,
     forward_site_count: NonZeroUsize,
     reverse_site_count: usize,
 }
 
 impl DiscreteProposalRatio {
-    /// Create a ratio from move-family weights and valid concrete-site counts.
+    /// Create a ratio from move-family weights, endpoint weight sums, and valid
+    /// concrete-site counts.
     ///
-    /// `forward_weight` is the probability or relative weight of selecting the
-    /// move family that proposed the current plan.  `reverse_weight` is the
-    /// probability or relative weight of selecting that plan's inverse move
-    /// family from the proposed state.
+    /// `forward_weight` is the relative weight of the family that proposed the
+    /// current plan and `forward_weight_sum` is the sum of all family weights at
+    /// the current state. `reverse_weight` and `reverse_weight_sum` are the
+    /// corresponding values for the inverse family at the proposed state.
     ///
-    /// The forward count and weight must be positive for a successful plan.  A
-    /// zero reverse count or weight is allowed and yields `f64::NEG_INFINITY`
+    /// The forward count and weight must be positive for a successful plan.
+    /// Both endpoint weight sums must be positive and finite, and a family
+    /// weight cannot exceed its endpoint sum. A zero reverse count or weight is
+    /// allowed and yields `f64::NEG_INFINITY`
     /// from [`log_q_ratio`](Self::log_q_ratio), meaning the forward transition
     /// should never be accepted under the Metropolis-Hastings correction.
     ///
     /// # Errors
     ///
     /// Returns [`DiscreteProposalRatioError::InvalidForwardWeight`] when the
-    /// forward move-family weight is not positive and finite.
+    /// forward move-family weight is not positive and finite or exceeds the
+    /// forward endpoint weight sum.
     ///
     /// Returns [`DiscreteProposalRatioError::InvalidReverseWeight`] when the
-    /// reverse move-family weight is negative, `NaN`, or infinite.  A zero
-    /// reverse weight is valid.
+    /// reverse move-family weight is negative, `NaN`, infinite, or exceeds the
+    /// reverse endpoint weight sum. A zero reverse weight is valid.
+    ///
+    /// Returns [`DiscreteProposalRatioError::InvalidForwardWeightSum`] or
+    /// [`DiscreteProposalRatioError::InvalidReverseWeightSum`] when the
+    /// corresponding endpoint weight sum is not positive and finite.
     ///
     /// Returns [`DiscreteProposalRatioError::ZeroForwardSiteCount`] when a
     /// successful proposal reports no valid forward sites.  A zero reverse-site
@@ -74,26 +85,46 @@ impl DiscreteProposalRatio {
     ///     DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
+    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
     ///
-    /// assert_eq!(ratio.forward_weight(), 0.25);
+    /// assert_eq!(ratio.forward_weight(), 1.0);
+    /// assert_eq!(ratio.forward_weight_sum(), 4.0);
     /// assert_eq!(ratio.forward_site_count(), 6);
-    /// assert_eq!(ratio.reverse_weight(), 0.75);
+    /// assert_eq!(ratio.reverse_weight(), 3.0);
+    /// assert_eq!(ratio.reverse_weight_sum(), 4.0);
     /// assert_eq!(ratio.reverse_site_count(), 2);
     /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     pub fn new(
         forward_weight: f64,
+        forward_weight_sum: f64,
         forward_site_count: usize,
         reverse_weight: f64,
+        reverse_weight_sum: f64,
         reverse_site_count: usize,
     ) -> Result<Self, DiscreteProposalRatioError> {
-        if !forward_weight.is_finite() || forward_weight <= 0.0 {
+        if !forward_weight_sum.is_finite() || forward_weight_sum <= 0.0 {
+            return Err(DiscreteProposalRatioError::InvalidForwardWeightSum {
+                weight_sum: forward_weight_sum,
+            });
+        }
+        if !reverse_weight_sum.is_finite() || reverse_weight_sum <= 0.0 {
+            return Err(DiscreteProposalRatioError::InvalidReverseWeightSum {
+                weight_sum: reverse_weight_sum,
+            });
+        }
+        if !forward_weight.is_finite()
+            || forward_weight <= 0.0
+            || forward_weight > forward_weight_sum
+        {
             return Err(DiscreteProposalRatioError::InvalidForwardWeight {
                 weight: forward_weight,
             });
         }
-        if !reverse_weight.is_finite() || reverse_weight < 0.0 {
+        if !reverse_weight.is_finite()
+            || reverse_weight < 0.0
+            || reverse_weight > reverse_weight_sum
+        {
             return Err(DiscreteProposalRatioError::InvalidReverseWeight {
                 weight: reverse_weight,
             });
@@ -104,13 +135,15 @@ impl DiscreteProposalRatio {
 
         Ok(Self {
             forward_weight,
+            forward_weight_sum,
             reverse_weight,
+            reverse_weight_sum,
             forward_site_count,
             reverse_site_count,
         })
     }
 
-    /// Create a ratio for equal move-family weights.
+    /// Create a ratio for equal move-family selection probabilities.
     ///
     /// This is the common CDT-style site-count correction:
     ///
@@ -141,7 +174,7 @@ impl DiscreteProposalRatio {
         forward_site_count: usize,
         reverse_site_count: usize,
     ) -> Result<Self, DiscreteProposalRatioError> {
-        Self::new(1.0, forward_site_count, 1.0, reverse_site_count)
+        Self::new(1.0, 1.0, forward_site_count, 1.0, 1.0, reverse_site_count)
     }
 
     /// Forward move-family weight.
@@ -153,14 +186,20 @@ impl DiscreteProposalRatio {
     ///     DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
+    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
     ///
-    /// assert_eq!(ratio.forward_weight(), 0.25);
+    /// assert_eq!(ratio.forward_weight(), 1.0);
     /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn forward_weight(self) -> f64 {
         self.forward_weight
+    }
+
+    /// Sum of all move-family weights at the forward endpoint.
+    #[must_use]
+    pub const fn forward_weight_sum(self) -> f64 {
+        self.forward_weight_sum
     }
 
     /// Reverse move-family weight.
@@ -172,14 +211,20 @@ impl DiscreteProposalRatio {
     ///     DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2)?;
+    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
     ///
-    /// assert_eq!(ratio.reverse_weight(), 0.75);
+    /// assert_eq!(ratio.reverse_weight(), 3.0);
     /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
     #[must_use]
     pub const fn reverse_weight(self) -> f64 {
         self.reverse_weight
+    }
+
+    /// Sum of all move-family weights at the reverse endpoint.
+    #[must_use]
+    pub const fn reverse_weight_sum(self) -> f64 {
+        self.reverse_weight_sum
     }
 
     /// Number of concrete sites sampled by the forward proposal family.
@@ -252,7 +297,9 @@ impl DiscreteProposalRatio {
             return f64::NEG_INFINITY;
         }
 
-        self.reverse_weight.ln() - self.forward_weight.ln() + count_ln(self.forward_site_count)
+        self.reverse_weight.ln() - self.reverse_weight_sum.ln() - self.forward_weight.ln()
+            + self.forward_weight_sum.ln()
+            + count_ln(self.forward_site_count)
             - count_ln(reverse_site_count)
     }
 }
@@ -261,17 +308,29 @@ impl DiscreteProposalRatio {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum DiscreteProposalRatioError {
-    /// The forward move-family weight is not positive and finite.
+    /// The forward move-family weight is not positive and finite or exceeds its sum.
     #[non_exhaustive]
     InvalidForwardWeight {
         /// Invalid forward move-family weight.
         weight: f64,
     },
-    /// The reverse move-family weight is negative, `NaN`, or infinite.
+    /// The forward endpoint move-family weight sum is not positive and finite.
+    #[non_exhaustive]
+    InvalidForwardWeightSum {
+        /// Invalid forward endpoint weight sum.
+        weight_sum: f64,
+    },
+    /// The reverse move-family weight is negative, non-finite, or exceeds its sum.
     #[non_exhaustive]
     InvalidReverseWeight {
         /// Invalid reverse move-family weight.
         weight: f64,
+    },
+    /// The reverse endpoint move-family weight sum is not positive and finite.
+    #[non_exhaustive]
+    InvalidReverseWeightSum {
+        /// Invalid reverse endpoint weight sum.
+        weight_sum: f64,
     },
     /// A successful forward proposal reported zero valid forward sites.
     ZeroForwardSiteCount,
@@ -282,11 +341,19 @@ impl fmt::Display for DiscreteProposalRatioError {
         match self {
             Self::InvalidForwardWeight { weight } => write!(
                 f,
-                "invalid forward move-family weight {weight}: expected a positive finite value"
+                "invalid forward move-family weight {weight}: expected a positive finite value no greater than its endpoint weight sum"
+            ),
+            Self::InvalidForwardWeightSum { weight_sum } => write!(
+                f,
+                "invalid forward move-family weight sum {weight_sum}: expected a positive finite value"
             ),
             Self::InvalidReverseWeight { weight } => write!(
                 f,
-                "invalid reverse move-family weight {weight}: expected a nonnegative finite value"
+                "invalid reverse move-family weight {weight}: expected a nonnegative finite value no greater than its endpoint weight sum"
+            ),
+            Self::InvalidReverseWeightSum { weight_sum } => write!(
+                f,
+                "invalid reverse move-family weight sum {weight_sum}: expected a positive finite value"
             ),
             Self::ZeroForwardSiteCount => {
                 f.write_str("invalid forward site count 0 for a successful proposal")
@@ -710,6 +777,10 @@ pub trait DelayedProposal<S> {
     /// here.  The value is attached to the resulting [`crate::DelayedStep`]
     /// with [`crate::StepOutcome::NoProposal`].
     ///
+    /// This hook is telemetry-only: it must not affect transition mechanics,
+    /// and bulk sampler methods may skip it. Any scratch state retained for this
+    /// hook must remain bounded when callers do not request per-step telemetry.
+    ///
     /// # Examples
     ///
     /// ```
@@ -825,6 +896,10 @@ pub trait DelayedProposal<S> {
     }
 
     /// Produce telemetry metadata for `plan`.
+    ///
+    /// This hook is observational and must not affect transition mechanics.
+    /// Bulk sampler methods whose return type contains no [`crate::DelayedStep`]
+    /// may skip it.
     fn info(&self, plan: &Self::Plan) -> Self::Info;
 
     /// Apply an accepted concrete move to `state`.
@@ -1080,18 +1155,29 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_accounts_for_move_weights() {
-        let ratio = DiscreteProposalRatio::new(0.25, 6, 0.75, 2).unwrap();
+        let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2).unwrap();
 
-        assert_eq!(ratio.forward_weight().to_bits(), 0.25_f64.to_bits());
-        assert_eq!(ratio.reverse_weight().to_bits(), 0.75_f64.to_bits());
+        assert_eq!(ratio.forward_weight().to_bits(), 1.0_f64.to_bits());
+        assert_eq!(ratio.forward_weight_sum().to_bits(), 4.0_f64.to_bits());
+        assert_eq!(ratio.reverse_weight().to_bits(), 3.0_f64.to_bits());
+        assert_eq!(ratio.reverse_weight_sum().to_bits(), 4.0_f64.to_bits());
         assert_eq!(ratio.forward_site_count(), 6);
         assert_eq!(ratio.reverse_site_count(), 2);
 
         assert_relative_eq!(
             ratio.log_q_ratio(),
-            0.75_f64.ln() - 0.25_f64.ln() + 6.0_f64.ln() - 2.0_f64.ln(),
+            3.0_f64.ln() - 4.0_f64.ln() - 1.0_f64.ln() + 4.0_f64.ln() + 6.0_f64.ln() - 2.0_f64.ln(),
             epsilon = 1e-12
         );
+    }
+
+    #[test]
+    fn discrete_proposal_ratio_accounts_for_state_dependent_weight_sums() {
+        let ratio = DiscreteProposalRatio::new(1.0, 4.0, 1, 1.0, 8.0, 1)
+            .unwrap()
+            .log_q_ratio();
+
+        assert_relative_eq!(ratio, 0.5_f64.ln(), epsilon = f64::EPSILON);
     }
 
     #[test]
@@ -1106,7 +1192,7 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_allows_zero_reverse_weight() {
-        let ratio = DiscreteProposalRatio::new(1.0, 3, 0.0, 1)
+        let ratio = DiscreteProposalRatio::new(1.0, 1.0, 3, 0.0, 1.0, 1)
             .unwrap()
             .log_q_ratio();
 
@@ -1127,12 +1213,12 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_forward_weights() {
-        for weight in [0.0, -1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
-            let err = DiscreteProposalRatio::new(weight, 1, 1.0, 1).unwrap_err();
+        for weight in [0.0, -1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
+            let err = DiscreteProposalRatio::new(weight, 1.0, 1, 1.0, 1.0, 1).unwrap_err();
             assert_eq!(
                 err.to_string(),
                 format!(
-                    "invalid forward move-family weight {weight}: expected a positive finite value"
+                    "invalid forward move-family weight {weight}: expected a positive finite value no greater than its endpoint weight sum"
                 )
             );
 
@@ -1151,12 +1237,12 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_reverse_weights() {
-        for weight in [-1.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
-            let err = DiscreteProposalRatio::new(1.0, 1, weight, 1).unwrap_err();
+        for weight in [-1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
+            let err = DiscreteProposalRatio::new(1.0, 1.0, 1, weight, 1.0, 1).unwrap_err();
             assert_eq!(
                 err.to_string(),
                 format!(
-                    "invalid reverse move-family weight {weight}: expected a nonnegative finite value"
+                    "invalid reverse move-family weight {weight}: expected a nonnegative finite value no greater than its endpoint weight sum"
                 )
             );
 
@@ -1171,6 +1257,46 @@ mod tests {
                 other => panic!("unexpected error variant: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn discrete_proposal_ratio_rejects_invalid_endpoint_weight_sums() {
+        for weight_sum in [0.0, -1.0, f64::NEG_INFINITY, f64::INFINITY] {
+            let forward = DiscreteProposalRatio::new(1.0, weight_sum, 1, 1.0, 1.0, 1).unwrap_err();
+            assert_eq!(
+                forward,
+                DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum }
+            );
+            assert_eq!(
+                forward.to_string(),
+                format!(
+                    "invalid forward move-family weight sum {weight_sum}: expected a positive finite value"
+                )
+            );
+
+            let reverse = DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, weight_sum, 1).unwrap_err();
+            assert_eq!(
+                reverse,
+                DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum }
+            );
+            assert_eq!(
+                reverse.to_string(),
+                format!(
+                    "invalid reverse move-family weight sum {weight_sum}: expected a positive finite value"
+                )
+            );
+        }
+
+        assert!(matches!(
+            DiscreteProposalRatio::new(1.0, f64::NAN, 1, 1.0, 1.0, 1),
+            Err(DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum })
+                if weight_sum.is_nan()
+        ));
+        assert!(matches!(
+            DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, f64::NAN, 1),
+            Err(DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum })
+                if weight_sum.is_nan()
+        ));
     }
 
     #[test]

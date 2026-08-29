@@ -93,6 +93,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── release_check.py
 │   ├── subprocess_utils.py
 │   ├── tag_release.py
+│   ├── update_cargo_tool_pins.py
+│   ├── update_python_dev_pins.py
 │   └── tests/
 │       ├── __init__.py
 │       ├── test_archive_performance.py
@@ -102,7 +104,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── test_postprocess_changelog.py
 │       ├── test_release_check.py
 │       ├── test_subprocess_utils.py
-│       └── test_tag_release.py
+│       ├── test_tag_release.py
+│       ├── test_update_cargo_tool_pins.py
+│       └── test_update_python_dev_pins.py
 ├── semgrep.yaml
 ├── src/
 │   ├── chain.rs
@@ -115,6 +119,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── testing.rs
 │   └── traits.rs
 ├── tests/
+│   ├── public_api.rs
 │   ├── proptest_chain.rs
 │   ├── proptest_validators.rs
 │   └── semgrep/
@@ -140,6 +145,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │           │   ├── typed_error.rs
 │           │   └── unwrap_expect.rs
 │           └── project_rules/
+│               ├── algebraic_float.rs
 │               └── rust_style.rs
 ├── ty.toml
 ├── typos.toml
@@ -154,11 +160,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
-  README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report; update it through `just performance-release` or
-  `just performance-rerender`, not by hand.
+  README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report, while `docs/archive/performance/` owns its tracked
+  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-rerender`, not by hand.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
-- `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, release metadata validation, and
-  release tagging.
+- `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, dependency and tool-pin updates,
+  release metadata validation, and release tagging.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 

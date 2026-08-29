@@ -35,7 +35,7 @@ Small release-critical fixes are acceptable if they are discovered during valida
 git checkout -b release/$TAG
 ```
 
-### 2. Bump package and citation versions
+### 2. Bump package and citation metadata
 
 Preferred, if `cargo-edit` is installed:
 
@@ -45,10 +45,14 @@ cargo set-version "$VERSION"
 
 Alternatively, edit `Cargo.toml` manually and update the package `version`.
 
-Also update release metadata that duplicates the package version:
+Also update release metadata for this exact version:
 
-- `CITATION.cff` `version`
+- `CITATION.cff` `version` and `date-released`
 - `pyproject.toml` project `version`
+
+The `CITATION.cff` `doi` is the stable Zenodo concept DOI for the repository, not a DOI for one deposited version. Preserve it across routine releases and keep
+the README badge target and `REFERENCES.md` DOI synchronized with it. Set `date-released` to the intended UTC release date; after changelog generation it must
+match the latest release heading in `CHANGELOG.md`.
 
 Then refresh lockfiles/build metadata:
 
@@ -86,10 +90,11 @@ Validate the generated release section, synchronized package and citation metada
 just release-check
 ```
 
-The checker treats `Cargo.toml` as the source of truth. It checks the root package in `Cargo.lock`, the Python tooling package in `pyproject.toml` and
+The checker treats `Cargo.toml` as the version source of truth. It checks the root package in `Cargo.lock`, the Python tooling package in `pyproject.toml` and
 `uv.lock`, `CITATION.cff`, the latest generated `CHANGELOG.md` release, versioned installation examples, release-pinned README links, and the current tag in
-explicit `performance-release` examples. Historical changelog entries, archived documentation, release-asset comparison pairs, and test fixtures remain
-independent of the current package version.
+explicit `performance-release` examples. It also requires the citation release date to match the changelog and the concept DOI to agree across
+`CITATION.cff`, the README badge, and `REFERENCES.md`. Historical changelog entries, archived documentation, release-asset comparison pairs, and test fixtures
+remain independent of the current package version.
 
 ### 4. Update the release performance comparison
 
@@ -109,14 +114,19 @@ Check the comparable-row coverage, host and toolchain, and benchmark-harness has
 against the lifecycle contract in [`docs/BENCHMARKING.md`](BENCHMARKING.md): state and RNG lifecycle, setup boundary, step count, target/proposal and outcome
 path, and output ownership must remain comparable. Rename a materially changed workload rather than publishing a false release-to-release comparison.
 
-Confirm that the saved measurements can reproduce the curated report without another benchmark run:
+Confirm that the tracked measurements can reproduce the curated report without another benchmark run or ignored build artifacts:
 
 ```bash
 just performance-rerender
 ```
 
-This rerender path reads only the CSV and JSON provenance. It does not resolve releases, create Git worktrees, or run Cargo. Keep both files with any external
-research record that cites this local comparison; the repository-owned durable measurements are the native Criterion archives attached after publication.
+By default, this rerender path resolves the comparison pair from `docs/PERFORMANCE.md` and reads its compact CSV and JSON provenance from
+`docs/archive/performance/`. Pass an explicit path, such as `just performance-rerender target/bench-reports/release-performance.csv`, to validate a separately
+saved artifact. Rerendering does not resolve releases, create Git worktrees, or run Cargo.
+
+Commit the promoted CSV and JSON provenance with `docs/PERFORMANCE.md`; they are the compact, repository-owned evidence needed to reproduce the curated table
+from a fresh checkout. The native Criterion archives attached to GitHub Releases preserve the richer raw samples and support independent historical
+reanalysis. Keep the compact pair and native archives with any external research record that cites the comparison.
 
 For a same-host development comparison that does not modify committed docs, use `just performance-local`. To compare durable assets from two already-published
 releases without running Cargo locally, use `just performance-github-assets` or pass an explicit release pair. See
@@ -176,8 +186,8 @@ gh release create "$TAG" --title "$TAG" --notes-from-tag
 The `Release Benchmarks` workflow then saves the `stepping` Criterion suite and attaches
 `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz` to the GitHub Release. Verify the release attachment exists; the workflow's 30-day Actions artifact is
 diagnostic only and is not the durable baseline. Historical releases are not backfilled; `performance-github-assets` requires two releases published through
-this workflow. During the prospective rollout, the first post-rollout release establishes the initial asset. After the second, run
-`just performance-github-assets` and verify the resulting pair before treating the release-benchmark adoption as complete.
+this workflow. Because `v0.4.1` and earlier releases have no Criterion baseline attachment, `v0.4.2` establishes the initial asset. After publishing
+`v0.4.3`, run `just performance-github-assets` and verify the `v0.4.3`-against-`v0.4.2` pair before treating the release-benchmark adoption as complete.
 
 Publish to crates.io:
 

@@ -1,10 +1,11 @@
-//! 1-D Ising model sampled with `ProposalMut` (in-place mutation + rollback).
+//! Open-boundary 1-D Ising model sampled with `ProposalMut` (in-place mutation + rollback).
 //!
 //! Demonstrates [`Sampler`] with `run_mut` for burn-in, `step_mut` for
 //! per-sample collection on a discrete, non-Clone state space, and
 //! [`TraceRecorder`] for CSV trace export.  The example is intentionally small:
 //! it shows the sampler contract for a familiar statistical-physics model,
-//! not a finite-size scaling study.
+//! not a finite-size scaling study.  Parameters use dimensionless units with
+//! Boltzmann's constant absorbed into the inverse temperature `beta`.
 //!
 //! Run with: `just example ising_1d`
 
@@ -14,6 +15,7 @@ use std::fs::{self, File};
 use std::io;
 
 use markov_chain_monte_carlo::prelude::in_place::*;
+use markov_chain_monte_carlo::prelude::{ChainId, TraceError, TraceRecorder, TraceStepOutcome};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
@@ -93,13 +95,14 @@ impl SpinChain {
 
 // --- Target: nearest-neighbour Ising energy at inverse temperature β ---
 
-/// Nearest-neighbour Ising Hamiltonian: H = −J Σ `s_i` · `s_{i+1}`.
+/// Open-boundary nearest-neighbour Ising Hamiltonian:
+/// H = −J Σ_{i=0}^{N−2} `s_i` · `s_{i+1}`.
 ///
-/// `log_prob = −β H = β J Σ s_i · s_{i+1}`.
+/// The first and last spins are not coupled. `log_prob = −β H`.
 struct Ising {
-    /// Coupling constant (positive = ferromagnetic).
+    /// Dimensionless coupling constant (positive = ferromagnetic).
     coupling: f64,
-    /// Inverse temperature.
+    /// Dimensionless inverse temperature.
     beta: f64,
 }
 
@@ -207,6 +210,8 @@ fn main() -> Result<(), ExampleError> {
 
     let mean_mag = mag_sum / f64::from(n_samples);
     let mean_mag_sq = mag_sq_sum / f64::from(n_samples);
+    // Finite-sample fluctuation estimator for this finite open chain, not a
+    // thermodynamic-limit susceptibility claim.
     let susceptibility = beta * n_spins_f64 * (mean_mag_sq - mean_mag * mean_mag);
 
     println!("\nResults ({n_samples} samples):");

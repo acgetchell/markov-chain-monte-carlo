@@ -72,11 +72,10 @@ fn check_log_q_ratio(log_q: f64) -> Result<(), McmcError> {
     Ok(())
 }
 
-/// Check that a delayed commit produced the state scored before acceptance.
+/// Check that a delayed commit produced the target score used for acceptance.
 ///
-/// The checked delayed path recomputes the committed state's log-probability so
-/// proposal authors can catch plan/commit mismatches without leaving the chain's
-/// cached log-probability stale.
+/// Target scores are not generally injective, so equality here establishes
+/// score consistency rather than identity of the planned and committed states.
 fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError> {
     if committed.is_nan() {
         cold_path();
@@ -494,6 +493,37 @@ impl<E: Error + 'static> Error for DelayedStepError<E> {
     }
 }
 
+/// Select how a by-value transition reports its completed outcome.
+trait ValueTelemetryMode {
+    type Output;
+
+    fn accepted(log_prob_before: f64, log_prob_after: f64, log_alpha: f64) -> Self::Output;
+    fn rejected(log_prob_before: f64, log_alpha: f64) -> Self::Output;
+}
+
+struct CaptureValueTelemetry;
+
+impl ValueTelemetryMode for CaptureValueTelemetry {
+    type Output = Step<()>;
+
+    fn accepted(log_prob_before: f64, log_prob_after: f64, log_alpha: f64) -> Self::Output {
+        Step::accepted_proposal((), log_prob_before, log_prob_after, log_alpha)
+    }
+
+    fn rejected(log_prob_before: f64, log_alpha: f64) -> Self::Output {
+        Step::rejected_proposal((), log_prob_before, log_alpha)
+    }
+}
+
+struct DiscardValueTelemetry;
+
+impl ValueTelemetryMode for DiscardValueTelemetry {
+    type Output = ();
+
+    fn accepted(_log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
+    fn rejected(_log_prob_before: f64, _log_alpha: f64) {}
+}
+
 /// Select how an in-place transition reports its completed outcome.
 ///
 /// The policy keeps one transition algorithm for structured single-step calls
@@ -565,6 +595,65 @@ impl<S, P: ProposalMut<S> + ?Sized> MutTelemetryMode<S, P> for DiscardMutTelemet
 
     fn accepted((): Self::Captured, _log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
 
+    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
+}
+
+/// Select how a delayed transition reports its completed outcome.
+///
+/// Bulk paths statically discard telemetry, so proposal metadata hooks are not
+/// called unless the caller receives a [`DelayedStep`].
+trait DelayedTelemetryMode<S, P: DelayedProposal<S> + ?Sized> {
+    type Captured;
+    type Output;
+
+    fn no_proposal(proposal: &mut P, log_prob_before: f64) -> Self::Output;
+    fn capture(proposal: &P, plan: &P::Plan) -> Self::Captured;
+    fn accepted(
+        captured: Self::Captured,
+        log_prob_before: f64,
+        log_prob_after: f64,
+        log_alpha: f64,
+    ) -> Self::Output;
+    fn rejected(captured: Self::Captured, log_prob_before: f64, log_alpha: f64) -> Self::Output;
+}
+
+struct CaptureDelayedTelemetry;
+
+impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for CaptureDelayedTelemetry {
+    type Captured = P::Info;
+    type Output = DelayedStep<P::Info>;
+
+    fn no_proposal(proposal: &mut P, log_prob_before: f64) -> Self::Output {
+        Step::no_proposal(proposal.no_plan_info(), log_prob_before)
+    }
+
+    fn capture(proposal: &P, plan: &P::Plan) -> Self::Captured {
+        proposal.info(plan)
+    }
+
+    fn accepted(
+        info: Self::Captured,
+        log_prob_before: f64,
+        log_prob_after: f64,
+        log_alpha: f64,
+    ) -> Self::Output {
+        Step::accepted_proposal(info, log_prob_before, log_prob_after, log_alpha)
+    }
+
+    fn rejected(info: Self::Captured, log_prob_before: f64, log_alpha: f64) -> Self::Output {
+        Step::rejected_proposal(info, log_prob_before, log_alpha)
+    }
+}
+
+struct DiscardDelayedTelemetry;
+
+impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for DiscardDelayedTelemetry {
+    type Captured = ();
+    type Output = ();
+
+    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) {}
+    fn capture(_proposal: &P, _plan: &P::Plan) {}
+    fn accepted((): Self::Captured, _log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
     fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
 }
 
@@ -711,7 +800,9 @@ impl<S> Chain<S> {
     ///
     /// The proposal returns a new state by value.  For state spaces where
     /// constructing a whole proposed state is expensive, use
-    /// [`step_mut`](Self::step_mut).
+    /// [`step_mut`](Self::step_mut). The returned [`Step`] exposes the same
+    /// acceptance telemetry as the in-place and delayed workflows; its info
+    /// value is `()` because [`Proposal`] has no metadata hook.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
@@ -728,7 +819,7 @@ impl<S> Chain<S> {
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(S(0.0), &T)?;
-    /// chain.step(&T, &P, &mut rng)?;
+    /// let _ = chain.step(&T, &P, &mut rng)?;
     /// assert_eq!(chain.total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -745,7 +836,32 @@ impl<S> Chain<S> {
         target: &T,
         proposal: &P,
         rng: &mut R,
+    ) -> Result<Step<()>, McmcError> {
+        self.step_with_mode::<CaptureValueTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    /// Perform a by-value step without constructing telemetry.
+    pub(crate) fn step_without_telemetry<T: Target<S>, P: Proposal<S> + ?Sized, R: Rng + ?Sized>(
+        &mut self,
+        target: &T,
+        proposal: &P,
+        rng: &mut R,
     ) -> Result<(), McmcError> {
+        self.step_with_mode::<DiscardValueTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    fn step_with_mode<
+        M: ValueTelemetryMode,
+        T: Target<S>,
+        P: Proposal<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
+        &mut self,
+        target: &T,
+        proposal: &P,
+        rng: &mut R,
+    ) -> Result<M::Output, McmcError> {
+        let log_prob_before = self.log_prob;
         let proposed = proposal.propose(&self.state, rng);
         let log_prob_new = target.log_prob(&proposed);
         check_proposed_log_prob(log_prob_new)?;
@@ -761,10 +877,11 @@ impl<S> Chain<S> {
             self.state = proposed;
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            Ok(M::accepted(log_prob_before, log_prob_new, log_alpha))
         } else {
             self.rejected = self.rejected.saturating_add(1);
+            Ok(M::rejected(log_prob_before, log_alpha))
         }
-        Ok(())
     }
 
     /// Perform a single Metropolis–Hastings step (in-place with rollback).
@@ -979,14 +1096,43 @@ impl<S> Chain<S> {
         proposal: &mut P,
         rng: &mut R,
     ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>> {
+        self.step_delayed_with_mode::<CaptureDelayedTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    /// Perform a delayed step without constructing proposal telemetry.
+    pub(crate) fn step_delayed_without_telemetry<
+        T: Target<S>,
+        P: DelayedProposal<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
+        &mut self,
+        target: &T,
+        proposal: &mut P,
+        rng: &mut R,
+    ) -> Result<(), DelayedStepError<P::Error>> {
+        self.step_delayed_with_mode::<DiscardDelayedTelemetry, T, P, R>(target, proposal, rng)
+    }
+
+    /// Execute one delayed transition with a statically selected telemetry policy.
+    fn step_delayed_with_mode<
+        M: DelayedTelemetryMode<S, P>,
+        T: Target<S>,
+        P: DelayedProposal<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
+        &mut self,
+        target: &T,
+        proposal: &mut P,
+        rng: &mut R,
+    ) -> Result<M::Output, DelayedStepError<P::Error>> {
         let log_prob_before = self.log_prob;
         let Some(plan) = proposal
             .propose_plan(&self.state, rng)
             .map_err(DelayedStepError::Plan)?
         else {
-            let info = proposal.no_plan_info();
+            let output = M::no_proposal(proposal, log_prob_before);
             self.rejected = self.rejected.saturating_add(1);
-            return Ok(Step::no_proposal(info, log_prob_before));
+            return Ok(output);
         };
 
         let log_prob_new = proposal
@@ -1001,7 +1147,7 @@ impl<S> Chain<S> {
 
         let log_alpha = log_prob_new - self.log_prob + log_q;
         let accept = accept_log_alpha(log_alpha, rng);
-        let info = proposal.info(&plan);
+        let captured = M::capture(proposal, &plan);
 
         if accept {
             proposal
@@ -1009,34 +1155,38 @@ impl<S> Chain<S> {
                 .map_err(DelayedStepError::Commit)?;
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
-            Ok(Step::accepted_proposal(
-                info,
+            Ok(M::accepted(
+                captured,
                 log_prob_before,
                 log_prob_new,
                 log_alpha,
             ))
         } else {
             self.rejected = self.rejected.saturating_add(1);
-            Ok(Step::rejected_proposal(info, log_prob_before, log_alpha))
+            Ok(M::rejected(captured, log_prob_before, log_alpha))
         }
     }
 
-    /// Perform a delayed-commit step and verify the committed state afterward.
+    /// Perform a delayed-commit step and verify its target score afterward.
     ///
-    /// This variant is intended for proposal development and invariant-heavy
-    /// state spaces.  It follows the same Metropolis-Hastings decision as
-    /// [`step_delayed`](Self::step_delayed), then recomputes the target
-    /// log-probability after an accepted commit.  If the committed state's
-    /// log-probability is invalid or differs from the value used for the
-    /// acceptance decision, the original state is restored and an
-    /// [`McmcError`] is returned through [`DelayedStepError::Mcmc`].
+    /// This variant is intended for proposal development. It follows the same
+    /// Metropolis-Hastings decision as [`step_delayed`](Self::step_delayed), then
+    /// recomputes the target log-probability after an accepted commit. If the
+    /// committed state's log-probability is invalid or differs from the value
+    /// used for the acceptance decision, the pre-commit clone is assigned back
+    /// to the chain and an [`McmcError`] is returned through
+    /// [`DelayedStepError::Mcmc`].
     ///
-    /// The method requires `S: Clone` so it can restore the prior state when a
-    /// proposal violates the delayed-commit contract.
+    /// Equal target scores do not prove that `commit` applied the planned state:
+    /// distinct states can have the same target log-probability. Proposal tests
+    /// must check domain-specific transition identity separately.
     ///
-    /// If [`DelayedProposal::commit`] returns an error, the chain state and
-    /// cached log-probability are restored before the error is returned.  The
-    /// proposal remains responsible for its own internal state.
+    /// The method requires `S: Clone`, and correctness requires that cloning
+    /// produce a rollback-isolated snapshot for every part of `state` that
+    /// [`DelayedProposal::commit`] can mutate. A shallow clone containing shared
+    /// interior-mutability handles does not satisfy that contract. If `commit`
+    /// returns an error, the clone is assigned back before the error is returned;
+    /// the proposal remains responsible for its own internal state.
     ///
     /// # Examples
     ///
@@ -1363,7 +1513,7 @@ impl<S> Chain<S> {
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(S(0.0), &T)?;
     /// for _ in 0..100 {
-    ///     chain.step(&T, &P, &mut rng)?;
+    ///     let _ = chain.step(&T, &P, &mut rng)?;
     /// }
     /// assert_eq!(chain.total_steps(), 100);
     /// assert_eq!(chain.total_steps(), chain.accepted() + chain.rejected());
@@ -1399,7 +1549,7 @@ impl<S> Chain<S> {
     /// assert_eq!(chain.acceptance_rate(), 0.0); // no steps yet
     ///
     /// for _ in 0..1000 {
-    ///     chain.step(&T, &P, &mut rng)?;
+    ///     let _ = chain.step(&T, &P, &mut rng)?;
     /// }
     /// assert!(chain.acceptance_rate() > 0.0);
     /// # Ok::<(), McmcError>(())
@@ -1438,7 +1588,7 @@ impl<S> Chain<S> {
     ///
     /// // Burn-in
     /// for _ in 0..1000 {
-    ///     chain.step(&T, &P, &mut rng)?;
+    ///     let _ = chain.step(&T, &P, &mut rng)?;
     /// }
     ///
     /// chain.reset_counters();
@@ -1446,7 +1596,7 @@ impl<S> Chain<S> {
     ///
     /// // Production — acceptance rate reflects only this phase
     /// for _ in 0..5000 {
-    ///     chain.step(&T, &P, &mut rng)?;
+    ///     let _ = chain.step(&T, &P, &mut rng)?;
     /// }
     /// assert!(chain.acceptance_rate() > 0.0);
     /// # Ok::<(), McmcError>(())
@@ -1525,7 +1675,7 @@ mod tests {
     fn serde_checkpoint_resumes_sampling() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
-        chain.step(&Normal, &FixedProposal(0.0), &mut rng).unwrap();
+        let _ = chain.step(&Normal, &FixedProposal(0.0), &mut rng).unwrap();
 
         let checkpoint = serde_json::to_string(&chain).unwrap();
         let checkpoint: ChainCheckpoint<Scalar> = serde_json::from_str(&checkpoint).unwrap();
@@ -1541,7 +1691,7 @@ mod tests {
         assert_eq!(restored.rejected(), 0);
         assert_eq!(restored.total_steps(), 1);
 
-        restored
+        let _ = restored
             .step(&Normal, &FixedProposal(100.0), &mut rng)
             .unwrap();
 
@@ -1655,8 +1805,13 @@ mod tests {
         let proposal = FixedProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&Normal, &proposal, &mut rng).unwrap();
+        let step = chain.step(&Normal, &proposal, &mut rng).unwrap();
 
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.info(), Some(&()));
+        assert_eq!(step.log_prob_before().to_bits(), (-2.0_f64).to_bits());
+        assert_eq!(step.log_prob_after(), Some(0.0));
+        assert_eq!(step.log_alpha(), Some(2.0));
         assert_eq!(
             chain.state,
             Scalar(0.0),
@@ -1670,11 +1825,17 @@ mod tests {
     fn step_rejects_downhill() {
         // From x=0.0 (log_prob=0) to x=100.0 (log_prob=-5000): virtually always reject
         let mut chain = Chain::new(Scalar(0.0), &Normal).unwrap();
+        let log_prob_before = chain.log_prob();
         let proposal = FixedProposal(100.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&Normal, &proposal, &mut rng).unwrap();
+        let step = chain.step(&Normal, &proposal, &mut rng).unwrap();
 
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(step.info(), Some(&()));
+        assert_eq!(step.log_prob_before().to_bits(), log_prob_before.to_bits());
+        assert_eq!(step.log_prob_after(), None);
+        assert_eq!(step.log_alpha(), Some(-5000.0));
         assert_eq!(
             chain.state,
             Scalar(0.0),
@@ -1715,7 +1876,7 @@ mod tests {
         let samples = 1_000_u32;
         let mut true_count = 0_u32;
         for _ in 0..samples {
-            chain.step(&FlatBool, &FlipBool, &mut rng).unwrap();
+            let _ = chain.step(&FlatBool, &FlipBool, &mut rng).unwrap();
             true_count += u32::from(*chain.state());
         }
 
@@ -1736,13 +1897,13 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         for _ in 0..5_000 {
-            chain.step(&target, &FlipBool, &mut rng).unwrap();
+            let _ = chain.step(&target, &FlipBool, &mut rng).unwrap();
         }
 
         let samples = 50_000_u32;
         let mut true_count = 0_u32;
         for _ in 0..samples {
-            chain.step(&target, &FlipBool, &mut rng).unwrap();
+            let _ = chain.step(&target, &FlipBool, &mut rng).unwrap();
             true_count += u32::from(*chain.state());
         }
 
@@ -2014,13 +2175,13 @@ mod tests {
         let mut chain1 = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut rng1 = StdRng::seed_from_u64(12345);
         for _ in 0..steps {
-            chain1.step(&Normal, &proposal, &mut rng1).unwrap();
+            let _ = chain1.step(&Normal, &proposal, &mut rng1).unwrap();
         }
 
         let mut chain2 = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut rng2 = StdRng::seed_from_u64(12345);
         for _ in 0..steps {
-            chain2.step(&Normal, &proposal, &mut rng2).unwrap();
+            let _ = chain2.step(&Normal, &proposal, &mut rng2).unwrap();
         }
 
         assert_eq!(
@@ -2041,14 +2202,14 @@ mod tests {
 
         // Burn-in
         for _ in 0..1_000 {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
         // Collect samples
         let n = 10_000;
         let mut sum = 0.0;
         for _ in 0..n {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
             sum += chain.state.0;
         }
         let mean = sum / f64::from(n);
@@ -2204,6 +2365,7 @@ mod tests {
         let mut chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
         let mut proposal = FixedMutProposal(100.0);
         let mut rng = StdRng::seed_from_u64(42);
+        let log_prob_before = chain.log_prob();
 
         let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
 
@@ -2213,7 +2375,7 @@ mod tests {
             step.rejection_reason(),
             Some(StepRejectionReason::RejectedProposal)
         );
-        assert_eq!(step.log_prob_before(), 0.0);
+        assert_eq!(step.log_prob_before().to_bits(), log_prob_before.to_bits());
         assert_eq!(step.log_prob_after(), None);
         assert_eq!(step.log_alpha(), Some(-5000.0));
         // State should be rolled back to original
@@ -2243,7 +2405,7 @@ mod tests {
             step.rejection_reason(),
             Some(StepRejectionReason::NoProposal)
         );
-        assert_eq!(step.log_prob_before(), log_prob);
+        assert_eq!(step.log_prob_before().to_bits(), log_prob.to_bits());
         assert_eq!(step.log_prob_after(), None);
         assert_eq!(step.log_alpha(), None);
         assert_eq!(chain.state, MutScalar(1.0), "State should be unchanged");
@@ -3106,6 +3268,24 @@ mod tests {
     }
 
     #[test]
+    fn delayed_checked_establishes_score_consistency_not_state_identity() {
+        let mut chain = Chain::new(Scalar(2.0), &Normal).unwrap();
+        let mut proposal = CheckedCommitProposal {
+            scored: 1.0,
+            committed: -1.0,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let step = chain
+            .step_delayed_checked(&Normal, &mut proposal, &mut rng)
+            .unwrap();
+
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(chain.state, Scalar(-1.0));
+        assert_eq!(chain.log_prob().to_bits(), (-0.5_f64).to_bits());
+    }
+
+    #[test]
     fn delayed_checked_restores_after_mismatched_commit() {
         struct MismatchedCommit;
         impl DelayedProposal<Scalar> for MismatchedCommit {
@@ -3342,7 +3522,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         for _ in 0..100 {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
         assert!(chain.total_steps() > 0);
 
@@ -3361,7 +3541,7 @@ mod tests {
 
         let steps = 50;
         for _ in 0..steps {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
         assert_eq!(chain.total_steps(), steps);
         assert_eq!(chain.total_steps(), chain.accepted() + chain.rejected());
@@ -3466,7 +3646,7 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&Normal, &proposal, &mut rng).unwrap();
+        let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         assert_eq!(
             chain.state,
             Scalar(1.0),
@@ -3486,7 +3666,7 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&Normal, &proposal, &mut rng).unwrap();
+        let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         assert_eq!(
             chain.state,
             Scalar(2.0),
@@ -3561,7 +3741,7 @@ mod tests {
         let proposal = FixedProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&target, &proposal, &mut rng).unwrap();
+        let _ = chain.step(&target, &proposal, &mut rng).unwrap();
         // exp(-inf - (-0.5)) = exp(-inf) = 0 → always reject
         assert_eq!(
             chain.state,
@@ -3589,7 +3769,7 @@ mod tests {
         let proposal = FixedProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&target, &proposal, &mut rng).unwrap();
+        let _ = chain.step(&target, &proposal, &mut rng).unwrap();
         // log_alpha = 0 - (-inf) = inf → always accept
         assert_eq!(
             chain.state,
@@ -3610,7 +3790,7 @@ mod tests {
         let proposal = FixedProposal(1.0);
         let mut rng = StdRng::seed_from_u64(42);
 
-        chain.step(&AlwaysNegInf, &proposal, &mut rng).unwrap();
+        let _ = chain.step(&AlwaysNegInf, &proposal, &mut rng).unwrap();
         // log_alpha = (-inf) - (-inf) = NaN → NaN comparisons false → reject
         assert_eq!(
             chain.state,

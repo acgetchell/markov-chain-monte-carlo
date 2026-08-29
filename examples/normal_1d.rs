@@ -65,7 +65,7 @@ fn main() -> Result<(), McmcError> {
     let mut sum = 0.0;
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
-        sampler.step()?;
+        let _ = sampler.step()?;
         let sample = sampler.chain_ref().state().0;
         sum += sample;
         sum_sq = sample.mul_add(sample, sum_sq);

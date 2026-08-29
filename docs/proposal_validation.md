@@ -74,16 +74,19 @@ For a move that chooses a move kind and then chooses uniformly among valid concr
 
 ```text
 log_q_ratio = log q(current | proposed) - log q(proposed | current)
-            = log reverse_move_weight - log forward_move_weight
+            = log reverse_move_weight - log reverse_weight_sum
+            - log forward_move_weight + log forward_weight_sum
             + log valid_forward_sites - log valid_reverse_sites
 ```
 
-Add any non-uniform concrete-site selection terms as well. A bounded search that returns `Ok(None)` after failing to find a valid site is an ordinary
-self-loop/rejection, but it does not repair an omitted Hastings correction for successful moves.
+The weight-sum terms cancel only when the total family weight is the same at both endpoints. Add any non-uniform concrete-site selection terms as well. A
+bounded search that returns `Ok(None)` after failing to find a valid site is an ordinary self-loop/rejection, but it does not repair an omitted Hastings
+correction for successful moves.
 
-Use `DiscreteProposalRatio::from_counts(forward_sites, reverse_sites)?` for the common equal-move-weight case, or `DiscreteProposalRatio::new(...)` when inverse
-move families have different selection weights. Construction rejects invalid successful-forward inputs immediately. A zero reverse-site count is valid and
-computes to `-inf`, while a successful plan with zero forward sites is reported as an invalid proposal-ratio input.
+Use `DiscreteProposalRatio::from_counts(forward_sites, reverse_sites)?` for the common equal-normalized-family-probability case, or
+`DiscreteProposalRatio::new(...)` when inverse move families have different selection weights or endpoint totals. Construction rejects invalid
+successful-forward inputs immediately. A zero reverse-site count is valid and computes to `-inf`, while a successful plan with zero forward sites is
+reported as an invalid proposal-ratio input.
 
 ## Continuous Proposals
 
@@ -111,3 +114,8 @@ For a new scientific proposal, combine:
 - Long-run observable checks with `OnlineStats` or `BinningAnalysis`
 
 No single test proves scientific validity. The goal is to make local proposal mistakes loud before they contaminate long simulations.
+
+## References
+
+The proposal-ratio and acceptance conventions in this guide follow Metropolis et al. (1953) and Hastings (1970). See the canonical entries in
+[`REFERENCES.md`](../REFERENCES.md#background-references).

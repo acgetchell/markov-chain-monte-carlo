@@ -247,7 +247,7 @@ fn bench_chain_steps(c: &mut Criterion) {
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
-            chain
+            let _ = chain
                 .step(&target, &proposal, &mut rng)
                 .or_abort("chain step by value");
             black_box(chain.state().0);
@@ -450,7 +450,7 @@ fn bench_observing(c: &mut Criterion) {
             |(mut chain, mut rng)| {
                 let mut sum = 0.0;
                 for _ in 0..black_box(BULK_STEPS) {
-                    chain
+                    let _ = chain
                         .step(&target, &proposal, &mut rng)
                         .or_abort("manual observing chain step");
                     let sample = chain.state().0;

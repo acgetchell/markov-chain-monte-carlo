@@ -9,7 +9,7 @@ just bench-compare [baseline]
 just performance-local
 just performance-github-assets [current-tag baseline-tag]
 just performance-release [current-tag baseline-tag]
-just performance-rerender
+just performance-rerender [measurements-path]
 ```
 
 `bench-compare` discovers Criterion samples below `target/criterion`, compares `new` with a saved baseline, and writes Markdown under
@@ -17,10 +17,24 @@ just performance-rerender
 worktrees. GitHub Release comparisons resolve two published tags and consume their durable assets without local measurements. Each measurement-producing
 `performance-*` command writes deterministic CSV plus structured JSON provenance below `target/bench-reports/`, reloads those files, and renders Markdown from
 the validated artifact. Release-promotion runs infer or accept a release pair, measure it in isolated worktrees, and safely promote one curated report into
-`docs/PERFORMANCE.md` while preserving prior pairs under `docs/archive/performance/`. `performance-rerender` promotes the saved release artifact without
-GitHub access, Git worktrees, or Cargo.
+`docs/PERFORMANCE.md` while preserving prior reports and the promoted CSV/JSON evidence under `docs/archive/performance/`. With no path,
+`performance-rerender` resolves the tracked evidence for the current curated report; an explicit path can rerender another saved pair. Both modes avoid GitHub
+access, Git worktrees, and Cargo. Native Criterion archives attached to GitHub Releases remain the richer raw evidence for historical reanalysis.
+The legacy v0.4.1 curated report predates the tracked pair, so no-argument rerendering becomes available after the next release promotion; use an explicit
+generated CSV path for a pre-migration repair.
 
 The benchmark command contracts and interpretation limits live in [`docs/BENCHMARKING.md`](../docs/BENCHMARKING.md).
+
+## Dependency and Tool Updates
+
+```bash
+just update
+```
+
+`update-python-dev-pins` resolves exact entries in `dependency-groups.dev` as one compatible set, leaves ranged requirements unchanged, applies all exact
+pin changes in one uv transaction, and restores `pyproject.toml` and `uv.lock` if the mutation fails or changes unrelated manifest content.
+`update-tool-pins` reconciles the root justfile with the Cargo-installed tools managed by `just setup` and the active uv version. The aggregate recipe also
+updates Cargo requirements and lockfiles, upgrades those managed Cargo tools, refreshes the uv lock, and syncs the development environment.
 
 ## Release Metadata
 
@@ -29,7 +43,8 @@ just release-check
 ```
 
 `release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
-`CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation.
+`CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation. It also checks that the citation
+release date matches the changelog and that the stable concept DOI agrees across citation metadata, the README badge, and `REFERENCES.md`.
 
 ## Notebooks
 

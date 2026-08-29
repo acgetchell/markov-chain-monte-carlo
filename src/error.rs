@@ -30,8 +30,8 @@ pub enum McmcError {
     ///
     /// This is reported by [`crate::Chain::step_delayed_checked`] or
     /// [`crate::Sampler::step_delayed_checked`] when the delayed plan scores
-    /// one transition but [`crate::DelayedProposal::commit`] applies a
-    /// different one.
+    /// one target score but [`crate::DelayedProposal::commit`] produces another.
+    /// Equal target scores do not establish state or transition identity.
     InconsistentDelayedCommitLogProb,
     /// Target returned +∞ log-probability for the initial state.
     ///
