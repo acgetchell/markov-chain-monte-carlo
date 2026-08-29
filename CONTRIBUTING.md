@@ -34,7 +34,7 @@ This project is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The comm
 
 Before you begin, ensure you have:
 
-1. **Rust 1.97.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
+1. **Rust 1.98.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
 4. **uv** (Python 3.14 tooling): install the repository-pinned version with
@@ -90,7 +90,7 @@ Before you begin, ensure you have:
 
 This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.toml). When you enter the project directory, `rustup` will automatically:
 
-- install the correct Rust version (1.97.1) if you don't have it
+- install the correct Rust version (1.98.0) if you don't have it
 - switch to the pinned version for this project
 - install required components (clippy, rustfmt, rust-docs, rust-std, rust-src, rust-analyzer)
 
@@ -101,8 +101,10 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 `just setup` installs and verifies the external tools the project relies on:
 
 - [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter, installed through `actionlint-py` in the uv dev environment
+- [cargo-edit](https://github.com/killercup/cargo-edit) — Cargo dependency requirement updates
 - [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) — coverage reports
 - [cargo-nextest](https://nexte.st/) — Rust unit and integration test runner
+- [cargo-update](https://github.com/nabijaczleweli/cargo-update) — installed Cargo tool updates
 - [dprint](https://dprint.dev/) — YAML formatter
 - [git-cliff](https://git-cliff.org/) — changelog generation
 - [jq](https://jqlang.github.io/jq/) — JSON validator
@@ -144,6 +146,7 @@ in lexicographic source order so both views remain easy to scan.
 
 ```bash
 just setup           # Install / verify external dev tools
+just update          # Update dependencies, managed Cargo tools, and tool pins
 just check           # Run linters / validators (non-mutating)
 just ci              # Full local CI simulation (mirrors .github/workflows/ci.yml)
 just fix             # Apply formatters / auto-fixes (mutating)
@@ -156,6 +159,10 @@ just bench-compile   # Compile benchmarks without measuring
 just changelog      # Regenerate CHANGELOG.md from git history
 just clean           # Clean build artifacts
 ```
+
+`just update` advances Cargo dependency requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins,
+upgrades the Cargo-installed CLI tools managed by `just setup`, and reconciles their root justfile pins together with the active uv version. Review the
+resulting manifest, lockfile, and tool-pin changes before committing them.
 
 **Workflow help:**
 
@@ -203,7 +210,7 @@ just help-workflows  # Detailed workflow guidance
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.97.1 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.98.0 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
@@ -214,7 +221,7 @@ just help-workflows  # Detailed workflow guidance
 
 ### Linting Configuration
 
-`just clippy` checks the core library surface used by the default gates:
+The fast `just clippy` recipe checks the core library surface used by `just check`:
 
 ```bash
 CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
@@ -222,8 +229,9 @@ CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib
 
 Cargo owns the warning-as-error policy so changing the policy does not invalidate compiled artifacts. The explicit `-W` flags remain because they enable
 Clippy lint groups; `CARGO_BUILD_WARNINGS=deny` changes the severity of enabled lints but does not select those groups. The crate forbids `unsafe_code` and
-warns on `missing_docs`; broken intra-doc links are denied. `just clippy-all-targets` is an optional manual sweep; CI uses focused test, example, and
-benchmark validators instead of compiling those targets through Clippy as well.
+warns on `missing_docs`; broken intra-doc links are denied. The full `just ci` gate uses `just clippy-all-targets` to match the GitHub Clippy SARIF workflow.
+Focused test, example, and benchmark validators still provide execution or compile-contract evidence because ordinary compilation does not execute Clippy
+lints.
 
 ### API Style
 
@@ -231,6 +239,9 @@ benchmark validators instead of compiling those targets through Clippy as well.
   when required.
 - **Log-space numerics.** Targets and proposal ratios cross the API boundary as `f64` log weights. `NaN` and `+∞` are explicit error conditions
   ([`McmcError`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/enum.McmcError.html)); `-∞` is a legal "impossible state" marker.
+- **Defined floating-point semantics.** The five `f64::algebraic_{add,sub,mul,div,rem}` methods are forbidden throughout repository-owned Rust because their
+  unspecified transformations can change precision, non-finite and signed-zero behavior, acceptance decisions, and reproducibility. Ordinary IEEE-754
+  arithmetic and deliberate `f64::mul_add` use remain allowed. Any other relaxed or fast-math facility requires a separate tracked scientific review.
 - **Rollback safety.** `ProposalMut::propose_mut` must pair with `undo` so that a rejected mutation leaves state observably unchanged. `DelayedProposal::commit`
   errors are reserved for genuinely exceptional failures applying an already-accepted concrete move.
 - **Detailed balance.** New proposal kinds should ship with a `verify_detailed_balance*` test for representative discrete transitions.
@@ -239,7 +250,8 @@ benchmark validators instead of compiling those targets through Clippy as well.
 
 The repo enforces some project conventions via Semgrep (`semgrep.yaml`). They cover things like avoiding `stdio` diagnostics in `src/`, banning `Box<dyn Error>`
 in `src/`/examples/benches/doctests, banning `unwrap()`/`expect()` in doctests/examples/benches (prefer `?` and concrete errors, or a benches fixture helper),
-requiring `expect()` reasons, and forbidding unwrap-default-on-non-finite. Run them with `just semgrep` and `just semgrep-test`.
+requiring `expect()` reasons, forbidding unwrap-default-on-non-finite, and rejecting `f64::algebraic_*` operations while preserving `mul_add`. Run them with
+`just semgrep` and `just semgrep-test`.
 
 ## Testing
 

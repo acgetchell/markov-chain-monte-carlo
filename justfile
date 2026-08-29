@@ -5,18 +5,20 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-cargo_nextest_version := "0.9.140"
-cargo_llvm_cov_version := "0.8.7"
+cargo_edit_version := "0.13.13"
+cargo_llvm_cov_version := "0.9.0"
+cargo_nextest_version := "0.9.143"
+cargo_update_version := "22.1.1"
 clippy_sarif_version := "0.8.0"
-dprint_version := "0.55.2"
+dprint_version := "0.56.1"
 git_cliff_version := "2.13.1"
 just_version := "1.58.0"
 python_version := "3.14"
-rumdl_version := "0.2.50"
+rumdl_version := "0.2.62"
 sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
-typos_version := "1.49.0"
-uv_version := "0.12.1"
+typos_version := "1.50.0"
+uv_version := "0.12.6"
 zizmor_version := "1.29.0"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
@@ -37,6 +39,32 @@ _ensure-actionlint: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
     uv run --locked actionlint -version >/dev/null
+
+_ensure-cargo-edit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    installed_version=""
+    if cargo upgrade --version >/dev/null 2>&1; then
+        installed_version="$(cargo upgrade --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    fi
+    if [[ "$installed_version" != "{{ cargo_edit_version }}" ]]; then
+        echo "❌ 'cargo-edit' {{ cargo_edit_version }} not found. Install with:"
+        echo "   cargo install --locked cargo-edit --version {{ cargo_edit_version }}"
+        exit 1
+    fi
+
+_ensure-cargo-install-update:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    installed_version=""
+    if command -v cargo-install-update >/dev/null; then
+        installed_version="$(cargo-install-update --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    fi
+    if [[ "$installed_version" != "{{ cargo_update_version }}" ]]; then
+        echo "❌ 'cargo-update' {{ cargo_update_version }} not found. Run 'just setup-tools' or install it with:"
+        echo "   cargo install --locked cargo-update --version {{ cargo_update_version }}"
+        exit 1
+    fi
 
 _ensure-cargo-llvm-cov:
     #!/usr/bin/env bash
@@ -148,6 +176,15 @@ _ensure-uv:
         exit 1
     fi
 
+_ensure-uv-available:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v uv >/dev/null || {
+        echo "❌ 'uv' not found. Install it from https://github.com/astral-sh/uv" >&2
+        exit 1
+    }
+    uv --version >/dev/null
+
 _ensure-zizmor:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -253,9 +290,10 @@ check-rust: fmt-check clippy
 
 # Runnable Rust unit and integration tests share one release-profile nextest pass;
 # rustdoc doctests remain separate because nextest does not execute them.
-# Run the flat union of GitHub-equivalent validators and tests.
+# Run the flat union of GitHub-equivalent validators and tests, including the
+# same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy doc test-rust-ci test-doc bench-compile validate-examples
+ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -280,12 +318,12 @@ clean:
     rm -rf target/llvm-cov
     rm -rf coverage
 
-# Core library Clippy linting used by the default validation gates.
+# Fast core-library Clippy linting used by `just check`.
 [group('validation')]
 clippy:
     CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --lib -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
 
-# Optional broad Clippy sweep; tests, examples, and benches have focused validators in CI.
+# Full Cargo-target Clippy sweep used by `just ci` and the GitHub SARIF workflow.
 [group('validation')]
 clippy-all-targets:
     CARGO_BUILD_WARNINGS=deny cargo clippy --locked --workspace --all-features --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::cargo -A clippy::multiple_crate_versions
@@ -364,6 +402,7 @@ help-workflows:
     @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just setup          # Install/verify external dev tools"
+    @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
     @echo "  just changelog-unreleased <ver>  # Regenerate CHANGELOG.md for a release tag"
     @echo "  just release-check  # Validate synchronized release metadata and references"
@@ -378,6 +417,7 @@ help-workflows:
     @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
     @echo "  just notebook-lint  # Validate JSON, output hygiene, and extracted Python"
     @echo "  just notebook-check # Lint all notebooks and execute the fast notebook set"
+    @echo "  just notebook-ising-figure # Regenerate the tracked Ising trace figure"
     @echo "  just notebook-check-slow # Include explicitly configured heavy notebooks"
     @echo "  just zizmor         # GitHub Actions security analysis"
     @echo ""
@@ -486,10 +526,9 @@ notebook-clear-outputs-all: notebook-sync
 
 # Execute the configured fast notebook set headlessly.
 [group('notebooks')]
-notebook-execute-fast: notebook-sync
+notebook-execute-fast: notebook-sync validate-ising-example
     #!/usr/bin/env bash
     set -euo pipefail
-    just example ising_1d
     notebooks=( {{ fast_notebooks }} )
     MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks
 
@@ -504,6 +543,11 @@ notebook-execute-slow: _ensure-uv
         exit 0
     fi
     MPLBACKEND=Agg uv run --locked --group dev --group notebook check-notebooks execute "${notebooks[@]}" --repo-root . --output-dir target/notebooks --timeout 1800
+
+# Regenerate the tracked Ising figure from the example trace and notebook.
+[group('notebooks')]
+notebook-ising-figure: notebook-check
+    cp target/notebooks/ising_energy_trace.png docs/assets/ising_energy_trace.png
 
 # Validate source notebook structure and extracted Python without execution.
 [group('notebooks')]
@@ -554,10 +598,17 @@ performance-release current_tag="" baseline_tag="": python-sync
         uv run --locked archive-performance --infer-release --measurements-output target/bench-reports/release-performance.csv --promote
     fi
 
-# Rebuild and promote the curated report from saved, validated release measurements.
+# Rebuild and promote the curated report from tracked or explicitly saved release measurements.
 [group('benchmarks and performance')]
-performance-rerender: python-sync
-    uv run --locked archive-performance --rerender target/bench-reports/release-performance.csv --promote
+performance-rerender measurements_path="": python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    measurements_path={{ quote(measurements_path) }}
+    if [[ -n "$measurements_path" ]]; then
+        uv run --locked archive-performance --rerender "$measurements_path" --promote
+    else
+        uv run --locked archive-performance --rerender --promote
+    fi
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
@@ -703,6 +754,8 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 2 mcmc.rust.public-error-enums-non-exhaustive src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.no-clippy-allow-lints src/project_rules/rust_style.rs
     expect_semgrep_count 1 mcmc.rust.expect-requires-reason src/project_rules/rust_style.rs
+    uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml src/project_rules/algebraic_float.rs
+    expect_semgrep_count 60 mcmc.rust.no-algebraic-f64-operations src/project_rules/algebraic_float.rs
 
     uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml examples/deep_import.rs
     expect_semgrep_count 3 mcmc.rust.no-box-dyn-error-in-examples-benches examples/erased_error.rs
@@ -737,6 +790,14 @@ setup-tools: _ensure-uv
     echo ""
 
     echo "Ensuring cargo tools..."
+    cargo_update_version="{{ cargo_update_version }}"
+    if ! have cargo-install-update || [[ "$(cargo-install-update --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)" != "$cargo_update_version" ]]; then
+        cargo install --locked cargo-update --version "$cargo_update_version"
+    fi
+    cargo_edit_version="{{ cargo_edit_version }}"
+    if ! cargo upgrade --version >/dev/null 2>&1 || [[ "$(cargo upgrade --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_edit_version" ]]; then
+        cargo install --locked cargo-edit --version "$cargo_edit_version"
+    fi
     cargo_llvm_cov_version="{{ cargo_llvm_cov_version }}"
     if ! have cargo-llvm-cov || [[ "$(cargo llvm-cov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_llvm_cov_version" ]]; then
         cargo install --locked cargo-llvm-cov --version "$cargo_llvm_cov_version"
@@ -752,6 +813,10 @@ setup-tools: _ensure-uv
     git_cliff_version="{{ git_cliff_version }}"
     if ! have git-cliff || [[ "$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$git_cliff_version" ]]; then
         cargo install --locked git-cliff --version "$git_cliff_version"
+    fi
+    just_version="{{ just_version }}"
+    if ! have just || [[ "$(just --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$just_version" ]]; then
+        cargo install --locked just --version "$just_version"
     fi
     taplo_version="{{ taplo_version }}"
     if ! have taplo || [[ "$(taplo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$taplo_version" ]]; then
@@ -777,7 +842,7 @@ setup-tools: _ensure-uv
 
     echo "Verifying required commands..."
     missing=0
-    for cmd in cargo-llvm-cov dprint git-cliff jq rumdl taplo typos uv zizmor; do
+    for cmd in cargo-install-update cargo-llvm-cov cargo-upgrade dprint git-cliff jq just rumdl taplo typos uv zizmor; do
         if have "$cmd"; then
             echo "  ✓ $cmd"
         else
@@ -917,9 +982,58 @@ toml-lint: _ensure-taplo
         echo "No TOML files found to lint."
     fi
 
+# Update dependency requirements, locks, managed Cargo tools, and the active uv pin.
+[group('build and setup')]
+update: _ensure-cargo-install-update update-dependencies update-cargo-tools
+    @echo "✅ Repository dependencies and tools updated."
+
+# Advance Cargo dependency declarations and lockfile entries.
+[doc('Update repository Cargo dependency requirements and lockfiles.')]
+[group('build and setup')]
+update-cargo-dependencies: _ensure-cargo-edit
+    cargo upgrade --incompatible allow
+    cargo update
+
+# Update locally installed Cargo CLI tools and reconcile their pins plus the active uv version.
+[doc('Update managed Cargo CLI tools and reconcile all root justfile tool pins.')]
+[group('build and setup')]
+update-cargo-tools: _ensure-cargo-install-update _ensure-uv-available
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    packages=(
+        cargo-edit
+        cargo-llvm-cov
+        cargo-nextest
+        cargo-update
+        dprint
+        git-cliff
+        just
+        rumdl
+        taplo-cli
+        typos-cli
+        zizmor
+    )
+    cargo install-update --locked "${packages[@]}"
+    uv run --locked update-tool-pins
+
+# Advance Cargo and exact Python development requirements plus their lockfiles.
+[doc('Update Cargo and Python development requirements plus all Cargo/uv locked dependencies.')]
+[group('build and setup')]
+update-dependencies: _ensure-cargo-edit _ensure-uv-available update-cargo-dependencies update-python-dependencies
+
+# Resolve latest exact Python development tools, retain ranged requirements, and sync.
+[doc('Update exact dependency-groups.dev pins and uv.lock through uv.')]
+[group('build and setup')]
+update-python-dependencies: _ensure-uv-available
+    uv run --locked update-python-dev-pins
+    uv lock --upgrade
+    uv sync --locked --group dev
+
+# Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
-validate-examples: _build-examples
+validate-examples: _build-examples validate-ising-example
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -946,10 +1060,29 @@ validate-examples: _build-examples
 
     validate_example detailed_balance "Detailed balance checks passed" "by-value residual"
     validate_example normal_1d "Sample mean" "Acceptance rate"
-    validate_example ising_1d "<m>" "acceptance rate"
     validate_example iterator_sampling "Sample mean" "Acceptance rate"
     validate_example delayed_chunked_telemetry "Per-step telemetry" "Delayed chunked telemetry complete"
     validate_example additive_target_bias "AdditiveTarget bias example" "observed P(true)"
+
+# Validate the Ising example output and produce its trace for notebook checks.
+[group('tests and coverage')]
+validate-ising-example: _build-examples
+    #!/usr/bin/env bash
+    set -euo pipefail
+    suffix=""
+    if [[ "$(uname -s)" == *MINGW* || "$(uname -s)" == *MSYS* || "$(uname -s)" == *CYGWIN* ]]; then
+        suffix=".exe"
+    fi
+    binary="target/debug/examples/ising_1d${suffix}"
+    output=$("$binary")
+    printf '%s\n' "$output"
+    for marker in "<m>" "acceptance rate"; do
+        if ! grep -Fq "$marker" <<< "$output"; then
+            echo "Example ising_1d missing expected marker: $marker" >&2
+            exit 1
+        fi
+    done
+    echo "✅ ising_1d validated"
 
 # Validate tracked JSON files.
 [group('validation')]

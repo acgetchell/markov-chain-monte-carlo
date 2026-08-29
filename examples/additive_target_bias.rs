@@ -69,7 +69,7 @@ fn main() -> Result<(), McmcError> {
     let n_samples: u32 = 20_000;
     let mut true_count = 0_u32;
     for _ in 0..n_samples {
-        sampler.step()?;
+        let _ = sampler.step()?;
         true_count += u32::from(*sampler.chain_ref().state());
     }
 

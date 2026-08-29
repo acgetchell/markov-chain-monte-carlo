@@ -13,7 +13,7 @@ authors = [
     { name = "Adam Getchell" },
 ]
 keywords = [ "mcmc", "markov-chain", "monte-carlo", "rust", "tooling" ]
-dependencies = [  ]
+dependencies = [ "packaging>=26.2" ]
 
 [project.urls]
 "Homepage" = "https://github.com/acgetchell/markov-chain-monte-carlo"
@@ -28,17 +28,19 @@ check-notebooks = "check_notebooks:main"
 postprocess-changelog = "postprocess_changelog:main"
 release-check = "release_check:main"
 tag-release = "tag_release:main"
+update-python-dev-pins = "update_python_dev_pins:main"
+update-tool-pins = "update_cargo_tool_pins:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "release_check", "subprocess_utils", "tag_release" ]
+py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "release_check", "subprocess_utils", "tag_release", "update_cargo_tool_pins", "update_python_dev_pins" ]
 
 [dependency-groups]
 dev = [
     "actionlint-py==1.7.12.24",
     "pytest>=9.1.1",
     "ruff>=0.16.1",
-    "semgrep==1.173.0",
+    "semgrep==1.175.0",
     "ty>=0.0.66",
 ]
 notebook = [
@@ -96,6 +98,8 @@ known-first-party = [
     "release_check",
     "subprocess_utils",
     "tag_release",
+    "update_cargo_tool_pins",
+    "update_python_dev_pins",
 ]
 force-single-line = false
 split-on-trailing-comma = true

@@ -52,20 +52,20 @@ fn main() -> Result<(), McmcError> {
     sampler
         .by_ref()
         .take(burn_in)
-        .try_for_each(|result| result)?;
+        .try_for_each(|result| result.map(|_step| ()))?;
     println!("Burn-in complete ({burn_in} steps via iterator)");
 
     // Reset counters so acceptance rate reflects production only
     sampler.reset_counters();
 
     // Collect samples: use step() when you need to read state between steps.
-    // The iterator yields Result<(), McmcError> (not the state), so collecting
+    // The iterator yields Result<Step<()>, McmcError> (not the state), so collecting
     // samples requires interleaving step + state access.
     let n_samples: u32 = 10_000;
     let mut sum = 0.0;
     let mut sum_sq = 0.0;
     for _ in 0..n_samples {
-        sampler.step()?;
+        let _ = sampler.step()?;
         let x = sampler.chain_ref().state().0;
         sum += x;
         sum_sq += x * x;

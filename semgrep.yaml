@@ -58,6 +58,151 @@ rules:
       - pattern: $VALUE.unwrap_or_else(|| f64::INFINITY)
       - pattern: $VALUE.unwrap_or_else(|| f64::NEG_INFINITY)
 
+  - id: mcmc.rust.no-algebraic-f64-operations
+    languages:
+      - rust
+    severity: WARNING
+    message: "Use ordinary IEEE-754 operators or deliberate f64::mul_add; algebraic f64 operations are forbidden."
+    metadata:
+      category: correctness
+      rationale: >-
+        Algebraic f64 operations permit real-number transformations with
+        unspecified precision. Reassociation and relaxed NaN, infinity, or
+        signed-zero behavior can change acceptance decisions, convergence
+        statistics, diagnostics, and seeded-run reproducibility.
+    paths:
+      include:
+        - "/src/**/*.rs"
+        - "/tests/**/*.rs"
+        - "/examples/**/*.rs"
+        - "/benches/**/*.rs"
+    pattern-either:
+      - patterns:
+          - pattern: $VALUE.algebraic_add(...)
+          - metavariable-type:
+              metavariable: $VALUE
+              type: f64
+      - patterns:
+          - pattern: $VALUE.algebraic_sub(...)
+          - metavariable-type:
+              metavariable: $VALUE
+              type: f64
+      - patterns:
+          - pattern: $VALUE.algebraic_mul(...)
+          - metavariable-type:
+              metavariable: $VALUE
+              type: f64
+      - patterns:
+          - pattern: $VALUE.algebraic_div(...)
+          - metavariable-type:
+              metavariable: $VALUE
+              type: f64
+      - patterns:
+          - pattern: $VALUE.algebraic_rem(...)
+          - metavariable-type:
+              metavariable: $VALUE
+              type: f64
+      - patterns:
+          - pattern: f64::algebraic_add
+          - pattern-not-inside: f64::algebraic_add(...)
+      - patterns:
+          - pattern: f64::algebraic_sub
+          - pattern-not-inside: f64::algebraic_sub(...)
+      - patterns:
+          - pattern: f64::algebraic_mul
+          - pattern-not-inside: f64::algebraic_mul(...)
+      - patterns:
+          - pattern: f64::algebraic_div
+          - pattern-not-inside: f64::algebraic_div(...)
+      - patterns:
+          - pattern: f64::algebraic_rem
+          - pattern-not-inside: f64::algebraic_rem(...)
+      - patterns:
+          - pattern: $TYPE::algebraic_add(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_sub(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_mul(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_div(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_rem(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_add
+          - pattern-not-inside: $TYPE::algebraic_add(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_sub
+          - pattern-not-inside: $TYPE::algebraic_sub(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_mul
+          - pattern-not-inside: $TYPE::algebraic_mul(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_div
+          - pattern-not-inside: $TYPE::algebraic_div(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: $TYPE::algebraic_rem
+          - pattern-not-inside: $TYPE::algebraic_rem(...)
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: <$TYPE>::algebraic_add
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: <$TYPE>::algebraic_sub
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: <$TYPE>::algebraic_mul
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: <$TYPE>::algebraic_div
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - patterns:
+          - pattern: <$TYPE>::algebraic_rem
+          - pattern-inside: |
+              type $TYPE = f64;
+              ...
+      - pattern: <f64>::algebraic_add
+      - pattern: <f64>::algebraic_sub
+      - pattern: <f64>::algebraic_mul
+      - pattern: <f64>::algebraic_div
+      - pattern: <f64>::algebraic_rem
+
   - id: mcmc.rust.no-production-unwrap-panic
     languages:
       - rust

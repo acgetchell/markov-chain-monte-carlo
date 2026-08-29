@@ -69,11 +69,18 @@ def _write_sample(root: Path, benchmark: str, sample: str, point: float = 1.0) -
     (sample_dir / "sample.json").write_text("{}", encoding="utf-8")
 
 
-def _write_release_archive(root: Path, tag: str, point: float, commit: str) -> Path:
+def _write_release_archive(
+    root: Path,
+    tag: str,
+    point: float,
+    commit: str,
+    *,
+    benchmark_harness_sha256: str | None = None,
+) -> Path:
     criterion = root / tag / "criterion"
     _write_sample(criterion, "chain/step_by_value", tag, point)
     metadata = {
-        "schema": 1,
+        "schema": 1 if benchmark_harness_sha256 is None else 2,
         "tag": tag,
         "commit": commit,
         "operating_system": "Linux",
@@ -81,6 +88,8 @@ def _write_release_archive(root: Path, tag: str, point: float, commit: str) -> P
         "rustc": "rustc 1.97.1",
         "criterion_version": "0.8.2",
     }
+    if benchmark_harness_sha256 is not None:
+        metadata["benchmark_harness_sha256"] = benchmark_harness_sha256
     (criterion / ".mcmc-release-metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     archive = root / f"{tag}.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
@@ -93,6 +102,7 @@ def _sample_provenance(
     commit_character: str,
     *,
     local: bool = True,
+    benchmark_harness_sha256: str | None = None,
 ) -> archive_performance.SampleProvenance:
     return archive_performance.SampleProvenance(
         tag=tag,
@@ -103,7 +113,7 @@ def _sample_provenance(
         criterion_version="0.8.2",
         source_digest_sha256="1" * 64 if local else None,
         cargo_lock_sha256="2" * 64 if local else None,
-        benchmark_harness_sha256="3" * 64 if local else None,
+        benchmark_harness_sha256="3" * 64 if local else benchmark_harness_sha256,
         command=("cargo", "bench") if local else None,
     )
 
@@ -122,10 +132,14 @@ def _measurement(
     )
 
 
-def _comparison_artifact(pair: archive_performance.ReportId | None = None) -> archive_performance.ComparisonArtifact:
+def _comparison_artifact(
+    pair: archive_performance.ReportId | None = None,
+    *,
+    current_point: float = 80.0,
+) -> archive_performance.ComparisonArtifact:
     resolved_pair = pair or archive_performance.ReportId("v0.5.0", "v0.4.0")
     baseline_shared = bench_compare.Estimate(100.0, 95.0, 105.0)
-    current_shared = bench_compare.Estimate(80.0, 75.0, 85.0)
+    current_shared = bench_compare.Estimate(current_point, 75.0, 85.0)
     current_only = bench_compare.Estimate(200.0, None, None)
     baseline_only = bench_compare.Estimate(300.0, None, None)
     comparison_set = bench_compare.ComparisonSet(
@@ -351,6 +365,36 @@ def test_provenance_round_trip_rejects_a_mismatched_release_tag() -> None:
         archive_performance.parse_provenance(json.dumps(document))
 
 
+def test_asset_provenance_round_trip_preserves_harness_hashes() -> None:
+    artifact = _comparison_artifact()
+    asset_artifact = archive_performance.ComparisonArtifact(
+        pair=artifact.pair,
+        comparison_set=artifact.comparison_set,
+        settings=artifact.settings,
+        measurement=archive_performance.MeasurementProvenance(
+            mode="github-release-assets",
+            working_tree_applied=False,
+            current=_sample_provenance(
+                artifact.pair.current_tag,
+                "a",
+                local=False,
+                benchmark_harness_sha256="c" * 64,
+            ),
+            baseline=_sample_provenance(
+                artifact.pair.baseline_tag,
+                "b",
+                local=False,
+                benchmark_harness_sha256="d" * 64,
+            ),
+        ),
+    )
+
+    _pair, _settings, measurement, _csv_sha256 = archive_performance.parse_provenance(archive_performance.serialize_provenance(asset_artifact))
+
+    assert measurement.current.benchmark_harness_sha256 == "c" * 64
+    assert measurement.baseline.benchmark_harness_sha256 == "d" * 64
+
+
 def test_load_comparison_artifact_rejects_csv_tampering(tmp_path: Path) -> None:
     csv_path = tmp_path / "release-performance.csv"
     archive_performance.save_comparison_artifact(_comparison_artifact(), csv_path)
@@ -414,8 +458,43 @@ def test_rerender_promotes_saved_artifact_without_release_lookup_or_measurement(
     assert status == 0
     promoted = (tmp_path / "docs" / "PERFORMANCE.md").read_text(encoding="utf-8")
     assert archive_performance.parse_report_id(promoted) == artifact.pair
-    assert promoted == bench_compare.render_report(artifact.comparison_set, artifact.settings)
     assert "| `chain/shared` |" in promoted
+    evidence_stem = artifact.pair.evidence_stem
+    evidence_dir = tmp_path / "docs" / "archive" / "performance"
+    assert (evidence_dir / f"{evidence_stem}.csv").read_text(encoding="utf-8") == archive_performance.serialize_comparison_csv(artifact.comparison_set)
+    assert (evidence_dir / f"{evidence_stem}.provenance.json").read_text(encoding="utf-8") == archive_performance.serialize_provenance(artifact)
+    assert f"archive/performance/{evidence_stem}.csv" in promoted
+
+
+def test_rerender_without_path_uses_tracked_curated_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _comparison_artifact()
+    evidence_dir = tmp_path / "docs" / "archive" / "performance"
+    csv_path = evidence_dir / f"{artifact.pair.evidence_stem}.csv"
+    archive_performance.save_comparison_artifact(artifact, csv_path)
+    current_report = tmp_path / "docs" / "PERFORMANCE.md"
+    current_report.parent.mkdir(parents=True, exist_ok=True)
+    current_report.write_text(
+        archive_performance.render_report(artifact.comparison_set, artifact.settings),
+        encoding="utf-8",
+    )
+
+    def unexpected(*_args: object, **_kwargs: object) -> object:
+        pytest.fail("rerender must not resolve releases or run benchmarks")
+
+    monkeypatch.setattr(archive_performance, "_published_releases", unexpected)
+    monkeypatch.setattr(archive_performance, "current_package_tag", unexpected)
+    monkeypatch.setattr(archive_performance, "generate_local_artifact", unexpected)
+    monkeypatch.setattr(archive_performance, "generate_github_asset_artifact", unexpected)
+
+    status = archive_performance.main(["--rerender", "--promote", "--repo-root", str(tmp_path)])
+
+    assert status == 0
+    promoted = current_report.read_text(encoding="utf-8")
+    assert archive_performance.parse_report_id(promoted) == artifact.pair
+    assert f"archive/performance/{artifact.pair.evidence_stem}.csv" in promoted
 
 
 def test_invalid_rerender_combination_is_rejected_before_release_lookup(
@@ -522,18 +601,35 @@ def test_promote_report_archives_the_previous_pair_and_updates_index(tmp_path: P
     archive_dir = tmp_path / "docs" / "archive" / "performance"
     current.parent.mkdir(parents=True)
     current.write_text(_report("v0.4.0", "v0.3.0", "old"), encoding="utf-8")
+    artifact = _comparison_artifact()
 
     archive_performance.promote_report(
-        source_text=_report("v0.5.0", "v0.4.0", "new"),
+        artifact=artifact,
         current_path=current,
         archive_dir=archive_dir,
-        expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
     )
 
-    assert "new" in current.read_text(encoding="utf-8")
+    assert "| `chain/shared` |" in current.read_text(encoding="utf-8")
     assert "old" in (archive_dir / "v0.4.0-vs-v0.3.0.md").read_text(encoding="utf-8")
+    assert (archive_dir / "v0.5.0-vs-v0.4.0.csv").read_text(encoding="utf-8") == archive_performance.serialize_comparison_csv(artifact.comparison_set)
+    assert (archive_dir / "v0.5.0-vs-v0.4.0.provenance.json").read_text(encoding="utf-8") == archive_performance.serialize_provenance(artifact)
     index = (archive_dir / "README.md").read_text(encoding="utf-8")
     assert "[v0.4.0-vs-v0.3.0](v0.4.0-vs-v0.3.0.md)" in index
+
+
+def test_promote_report_rebases_evidence_links_when_archiving(tmp_path: Path) -> None:
+    current = tmp_path / "docs" / "PERFORMANCE.md"
+    archive_dir = tmp_path / "docs" / "archive" / "performance"
+    first = _comparison_artifact(archive_performance.ReportId("v0.5.0", "v0.4.0"))
+    second = _comparison_artifact(archive_performance.ReportId("v0.6.0", "v0.5.0"))
+
+    archive_performance.promote_report(artifact=first, current_path=current, archive_dir=archive_dir)
+    archive_performance.promote_report(artifact=second, current_path=current, archive_dir=archive_dir)
+
+    archived = (archive_dir / "v0.5.0-vs-v0.4.0.md").read_text(encoding="utf-8")
+    assert "](v0.5.0-vs-v0.4.0.csv)" in archived
+    assert "](v0.5.0-vs-v0.4.0.provenance.json)" in archived
+    assert "archive/performance/v0.5.0-vs-v0.4.0" not in archived
 
 
 def test_promote_report_rolls_back_every_output_if_index_write_fails(
@@ -550,6 +646,7 @@ def test_promote_report_rolls_back_every_output_if_index_write_fails(
     current.write_text(old_report, encoding="utf-8")
     index.write_text(old_index, encoding="utf-8")
     archive = archive_dir / "v0.4.0-vs-v0.3.0.md"
+    artifact = _comparison_artifact()
     real_write = archive_performance._write_text
     failed = False
 
@@ -565,25 +662,25 @@ def test_promote_report_rolls_back_every_output_if_index_write_fails(
 
     with pytest.raises(OSError, match="injected index write failure"):
         archive_performance.promote_report(
-            source_text=_report("v0.5.0", "v0.4.0", "new"),
+            artifact=artifact,
             current_path=current,
             archive_dir=archive_dir,
-            expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
         )
 
     assert current.read_text(encoding="utf-8") == old_report
     assert index.read_text(encoding="utf-8") == old_index
     assert not archive.exists()
+    assert not (archive_dir / "v0.5.0-vs-v0.4.0.csv").exists()
+    assert not (archive_dir / "v0.5.0-vs-v0.4.0.provenance.json").exists()
 
     monkeypatch.setattr(archive_performance, "_write_text", real_write)
     archive_performance.promote_report(
-        source_text=_report("v0.5.0", "v0.4.0", "new"),
+        artifact=artifact,
         current_path=current,
         archive_dir=archive_dir,
-        expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
     )
 
-    assert "new" in current.read_text(encoding="utf-8")
+    assert "| `chain/shared` |" in current.read_text(encoding="utf-8")
     assert archive.read_text(encoding="utf-8") == old_report
     assert "[v0.4.0-vs-v0.3.0](v0.4.0-vs-v0.3.0.md)" in index.read_text(encoding="utf-8")
 
@@ -597,22 +694,63 @@ def test_promote_report_preserves_an_existing_archive(tmp_path: Path) -> None:
     archive.write_text("preserved archive\n", encoding="utf-8")
 
     archive_performance.promote_report(
-        source_text=_report("v0.5.0", "v0.4.0"),
+        artifact=_comparison_artifact(),
         current_path=current,
         archive_dir=archive_dir,
-        expected=archive_performance.ReportId("v0.5.0", "v0.4.0"),
     )
 
     assert archive.read_text(encoding="utf-8") == "preserved archive\n"
 
 
-def test_promote_report_rejects_a_mismatched_release_pair(tmp_path: Path) -> None:
+def test_promote_report_replaces_active_pair_evidence_atomically(tmp_path: Path) -> None:
+    current = tmp_path / "PERFORMANCE.md"
+    archive_dir = tmp_path / "archive"
+    first = _comparison_artifact()
+    archive_performance.promote_report(artifact=first, current_path=current, archive_dir=archive_dir)
+    csv_path = archive_dir / f"{first.pair.evidence_stem}.csv"
+    original_csv = csv_path.read_text(encoding="utf-8")
+    revised = _comparison_artifact(current_point=81.0)
+
+    archive_performance.promote_report(artifact=revised, current_path=current, archive_dir=archive_dir)
+
+    assert csv_path.read_text(encoding="utf-8") != original_csv
+    assert archive_performance.load_comparison_artifact(csv_path) == revised
+
+
+def test_promote_report_rejects_replacing_historical_pair_evidence(tmp_path: Path) -> None:
+    current = tmp_path / "PERFORMANCE.md"
+    archive_dir = tmp_path / "archive"
+    historical = _comparison_artifact()
+    current_pair = _comparison_artifact(archive_performance.ReportId("v0.6.0", "v0.5.0"))
+    archive_performance.promote_report(artifact=historical, current_path=current, archive_dir=archive_dir)
+    archive_performance.promote_report(artifact=current_pair, current_path=current, archive_dir=archive_dir)
+    csv_path = archive_dir / f"{historical.pair.evidence_stem}.csv"
+    provenance_path = archive_performance.provenance_path(csv_path)
+    original_csv = csv_path.read_text(encoding="utf-8")
+    original_provenance = provenance_path.read_text(encoding="utf-8")
+    revised = _comparison_artifact(current_point=81.0)
+
+    with pytest.raises(ValueError, match="refusing to replace immutable release benchmark evidence"):
+        archive_performance.promote_report(artifact=revised, current_path=current, archive_dir=archive_dir)
+
+    assert csv_path.read_text(encoding="utf-8") == original_csv
+    assert provenance_path.read_text(encoding="utf-8") == original_provenance
+
+
+def test_promote_report_rejects_an_internally_mismatched_artifact(tmp_path: Path) -> None:
+    artifact = _comparison_artifact()
+    mismatched = archive_performance.ComparisonArtifact(
+        pair=archive_performance.ReportId("v0.6.0", "v0.5.0"),
+        comparison_set=artifact.comparison_set,
+        settings=artifact.settings,
+        measurement=artifact.measurement,
+    )
+
     with pytest.raises(ValueError, match="does not match"):
         archive_performance.promote_report(
-            source_text=_report("v0.5.0", "v0.4.0"),
+            artifact=mismatched,
             current_path=tmp_path / "PERFORMANCE.md",
             archive_dir=tmp_path / "archive",
-            expected=archive_performance.ReportId("v0.6.0", "v0.5.0"),
         )
 
 
@@ -657,18 +795,18 @@ def test_generated_working_tree_report_can_be_promoted(
         lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, stdout="abc1234\n"),
     )
 
-    report = archive_performance.generate_local_report(
+    artifact = archive_performance.generate_local_artifact(
         tmp_path,
         pair,
         current_reference="HEAD",
         apply_working_tree=True,
     )
+    report = bench_compare.render_report(artifact.comparison_set, artifact.settings)
     current = tmp_path / "docs" / "PERFORMANCE.md"
     archive_performance.promote_report(
-        source_text=report,
+        artifact=artifact,
         current_path=current,
         archive_dir=tmp_path / "docs" / "archive" / "performance",
-        expected=pair,
     )
 
     assert applied
@@ -682,14 +820,17 @@ def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
 ) -> None:
     repo_root = tmp_path / "source"
     worktree = tmp_path / "worktree"
-    untracked = repo_root / "nested" / "fixture.txt"
+    relative_name = "nested/fixture\nname.txt"
+    untracked = repo_root / relative_name
     untracked.parent.mkdir(parents=True)
     untracked.write_text("fixture\n", encoding="utf-8")
     worktree.mkdir()
     applied: list[tuple[list[str], str, Path]] = []
+    git_calls: list[list[str]] = []
 
     def fake_git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        stdout = "tracked patch\n" if "diff" in args else "nested/fixture.txt\n"
+        git_calls.append(args)
+        stdout = "tracked patch\n" if "diff" in args else f"{relative_name}\0"
         return subprocess.CompletedProcess(args, 0, stdout=stdout)
 
     def fake_git_with_input(args: list[str], input_text: str, *, cwd: Path, **_kwargs: object) -> object:
@@ -704,7 +845,33 @@ def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
     assert applied == [
         (["apply", "--binary", "--whitespace=nowarn"], "tracked patch\n", worktree),
     ]
-    assert (worktree / "nested" / "fixture.txt").read_text(encoding="utf-8") == "fixture\n"
+    assert git_calls[-1] == ["ls-files", "--others", "--exclude-standard", "-z", "--"]
+    assert (worktree / relative_name).read_text(encoding="utf-8") == "fixture\n"
+
+
+def test_apply_current_tree_rejects_untracked_symlinks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "source"
+    worktree = tmp_path / "worktree"
+    repo_root.mkdir()
+    worktree.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    link = repo_root / "link.txt"
+    link.symlink_to(outside)
+
+    def fake_git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        stdout = "" if "diff" in args else "link.txt\0"
+        return subprocess.CompletedProcess(args, 0, stdout=stdout)
+
+    monkeypatch.setattr(archive_performance, "run_git_command", fake_git)
+
+    with pytest.raises(ValueError, match="must be a regular file"):
+        archive_performance.apply_current_tree(repo_root, worktree)
+
+    assert not (worktree / "link.txt").exists()
 
 
 def test_temporary_worktree_removes_checkout_after_body_failure(
@@ -777,6 +944,7 @@ def test_generate_github_asset_report_renames_current_sample_and_renders_release
     assert "**markov-chain-monte-carlo** v0.5.0 · `aaaaaaa`" in report
     assert "Comparison against baseline **v0.4.0**:" in report
     assert "Source mode: durable GitHub Release Criterion assets" in report
+    assert "Benchmark harness identity is unavailable" in report
     assert "| `chain/step_by_value` | 100.00 ns | 80.00 ns | +20.00% | 1.25x faster |" in report
 
 
@@ -796,6 +964,47 @@ def test_release_metadata_validates_tag_and_measurement_context(tmp_path: Path) 
 
     assert parsed.commit == "a" * 40
     assert parsed.criterion_version == "0.8.2"
+    assert parsed.benchmark_harness_sha256 is None
+
+
+def test_release_metadata_schema_two_requires_a_valid_harness_hash(tmp_path: Path) -> None:
+    metadata = {
+        "schema": 2,
+        "tag": "v0.5.0",
+        "commit": "a" * 40,
+        "operating_system": "Linux",
+        "architecture": "x86_64",
+        "rustc": "rustc 1.98.0",
+        "criterion_version": "0.8.2",
+        "benchmark_harness_sha256": "b" * 64,
+    }
+    path = tmp_path / ".mcmc-release-metadata.json"
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    parsed = archive_performance._release_metadata(tmp_path, "v0.5.0")
+
+    assert parsed.benchmark_harness_sha256 == "b" * 64
+    metadata.pop("benchmark_harness_sha256")
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="do not match schema 2"):
+        archive_performance._release_metadata(tmp_path, "v0.5.0")
+
+    metadata["benchmark_harness_sha256"] = "not-a-digest"
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        archive_performance._release_metadata(tmp_path, "v0.5.0")
+
+
+def test_asset_measurement_context_reports_matching_and_changed_harnesses() -> None:
+    current = archive_performance.ReleaseMetadata("v0.5.0", "a" * 40, "Linux", "x86_64", "rustc 1.98.0", "0.8.2", "c" * 64)
+    matching = archive_performance.ReleaseMetadata("v0.4.0", "b" * 40, "Linux", "x86_64", "rustc 1.98.0", "0.8.2", "c" * 64)
+    changed = archive_performance.ReleaseMetadata("v0.4.0", "b" * 40, "Linux", "x86_64", "rustc 1.98.0", "0.8.2", "d" * 64)
+
+    matching_context = archive_performance._asset_measurement_context(current, matching)
+    changed_context = archive_performance._asset_measurement_context(current, changed)
+
+    assert "current `cccccccccccc`; baseline `cccccccccccc`" in matching_context[-1]
+    assert "workload contract" in changed_context[-1]
 
 
 def test_release_metadata_rejects_a_mismatched_tag(tmp_path: Path) -> None:
@@ -838,6 +1047,58 @@ def test_safe_extract_tar_rejects_links(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported entry"):
         archive_performance.safe_extract_tar(archive, tmp_path / "extract")
+
+
+def test_safe_extract_tar_rejects_oversized_archive_before_creating_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = tmp_path / "large.tar.gz"
+    with tarfile.open(archive, "w:gz"):
+        pass
+    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_SIZE_BYTES", 0)
+    destination = tmp_path / "extract"
+
+    with pytest.raises(ValueError, match="archive is too large"):
+        archive_performance.safe_extract_tar(archive, destination)
+
+    assert not destination.exists()
+
+
+def test_safe_extract_tar_rejects_too_many_members(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = tmp_path / "many.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.addfile(tarfile.TarInfo("criterion"))
+        tar.addfile(tarfile.TarInfo("criterion/extra"))
+    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_MEMBER_COUNT", 1)
+    destination = tmp_path / "extract"
+
+    with pytest.raises(ValueError, match="too many entries"):
+        archive_performance.safe_extract_tar(archive, destination)
+
+    assert not destination.exists()
+
+
+def test_safe_extract_tar_rejects_excessive_expanded_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = tmp_path / "expanded.tar.gz"
+    payload = b"123456"
+    with tarfile.open(archive, "w:gz") as tar:
+        member = tarfile.TarInfo("criterion/data.txt")
+        member.size = len(payload)
+        tar.addfile(member, io.BytesIO(payload))
+    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_CONTENT_BYTES", 5)
+    destination = tmp_path / "extract"
+
+    with pytest.raises(ValueError, match="expands beyond"):
+        archive_performance.safe_extract_tar(archive, destination)
+
+    assert not destination.exists()
 
 
 def test_command_failure_preserves_stdout_and_stderr() -> None:

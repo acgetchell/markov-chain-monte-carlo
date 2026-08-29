@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _VERSION = "1.2.3"
+_DOI = "10.5281/zenodo.20033111"
+_RELEASE_DATE = "2026-08-04"
 _CARGO_TOML = f"""[package]
 name = "markov-chain-monte-carlo"
 version = "{_VERSION}"
@@ -17,12 +19,20 @@ repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
 """
 
 
-def _write_project(root: Path, *, metadata_version: str = _VERSION, readme: str | None = None) -> None:
+def _write_project(
+    root: Path,
+    *,
+    metadata_version: str = _VERSION,
+    readme: str | None = None,
+    citation_doi: str = _DOI,
+    citation_date: str = _RELEASE_DATE,
+) -> None:
     """Write a minimal repository for release-check tests."""
     readme_text = (
         readme
         if readme is not None
         else (
+            f"[![DOI](https://badgen.net/badge/DOI/10.5281%2Fzenodo.20033111/blue)](https://doi.org/{_DOI})\n"
             f'markov-chain-monte-carlo = "{_VERSION}"\n'
             f"cargo add markov-chain-monte-carlo@{_VERSION}\n"
             f"[tagged](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{_VERSION}/README.md)\n"
@@ -33,12 +43,13 @@ def _write_project(root: Path, *, metadata_version: str = _VERSION, readme: str 
         "Cargo.lock": f'version = 4\n\n[[package]]\nname = "markov-chain-monte-carlo"\nversion = "{metadata_version}"\n',
         "pyproject.toml": f'[project]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\n',
         "uv.lock": (f'version = 1\n\n[[package]]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\nsource = {{ editable = "." }}\n'),
-        "CITATION.cff": f"cff-version: 1.2.0\nversion: {metadata_version}\n",
+        "CITATION.cff": (f"cff-version: 1.2.0\nversion: {metadata_version}\ndoi: {citation_doi}\ndate-released: {citation_date}\n"),
         "CHANGELOG.md": (
-            f"# Changelog\n\n## [{_VERSION}] - 2026-08-04\n\n- Release\n\n"
+            f"# Changelog\n\n## [{_VERSION}] - {_RELEASE_DATE}\n\n- Release\n\n"
             f"[{_VERSION}]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v1.2.2...v{_VERSION}\n"
         ),
         "README.md": readme_text,
+        "REFERENCES.md": f"- DOI: <https://doi.org/{_DOI}>\n",
     }
     for filename, content in files.items():
         (root / filename).write_text(content, encoding="utf-8")
@@ -55,6 +66,19 @@ def test_find_version_mismatches_accepts_synchronized_release(tmp_path: Path) ->
     )
 
     assert release_check.find_version_mismatches(tmp_path) == []
+    assert release_check.find_release_metadata_mismatches(tmp_path) == []
+
+
+def test_find_release_metadata_mismatches_reports_stale_date_and_dois(tmp_path: Path) -> None:
+    """Citation dates and the stable concept DOI agree with release documentation."""
+    _write_project(tmp_path, citation_doi="10.5281/zenodo.87654321", citation_date="2026-08-03")
+
+    mismatches = release_check.find_release_metadata_mismatches(tmp_path)
+
+    assert [(mismatch.reference.kind, mismatch.reference.value, mismatch.expected) for mismatch in mismatches] == [
+        (release_check.MetadataKind.CITATION_DATE, "2026-08-03", _RELEASE_DATE),
+        (release_check.MetadataKind.CITATION_DOI, "10.5281/zenodo.87654321", _DOI),
+    ]
 
 
 def test_find_version_mismatches_reports_all_structured_metadata(tmp_path: Path) -> None:
@@ -151,7 +175,10 @@ def test_find_version_mismatches_rejects_missing_editable_uv_package(tmp_path: P
 def test_find_version_mismatches_rejects_malformed_citation_version(tmp_path: Path) -> None:
     """Malformed citation versions fail before release."""
     _write_project(tmp_path)
-    (tmp_path / "CITATION.cff").write_text('cff-version: 1.2.0\nversion: "\n', encoding="utf-8")
+    (tmp_path / "CITATION.cff").write_text(
+        'cff-version: 1.2.0\nversion: "\ndoi: 10.5281/zenodo.12345678\ndate-released: 2026-08-04\n',
+        encoding="utf-8",
+    )
 
     with pytest.raises(release_check.ReleaseCheckError, match=r"CITATION\.cff:2: top-level version"):
         release_check.find_version_mismatches(tmp_path)

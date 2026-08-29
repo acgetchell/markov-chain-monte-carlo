@@ -1626,7 +1626,7 @@ const fn usize_to_f64(value: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use std::{assert_matches, error::Error as _};
+    use std::assert_matches;
 
     use approx::{assert_relative_eq, relative_eq};
     use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};

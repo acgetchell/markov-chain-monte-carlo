@@ -14,6 +14,10 @@
 
 ![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/main/docs/assets/ising_energy_trace.png)
 
+_Open-boundary 1-D Ising chain with 50 spins, β = 0.5, J = 1, seed 42, 5,000 burn-in steps, and 20,000 recorded steps. `just notebook-check`
+regenerates `target/ising_1d_trace.csv`, the executed notebook, and the PNG under `target/notebooks/`; `just notebook-ising-figure` promotes that exact PNG to
+the tracked image above._
+
 Research-oriented Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
 rollback-safe mutation or delayed commits.
 
@@ -76,7 +80,7 @@ For the detailed contract, see the
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
 - `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
-- Optional `serde` support for serializing chains, samplers, and portable checkpoints.
+- Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
 
 ## Contents
@@ -111,7 +115,7 @@ Enable checkpoint serialization when needed:
 cargo add markov-chain-monte-carlo --features serde
 ```
 
-Rust 1.97.1 or newer is required.
+Rust 1.98.0 or newer is required.
 
 Minimal by-value Metropolis-Hastings sampler. This example demonstrates the transition mechanics; convergence assessment remains a separate analysis step.
 
@@ -145,7 +149,7 @@ fn main() -> Result<(), McmcError> {
     let proposal = RandomWalk { width: 1.0 };
 
     for _ in 0..1000 {
-        chain.step(&Normal, &proposal, &mut rng)?;
+        let _ = chain.step(&Normal, &proposal, &mut rng)?;
     }
 
     assert!(chain.acceptance_rate() > 0.0);
@@ -177,9 +181,14 @@ delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `Th
 instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding `outcome()`, `info()`, `log_prob_before()`,
 `log_prob_after()`, and `log_alpha()` accessors.
 
+By-value `Chain::step` and `Sampler::step` now return `Step<()>`, and the by-value `Sampler` iterator yields `Result<Step<()>, McmcError>`; inspect or
+explicitly discard that telemetry where older code expected `()`. Construct `DiscreteProposalRatio` with the source-to-destination and
+destination-to-source endpoint weights as well as their normalizers. With the `serde` feature, `Sampler` now uses the same canonical checkpoint shape as its
+owned `Chain`; deserialize through `ChainCheckpoint` and resume with `Sampler::from_checkpoint` when target and proposal handles must be restored.
+
 ## 📦 Cargo features
 
-- `serde` — enable `serde::Serialize` for `Chain` and `Sampler`, plus `ChainCheckpoint` serialization/deserialization for validated resume flows.
+- `serde` — serialize `Chain` and `Sampler` as canonical checkpoints, plus serialize/deserialize `ChainCheckpoint` for validated resume flows.
 
 ## 🧪 Examples
 
@@ -188,7 +197,7 @@ Complete runnable examples live in [`examples/`](https://github.com/acgetchell/m
 - [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/normal_1d.rs) — by-value random-walk sampler for a normal
   target
 - [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/ising_1d.rs) — in-place spin-flip proposals for a
-  non-`Clone` Ising state, with energy/magnetization trace CSV export
+  non-`Clone` open-boundary Ising state, with energy/magnetization trace CSV export
 - [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/iterator_sampling.rs) — `Sampler` as an iterator
 - [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed,
   and batch detailed-balance checks

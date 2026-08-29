@@ -14,8 +14,8 @@ profiling. Benchmark results are empirical and machine-dependent; they are not c
 | `just bench-save-last` | Save the conventional local `last` baseline | `target/criterion/**/last/` |
 | `just performance-local` | Compare the current working tree with the latest stable published release in isolated worktrees | `target/bench-reports/performance.{csv,provenance.json,md}` |
 | `just performance-github-assets` | Compare the two latest durable GitHub Release benchmark assets without running Cargo | `target/bench-reports/github-assets-performance.{csv,provenance.json,md}` |
-| `just performance-release` | Persist, validate, and promote the release comparison; archive the previous curated report | `target/bench-reports/release-performance.{csv,provenance.json}` and `docs/PERFORMANCE.md` |
-| `just performance-rerender` | Rebuild and promote the curated Markdown solely from saved release measurements | `docs/PERFORMANCE.md` and `docs/archive/performance/` |
+| `just performance-release` | Persist, validate, and promote the release comparison and its evidence; archive the previous curated report | `target/bench-reports/release-performance.{csv,provenance.json}`, `docs/PERFORMANCE.md`, and `docs/archive/performance/` |
+| `just performance-rerender` | Rebuild and promote the curated report and tracked evidence solely from saved release measurements | `docs/PERFORMANCE.md` and `docs/archive/performance/` |
 | `just bench` | Run the full current Criterion harness for profiling or exploration | `target/criterion/` |
 
 `just bench-compare <baseline>`, `just performance-github-assets <current-tag> <baseline-tag>`, and
@@ -92,8 +92,8 @@ This is the preferred pre-PR regression check because both measurements run on t
 
 The `Release Benchmarks` workflow runs when a GitHub Release is published. It saves the release tag as a Criterion baseline and attaches
 `markov-chain-monte-carlo-<tag>-criterion-baseline.tar.gz` to the release. The workflow also uploads a 30-day Actions artifact for diagnostics; only the
-GitHub Release attachment is the durable historical baseline. Each archive records the release tag and commit, runner operating system and architecture,
-rustc version, and Criterion version beside the measurement data.
+GitHub Release attachment is the durable historical baseline. Each schema-2 archive records the release tag and commit, runner operating system and
+architecture, rustc version, Criterion version, and SHA-256 digest of `benches/stepping.rs` beside the measurement data.
 
 Compare the latest two assets without local measurements:
 
@@ -113,12 +113,15 @@ rendering.
 
 Releases published before the `Release Benchmarks` workflow was introduced are not backfilled. Asset-to-asset comparisons therefore become available after
 two releases have been published with the workflow. The asset comparison fails clearly when either archive or requested Criterion sample is absent. Archives
-are checked for traversal and link entries before extraction.
+are bounded by compressed size, entry count, and expanded-file size and are checked for traversal, link, and unsupported entry types before extraction.
 
-This rollout is prospective. The first post-rollout release creates the initial durable asset; the second creates the first complete historical pair and is
-the point at which the end-to-end asset workflow can be considered adopted. For example, if the first assets are `v0.4.1` and `v0.4.2`, the first durable
-comparison is `v0.4.2` against `v0.4.1`. Pre-1.0 API changes remain allowed: changed workloads should receive new benchmark names and appear as coverage
-changes rather than being forced into invalid comparisons.
+Legacy schema-1 archives remain readable for compatibility, but do not record a benchmark-harness digest. Reports involving one of these assets state that
+workload identity is unavailable and require manual contract review. Schema-2 comparisons display both hash prefixes and warn when they differ.
+
+This rollout is prospective: releases through `v0.4.1` have no Criterion baseline attachment. The `v0.4.2` release therefore creates the first durable
+schema-2 asset, and `v0.4.3` creates the first complete historical pair, comparing `v0.4.3` against `v0.4.2`. That second asset is the point at which the
+end-to-end asset workflow can be considered adopted. Pre-1.0 API changes remain allowed: changed workloads should receive new benchmark names and appear as
+coverage changes rather than being forced into invalid comparisons.
 
 GitHub-hosted runner hardware can vary between releases. Historical asset reports are useful release records, but a same-host local comparison is stronger
 evidence for attributing a change to the code.
@@ -134,8 +137,11 @@ just performance-release
 The command reads the current tag from `Cargo.toml`. If that version is not published, it compares the patched working tree against the latest stable release;
 if it is already published, the repair path measures that exact release tag against the preceding stable release. It first writes
 `target/bench-reports/release-performance.csv` and `target/bench-reports/release-performance.provenance.json`, reloads and validates both files, and only then
-renders and promotes `docs/PERFORMANCE.md`. It archives the previous curated pair under
-`docs/archive/performance/<current>-vs-<baseline>.md` and refreshes the archive index. Existing archive files are never overwritten.
+renders and promotes `docs/PERFORMANCE.md`. Promotion atomically copies that validated CSV/provenance pair to
+`docs/archive/performance/<current>-vs-<baseline>.{csv,provenance.json}` and links both tracked files from the curated report. It archives the previous report
+under `docs/archive/performance/<current>-vs-<baseline>.md` and refreshes the archive index. Existing archived Markdown is never overwritten.
+Once a pair has archived Markdown, its CSV and provenance are immutable as well: a repair must reproduce them byte for byte or use a newly versioned full
+evidence triplet. The active pair may be remeasured during release preparation, with its report and evidence replaced together atomically.
 
 For an explicit repair path:
 
@@ -150,7 +156,12 @@ just performance-rerender
 ```
 
 Rerendering reads only the release CSV and its adjacent provenance file. It rejects reordered or malformed rows, mismatched release metadata, changed report
-settings, and any CSV whose SHA-256 digest no longer matches the sidecar.
+settings, and any CSV whose SHA-256 digest no longer matches the sidecar. Promotion publishes the Markdown and tracked evidence pair in one rollback-safe
+transaction, so a partial write cannot leave the curated report pointing at missing evidence.
+
+The checked-in v0.4.1 report predates tracked compact evidence. Until the next `performance-release` promotion establishes that pair, the no-argument rerender
+exits with a migration diagnostic; pass an explicit generated CSV path when repairing the legacy report. After that first promotion, a fresh checkout can
+rerender directly from the tracked pair.
 
 Review the report's release pair, comparable-row coverage, environment, harness hashes, and lifecycle contracts before committing it. The Markdown report
 records Criterion medians and marginal confidence intervals plus the source commits, toolchains, Criterion versions, and host platform and architecture
@@ -164,8 +175,8 @@ standard CSV tooling; Parquet would add conversion and dependency overhead witho
 
 The adjacent JSON records the release pair, report settings, exact benchmark commands, commits, host and Rust/Criterion versions, and SHA-256 hashes for
 `Cargo.lock` and `benches/stepping.rs`. A combined source digest covers `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `benches/stepping.rs`, and every Rust
-source file. The sidecar also binds itself to the CSV by digest. GitHub-asset comparisons record the metadata available inside the native Criterion archives
-and explicitly leave local-command and source-hash fields absent.
+source file. The sidecar also binds itself to the CSV by digest. GitHub-asset comparisons propagate the benchmark-harness hash when their native Criterion
+archive uses metadata schema 2 and explicitly leave local-command, Cargo-lock, and combined-source hashes absent.
 
 Files below `target/bench-reports/` are ignored local release work products. Keep the CSV and JSON with any external research record that cites the local
 same-host comparison. After publication, the native Criterion tarballs attached to GitHub Releases are the durable repository-owned measurements from which

@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.97.1 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
+This repository is a single Rust library crate using Rust 1.98.0 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
 
 ## Core Commands
 
@@ -14,6 +14,7 @@ just ci-repository-tooling  # Repository tooling subset
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # All lint groups
 just setup            # Install/verify external dev tools
+just update           # Update dependencies, managed Cargo tools, and tool pins
 just test             # Focused unit + doc tests
 just test-unit        # Focused library unit tests
 just test-integration # Focused integration tests
@@ -54,9 +55,9 @@ For cross-repo muscle memory, the same checks are also available through grouped
 - `just lint-docs` - Markdown formatting and spellcheck
 
 `just ci` is the comprehensive local and GitHub Actions entrypoint. Its dependency list is a flat union of focused validators: GitHub Actions, Markdown,
-spelling, release metadata, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and core Clippy, documentation, broad Rust runnable
-tests, doctests, benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or `test-all`
-bundles.
+spelling, release metadata, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and all-target Clippy, documentation, broad Rust
+runnable tests, doctests, benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or
+`test-all` bundles.
 
 Runnable library unit and integration tests across all public features share one release-profile nextest invocation through `just test-rust-ci`:
 
@@ -64,8 +65,9 @@ Runnable library unit and integration tests across all public features share one
 cargo nextest run --locked --release --profile ci --all-features --lib --tests --verbose
 ```
 
-Doctests remain in `just test-doc` because nextest does not execute rustdoc examples. `just clippy` checks the core library;
-`just clippy-all-targets` remains an optional manual sweep because tests, examples, and benches already have focused CI validators.
+Doctests remain in `just test-doc` because nextest does not execute rustdoc examples. The fast `just clippy` recipe checks the core library for `just check`,
+while `just ci` uses `just clippy-all-targets` to match `.github/workflows/rust-clippy.yml`. Test, example, and benchmark validators still own their execution
+or compile-contract evidence because ordinary compilation does not execute Clippy lints.
 
 The named subsets remain available for focused timing or platform work, but `just ci` does not compose through them:
 
@@ -78,29 +80,29 @@ The named subsets remain available for focused timing or platform work, but `jus
 The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
 comprehensive validation gate.
 
-## Rust 1.97.1 Audit
+## Rust 1.98.0 Audit
 
-The MSRV and contributor toolchain use Rust 1.97.1 rather than 1.97.0 because the point release fixes an LLVM miscompilation. The audit below follows the
-official [Rust 1.97.0 release notes](https://doc.rust-lang.org/stable/releases.html#version-1970-2026-07-09) and
-[Rust 1.97.1 announcement](https://blog.rust-lang.org/2026/07/16/Rust-1.97.1/).
+The MSRV and contributor toolchain use Rust 1.98.0. The audit below follows the final official
+[Rust 1.98.0 release notes](https://doc.rust-lang.org/stable/releases.html#version-1980-2026-08-20) and
+[release announcement](https://blog.rust-lang.org/2026/08/20/Rust-1.98.0/).
 
 | Surface | Decision |
 | --- | --- |
-| Cargo warning policy | `just clippy` uses `CARGO_BUILD_WARNINGS=deny` instead of `-D warnings`, so changing warning severity does not invalidate the build cache. The explicit Clippy `-W` selectors remain because Cargo changes the severity of enabled lints but does not enable `pedantic`, `nursery`, or `cargo`. The standalone rustdoc command keeps `RUSTDOCFLAGS="-D warnings"` to express rustdoc-specific policy at that command boundary. |
-| `Result<T, Infallible>` must-use behavior | Keep the typed infallible results. Library tests, doctests, examples, integration tests, and benchmark compilation exercise these APIs under 1.97.1 without exposing ignored results. |
-| Symbol mangling and code generation | Keep the new v0 symbol mangling default. Repository benchmarks, backtraces, and LLVM coverage do not parse legacy symbol names. The 1.97.1 LLVM fix is the reason to require the point release rather than 1.97.0. |
-| Linker messages | Keep the lint enabled and add no suppression. Local validation checks the host linker, while the Linux, macOS, and Windows CI matrix checks the supported platform linkers. Any future suppression must be limited to a demonstrated platform-specific false positive. |
-| Integer, `NonZero`, and `RepeatN` APIs | No change. Existing `NonZeroUsize` values model validated counts rather than bit masks, and the crate does not construct a reusable `RepeatN`; adopting the new APIs would add churn without clarifying an invariant. |
-| `resolver.lockfile-path` | No change. The crate commits `Cargo.lock`, and its build, benchmark, release, and coverage workflows use writable checkouts; there is no read-only source workflow that needs a relocated lockfile. |
-| Clippy, rustfmt, and rustdoc | Keep the current configuration. The 1.97 Clippy lint set is enforced by `just clippy`; rustfmt produces no formatting changes; and the new rustdoc `--emit` and path-remapping options do not improve the current local or docs.rs workflow. |
+| Algebraic floating-point methods | Forbid `f64::algebraic_{add,sub,mul,div,rem}` throughout repository-owned Rust. Their unspecified reassociation and precision plus relaxed NaN, infinity, and signed-zero behavior can change log densities, acceptance decisions, diagnostics, and seeded-run reproducibility. The repository Semgrep rule covers receiver, associated, qualified, function-item, alias, and callback forms. Ordinary IEEE-754 operators and deliberate `f64::mul_add` remain allowed. |
+| New lints and compatibility changes | Keep the warning policy and add no suppressions. The runtime-symbol and `c_void` lints do not intersect this safe Rust library, and the trait-object lifetime, ambiguous-import, attribute-validation, structural-equality, and temporary-scope changes require no source changes. The full validation gate exercises library, test, doctest, example, and benchmark targets. |
+| Stabilized library APIs | No change. The new substring/subslice range recovery, buffered integer formatting, `NonZero::from_str_radix`, explicit-endian UTF-16 decoding, circumfix stripping, mutable atomic-slice, and process-argument APIs do not simplify an existing path or address a demonstrated bottleneck. |
+| Platform support | No change. The new and promoted PowerPC64, AArch64 pointer-authentication, and Thumb targets do not alter the declared Linux, macOS, and Windows MSVC matrix. |
+| Cargo, Clippy, rustfmt, and rustdoc | Keep the existing command and configuration shape apart from the aligned Clippy MSRV. Cargo 1.98's stable changes are fixes rather than useful new workflow controls here; the pinned Clippy, rustfmt, and rustdoc components are validated through `just ci`. |
 
 ## Setup
 
 Run `just setup` or `just setup-tools` to install and verify external tools:
 
 - `actionlint`
+- `cargo-edit`
 - `cargo-llvm-cov`
 - `cargo-nextest`
+- `cargo-update`
 - `dprint`
 - `git-cliff`
 - `jq`
@@ -111,7 +113,11 @@ Run `just setup` or `just setup-tools` to install and verify external tools:
 - `zizmor`
 
 The setup recipe uses Cargo for Rust tools and `uv sync --locked --group dev` for project-managed Python 3.14 tools. Semgrep, Ruff, Ty, actionlint, and the
-support-script tests are pinned in `pyproject.toml` and invoked through uv 0.12.1.
+support-script tests are pinned in `pyproject.toml` and invoked through the `uv_version` release pinned in the root [`justfile`](../../justfile).
+
+Run `just update` when intentionally refreshing repository dependencies and managed tooling. It updates Cargo requirements and lockfile entries, advances
+exact Python development-tool pins without changing ranged requirements, upgrades the Cargo-installed CLI set, and then reconciles justfile pins with the
+installed versions and active uv release.
 
 ## Line Length
 
@@ -141,6 +147,10 @@ required.
 `just notebook-lint` validates every source notebook without execution: JSON shape and stable unique cell IDs, empty outputs and execution counts, cell-aware
 Python compilation, and extracted-code Ruff format/check plus Ty. `just notebook-check` then generates the Ising example artifact and executes the fast
 notebook set headlessly with `MPLBACKEND=Agg`.
+
+`just notebook-ising-figure` runs that validated workflow and promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. The notebook
+keeps plot labels and PNG metadata valid for an explicitly supplied `MCMC_TRACE_PATH`; the README caption records the fixed parameters used for the tracked
+default figure.
 
 Executed notebooks, IPython state, and Matplotlib caches are written below `target/notebooks/`; source notebooks remain unchanged. Heavier notebooks must be
 listed explicitly in the `slow_notebooks` justfile variable and run only through `just notebook-check-slow`. Use `just notebook-clear-outputs-all` for

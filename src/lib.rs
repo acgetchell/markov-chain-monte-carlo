@@ -162,9 +162,10 @@
 //! Enable the optional `serde` feature to serialize [`Chain<S>`] checkpoints
 //! when `S` implements serde's traits.  Restore checkpoint data with
 //! [`Chain::from_checkpoint`] so the cached log-probability is recomputed from
-//! the target used for resumed sampling.  [`Sampler`] also derives
-//! serialization when all stored handles support it, but targets, proposals,
-//! and RNG streams are reconstructed by the caller for portable resumes.
+//! the target used for resumed sampling. Serializing a [`Sampler`] produces the
+//! same canonical checkpoint shape and deliberately excludes its target,
+//! proposal, and RNG handles; reconstruct those caller-owned components for a
+//! portable resume.
 //!
 //! ```
 //! # #[derive(Debug)]
@@ -282,7 +283,9 @@
 //!
 //! Use [`DiscreteProposalRatio`] when a delayed combinatorial proposal chooses
 //! a move family and then samples uniformly among that family's valid concrete
-//! sites.
+//! sites. When family selection uses relative weights, pass both the selected
+//! family's weight and the sum of all family weights at each endpoint; those
+//! state-dependent normalizers are part of the Hastings correction.
 //!
 //! ```
 //! use core::convert::Infallible;
@@ -435,6 +438,7 @@
 //! ```
 //! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::by_value::*;
+//! use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 //! use rand::{Rng, SeedableRng, rngs::StdRng};
 //!
 //! # struct T;
@@ -476,12 +480,12 @@ pub use observable::{
 };
 pub use sampler::{
     InvalidThinningInterval, ObservedDelayedIntoRunResult, ObservedDelayedStep,
-    ObservedDelayedStepResult, ObservedIntoRunResult, ObservedMutStep, Sampler,
-    ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult, ThinnedRunResult,
-    ThinningInterval, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
-    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
-    TryObservedRunResult, TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult,
-    TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+    ObservedDelayedStepResult, ObservedIntoRunResult, ObservedMutStep, ObservedStep, Sampler,
+    ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult, ThinningInterval,
+    TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult, TryObservedDelayedStepResult,
+    TryObservedIntoRunResult, TryObservedMutStepResult, TryObservedRunResult,
+    TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
+    TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use testing::{
@@ -541,9 +545,9 @@ pub mod prelude {
         AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
         InvalidThinningInterval, McmcError, Observable, ObservedIntoRunResult, ObservedStepError,
         ObservedStreamError, OnlineStats, SampleBuffer, Sampler, StatisticsError, Target,
-        ThinnedObservedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace, TraceError,
-        TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
-        TryObservedIntoRunResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+        ThinnedObservedIntoRunResult, ThinningInterval, Trace, TraceError, TraceRecord,
+        TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -552,13 +556,13 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
-            Observable, ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
-            Proposal, SampleBuffer, Sampler, StatisticsError, Target, ThinnedObservedIntoRunResult,
-            ThinnedRunResult, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
-            TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-            TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalRatio,
+            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
+            ObservedIntoRunResult, ObservedStep, ObservedStepError, ObservedStreamError, Proposal,
+            SampleBuffer, Sampler, Step, StepOutcome, StepRejectionReason, Target,
+            ThinnedObservedIntoRunResult, ThinningInterval, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryObservedStepResult, TryThinnedObservedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 
@@ -569,14 +573,13 @@ pub mod prelude {
     /// delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
-            Observable, ObservedIntoRunResult, ObservedMutStep, ObservedStepError,
-            ObservedStreamError, OnlineStats, ProposalMut, SampleBuffer, Sampler, StatisticsError,
-            Step, StepOutcome, StepRejectionReason, Target, ThinnedObservedIntoRunResult,
-            ThinnedRunResult, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
-            TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-            TryObservedMutStepResult, TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalRatio,
+            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
+            ObservedIntoRunResult, ObservedMutStep, ObservedStepError, ObservedStreamError,
+            ProposalMut, SampleBuffer, Sampler, Step, StepOutcome, StepRejectionReason, Target,
+            ThinnedObservedIntoRunResult, ThinningInterval, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryObservedMutStepResult, TryThinnedObservedIntoRunResult,
+            TryThinnedObservedRunResult,
         };
     }
 
@@ -586,16 +589,13 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-            DelayedProposal, DelayedStep, DelayedStepError, DiscreteProposalRatio,
-            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
-            ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
-            ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer, Sampler,
-            StatisticsError, StepOutcome, StepRejectionReason, Target,
-            ThinnedObservedDelayedIntoRunResult, ThinnedRunResult, ThinningInterval, Trace,
-            TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator,
-            TryObservable, TryObservedDelayedIntoRunResult, TryThinnedObservedDelayedIntoRunResult,
-            TryThinnedObservedRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError,
+            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
+            Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
+            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, SampleBuffer,
+            Sampler, StepOutcome, StepRejectionReason, Target, ThinnedObservedDelayedIntoRunResult,
+            ThinningInterval, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
+            TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -639,7 +639,6 @@ mod public_api_smoke_tests {
         prelude::{self, by_value, delayed, in_place, testing},
     };
 
-    #[cfg_attr(feature = "serde", derive(serde::Serialize))]
     struct Smoke;
 
     impl Target<f64> for Smoke {
@@ -761,25 +760,12 @@ mod public_api_smoke_tests {
         let _: Option<prelude::TraceRecord> = None;
         let _: Option<prelude::TraceRecorder> = None;
         let _: Option<prelude::TraceStepOutcome> = None;
-        let _: Option<prelude::ThinnedRunResult<(), McmcError>> = None;
         let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
         let _: Option<by_value::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<by_value::ChainId> = None;
-        let _: Option<by_value::Trace> = None;
-        let _: Option<by_value::TraceError> = None;
-        let _: Option<by_value::TraceRecord> = None;
-        let _: Option<by_value::TraceRecorder> = None;
-        let _: Option<by_value::TraceStepOutcome> = None;
         let _: Option<by_value::DiscreteProposalRatio> = None;
         let _: Option<by_value::DiscreteProposalRatioError> = None;
         let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
         let _: Option<in_place::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<in_place::ChainId> = None;
-        let _: Option<in_place::Trace> = None;
-        let _: Option<in_place::TraceError> = None;
-        let _: Option<in_place::TraceRecord> = None;
-        let _: Option<in_place::TraceRecorder> = None;
-        let _: Option<in_place::TraceStepOutcome> = None;
         let _: Option<in_place::Step<()>> = None;
         let _: Option<in_place::StepOutcome> = None;
         let _: Option<in_place::StepRejectionReason> = None;
@@ -791,16 +777,10 @@ mod public_api_smoke_tests {
             in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
         > = None;
         let _: Option<delayed::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<delayed::ChainId> = None;
-        let _: Option<delayed::Trace> = None;
-        let _: Option<delayed::TraceError> = None;
-        let _: Option<delayed::TraceRecord> = None;
-        let _: Option<delayed::TraceRecorder> = None;
         let _: Option<delayed::DiscreteProposalRatio> = None;
         let _: Option<delayed::DiscreteProposalRatioError> = None;
         let _: Option<delayed::StepOutcome> = None;
         let _: Option<delayed::StepRejectionReason> = None;
-        let _: Option<delayed::TraceStepOutcome> = None;
         let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
         let _: Option<delayed::McmcError> = None;
         let _: Option<testing::DetailedBalanceConfig> = None;
@@ -816,7 +796,7 @@ mod public_api_smoke_tests {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn sampler_serializes_handles() -> Result<(), JsonError> {
+    fn sampler_serializes_as_canonical_checkpoint() -> Result<(), JsonError> {
         let target = Smoke;
         let proposal = Smoke;
         let mut rng = Smoke;
@@ -829,12 +809,12 @@ mod public_api_smoke_tests {
 
         let checkpoint = to_value(&sampler)?;
 
-        assert_eq!(checkpoint["chain"]["state"], json!(1.0));
-        assert_eq!(checkpoint["chain"]["accepted"], json!(0));
-        assert_eq!(checkpoint["chain"]["rejected"], json!(0));
-        assert!(checkpoint.get("target").is_some());
-        assert!(checkpoint.get("proposal").is_some());
-        assert!(checkpoint.get("rng").is_some());
+        assert_eq!(checkpoint["state"], json!(1.0));
+        assert_eq!(checkpoint["accepted"], json!(0));
+        assert_eq!(checkpoint["rejected"], json!(0));
+        assert!(checkpoint.get("target").is_none());
+        assert!(checkpoint.get("proposal").is_none());
+        assert!(checkpoint.get("rng").is_none());
         Ok(())
     }
 }

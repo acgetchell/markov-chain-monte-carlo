@@ -23,6 +23,13 @@ RELEASE_PERFORMANCE_RECIPES = {
     "performance-release",
     "performance-rerender",
 }
+UPDATE_RECIPES = {
+    "update",
+    "update-cargo-dependencies",
+    "update-cargo-tools",
+    "update-dependencies",
+    "update-python-dependencies",
+}
 
 
 def _run_just(*args: str) -> subprocess.CompletedProcess[str]:
@@ -98,8 +105,10 @@ def test_workflow_tool_version_lookups_resolve_from_just() -> None:
 def test_pinned_tool_guards_reference_their_justfile_versions() -> None:
     recipes = _recipes()
     guards = {
+        "_ensure-cargo-edit": "cargo_edit_version",
         "_ensure-cargo-llvm-cov": "cargo_llvm_cov_version",
         "_ensure-cargo-nextest": "cargo_nextest_version",
+        "_ensure-cargo-install-update": "cargo_update_version",
         "_ensure-dprint": "dprint_version",
         "_ensure-git-cliff": "git_cliff_version",
         "_ensure-rumdl": "rumdl_version",
@@ -141,6 +150,25 @@ def test_release_performance_recipes_are_discoverable_in_help() -> None:
         assert f"just {name}" in help_text
 
 
+def test_update_workflow_is_public_documented_and_discoverable() -> None:
+    recipes = _recipes()
+    help_text = _run_just("help-workflows").stdout
+
+    for name in UPDATE_RECIPES:
+        assert recipes[name]["private"] is False
+        assert recipes[name]["doc"], name
+    assert "just update" in help_text
+
+
+def test_update_workflow_composes_the_expected_phases() -> None:
+    recipes = _recipes()
+    aggregate = {dependency["recipe"] for dependency in recipes["update"]["dependencies"]}
+    dependencies = {dependency["recipe"] for dependency in recipes["update-dependencies"]["dependencies"]}
+
+    assert aggregate == {"_ensure-cargo-install-update", "update-cargo-tools", "update-dependencies"}
+    assert dependencies == {"_ensure-cargo-edit", "_ensure-uv-available", "update-cargo-dependencies", "update-python-dependencies"}
+
+
 def test_latest_vs_last_composes_measurement_and_report_steps() -> None:
     dependencies = {dependency["recipe"] for dependency in _recipes()["bench-latest-vs-last"]["dependencies"]}
 
@@ -173,6 +201,25 @@ def test_release_workflow_uses_the_canonical_baseline_recipe() -> None:
     workflow = (REPO_ROOT / ".github" / "workflows" / "release-benchmarks.yml").read_text(encoding="utf-8")
 
     assert 'run: just bench-save-baseline "$RELEASE_TAG"' in workflow
+    assert "--clobber" not in workflow
+
+
+def test_release_performance_docs_record_the_prospective_asset_boundary() -> None:
+    benchmarking = (REPO_ROOT / "docs" / "BENCHMARKING.md").read_text(encoding="utf-8")
+    releasing = (REPO_ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+
+    assert "releases through `v0.4.1` have no Criterion baseline attachment" in benchmarking
+    assert "`v0.4.2` release therefore creates the first durable" in benchmarking
+    assert "`v0.4.3` creates the first complete historical pair" in benchmarking
+    assert "`v0.4.1` and earlier releases have no Criterion baseline attachment" in releasing
+    assert "`v0.4.3`-against-`v0.4.2` pair" in releasing
+
+
+def test_ci_runs_the_full_repository_gate_on_every_matrix_platform() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "- name: Run CI checks\n        run: just ci" in workflow
+    assert "run: just ci-portability" not in workflow
 
 
 def test_workflows_resolve_the_python_version_from_the_justfile() -> None:

@@ -70,6 +70,7 @@ jobs:
           set -euo pipefail
 
           python - <<'PY'
+          import hashlib
           import json
           import os
           import platform
@@ -87,7 +88,7 @@ jobs:
               raise SystemExit("expected exactly one Criterion package in Cargo.lock")
 
           metadata = {
-              "schema": 1,
+              "schema": 2,
               "tag": os.environ["RELEASE_TAG"],
               "commit": subprocess.run(
                   ["git", "--no-pager", "rev-parse", "HEAD"],
@@ -104,6 +105,9 @@ jobs:
                   encoding="utf-8",
               ).stdout.strip(),
               "criterion_version": criterion_versions[0],
+              "benchmark_harness_sha256": hashlib.sha256(
+                  Path("benches/stepping.rs").read_bytes()
+              ).hexdigest(),
           }
           Path("target/criterion/.mcmc-release-metadata.json").write_text(
               json.dumps(metadata, indent=2, sort_keys=True) + "\n",
@@ -149,7 +153,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ASSET: ${{ needs.release-baseline.outputs.release-asset }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" --clobber
+        run: gh release upload "$RELEASE_TAG" "$RELEASE_ASSET"
 
       - name: Release baseline summary
         env:

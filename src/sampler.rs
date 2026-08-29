@@ -4,6 +4,8 @@ use core::{convert::Infallible, num::NonZeroUsize};
 use std::{error::Error, fmt};
 
 use rand::Rng;
+#[cfg(feature = "serde")]
+use serde::{Serialize, Serializer};
 
 use crate::{
     Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
@@ -14,6 +16,9 @@ use crate::{
 /// Delayed-step telemetry paired with a measurement from the resulting state.
 pub type ObservedDelayedStep<I, O> = (DelayedStep<I>, O);
 
+/// By-value step telemetry paired with a measurement from the resulting state.
+pub type ObservedStep<O> = (Step<()>, O);
+
 /// In-place step telemetry paired with a measurement from the resulting state.
 pub type ObservedMutStep<I, O> = (Step<I>, O);
 
@@ -22,7 +27,7 @@ pub type ObservedDelayedStepResult<I, O, E> =
     Result<ObservedDelayedStep<I, O>, DelayedStepError<E>>;
 
 /// Result returned by fallible by-value observing steps.
-pub type TryObservedStepResult<O, E> = Result<O, ObservedStepError<McmcError, E>>;
+pub type TryObservedStepResult<O, E> = Result<ObservedStep<O>, ObservedStepError<McmcError, E>>;
 
 /// Result returned by fallible in-place observing steps.
 pub type TryObservedMutStepResult<I, O, E> =
@@ -52,20 +57,15 @@ pub type ObservedDelayedIntoRunResult<P, A> = ObservedIntoRunResult<DelayedStepE
 pub type TryObservedDelayedIntoRunResult<P, O, A> =
     TryObservedIntoRunResult<DelayedStepError<P>, O, A>;
 
-/// Result returned by thinned sampler runs.
-pub type ThinnedRunResult<T, E> = Result<T, E>;
-
 /// Result returned by thinned fallible-observation runs.
 pub type TryThinnedObservedRunResult<O, StepError, ObservationError> =
-    ThinnedRunResult<SampleBuffer<O>, ObservedStepError<StepError, ObservationError>>;
+    Result<SampleBuffer<O>, ObservedStepError<StepError, ObservationError>>;
 
 /// Result returned by thinned infallible-observation streaming runs.
-pub type ThinnedObservedIntoRunResult<S, A> =
-    ThinnedRunResult<(), ObservedStreamError<S, Infallible, A>>;
+pub type ThinnedObservedIntoRunResult<S, A> = Result<(), ObservedStreamError<S, Infallible, A>>;
 
 /// Result returned by thinned fallible-observation streaming runs.
-pub type TryThinnedObservedIntoRunResult<S, O, A> =
-    ThinnedRunResult<(), ObservedStreamError<S, O, A>>;
+pub type TryThinnedObservedIntoRunResult<S, O, A> = Result<(), ObservedStreamError<S, O, A>>;
 
 /// Result returned by thinned infallible-observation delayed streaming runs.
 pub type ThinnedObservedDelayedIntoRunResult<P, A> =
@@ -170,17 +170,6 @@ impl fmt::Display for InvalidThinningInterval {
 
 impl Error for InvalidThinningInterval {}
 
-/// Lift a step/observation error into the streaming error type.
-///
-/// Streaming methods add an accumulation stage, so this helper preserves the
-/// original step-vs-observation distinction while widening the error type.
-fn stream_observed_error<S, O, A>(err: ObservedStepError<S, O>) -> ObservedStreamError<S, O, A> {
-    match err {
-        ObservedStepError::Step(err) => ObservedStreamError::Step(err),
-        ObservedStepError::Observation(err) => ObservedStreamError::Observation(err),
-    }
-}
-
 /// Number of observations produced by observing every `thin_interval` steps.
 const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usize {
     steps / thin_interval.get()
@@ -198,7 +187,7 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// [`run_mut`](Self::run_mut) for bulk sampling.
 ///
 /// For the by-value proposal path (`P: Proposal<S>`), `Sampler` also implements
-/// [`Iterator`], yielding `Result<(), McmcError>` on each step.
+/// [`Iterator`], yielding `Result<Step<()>, McmcError>` on each step.
 ///
 /// # Example
 ///
@@ -234,7 +223,6 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// assert!(sampler.chain_ref().acceptance_rate() > 0.0);
 /// # Ok::<(), McmcError>(())
 /// ```
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[must_use]
 pub struct Sampler<'a, S, T, P, R: ?Sized> {
     /// The MCMC chain being sampled.
@@ -242,6 +230,16 @@ pub struct Sampler<'a, S, T, P, R: ?Sized> {
     target: &'a T,
     proposal: P,
     rng: &'a mut R,
+}
+
+#[cfg(feature = "serde")]
+impl<S: Serialize, T, P, R: ?Sized> Serialize for Sampler<'_, S, T, P, R> {
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+    where
+        Ser: Serializer,
+    {
+        self.checkpoint().serialize(serializer)
+    }
 }
 
 impl<S: fmt::Debug, T, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
@@ -463,7 +461,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: ThinningInterval,
         step_once: impl FnMut(&mut Self) -> Result<(), E>,
         mut emit: impl FnMut(&Self) -> Result<O, E>,
-    ) -> ThinnedRunResult<SampleBuffer<O>, E> {
+    ) -> Result<SampleBuffer<O>, E> {
         let mut samples = SampleBuffer::with_capacity(thinned_capacity(steps, thin_interval));
         self.run_thinning_loop(steps, thin_interval, step_once, |sampler| {
             samples.push(emit(sampler)?);
@@ -479,7 +477,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: ThinningInterval,
         mut step_once: impl FnMut(&mut Self) -> Result<(), E>,
         mut emit: impl FnMut(&Self) -> Result<(), E>,
-    ) -> ThinnedRunResult<(), E> {
+    ) -> Result<(), E> {
         for step in 1..=steps {
             step_once(self)?;
             if step % thin_interval.get() == 0 {
@@ -651,7 +649,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0.0), &T)?;
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
-    /// sampler.step()?;
+    /// let _ = sampler.step()?;
     /// assert_eq!(sampler.chain_ref().total_steps(), 1);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -659,8 +657,13 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # Errors
     ///
     /// Returns [`McmcError`] on NaN or +∞ log-probability or NaN log q-ratio.
-    pub fn step(&mut self) -> Result<(), McmcError> {
+    pub fn step(&mut self) -> Result<Step<()>, McmcError> {
         self.chain.step(self.target, &self.proposal, self.rng)
+    }
+
+    fn step_without_telemetry(&mut self) -> Result<(), McmcError> {
+        self.chain
+            .step_without_telemetry(self.target, &self.proposal, self.rng)
     }
 
     /// Run `steps` by-value Metropolis–Hastings steps.
@@ -694,7 +697,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// Returns [`McmcError`] on the first step that fails.
     pub fn run(&mut self, steps: usize) -> Result<(), McmcError> {
         for _ in 0..steps {
-            self.step()?;
+            self.step_without_telemetry()?;
         }
         Ok(())
     }
@@ -779,20 +782,23 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         &mut self,
         steps: usize,
         thin_interval: ThinningInterval,
-    ) -> ThinnedRunResult<SampleBuffer<S>, McmcError>
+    ) -> Result<SampleBuffer<S>, McmcError>
     where
         S: Clone,
     {
-        self.collect_with_thinning_core(steps, thin_interval, Self::step, |sampler| {
-            Ok(sampler.chain.state().clone())
-        })
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            Self::step_without_telemetry,
+            |sampler| Ok(sampler.chain.state().clone()),
+        )
     }
 
     /// Perform one by-value step and observe the resulting chain state.
     ///
     /// The observable is invoked after the step completes, including rejected
-    /// proposals, so the returned value always corresponds to the current chain
-    /// state after one counted Metropolis-Hastings step.
+    /// proposals, so the returned telemetry and value both describe the current
+    /// chain state after one counted Metropolis-Hastings step.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
@@ -811,7 +817,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     /// let mut energy = |state: &f64| 0.5 * state * state;
     ///
-    /// let measurement = sampler.step_observing(&mut energy)?;
+    /// let (_step, measurement) = sampler.step_observing(&mut energy)?;
     /// assert!(measurement >= 0.0);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -823,9 +829,9 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     pub fn step_observing<O: Observable<S> + ?Sized>(
         &mut self,
         observable: &mut O,
-    ) -> Result<O::Output, McmcError> {
-        self.step()?;
-        Ok(observable.observe(self.chain.state()))
+    ) -> Result<ObservedStep<O::Output>, McmcError> {
+        let step = self.step()?;
+        Ok((step, observable.observe(self.chain.state())))
     }
 
     /// Run by-value steps and collect one observation after each step.
@@ -863,7 +869,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ) -> Result<SampleBuffer<O::Output>, McmcError> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            samples.push(self.step_observing(observable)?);
+            self.step_without_telemetry()?;
+            samples.push(observable.observe(self.chain.state()));
         }
         Ok(samples)
     }
@@ -910,10 +917,13 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         steps: usize,
         thin_interval: ThinningInterval,
         observable: &mut O,
-    ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
-        self.collect_with_thinning_core(steps, thin_interval, Self::step, |sampler| {
-            Ok(observable.observe(sampler.chain.state()))
-        })
+    ) -> Result<SampleBuffer<O::Output>, McmcError> {
+        self.collect_with_thinning_core(
+            steps,
+            thin_interval,
+            Self::step_without_telemetry,
+            |sampler| Ok(observable.observe(sampler.chain.state())),
+        )
     }
 
     /// Run by-value steps and stream observations into an accumulator.
@@ -927,6 +937,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
     ///
     /// # #[derive(Clone)] struct S(f64);
@@ -966,11 +977,10 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let sample = self
-                .step_observing(observable)
+            self.step_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
             accumulator
-                .try_push(sample)
+                .try_push(observable.observe(self.chain.state()))
                 .map_err(ObservedStreamError::Accumulation)?;
         }
         Ok(())
@@ -984,6 +994,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// struct Flat;
@@ -1032,7 +1043,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         self.run_thinning_loop(
             steps,
             thin_interval,
-            |sampler| sampler.step().map_err(ObservedStreamError::Step),
+            |sampler| {
+                sampler
+                    .step_without_telemetry()
+                    .map_err(ObservedStreamError::Step)
+            },
             |sampler| {
                 accumulator
                     .try_push(observable.observe(sampler.chain.state()))
@@ -1067,7 +1082,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///     if state.is_finite() { Ok(*state) } else { Err("non-finite") }
     /// };
     ///
-    /// let sample = sampler.try_step_observing(&mut finite)?;
+    /// let (_step, sample) = sampler.try_step_observing(&mut finite)?;
     /// assert!(sample.is_finite());
     /// # Ok::<(), ObservedStepError<McmcError, &'static str>>(())
     /// ```
@@ -1080,10 +1095,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         &mut self,
         observable: &mut O,
     ) -> TryObservedStepResult<O::Output, O::Error> {
-        self.step().map_err(ObservedStepError::Step)?;
-        observable
+        let step = self.step().map_err(ObservedStepError::Step)?;
+        let sample = observable
             .try_observe(self.chain.state())
-            .map_err(ObservedStepError::Observation)
+            .map_err(ObservedStepError::Observation)?;
+        Ok((step, sample))
     }
 
     /// Run by-value steps and collect fallible observations.
@@ -1123,7 +1139,13 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ) -> TryObservedRunResult<O::Output, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            samples.push(self.try_step_observing(observable)?);
+            self.step_without_telemetry()
+                .map_err(ObservedStepError::Step)?;
+            samples.push(
+                observable
+                    .try_observe(self.chain.state())
+                    .map_err(ObservedStepError::Observation)?,
+            );
         }
         Ok(samples)
     }
@@ -1177,7 +1199,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         self.collect_with_thinning_core(
             steps,
             thin_interval,
-            |sampler| sampler.step().map_err(ObservedStepError::Step),
+            |sampler| {
+                sampler
+                    .step_without_telemetry()
+                    .map_err(ObservedStepError::Step)
+            },
             |sampler| {
                 observable
                     .try_observe(sampler.chain.state())
@@ -1190,6 +1216,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct T;
@@ -1229,9 +1256,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let sample = self
-                .try_step_observing(observable)
-                .map_err(stream_observed_error)?;
+            self.step_without_telemetry()
+                .map_err(ObservedStreamError::Step)?;
+            let sample = observable
+                .try_observe(self.chain.state())
+                .map_err(ObservedStreamError::Observation)?;
             accumulator
                 .try_push(sample)
                 .map_err(ObservedStreamError::Accumulation)?;
@@ -1247,6 +1276,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// struct Flat;
@@ -1294,7 +1324,11 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         self.run_thinning_loop(
             steps,
             thin_interval,
-            |sampler| sampler.step().map_err(ObservedStreamError::Step),
+            |sampler| {
+                sampler
+                    .step_without_telemetry()
+                    .map_err(ObservedStreamError::Step)
+            },
             |sampler| {
                 let sample = observable
                     .try_observe(sampler.chain.state())
@@ -1502,7 +1536,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         &mut self,
         steps: usize,
         thin_interval: ThinningInterval,
-    ) -> ThinnedRunResult<SampleBuffer<S>, McmcError>
+    ) -> Result<SampleBuffer<S>, McmcError>
     where
         S: Clone,
     {
@@ -1651,7 +1685,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         steps: usize,
         thin_interval: ThinningInterval,
         observable: &mut O,
-    ) -> ThinnedRunResult<SampleBuffer<O::Output>, McmcError> {
+    ) -> Result<SampleBuffer<O::Output>, McmcError> {
         self.collect_with_thinning_core(
             steps,
             thin_interval,
@@ -1668,6 +1702,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct S(f64);
@@ -1729,6 +1764,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// struct S(i32);
@@ -1969,6 +2005,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct S(f64);
@@ -2033,6 +2070,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::in_place::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// struct S(i32);
@@ -2178,11 +2216,17 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             .step_delayed(self.target, &mut self.proposal, self.rng)
     }
 
-    /// Perform one delayed-commit step and verify the committed state afterward.
+    fn step_delayed_without_telemetry(&mut self) -> Result<(), DelayedStepError<P::Error>> {
+        self.chain
+            .step_delayed_without_telemetry(self.target, &mut self.proposal, self.rng)
+    }
+
+    /// Perform one delayed-commit step and verify its target score afterward.
     ///
-    /// Delegates to [`Chain::step_delayed_checked`].  Use this while developing
-    /// delayed proposals to catch mismatches between the scored plan and the
-    /// state actually committed by the proposal.
+    /// Delegates to [`Chain::step_delayed_checked`]. Use this while developing
+    /// delayed proposals to catch target-score mismatches. Equal scores do not
+    /// prove that the committed state is identical to the planned state, and
+    /// `S::clone()` must provide rollback-isolated storage for commit mutations.
     ///
     /// # Examples
     ///
@@ -2328,7 +2372,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// Returns [`DelayedStepError`] on the first step that fails.
     pub fn run_delayed(&mut self, steps: usize) -> Result<(), DelayedStepError<P::Error>> {
         for _ in 0..steps {
-            let _ = self.step_delayed()?;
+            self.step_delayed_without_telemetry()?;
         }
         Ok(())
     }
@@ -2600,7 +2644,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         &mut self,
         steps: usize,
         thin_interval: ThinningInterval,
-    ) -> ThinnedRunResult<SampleBuffer<S>, DelayedStepError<P::Error>>
+    ) -> Result<SampleBuffer<S>, DelayedStepError<P::Error>>
     where
         S: Clone,
     {
@@ -2608,7 +2652,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             steps,
             thin_interval,
             |sampler| {
-                let _ = sampler.step_delayed()?;
+                sampler.step_delayed_without_telemetry()?;
                 Ok(())
             },
             |sampler| Ok(sampler.chain.state().clone()),
@@ -2730,8 +2774,8 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ) -> Result<SampleBuffer<O::Output>, DelayedStepError<P::Error>> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            let (_, sample) = self.step_delayed_observing(observable)?;
-            samples.push(sample);
+            self.step_delayed_without_telemetry()?;
+            samples.push(observable.observe(self.chain.state()));
         }
         Ok(samples)
     }
@@ -2783,12 +2827,12 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         steps: usize,
         thin_interval: ThinningInterval,
         observable: &mut O,
-    ) -> ThinnedRunResult<SampleBuffer<O::Output>, DelayedStepError<P::Error>> {
+    ) -> Result<SampleBuffer<O::Output>, DelayedStepError<P::Error>> {
         self.collect_with_thinning_core(
             steps,
             thin_interval,
             |sampler| {
-                let _ = sampler.step_delayed()?;
+                sampler.step_delayed_without_telemetry()?;
                 Ok(())
             },
             |sampler| Ok(observable.observe(sampler.chain.state())),
@@ -2803,6 +2847,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct Flat;
@@ -2850,11 +2895,10 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let (_, sample) = self
-                .step_delayed_observing(observable)
+            self.step_delayed_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
             accumulator
-                .try_push(sample)
+                .try_push(observable.observe(self.chain.state()))
                 .map_err(ObservedStreamError::Accumulation)?;
         }
         Ok(())
@@ -2868,6 +2912,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct Flat;
@@ -2921,7 +2966,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             steps,
             thin_interval,
             |sampler| {
-                let _ = sampler.step_delayed().map_err(ObservedStreamError::Step)?;
+                sampler
+                    .step_delayed_without_telemetry()
+                    .map_err(ObservedStreamError::Step)?;
                 Ok(())
             },
             |sampler| {
@@ -3031,7 +3078,11 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ) -> TryObservedDelayedRunResult<O::Output, P::Error, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
         for _ in 0..steps {
-            let (_, sample) = self.try_step_delayed_observing(observable)?;
+            self.step_delayed_without_telemetry()
+                .map_err(ObservedStepError::Step)?;
+            let sample = observable
+                .try_observe(self.chain.state())
+                .map_err(ObservedStepError::Observation)?;
             samples.push(sample);
         }
         Ok(samples)
@@ -3093,7 +3144,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             steps,
             thin_interval,
             |sampler| {
-                let _ = sampler.step_delayed().map_err(ObservedStepError::Step)?;
+                sampler
+                    .step_delayed_without_telemetry()
+                    .map_err(ObservedStepError::Step)?;
                 Ok(())
             },
             |sampler| {
@@ -3109,6 +3162,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct Flat;
@@ -3157,9 +3211,11 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         A: TryAccumulator<O::Output> + ?Sized,
     {
         for _ in 0..steps {
-            let (_, sample) = self
-                .try_step_delayed_observing(observable)
-                .map_err(stream_observed_error)?;
+            self.step_delayed_without_telemetry()
+                .map_err(ObservedStreamError::Step)?;
+            let sample = observable
+                .try_observe(self.chain.state())
+                .map_err(ObservedStreamError::Observation)?;
             accumulator
                 .try_push(sample)
                 .map_err(ObservedStreamError::Accumulation)?;
@@ -3175,6 +3231,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// ```
     /// use core::convert::Infallible;
     /// use markov_chain_monte_carlo::prelude::delayed::*;
+    /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
     /// use rand::{Rng, SeedableRng, rngs::StdRng};
     ///
     /// # struct Flat;
@@ -3228,7 +3285,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
             steps,
             thin_interval,
             |sampler| {
-                let _ = sampler.step_delayed().map_err(ObservedStreamError::Step)?;
+                sampler
+                    .step_delayed_without_telemetry()
+                    .map_err(ObservedStreamError::Step)?;
                 Ok(())
             },
             |sampler| {
@@ -3246,7 +3305,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
 // --- Iterator (by-value proposal path only) ---
 
 impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, S, T, P, R> {
-    type Item = Result<(), McmcError>;
+    type Item = Result<Step<()>, McmcError>;
 
     /// Perform one by-value step and yield the result.
     ///
@@ -3631,7 +3690,7 @@ mod tests {
         let chain = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut sampler = sampler!(chain, &Normal, &Walk { width: 1.0 }, &mut rng);
 
-        sampler.step().unwrap();
+        let _ = sampler.step().unwrap();
         assert_eq!(sampler.chain_ref().total_steps(), 1);
     }
 
@@ -4381,6 +4440,94 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct CountingDelayedInfo {
+        calls: Cell<usize>,
+    }
+
+    impl DelayedProposal<MutScalar> for CountingDelayedInfo {
+        type Plan = f64;
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _state: &MutScalar,
+            _rng: &mut R,
+        ) -> Result<Option<f64>, Self::Error> {
+            Ok(Some(0.0))
+        }
+
+        fn proposed_log_prob<T: Target<MutScalar>>(
+            &self,
+            _state: &MutScalar,
+            plan: &f64,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(&MutScalar(*plan)))
+        }
+
+        fn info(&self, _plan: &f64) {
+            self.calls.set(self.calls.get().saturating_add(1));
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            plan: f64,
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            state.0 = plan;
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingDelayedNoPlanInfo {
+        calls: usize,
+    }
+
+    impl DelayedProposal<MutScalar> for CountingDelayedNoPlanInfo {
+        type Plan = ();
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            _state: &MutScalar,
+            _rng: &mut R,
+        ) -> Result<Option<()>, Self::Error> {
+            Ok(None)
+        }
+
+        fn no_plan_info(&mut self) -> Option<Self::Info> {
+            self.calls = self.calls.saturating_add(1);
+            Some(())
+        }
+
+        fn proposed_log_prob<T: Target<MutScalar>>(
+            &self,
+            _state: &MutScalar,
+            _plan: &(),
+            _target: &T,
+        ) -> Result<f64, Self::Error> {
+            unreachable!("no plan is never scored")
+        }
+
+        fn info(&self, _plan: &()) {
+            unreachable!("no plan has no concrete telemetry")
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _state: &mut MutScalar,
+            _plan: (),
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            unreachable!("no plan is never committed")
+        }
+    }
+
     #[test]
     fn step_delayed_advances_chain() {
         let mut rng = StdRng::seed_from_u64(42);
@@ -4406,6 +4553,39 @@ mod tests {
 
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 10);
+    }
+
+    #[test]
+    fn bulk_delayed_runs_skip_concrete_proposal_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut sampler = sampler!(chain, &Normal, CountingDelayedInfo::default(), &mut rng);
+
+        sampler.run_delayed(8).unwrap();
+
+        assert_eq!(sampler.proposal_ref().calls.get(), 0);
+        let step = sampler.step_delayed().unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(sampler.proposal_ref().calls.get(), 1);
+    }
+
+    #[test]
+    fn bulk_delayed_runs_skip_no_plan_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let chain = Chain::new(MutScalar(2.0), &Normal).unwrap();
+        let mut sampler = sampler!(
+            chain,
+            &Normal,
+            CountingDelayedNoPlanInfo::default(),
+            &mut rng,
+        );
+
+        sampler.run_delayed(8).unwrap();
+
+        assert_eq!(sampler.proposal_ref().calls, 0);
+        let step = sampler.step_delayed().unwrap();
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(sampler.proposal_ref().calls, 1);
     }
 
     #[test]
@@ -4777,7 +4957,10 @@ mod tests {
 
         // Use Iterator::take for burn-in
         for result in sampler.by_ref().take(200) {
-            result.unwrap();
+            assert!(matches!(
+                result.unwrap().outcome(),
+                StepOutcome::Accepted | StepOutcome::RejectedProposal
+            ));
         }
         assert_eq!(sampler.chain_ref().total_steps(), 200);
     }
@@ -4805,7 +4988,7 @@ mod tests {
         let mut chain = Chain::new(Scalar(0.0), &Normal).unwrap();
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..steps {
-            chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
         }
 
         // Sampler

@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import platform
 import re
 import shutil
@@ -38,6 +39,9 @@ _VERSION_RE = re.compile(r"^\*\*markov-chain-monte-carlo\*\* (?P<version>v[0-9]+
 _BASELINE_RE = re.compile(r"^Comparison against baseline \*\*(?P<baseline>v[0-9]+\.[0-9]+\.[0-9]+)\*\*:", re.MULTILINE)
 _COMMAND_TIMEOUT_SECONDS = 600
 _BENCHMARK_TIMEOUT_SECONDS = 7200
+_MAX_RELEASE_ARCHIVE_SIZE_BYTES = 256 * 1024 * 1024
+_MAX_RELEASE_ARCHIVE_MEMBER_COUNT = 100_000
+_MAX_RELEASE_ARCHIVE_CONTENT_BYTES = 1024 * 1024 * 1024
 _CSV_SCHEMA = "criterion-comparison/v1"
 _PROVENANCE_SCHEMA = "mcmc-performance-provenance/v1"
 _BENCHMARK_SUITE = "stepping"
@@ -71,6 +75,11 @@ class ReportId:
         """Return the canonical archive filename."""
         return f"{self.current_tag}-vs-{self.baseline_tag}.md"
 
+    @property
+    def evidence_stem(self) -> str:
+        """Return the shared filename stem for durable comparison evidence."""
+        return self.archive_name.removesuffix(".md")
+
 
 @dataclass(frozen=True, slots=True)
 class PublishedRelease:
@@ -90,6 +99,7 @@ class ReleaseMetadata:
     architecture: str
     rustc: str
     criterion_version: str
+    benchmark_harness_sha256: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,7 +699,7 @@ def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -
         expected_tag=pair.baseline_tag,
         context="baseline sample provenance",
     )
-    local_values = (
+    required_local_values = (
         current.source_digest_sha256,
         current.cargo_lock_sha256,
         current.benchmark_harness_sha256,
@@ -699,10 +709,18 @@ def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -
         baseline.benchmark_harness_sha256,
         baseline.command,
     )
-    if mode == "local-isolated-worktrees" and any(value is None for value in local_values):
+    asset_forbidden_values = (
+        current.source_digest_sha256,
+        current.cargo_lock_sha256,
+        current.command,
+        baseline.source_digest_sha256,
+        baseline.cargo_lock_sha256,
+        baseline.command,
+    )
+    if mode == "local-isolated-worktrees" and any(value is None for value in required_local_values):
         msg = "local measurement provenance requires commands and source-input hashes for both samples"
         raise ValueError(msg)
-    if mode == "github-release-assets" and (working_tree_applied or any(value is not None for value in local_values)):
+    if mode == "github-release-assets" and (working_tree_applied or any(value is not None for value in asset_forbidden_values)):
         msg = "GitHub asset provenance cannot claim local commands, source hashes, or working-tree changes"
         raise ValueError(msg)
     return MeasurementProvenance(mode, working_tree_applied, current, baseline)
@@ -779,20 +797,50 @@ def save_comparison_artifact(artifact: ComparisonArtifact, csv_path: Path) -> Co
     return load_comparison_artifact(csv_path)
 
 
-def promote_report(
-    *,
-    source_text: str,
-    current_path: Path,
-    archive_dir: Path,
-    expected: ReportId,
-) -> None:
-    """Archive the previous curated report and promote all outputs with rollback."""
+def _curated_report_text(artifact: ComparisonArtifact, current_path: Path, archive_dir: Path) -> str:
+    """Render a curated report with links to its tracked evidence pair."""
+    report = render_report(artifact.comparison_set, artifact.settings).rstrip()
+    relative_archive = Path(os.path.relpath(archive_dir, current_path.parent)).as_posix()
+    evidence_stem = artifact.pair.evidence_stem
+    return (
+        f"{report}\n\n"
+        "## Reproducibility Evidence\n\n"
+        f"- [CSV measurements]({relative_archive}/{evidence_stem}.csv)\n"
+        f"- [JSON provenance]({relative_archive}/{evidence_stem}.provenance.json)\n"
+    )
+
+
+def _archive_report_links(report: str, pair: ReportId, current_path: Path, archive_dir: Path) -> str:
+    """Rebase current-report evidence links when archiving its Markdown."""
+    relative_archive = Path(os.path.relpath(archive_dir, current_path.parent)).as_posix()
+    evidence_stem = pair.evidence_stem
+    return report.replace(f"]({relative_archive}/{evidence_stem}.csv)", f"]({evidence_stem}.csv)").replace(
+        f"]({relative_archive}/{evidence_stem}.provenance.json)",
+        f"]({evidence_stem}.provenance.json)",
+    )
+
+
+def _append_release_evidence(outputs: list[tuple[Path, str]], path: Path, text: str, *, immutable: bool) -> None:
+    """Publish active evidence, preserving byte-identical historical pair artifacts."""
+    if not path.exists() or not immutable:
+        outputs.append((path, text))
+        return
+    if path.read_text(encoding="utf-8") != text:
+        msg = f"refusing to replace immutable release benchmark evidence: {path}"
+        raise ValueError(msg)
+
+
+def promote_report(*, artifact: ComparisonArtifact, current_path: Path, archive_dir: Path) -> None:
+    """Promote a report and its durable evidence atomically, archiving the previous report."""
+    csv_text = serialize_comparison_csv(artifact.comparison_set)
+    provenance_text = serialize_provenance(artifact)
+    if _artifact_from_text(csv_text, provenance_text) != artifact:
+        msg = "comparison artifact changed during promotion serialization"
+        raise ValueError(msg)
+    source_text = _curated_report_text(artifact, current_path, archive_dir)
     source_id = parse_report_id(source_text)
-    if source_id != expected:
-        msg = (
-            "benchmark report does not match the requested release pair: "
-            f"found {source_id.current_tag} vs {source_id.baseline_tag}, expected {expected.current_tag} vs {expected.baseline_tag}"
-        )
+    if source_id != artifact.pair:
+        msg = "rendered benchmark report does not match its comparison artifact"
         raise ValueError(msg)
     outputs: list[tuple[Path, str]] = []
     additional_reports: list[str] = []
@@ -802,8 +850,12 @@ def promote_report(
         if previous_id != source_id:
             archive_path = archive_dir / previous_id.archive_name
             if not archive_path.exists():
-                outputs.append((archive_path, previous_text))
+                outputs.append((archive_path, _archive_report_links(previous_text, previous_id, current_path, archive_dir)))
                 additional_reports.append(archive_path.name)
+    evidence_stem = artifact.pair.evidence_stem
+    historical_pair = (archive_dir / artifact.pair.archive_name).exists()
+    _append_release_evidence(outputs, archive_dir / f"{evidence_stem}.csv", csv_text, immutable=historical_pair)
+    _append_release_evidence(outputs, archive_dir / f"{evidence_stem}.provenance.json", provenance_text, immutable=historical_pair)
     outputs.append((current_path, source_text))
     outputs.append(
         (
@@ -851,14 +903,32 @@ def apply_current_tree(repo_root: Path, worktree: Path) -> None:
             timeout=_COMMAND_TIMEOUT_SECONDS,
         )
     untracked = run_git_command(
-        ["ls-files", "--others", "--exclude-standard"],
+        ["ls-files", "--others", "--exclude-standard", "-z", "--"],
         cwd=repo_root,
         timeout=_COMMAND_TIMEOUT_SECONDS,
-    ).stdout.splitlines()
-    for relative_name in untracked:
+    ).stdout
+    if untracked and not untracked.endswith("\0"):
+        msg = "git ls-files returned an unterminated NUL-delimited path list"
+        raise ValueError(msg)
+    relative_names = [] if not untracked else untracked[:-1].split("\0")
+    source_root = repo_root.resolve()
+    destination_root = worktree.resolve()
+    for relative_name in relative_names:
         relative = Path(relative_name)
+        if not relative_name or relative.is_absolute() or ".." in relative.parts:
+            msg = f"git reported an unsafe untracked path: {relative_name!r}"
+            raise ValueError(msg)
         source = repo_root / relative
         destination = worktree / relative
+        if source.is_symlink() or not source.is_file():
+            msg = f"untracked benchmark input must be a regular file: {relative_name!r}"
+            raise ValueError(msg)
+        if not source.resolve().is_relative_to(source_root):
+            msg = f"untracked benchmark input resolves outside the repository: {relative_name!r}"
+            raise ValueError(msg)
+        if destination.is_symlink() or not destination.resolve().is_relative_to(destination_root):
+            msg = f"untracked benchmark destination resolves outside the worktree: {relative_name!r}"
+            raise ValueError(msg)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
 
@@ -895,8 +965,22 @@ def _release_metadata(criterion_dir: Path, expected_tag: str) -> ReleaseMetadata
     if not isinstance(document, dict):
         msg = f"release benchmark metadata in {path} must be an object"
         raise TypeError(msg)
-    if document.get("schema") != 1 or isinstance(document.get("schema"), bool):
+    schema = document.get("schema")
+    if isinstance(schema, bool) or schema not in {1, 2}:
         msg = f"release benchmark metadata in {path} has an unsupported schema"
+        raise ValueError(msg)
+    base_fields = {
+        "architecture",
+        "commit",
+        "criterion_version",
+        "operating_system",
+        "rustc",
+        "schema",
+        "tag",
+    }
+    expected_fields = base_fields if schema == 1 else {*base_fields, "benchmark_harness_sha256"}
+    if set(document) != expected_fields:
+        msg = f"release benchmark metadata fields in {path} do not match schema {schema}"
         raise ValueError(msg)
 
     def required_string(field: str) -> str:
@@ -906,6 +990,13 @@ def _release_metadata(criterion_dir: Path, expected_tag: str) -> ReleaseMetadata
             raise TypeError(msg)
         return value
 
+    benchmark_harness_sha256 = None
+    if schema == 2:
+        benchmark_harness_sha256 = required_string("benchmark_harness_sha256")
+        if re.fullmatch(r"[0-9a-f]{64}", benchmark_harness_sha256) is None:
+            msg = f"release benchmark metadata harness hash for {expected_tag} must be a lowercase SHA-256 digest"
+            raise ValueError(msg)
+
     metadata = ReleaseMetadata(
         tag=normalize_tag(required_string("tag")),
         commit=required_string("commit"),
@@ -913,6 +1004,7 @@ def _release_metadata(criterion_dir: Path, expected_tag: str) -> ReleaseMetadata
         architecture=required_string("architecture"),
         rustc=required_string("rustc"),
         criterion_version=required_string("criterion_version"),
+        benchmark_harness_sha256=benchmark_harness_sha256,
     )
     if metadata.tag != expected_tag:
         msg = f"release benchmark metadata tag {metadata.tag} does not match requested release {expected_tag}"
@@ -1007,7 +1099,7 @@ def _local_measurement_context(measurement: MeasurementProvenance) -> tuple[str,
 
 def _asset_measurement_context(current: ReleaseMetadata, baseline: ReleaseMetadata) -> tuple[str, ...]:
     """Render validated context from two durable release assets."""
-    return (
+    context = [
         "Source mode: durable GitHub Release Criterion assets; no local benchmark runs.",
         (
             f"Current `{current.tag}`: commit `{current.commit}`; `{current.operating_system}` / `{current.architecture}`; rustc: `{current.rustc}`; "
@@ -1017,7 +1109,16 @@ def _asset_measurement_context(current: ReleaseMetadata, baseline: ReleaseMetada
             f"Baseline `{baseline.tag}`: commit `{baseline.commit}`; `{baseline.operating_system}` / `{baseline.architecture}`; rustc: `{baseline.rustc}`; "
             f"Criterion: `{baseline.criterion_version}`."
         ),
-    )
+    ]
+    current_harness = current.benchmark_harness_sha256
+    baseline_harness = baseline.benchmark_harness_sha256
+    if current_harness is None or baseline_harness is None:
+        context.append("Benchmark harness identity is unavailable for at least one legacy release asset; verify shared workload contracts manually.")
+    else:
+        context.append(f"Benchmark harness SHA-256 prefixes: current `{current_harness[:12]}`; baseline `{baseline_harness[:12]}`.")
+        if current_harness != baseline_harness:
+            context.append("Benchmark harness hashes differ; verify that every shared name retains the same workload contract.")
+    return tuple(context)
 
 
 def _asset_measurement_provenance(current: ReleaseMetadata, baseline: ReleaseMetadata) -> MeasurementProvenance:
@@ -1031,7 +1132,7 @@ def _asset_measurement_provenance(current: ReleaseMetadata, baseline: ReleaseMet
             criterion_version=metadata.criterion_version,
             source_digest_sha256=None,
             cargo_lock_sha256=None,
-            benchmark_harness_sha256=None,
+            benchmark_harness_sha256=metadata.benchmark_harness_sha256,
             command=None,
         )
 
@@ -1149,10 +1250,19 @@ def generate_local_report(
 
 def safe_extract_tar(archive: Path, destination: Path) -> None:
     """Extract a regular-file Criterion archive without traversal or links."""
-    destination.mkdir(parents=True, exist_ok=True)
+    archive_size = archive.stat().st_size
+    if archive_size > _MAX_RELEASE_ARCHIVE_SIZE_BYTES:
+        msg = f"release benchmark archive is too large: {archive_size} bytes"
+        raise ValueError(msg)
+
     root = destination.resolve()
     with tarfile.open(archive, "r:gz") as tar:
-        for member in tar.getmembers():
+        members: list[tarfile.TarInfo] = []
+        content_size = 0
+        for member_count, member in enumerate(tar, start=1):
+            if member_count > _MAX_RELEASE_ARCHIVE_MEMBER_COUNT:
+                msg = "release benchmark archive contains too many entries"
+                raise ValueError(msg)
             target = (destination / member.name).resolve()
             if not target.is_relative_to(root):
                 msg = f"release benchmark archive contains a path outside its root: {member.name}"
@@ -1160,7 +1270,18 @@ def safe_extract_tar(archive: Path, destination: Path) -> None:
             if member.issym() or member.islnk() or not (member.isdir() or member.isfile()):
                 msg = f"release benchmark archive contains an unsupported entry: {member.name}"
                 raise ValueError(msg)
-        tar.extractall(destination, filter="data")
+            if member.isfile():
+                if member.size < 0:
+                    msg = f"release benchmark archive contains a negative file size: {member.name}"
+                    raise ValueError(msg)
+                content_size += member.size
+                if content_size > _MAX_RELEASE_ARCHIVE_CONTENT_BYTES:
+                    msg = "release benchmark archive expands beyond the allowed size"
+                    raise ValueError(msg)
+            members.append(member)
+
+        destination.mkdir(parents=True, exist_ok=True)
+        tar.extractall(destination, members=members, filter="data")
 
 
 def _download_release_asset(repo_root: Path, tag: str, destination: Path) -> Path:
@@ -1237,7 +1358,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     modes.add_argument("--current-vs-latest", action="store_true")
     parser.add_argument("--github-assets", action="store_true", help="Use durable GitHub Release assets without local benchmark runs.")
     parser.add_argument("--measurements-output", help="Write the comparison CSV and adjacent provenance JSON to this path.")
-    parser.add_argument("--rerender", metavar="CSV", help="Render an existing comparison CSV and adjacent provenance JSON without measuring.")
+    parser.add_argument(
+        "--rerender",
+        nargs="?",
+        const="",
+        metavar="CSV",
+        help=(
+            "Render an existing comparison CSV and adjacent provenance JSON without measuring; omit CSV to use the tracked evidence for docs/PERFORMANCE.md."
+        ),
+    )
     parser.add_argument("--promote", action="store_true", help="Promote the report to docs/PERFORMANCE.md and archive the previous report.")
     parser.add_argument("--output", default="target/bench-reports/performance.md")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]))
@@ -1295,6 +1424,21 @@ def _validate_rerender_combination(args: argparse.Namespace) -> None:
         raise ValueError(msg)
 
 
+def _rerender_measurements_path(repo_root: Path, configured_path: str) -> Path:
+    """Resolve explicit or tracked evidence for a measurement-free rerender."""
+    if configured_path:
+        path = Path(configured_path)
+        return path if path.is_absolute() else repo_root / path
+
+    current_report = repo_root / "docs" / "PERFORMANCE.md"
+    curated_pair = parse_report_id(current_report.read_text(encoding="utf-8"))
+    path = repo_root / "docs" / "archive" / "performance" / f"{curated_pair.evidence_stem}.csv"
+    if not path.is_file():
+        msg = f"tracked evidence is unavailable for the current curated report: {path}; pass an explicit CSV path or promote the next release comparison first"
+        raise FileNotFoundError(msg)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate or rerender a report and optionally promote it."""
     args = _parse_args(sys.argv[1:] if argv is None else argv)
@@ -1302,9 +1446,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _validate_rerender_combination(args)
         if args.rerender is not None:
-            measurements_path = Path(args.rerender)
-            if not measurements_path.is_absolute():
-                measurements_path = repo_root / measurements_path
+            measurements_path = _rerender_measurements_path(repo_root, args.rerender)
             artifact = load_comparison_artifact(measurements_path)
             pair = artifact.pair
         else:
@@ -1338,10 +1480,9 @@ def main(argv: list[str] | None = None) -> int:
         report = render_report(artifact.comparison_set, artifact.settings)
         if args.promote:
             promote_report(
-                source_text=report,
+                artifact=artifact,
                 current_path=repo_root / "docs" / "PERFORMANCE.md",
                 archive_dir=repo_root / "docs" / "archive" / "performance",
-                expected=pair,
             )
             print(f"Promoted {pair.current_tag} vs {pair.baseline_tag} to {repo_root / 'docs' / 'PERFORMANCE.md'}")
         else:

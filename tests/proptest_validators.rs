@@ -10,20 +10,30 @@ proptest! {
     #[test]
     fn discrete_proposal_ratio_accepts_only_valid_constructor_inputs(
         forward_weight in any::<f64>(),
+        forward_weight_sum in any::<f64>(),
         forward_site_count in any::<usize>(),
         reverse_weight in any::<f64>(),
+        reverse_weight_sum in any::<f64>(),
         reverse_site_count in any::<usize>(),
     ) {
         let ratio = DiscreteProposalRatio::new(
             forward_weight,
+            forward_weight_sum,
             forward_site_count,
             reverse_weight,
+            reverse_weight_sum,
             reverse_site_count,
         );
-        let should_accept = forward_weight.is_finite()
+        let should_accept = forward_weight_sum.is_finite()
+            && forward_weight_sum > 0.0
+            && reverse_weight_sum.is_finite()
+            && reverse_weight_sum > 0.0
+            && forward_weight.is_finite()
             && forward_weight > 0.0
+            && forward_weight <= forward_weight_sum
             && reverse_weight.is_finite()
             && reverse_weight >= 0.0
+            && reverse_weight <= reverse_weight_sum
             && forward_site_count > 0;
 
         prop_assert_eq!(ratio.is_ok(), should_accept);
@@ -106,7 +116,7 @@ proptest! {
 #[test]
 fn validators_reject_antagonistic_float_values() {
     for value in [f64::NEG_INFINITY, -0.0, f64::NAN, f64::INFINITY] {
-        let ratio = DiscreteProposalRatio::new(value, 1, 1.0, 1);
+        let ratio = DiscreteProposalRatio::new(value, 1.0, 1, 1.0, 1.0, 1);
         assert!(matches!(
             ratio,
             Err(DiscreteProposalRatioError::InvalidForwardWeight { .. })
