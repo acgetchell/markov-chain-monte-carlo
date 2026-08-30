@@ -304,6 +304,25 @@ mod tests {
     }
 
     #[test]
+    fn delayed_commit_error_equality_compares_both_validated_scores() {
+        let error = |scored, committed| McmcError::InconsistentDelayedCommitLogProb {
+            mismatch: DelayedCommitLogProbMismatch::new(scored, committed),
+        };
+
+        assert_eq!(error(-0.5, -2.0), error(-0.5, -2.0));
+        assert_ne!(error(-0.5, -2.0), error(-1.0, -2.0));
+        assert_ne!(error(-0.5, -2.0), error(-0.5, -3.0));
+        assert_ne!(error(-0.5, -2.0), error(-2.0, -0.5));
+
+        // Negative infinity is a valid score, and signed zeros compare numerically.
+        assert_eq!(
+            error(0.0, f64::NEG_INFINITY),
+            error(-0.0, f64::NEG_INFINITY)
+        );
+        assert_ne!(error(0.0, f64::NEG_INFINITY), error(0.0, -2.0));
+    }
+
+    #[test]
     fn error_implements_std_error() {
         let err: &dyn Error = &McmcError::NanLogQRatio;
         // source() should be None for leaf errors

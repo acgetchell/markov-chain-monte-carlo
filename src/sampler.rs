@@ -3444,6 +3444,44 @@ mod tests {
     struct MutWalk {
         width: f64,
     }
+
+    struct MutToValue {
+        value: Option<f64>,
+        log_q: f64,
+        undo_calls: usize,
+    }
+
+    impl ProposalMut<MutScalar> for MutToValue {
+        type Undo = f64;
+        type Info = f64;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
+            let value = self.value?;
+            Some(core::mem::replace(&mut state.0, value))
+        }
+
+        fn info(&self, state: &MutScalar, _token: &f64) -> f64 {
+            state.0
+        }
+
+        fn no_proposal_info(&mut self) -> Option<f64> {
+            Some(-1.0)
+        }
+
+        fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
+            self.log_q
+        }
+
+        fn undo(&mut self, state: &mut MutScalar, token: f64) {
+            state.0 = token;
+            self.undo_calls += 1;
+        }
+    }
+
     impl ProposalMut<MutScalar> for MutWalk {
         type Undo = f64;
         type Info = f64;
@@ -4249,6 +4287,107 @@ mod tests {
     }
 
     #[test]
+    fn owned_checkpoint_resumes_non_clone_in_place_state_and_rng() {
+        let mut uninterrupted_rng = StdRng::seed_from_u64(42);
+        let mut uninterrupted = sampler!(
+            mut_scalar_chain(2.0),
+            &Normal,
+            MutWalk { width: 1.0 },
+            &mut uninterrupted_rng,
+        );
+        uninterrupted.run_mut(64).unwrap();
+        let expected = uninterrupted.into_checkpoint();
+
+        let mut resumed_rng = StdRng::seed_from_u64(42);
+        let mut proposal = MutWalk { width: 1.0 };
+        let mut first = sampler!(
+            mut_scalar_chain(2.0),
+            &Normal,
+            &mut proposal,
+            &mut resumed_rng
+        );
+        first.run_mut(17).unwrap();
+        let checkpoint = first.into_checkpoint();
+        assert_eq!(checkpoint.total_steps(), 17);
+
+        let restored = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
+        let mut second = sampler!(restored, &Normal, &mut proposal, &mut resumed_rng);
+        second.run_mut(47).unwrap();
+        let actual = second.into_checkpoint();
+
+        assert_eq!(actual.state(), expected.state());
+        assert_eq!(actual.accepted(), expected.accepted());
+        assert_eq!(actual.rejected(), expected.rejected());
+        assert_eq!(actual.total_steps(), 64);
+        assert_eq!(
+            resumed_rng.random::<u64>(),
+            uninterrupted_rng.random::<u64>()
+        );
+    }
+
+    #[test]
+    fn borrowed_in_place_observation_uses_post_step_state_and_forwards_telemetry() {
+        let cases = [
+            (Some(0.0), 0.0, StepOutcome::Accepted, 0.0, 0.0, 0),
+            (
+                Some(1.0),
+                f64::NEG_INFINITY,
+                StepOutcome::RejectedProposal,
+                2.0,
+                1.0,
+                1,
+            ),
+            (None, 0.0, StepOutcome::NoProposal, 2.0, -1.0, 0),
+        ];
+        for (value, log_q, outcome, retained, info, undo_calls) in cases {
+            let mut proposal = MutToValue {
+                value,
+                log_q,
+                undo_calls: 0,
+            };
+            let mut rng = StdRng::seed_from_u64(42);
+            let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+            let mut observed = Vec::new();
+            let mut coordinate = |state: &MutScalar| {
+                observed.push(state.0);
+                state.0
+            };
+
+            let (step, sample) = sampler.step_mut_observing(&mut coordinate).unwrap();
+
+            assert_eq!(step.outcome(), outcome);
+            assert_eq!(step.info(), Some(&info));
+            assert_relative_eq!(sample, retained);
+            assert_eq!(observed, [retained]);
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(retained));
+            assert_eq!(sampler.chain_ref().total_steps(), 1);
+            assert_eq!(sampler.proposal_ref().undo_calls, undo_calls);
+        }
+    }
+
+    #[test]
+    fn borrowed_in_place_observation_skips_failed_step_after_rollback() {
+        let mut proposal = MutToValue {
+            value: Some(0.0),
+            log_q: f64::NAN,
+            undo_calls: 0,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &MutScalar| observed.push(state.0);
+
+        let result = sampler.step_mut_observing(&mut coordinate);
+
+        assert_matches!(result, Err(McmcError::NanLogQRatio));
+        assert!(observed.is_empty());
+        assert_eq!(sampler.chain_ref().state(), &MutScalar(2.0));
+        assert_relative_eq!(sampler.chain_ref().log_prob(), -2.0);
+        assert_eq!(sampler.chain_ref().total_steps(), 0);
+        assert_eq!(sampler.proposal_ref().undo_calls, 1);
+    }
+
+    #[test]
     fn bulk_mut_runs_skip_concrete_proposal_telemetry() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
@@ -4703,14 +4842,14 @@ mod tests {
         calls: usize,
     }
 
-    impl DelayedProposal<MutScalar> for CountingDelayedNoPlanInfo {
+    impl<S> DelayedProposal<S> for CountingDelayedNoPlanInfo {
         type Plan = ();
         type Info = ();
         type Error = Infallible;
 
         fn propose_plan<R: Rng + ?Sized>(
             &mut self,
-            _state: &MutScalar,
+            _state: &S,
             _rng: &mut R,
         ) -> Result<Option<()>, Self::Error> {
             Ok(None)
@@ -4721,9 +4860,9 @@ mod tests {
             Some(())
         }
 
-        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
+        fn proposed_log_prob<T: Target<S> + ?Sized>(
             &self,
-            _state: &MutScalar,
+            _state: &S,
             _plan: &(),
             _target: &T,
         ) -> Result<f64, Self::Error> {
@@ -4736,7 +4875,7 @@ mod tests {
 
         fn commit<R: Rng + ?Sized>(
             &mut self,
-            _state: &mut MutScalar,
+            _state: &mut S,
             _plan: (),
             _rng: &mut R,
         ) -> Result<(), Self::Error> {
@@ -4756,6 +4895,41 @@ mod tests {
         assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn borrowed_delayed_no_plan_preserves_state_and_emits_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut untouched_rng = StdRng::seed_from_u64(42);
+        let mut proposal = CountingDelayedNoPlanInfo::default();
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+
+        let checked = sampler.step_delayed_checked().unwrap();
+        assert_eq!(checked.outcome(), StepOutcome::NoProposal);
+        assert_eq!(checked.info(), Some(&()));
+        assert_eq!(checked.log_alpha(), None);
+        assert_eq!(checked.log_prob_after(), None);
+        assert_eq!(sampler.proposal_ref().calls, 1);
+        assert_eq!(sampler.chain_ref().state(), &Scalar(2.0));
+        assert_eq!(sampler.chain_ref().rejected(), 1);
+
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &Scalar| {
+            observed.push(state.0);
+            state.0
+        };
+        let (step, sample) = sampler.step_delayed_observing(&mut coordinate).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(step.info(), Some(&()));
+        assert_relative_eq!(sample, 2.0);
+        assert_eq!(observed, [2.0]);
+        assert_eq!(sampler.proposal_ref().calls, 2);
+        let chain = sampler.into_chain();
+        assert_eq!(chain.state(), &Scalar(2.0));
+        assert_relative_eq!(chain.log_prob(), -2.0);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 2);
+        assert_eq!(rng.random::<u64>(), untouched_rng.random::<u64>());
     }
 
     #[test]
@@ -5168,6 +5342,81 @@ mod tests {
         ) -> Result<(), Self::Error> {
             state.0 = plan;
             Ok(())
+        }
+    }
+
+    #[test]
+    fn delayed_observation_happens_after_commit_but_not_after_step_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = StopAfterFirstDelayed { calls: 0 };
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &MutScalar| {
+            observed.push(state.0);
+            state.0
+        };
+
+        let (step, sample) = sampler.step_delayed_observing(&mut coordinate).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.info(), Some(&0.0));
+        assert_relative_eq!(sample, 0.0);
+
+        let failed = sampler.step_delayed_observing(&mut coordinate);
+        assert_matches!(
+            failed,
+            Err(DelayedStepError::Plan(DelayedRunError::PlannedStop))
+        );
+        assert_eq!(observed, [0.0]);
+        assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+        assert_relative_eq!(sampler.chain_ref().log_prob(), 0.0);
+        assert_eq!(sampler.chain_ref().accepted(), 1);
+        assert_eq!(sampler.chain_ref().rejected(), 0);
+    }
+
+    #[test]
+    fn fallible_delayed_observation_distinguishes_committed_and_failed_steps() {
+        for fail_observation in [false, true] {
+            let mut rng = StdRng::seed_from_u64(42);
+            let mut proposal = StopAfterFirstDelayed { calls: 0 };
+            let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+            let mut observed = Vec::new();
+            let mut coordinate = |state: &MutScalar| {
+                observed.push(state.0);
+                if fail_observation {
+                    Err(ObservationFailure::Failed)
+                } else {
+                    Ok(state.0)
+                }
+            };
+
+            let result = sampler.try_step_delayed_observing(&mut coordinate);
+            if fail_observation {
+                assert_matches!(
+                    result,
+                    Err(ObservedStepError::Observation(ObservationFailure::Failed))
+                );
+            } else {
+                let (step, sample) = result.unwrap();
+                assert_eq!(step.outcome(), StepOutcome::Accepted);
+                assert_eq!(step.info(), Some(&0.0));
+                assert_relative_eq!(sample, 0.0);
+            }
+            // Observation failure cannot undo a successfully committed step.
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+            assert_eq!(sampler.chain_ref().accepted(), 1);
+            assert_eq!(sampler.chain_ref().rejected(), 0);
+
+            let failed = sampler.try_step_delayed_observing(&mut coordinate);
+            assert_matches!(
+                failed,
+                Err(ObservedStepError::Step(DelayedStepError::Plan(
+                    DelayedRunError::PlannedStop
+                )))
+            );
+            assert_eq!(observed, [0.0]);
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+            assert_relative_eq!(sampler.chain_ref().log_prob(), 0.0);
+            assert_eq!(sampler.chain_ref().total_steps(), 1);
         }
     }
 

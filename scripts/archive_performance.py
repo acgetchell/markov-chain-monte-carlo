@@ -1515,6 +1515,21 @@ def _format_command_failure(error: subprocess.CalledProcessError) -> str:
     return "\n".join(parts)
 
 
+def _format_os_error(error: OSError) -> str:
+    """Preserve native error codes while displaying copyable filesystem paths."""
+    if error.strerror is None:
+        return str(error)
+    message = error.strerror
+    if (winerror := getattr(error, "winerror", None)) is not None:
+        message = f"[WinError {winerror}] {message}"
+    elif error.errno is not None:
+        message = f"[Errno {error.errno}] {message}"
+    filenames = [os.fsdecode(filename) for filename in (error.filename, error.filename2) if filename is not None]
+    if filenames:
+        message += f": {' -> '.join(filenames)}"
+    return message
+
+
 def _validate_rerender_combination(args: argparse.Namespace) -> None:
     """Keep rerendering independent of GitHub, Git, Cargo, and pair inference."""
     if args.rerender is None:
@@ -1605,10 +1620,11 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.TimeoutExpired as error:
         print(f"Performance workflow timed out after {error.timeout} seconds: {error.cmd}", file=sys.stderr)
         return 2
+    except OSError as error:
+        print(f"Performance workflow failed: {_format_os_error(error)}", file=sys.stderr)
+        return 2
     except (
         ExecutableNotFoundError,
-        FileNotFoundError,
-        OSError,
         RuntimeError,
         TypeError,
         ValueError,

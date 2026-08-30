@@ -28,7 +28,7 @@ class PostprocessOptions:
 
 
 def postprocess(path: Path) -> None:
-    """Read *path*, apply hygiene fixes, and replace it atomically."""
+    """Read *path*, apply hygiene fixes, and replace it atomically with LF newlines."""
     text = path.read_text(encoding="utf-8")
 
     # 1. Strip trailing blank lines — keep nonblank content unchanged and one final newline.
@@ -43,6 +43,7 @@ def postprocess(path: Path) -> None:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="\n",
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",

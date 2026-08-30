@@ -1,6 +1,6 @@
 """Tests for postprocess_changelog.py — trailing blank line hygiene."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
@@ -29,6 +29,30 @@ class TestPostprocess:
         postprocess(f)
 
         assert f.read_bytes() == b"# Changelog\n\n- Item  \n"
+
+    @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+    def test_output_uses_lf_even_with_windows_text_file_defaults(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        newline: str,
+    ) -> None:
+        changelog = tmp_path / "CHANGELOG.md"
+        changelog.write_bytes(f"# Changelog{newline}{newline}- Item  {newline}  {newline}".encode())
+        original_temporary_file = postprocess_changelog.tempfile.NamedTemporaryFile
+
+        def windows_temporary_file(*args: Any, **kwargs: Any) -> Any:
+            mode = args[0] if args else kwargs.get("mode", "w+b")
+            if "b" not in mode and kwargs.get("newline") is None:
+                kwargs["newline"] = "\r\n"
+            return original_temporary_file(*args, **kwargs)
+
+        monkeypatch.setattr(postprocess_changelog.tempfile, "NamedTemporaryFile", windows_temporary_file)
+
+        postprocess(changelog)
+
+        assert changelog.read_bytes() == b"# Changelog\n\n- Item  \n"
+        assert tuple(tmp_path.iterdir()) == (changelog,)
 
     def test_preserves_single_trailing_newline(self, tmp_path: Path) -> None:
         f = tmp_path / "CHANGELOG.md"

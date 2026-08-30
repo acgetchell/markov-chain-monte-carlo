@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import io
 import json
@@ -768,7 +769,8 @@ def test_rerender_defaults_repository_root_to_invocation_directory(
     assert str(tmp_path / "missing.csv") in capsys.readouterr().err
 
 
-def test_source_digest_orders_sources_by_repository_relative_posix_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_source_digest_orders_sources_by_repository_relative_posix_path(tmp_path: Path, newline: str) -> None:
     files = {
         "Cargo.toml": "[package]\nname = 'fixture'\n",
         "Cargo.lock": "version = 4\n",
@@ -777,20 +779,69 @@ def test_source_digest_orders_sources_by_repository_relative_posix_path(tmp_path
         "src/Z.rs": "pub fn uppercase() {}\n",
         "src/a.rs": "pub fn lowercase() {}\n",
     }
-    for relative, content in files.items():
+    encoded_files = {relative: content.replace("\n", newline).encode("utf-8") for relative, content in files.items()}
+    for relative, content in encoded_files.items():
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_bytes(content)
     expected = hashlib.sha256()
     for relative in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "benches/stepping.rs", "src/Z.rs", "src/a.rs"):
         encoded_path = relative.encode()
-        content = files[relative].encode()
+        content = encoded_files[relative]
         expected.update(len(encoded_path).to_bytes(8, "big"))
         expected.update(encoded_path)
         expected.update(len(content).to_bytes(8, "big"))
         expected.update(content)
 
     assert archive_performance._source_digest(tmp_path) == expected.hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            FileNotFoundError(errno.ENOENT, "No such file or directory", r"C:\repo with spaces\missing.csv"),
+            (None, "[Errno 2] No such file or directory", (r"C:\repo with spaces\missing.csv",)),
+            id="missing-windows-path",
+        ),
+        pytest.param(
+            OSError(errno.EACCES, "Permission denied", r"C:\repo\source.csv", None, r"D:\reports\destination.csv"),
+            (None, "[Errno 13] Permission denied", (r"C:\repo\source.csv", r"D:\reports\destination.csv")),
+            id="two-filenames",
+        ),
+        pytest.param(
+            OSError(errno.EACCES, "Access is denied", r"C:\repo\report.csv"),
+            (5, "[WinError 5] Access is denied", (r"C:\repo\report.csv",)),
+            id="native-windows-code",
+        ),
+        pytest.param(OSError("injected storage failure"), (None, "injected storage failure", ()), id="no-filename"),
+    ],
+)
+def test_rerender_reports_readable_os_error_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: OSError,
+    expected: tuple[int | None, str, tuple[str, ...]],
+) -> None:
+    winerror, diagnostic, filenames = expected
+    if winerror is not None:
+        monkeypatch.setattr(error, "winerror", winerror, raising=False)
+
+    def fail_to_load(_path: Path) -> archive_performance.ComparisonArtifact:
+        raise error
+
+    monkeypatch.setattr(archive_performance, "load_comparison_artifact", fail_to_load)
+
+    status = archive_performance.main(["--rerender", "missing.csv", "--repo-root", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert captured.out == ""
+    assert diagnostic in captured.err
+    for filename in filenames:
+        assert filename in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_source_digest_rejects_source_removed_after_enumeration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
