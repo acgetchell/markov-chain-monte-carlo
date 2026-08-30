@@ -1,3 +1,5 @@
+import errno
+import hashlib
 import io
 import json
 import os
@@ -8,6 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -24,12 +27,12 @@ STEADY_STATE_BENCHMARKS = {
     "chain/step_by_value": ("scalar_chain", "StdRng::seed_from_u64"),
     "chain/step_mut_accept": ("spin_chain", "StdRng::seed_from_u64"),
     "chain/step_mut_reject_rollback": ("spin_chain", "StdRng::seed_from_u64"),
-    "chain/step_delayed_accept_commit": ("scalar_chain", "StdRng::seed_from_u64"),
-    "chain/step_delayed_reject_plan": ("scalar_chain", "StdRng::seed_from_u64"),
+    "chain/step_delayed_accept_reflection": ("scalar_chain", "StdRng::seed_from_u64"),
+    "chain/step_delayed_reject_reflection": ("scalar_chain", "StdRng::seed_from_u64"),
     "chain/step_delayed_no_plan": ("scalar_chain", "StdRng::seed_from_u64"),
     "sampler/run_by_value_100": ("Sampler::new", "StdRng::seed_from_u64"),
     "sampler/run_mut_100": ("Sampler::new", "StdRng::seed_from_u64"),
-    "sampler/run_delayed_100": ("Sampler::new", "StdRng::seed_from_u64"),
+    "sampler/run_delayed_reflection_100": ("Sampler::new", "StdRng::seed_from_u64"),
     "observing/run_observing_buffer_100": ("Sampler::new", "StdRng::seed_from_u64"),
 }
 FRESH_BATCH_BENCHMARKS = {
@@ -110,6 +113,7 @@ def _sample_provenance(
         commit=commit_character * 40,
         operating_system="TestOS",
         architecture="test-arch",
+        cpu_model="Test Processor" if local else None,
         rustc="rustc 1.97.1",
         criterion_version="0.8.2",
         source_digest_sha256="1" * 64 if local else None,
@@ -165,6 +169,31 @@ def _comparison_artifact(
     )
 
 
+def _asset_comparison_artifact() -> archive_performance.ComparisonArtifact:
+    artifact = _comparison_artifact()
+    return archive_performance.ComparisonArtifact(
+        pair=artifact.pair,
+        comparison_set=artifact.comparison_set,
+        settings=artifact.settings,
+        measurement=archive_performance.MeasurementProvenance(
+            mode="github-release-assets",
+            working_tree_applied=False,
+            current=_sample_provenance(
+                artifact.pair.current_tag,
+                "a",
+                local=False,
+                benchmark_harness_sha256="c" * 64,
+            ),
+            baseline=_sample_provenance(
+                artifact.pair.baseline_tag,
+                "b",
+                local=False,
+                benchmark_harness_sha256="d" * 64,
+            ),
+        ),
+    )
+
+
 def test_release_signal_benchmark_names_are_explicit_contracts() -> None:
     source = BENCHMARK_HARNESS.read_text(encoding="utf-8")
     registered = set(re.findall(r'c\.bench_function\("([^"]+)"', source))
@@ -204,6 +233,7 @@ def test_local_measurement_context_flags_changed_harnesses() -> None:
             commit="b" * 40,
             operating_system="TestOS",
             architecture="test-arch",
+            cpu_model="Test Processor",
             rustc="rustc 1.96.0",
             criterion_version="0.8.2",
             source_digest_sha256="4" * 64,
@@ -215,8 +245,133 @@ def test_local_measurement_context_flags_changed_harnesses() -> None:
 
     context = archive_performance._local_measurement_context(measurement)
 
+    assert "CPU: `Test Processor`" in context[1]
     assert "current `333333333333`; baseline `666666666666`" in context[-2]
     assert "workload contract" in context[-1]
+
+
+def test_detect_cpu_model_reads_linux_cpuinfo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text("processor : 0\nmodel name : Fixture 16-Core CPU @ 4.2GHz\n", encoding="utf-8")
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Linux")
+
+    assert archive_performance._detect_cpu_model(cpuinfo_path=cpuinfo) == "Fixture 16-Core CPU @ 4.2GHz"
+
+
+def test_detect_cpu_model_uses_macos_brand_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, list[str], int]] = []
+
+    def fake_run(command: str, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        timeout = kwargs["timeout"]
+        assert isinstance(timeout, int)
+        calls.append((command, args, timeout))
+        return subprocess.CompletedProcess([command, *args], 0, stdout="Apple M4 Max\n", stderr="")
+
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(archive_performance, "run_safe_command", fake_run)
+
+    assert archive_performance._detect_cpu_model() == "Apple M4 Max"
+    assert calls == [("sysctl", ["-n", "machdep.cpu.brand_string"], 30)]
+
+
+def test_detect_cpu_model_uses_windows_processor_identifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "")
+    monkeypatch.setenv("PROCESSOR_IDENTIFIER", "Fixture Windows Processor")
+
+    assert archive_performance._detect_cpu_model() == "Fixture Windows Processor"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        archive_performance.ExecutableNotFoundError("missing sysctl"),
+        subprocess.CalledProcessError(1, ["sysctl"]),
+        subprocess.TimeoutExpired(["sysctl"], 30),
+        OSError("sysctl unavailable"),
+    ],
+    ids=["missing", "nonzero", "timeout", "operating-system-error"],
+)
+def test_detect_cpu_model_falls_back_after_macos_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    def fail_sysctl(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "Fallback Processor")
+    monkeypatch.setattr(archive_performance, "run_safe_command", fail_sysctl)
+
+    assert archive_performance._detect_cpu_model() == "Fallback Processor"
+
+
+def test_detect_cpu_model_falls_back_from_empty_macos_brand(monkeypatch: pytest.MonkeyPatch) -> None:
+    empty_result = subprocess.CompletedProcess(["sysctl"], 0, stdout=" \n", stderr="")
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "Fallback Processor")
+    monkeypatch.setattr(archive_performance, "run_safe_command", lambda *_args, **_kwargs: empty_result)
+
+    assert archive_performance._detect_cpu_model() == "Fallback Processor"
+
+
+def test_detect_cpu_model_treats_missing_linux_sources_as_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "")
+
+    assert archive_performance._detect_cpu_model(cpuinfo_path=tmp_path / "missing-cpuinfo") is None
+
+
+def test_detect_cpu_model_treats_missing_windows_sources_as_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "")
+    monkeypatch.delenv("PROCESSOR_IDENTIFIER", raising=False)
+
+    assert archive_performance._detect_cpu_model() is None
+
+
+def test_detect_cpu_model_treats_unknown_empty_platform_as_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(archive_performance.platform, "system", lambda: "FreeBSD")
+    monkeypatch.setattr(archive_performance.platform, "processor", lambda: "")
+
+    assert archive_performance._detect_cpu_model() is None
+
+
+def test_run_stepping_benchmark_streams_cargo_and_criterion_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, list[str], dict[str, object]]] = []
+
+    def fake_run(command: str, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((command, args, kwargs))
+        return subprocess.CompletedProcess([command, *args], 0, stdout=None, stderr=None)
+
+    monkeypatch.setattr(archive_performance, "run_safe_command", fake_run)
+
+    archive_performance._run_stepping_benchmark(tmp_path, save_baseline="v0.4.0")
+
+    assert calls == [
+        (
+            "cargo",
+            ["bench", "--locked", "--bench", "stepping", "--", "--save-baseline", "v0.4.0"],
+            {
+                "cwd": tmp_path,
+                "timeout": archive_performance._BENCHMARK_TIMEOUT_SECONDS,
+                "capture_output": False,
+            },
+        )
+    ]
+
+
+def test_print_phase_flushes_immediately() -> None:
+    with patch("builtins.print") as mocked_print:
+        archive_performance._print_phase("Benchmarking baseline v0.4.0")
+
+    mocked_print.assert_called_once_with("==> Benchmarking baseline v0.4.0", flush=True)
 
 
 def test_stable_published_releases_filters_and_sorts() -> None:
@@ -361,39 +516,70 @@ def test_provenance_round_trip_rejects_a_mismatched_release_tag() -> None:
 
     assert (pair, settings, measurement) == (artifact.pair, artifact.settings, artifact.measurement)
     document = json.loads(text)
+    assert document["schema"] == "mcmc-performance-provenance/v2"
+    assert document["measurement"]["current"]["cpu_model"] == "Test Processor"
     document["measurement"]["current"]["tag"] = "v0.6.0"
     with pytest.raises(ValueError, match="does not match"):
         archive_performance.parse_provenance(json.dumps(document))
 
 
-def test_asset_provenance_round_trip_preserves_harness_hashes() -> None:
+def test_provenance_parser_migrates_legacy_v1_samples_without_cpu_models() -> None:
     artifact = _comparison_artifact()
-    asset_artifact = archive_performance.ComparisonArtifact(
-        pair=artifact.pair,
-        comparison_set=artifact.comparison_set,
-        settings=artifact.settings,
-        measurement=archive_performance.MeasurementProvenance(
-            mode="github-release-assets",
-            working_tree_applied=False,
-            current=_sample_provenance(
-                artifact.pair.current_tag,
-                "a",
-                local=False,
-                benchmark_harness_sha256="c" * 64,
-            ),
-            baseline=_sample_provenance(
-                artifact.pair.baseline_tag,
-                "b",
-                local=False,
-                benchmark_harness_sha256="d" * 64,
-            ),
-        ),
-    )
+    document = json.loads(archive_performance.serialize_provenance(artifact))
+    document["schema"] = "mcmc-performance-provenance/v1"
+    document["measurement"]["current"].pop("cpu_model")
+    document["measurement"]["baseline"].pop("cpu_model")
+
+    pair, settings, measurement, _csv_sha256 = archive_performance.parse_provenance(json.dumps(document))
+
+    assert (pair, settings) == (artifact.pair, artifact.settings)
+    assert measurement.current.cpu_model is None
+    assert measurement.baseline.cpu_model is None
+
+
+def test_provenance_v2_rejects_a_missing_cpu_model_field() -> None:
+    document = json.loads(archive_performance.serialize_provenance(_comparison_artifact()))
+    document["measurement"]["current"].pop("cpu_model")
+
+    with pytest.raises(ValueError, match="fields do not match the provenance schema"):
+        archive_performance.parse_provenance(json.dumps(document))
+
+
+@pytest.mark.parametrize(
+    ("field", "different_value"),
+    [
+        ("operating_system", "DifferentOS"),
+        ("architecture", "different-arch"),
+        ("cpu_model", "Different Processor"),
+    ],
+)
+def test_provenance_rejects_mismatched_local_host_identity(field: str, different_value: str) -> None:
+    document = json.loads(archive_performance.serialize_provenance(_comparison_artifact()))
+    document["measurement"]["baseline"][field] = different_value
+
+    with pytest.raises(ValueError, match="requires matching operating system, architecture, and CPU model"):
+        archive_performance.parse_provenance(json.dumps(document))
+
+
+def test_asset_provenance_round_trip_preserves_harness_hashes() -> None:
+    asset_artifact = _asset_comparison_artifact()
 
     _pair, _settings, measurement, _csv_sha256 = archive_performance.parse_provenance(archive_performance.serialize_provenance(asset_artifact))
 
     assert measurement.current.benchmark_harness_sha256 == "c" * 64
     assert measurement.baseline.benchmark_harness_sha256 == "d" * 64
+
+
+def test_load_comparison_artifact_rejects_cpu_model_for_github_assets(tmp_path: Path) -> None:
+    csv_path = tmp_path / "release-performance.csv"
+    archive_performance.save_comparison_artifact(_asset_comparison_artifact(), csv_path)
+    sidecar = archive_performance.provenance_path(csv_path)
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    document["measurement"]["current"]["cpu_model"] = "Invented Processor"
+    sidecar.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot claim CPU models"):
+        archive_performance.load_comparison_artifact(csv_path)
 
 
 def test_load_comparison_artifact_rejects_csv_tampering(tmp_path: Path) -> None:
@@ -568,6 +754,94 @@ def test_source_digest_changes_with_measured_rust_inputs(tmp_path: Path) -> None
     (tmp_path / "src" / "lib.rs").write_text("pub fn changed() {}\n", encoding="utf-8")
 
     assert archive_performance._source_digest(tmp_path) != original
+
+
+def test_rerender_defaults_repository_root_to_invocation_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    status = archive_performance.main(["--rerender", "missing.csv"])
+
+    assert status == 2
+    assert str(tmp_path / "missing.csv") in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_source_digest_orders_sources_by_repository_relative_posix_path(tmp_path: Path, newline: str) -> None:
+    files = {
+        "Cargo.toml": "[package]\nname = 'fixture'\n",
+        "Cargo.lock": "version = 4\n",
+        "rust-toolchain.toml": "[toolchain]\nchannel = 'stable'\n",
+        "benches/stepping.rs": "fn benchmark() {}\n",
+        "src/Z.rs": "pub fn uppercase() {}\n",
+        "src/a.rs": "pub fn lowercase() {}\n",
+    }
+    encoded_files = {relative: content.replace("\n", newline).encode("utf-8") for relative, content in files.items()}
+    for relative, content in encoded_files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    expected = hashlib.sha256()
+    for relative in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "benches/stepping.rs", "src/Z.rs", "src/a.rs"):
+        encoded_path = relative.encode()
+        content = encoded_files[relative]
+        expected.update(len(encoded_path).to_bytes(8, "big"))
+        expected.update(encoded_path)
+        expected.update(len(content).to_bytes(8, "big"))
+        expected.update(content)
+
+    assert archive_performance._source_digest(tmp_path) == expected.hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            FileNotFoundError(errno.ENOENT, "No such file or directory", r"C:\repo with spaces\missing.csv"),
+            (None, "[Errno 2] No such file or directory", (r"C:\repo with spaces\missing.csv",)),
+            id="missing-windows-path",
+        ),
+        pytest.param(
+            OSError(errno.EACCES, "Permission denied", r"C:\repo\source.csv", None, r"D:\reports\destination.csv"),
+            (None, "[Errno 13] Permission denied", (r"C:\repo\source.csv", r"D:\reports\destination.csv")),
+            id="two-filenames",
+        ),
+        pytest.param(
+            OSError(errno.EACCES, "Access is denied", r"C:\repo\report.csv"),
+            (5, "[WinError 5] Access is denied", (r"C:\repo\report.csv",)),
+            id="native-windows-code",
+        ),
+        pytest.param(OSError("injected storage failure"), (None, "injected storage failure", ()), id="no-filename"),
+    ],
+)
+def test_rerender_reports_readable_os_error_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: OSError,
+    expected: tuple[int | None, str, tuple[str, ...]],
+) -> None:
+    winerror, diagnostic, filenames = expected
+    if winerror is not None:
+        monkeypatch.setattr(error, "winerror", winerror, raising=False)
+
+    def fail_to_load(_path: Path) -> archive_performance.ComparisonArtifact:
+        raise error
+
+    monkeypatch.setattr(archive_performance, "load_comparison_artifact", fail_to_load)
+
+    status = archive_performance.main(["--rerender", "missing.csv", "--repo-root", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert captured.out == ""
+    assert diagnostic in captured.err
+    for filename in filenames:
+        assert filename in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_source_digest_rejects_source_removed_after_enumeration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -761,6 +1035,7 @@ def test_generated_working_tree_report_can_be_promoted(
 ) -> None:
     pair = archive_performance.ReportId("v0.5.0", "v0.4.0")
     applied: list[tuple[Path, Path]] = []
+    phases: list[str] = []
 
     @contextmanager
     def fake_worktree(
@@ -782,6 +1057,7 @@ def test_generated_working_tree_report_can_be_promoted(
 
     monkeypatch.setattr(archive_performance, "_ensure_local_tag", lambda *_args: None)
     monkeypatch.setattr(archive_performance, "temporary_worktree", fake_worktree)
+    monkeypatch.setattr(archive_performance, "_print_phase", phases.append)
     monkeypatch.setattr(archive_performance, "_run_stepping_benchmark", fake_benchmark)
     monkeypatch.setattr(archive_performance, "apply_current_tree", fake_apply)
     monkeypatch.setattr(
@@ -811,6 +1087,11 @@ def test_generated_working_tree_report_can_be_promoted(
     )
 
     assert applied
+    assert phases == [
+        "Benchmarking baseline v0.4.0; live Cargo and Criterion output follows",
+        "Benchmarking current v0.5.0 working tree; live Cargo and Criterion output follows",
+        "Collecting Criterion samples and measurement provenance",
+    ]
     assert archive_performance.parse_report_id(current.read_text(encoding="utf-8")) == pair
     assert "**markov-chain-monte-carlo** v0.5.0 working tree" in report
 
@@ -905,6 +1186,36 @@ def test_temporary_worktree_removes_checkout_after_body_failure(
     assert calls == [
         ["worktree", "add", "--detach", str(tmp_path / "checkout"), "HEAD"],
         ["worktree", "remove", "--force", str(tmp_path / "checkout")],
+    ]
+
+
+def test_temporary_worktree_preserves_body_and_cleanup_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[:2] == ["worktree", "remove"]:
+            raise subprocess.CalledProcessError(1, args, stderr="registered worktree remains")
+        return subprocess.CompletedProcess(args, 0, stdout="")
+
+    monkeypatch.setattr(archive_performance, "run_git_command", fake_git)
+
+    msg = "benchmark failed"
+    with pytest.raises(RuntimeError, match=msg) as error, archive_performance.temporary_worktree(tmp_path, tmp_path, "checkout", "HEAD"):
+        raise RuntimeError(msg)
+
+    worktree = tmp_path / "checkout"
+    assert len(error.value.__notes__) == 1
+    cleanup_note = error.value.__notes__[0]
+    assert f"Cleanup also failed for temporary worktree {worktree}" in cleanup_note
+    assert "returned non-zero exit status 1" in cleanup_note
+    assert f"`git worktree remove --force {worktree}`" in cleanup_note
+    assert calls == [
+        ["worktree", "add", "--detach", str(worktree), "HEAD"],
+        ["worktree", "remove", "--force", str(worktree)],
     ]
 
 
@@ -1037,28 +1348,40 @@ def test_release_metadata_rejects_a_mismatched_tag(tmp_path: Path) -> None:
 
 def test_safe_extract_tar_rejects_path_traversal(tmp_path: Path) -> None:
     archive = tmp_path / "unsafe.tar.gz"
+    destination = tmp_path / "extract"
     payload = b"unsafe"
     with tarfile.open(archive, "w:gz") as tar:
+        valid = tarfile.TarInfo("criterion/valid.txt")
+        valid.size = len(payload)
+        tar.addfile(valid, io.BytesIO(payload))
         member = tarfile.TarInfo("../outside.txt")
         member.size = len(payload)
         tar.addfile(member, io.BytesIO(payload))
 
     with pytest.raises(ValueError, match="outside its root"):
-        archive_performance.safe_extract_tar(archive, tmp_path / "extract")
+        archive_performance.safe_extract_tar(archive, destination)
 
     assert not (tmp_path / "outside.txt").exists()
+    assert not destination.exists()
 
 
 def test_safe_extract_tar_rejects_links(tmp_path: Path) -> None:
     archive = tmp_path / "unsafe-link.tar.gz"
+    destination = tmp_path / "extract"
+    payload = b"safe"
     with tarfile.open(archive, "w:gz") as tar:
+        valid = tarfile.TarInfo("criterion/valid.txt")
+        valid.size = len(payload)
+        tar.addfile(valid, io.BytesIO(payload))
         member = tarfile.TarInfo("criterion/link")
         member.type = tarfile.SYMTYPE
         member.linkname = "../../outside.txt"
         tar.addfile(member)
 
     with pytest.raises(ValueError, match="unsupported entry"):
-        archive_performance.safe_extract_tar(archive, tmp_path / "extract")
+        archive_performance.safe_extract_tar(archive, destination)
+
+    assert not destination.exists()
 
 
 def test_safe_extract_tar_rejects_oversized_archive_before_creating_destination(

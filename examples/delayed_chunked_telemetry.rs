@@ -6,8 +6,9 @@
 //! move family ([`DelayedStep::info`]), the rejection reason
 //! ([`DelayedStep::rejection_reason`]), and the post-step chain state, while the
 //! sampler keeps ownership of the Metropolis-Hastings accept/reject draw and the
-//! chain counters. Each chunk returns a [`ChainCheckpoint`] used to resume the
-//! next chunk.
+//! chain counters. Each chunk returns a [`ChainCheckpoint`] used with
+//! [`Chain::from_checkpoint`] to resume the next chunk. The caller retains the
+//! proposal and RNG so their state continues alongside the restored chain.
 //!
 //! This mirrors how a downstream crate (for example, CDT physics) can keep
 //! domain-specific statistics outside the generic sampler.
@@ -76,7 +77,7 @@ impl DelayedProposal<i32> for BoundedWalk {
         self.last_family.take()
     }
 
-    fn proposed_log_prob<T: Target<i32>>(
+    fn proposed_log_prob<T: Target<i32> + ?Sized>(
         &self,
         state: &i32,
         plan: &i32,
@@ -109,8 +110,7 @@ fn main() -> Result<(), DelayedStepError<Infallible>> {
     let target = Centered;
     let mut proposal = BoundedWalk { last_family: None };
     let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
-    let mut sampler =
-        Sampler::new(chain, &target, &mut proposal, &mut rng).map_err(DelayedStepError::Mcmc)?;
+    let mut continuation = chain.into_checkpoint();
 
     println!("Delayed chunked telemetry (seed={seed})");
 
@@ -125,7 +125,12 @@ fn main() -> Result<(), DelayedStepError<Infallible>> {
     let mut observed = 0.0_f64;
 
     for chunk in 1..=chunks {
-        let continuation = sampler.run_delayed_chunk_observing(chunk_len, |step, state| {
+        let chain =
+            Chain::from_checkpoint(continuation, &target).map_err(DelayedStepError::Mcmc)?;
+        let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
+            .map_err(DelayedStepError::Mcmc)?;
+
+        let checkpoint = sampler.run_delayed_chunk_observing(chunk_len, |step, state| {
             // Selected family is available for every step, including no-site loops.
             if let Some(family) = step.info() {
                 match family {
@@ -153,10 +158,19 @@ fn main() -> Result<(), DelayedStepError<Infallible>> {
             observed += 1.0;
         })?;
 
+        // The chunk API returns a borrowing checkpoint. Copy this example's
+        // scalar state into an owned checkpoint, then restore it at the start
+        // of the next iteration. The caller-owned proposal and RNG stay live.
+        continuation = ChainCheckpoint::new(
+            **checkpoint.state(),
+            checkpoint.accepted(),
+            checkpoint.rejected(),
+        );
+
         println!(
             "  chunk {chunk}: total steps {}, state {}",
             continuation.total_steps(),
-            **continuation.state()
+            *continuation.state()
         );
     }
 

@@ -295,7 +295,9 @@ def _citation_reference(path: Path) -> VersionReference:
 
 
 _VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
-_CHANGELOG_RELEASE_RE = re.compile(rf"^##\s+\[?v?(?P<version>{_VERSION_PATTERN})\]?\s+-\s+(?P<date>\d{{4}}-\d{{2}}-\d{{2}})(?:\s|$)")
+_CHANGELOG_RELEASE_RE = re.compile(
+    rf"^##\s+(?P<opening_bracket>\[)?v?(?P<version>{_VERSION_PATTERN})(?(opening_bracket)\])\s+-\s+(?P<date>\d{{4}}-\d{{2}}-\d{{2}})\s*$"
+)
 
 
 def _changelog_reference(path: Path) -> VersionReference:
@@ -316,7 +318,9 @@ def _metadata_reference(path: Path, line: int, value: str, kind: MetadataKind, t
 def _single_reference(references: list[MetadataReference], path: Path, description: str) -> MetadataReference:
     """Require exactly one parsed metadata reference."""
     if len(references) != 1:
-        msg = f"{path} must contain exactly one {description}; found {len(references)}"
+        location = f":{references[0].line}" if references else ""
+        lines = f" at lines {', '.join(str(reference.line) for reference in references)}" if references else ""
+        msg = f"{path}{location} must contain exactly one {description}; found {len(references)}{lines}"
         raise ReleaseCheckError(msg)
     return references[0]
 
@@ -352,14 +356,33 @@ def _citation_date_reference(path: Path) -> MetadataReference:
     return reference
 
 
-def _changelog_date_reference(path: Path) -> MetadataReference:
-    """Return the date from the first generated changelog release heading."""
+def _current_changelog_heading_candidate_re(version: str) -> re.Pattern[str]:
+    """Recognize even malformed level-two headings for one package version."""
+    escaped = re.escape(version)
+    return re.compile(rf"^##\s+\[?v?{escaped}\]?(?:\s|$)")
+
+
+def _changelog_date_reference(path: Path, version: str) -> MetadataReference | None:
+    """Return the validated date on the current package-version heading."""
+    heading_candidate_re = _current_changelog_heading_candidate_re(version)
+    references: list[MetadataReference] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        match = _CHANGELOG_RELEASE_RE.match(line)
-        if match is not None:
-            return _metadata_reference(path, line_number, match.group("date"), MetadataKind.CHANGELOG_DATE, line)
-    msg = f"{path} has no dated generated release heading"
-    raise ReleaseCheckError(msg)
+        match = _CHANGELOG_RELEASE_RE.fullmatch(line)
+        if match is not None and match.group("version") == version:
+            reference = _metadata_reference(path, line_number, match.group("date"), MetadataKind.CHANGELOG_DATE, line)
+            try:
+                date.fromisoformat(reference.value)
+            except ValueError as error:
+                msg = f"{path}:{line_number}: changelog release date is not a valid calendar date: {reference.value}"
+                raise ReleaseCheckError(msg) from error
+            references.append(reference)
+            continue
+        if heading_candidate_re.match(line) is not None:
+            msg = f"{path}:{line_number}: current-version heading must contain exactly one ISO release date"
+            raise ReleaseCheckError(msg)
+    if not references:
+        return None
+    return _single_reference(references, path, f"dated changelog heading for version {version}")
 
 
 _README_DOI_RE = re.compile(r"\[!\[DOI\]\([^)]*\)\]\(https://doi\.org/(?P<doi>10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)\)")
@@ -519,17 +542,19 @@ def find_version_mismatches(root: Path) -> list[VersionMismatch]:
 
 def find_release_metadata_mismatches(root: Path) -> list[MetadataMismatch]:
     """Return DOI and release-date references that disagree across release surfaces."""
+    package = _read_cargo_package_info(root / "Cargo.toml")
     citation_doi = _citation_doi_reference(root / "CITATION.cff")
     citation_date = _citation_date_reference(root / "CITATION.cff")
-    changelog_date = _changelog_date_reference(root / "CHANGELOG.md")
+    changelog_date = _changelog_date_reference(root / "CHANGELOG.md", package.version)
     readme_doi = _readme_doi_reference(root / "README.md")
     references_doi = _references_doi_reference(root / "REFERENCES.md")
-    expected = (
-        (citation_date, changelog_date.value),
+    expected = [
         (citation_doi, ZENODO_CONCEPT_DOI),
         (readme_doi, ZENODO_CONCEPT_DOI),
         (references_doi, ZENODO_CONCEPT_DOI),
-    )
+    ]
+    if changelog_date is not None:
+        expected.insert(0, (citation_date, changelog_date.value))
     return [MetadataMismatch(reference=reference, expected=value) for reference, value in expected if reference.value != value]
 
 

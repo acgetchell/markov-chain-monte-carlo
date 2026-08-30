@@ -1,5 +1,7 @@
 import json
 import math
+import os
+import stat
 from typing import TYPE_CHECKING
 
 import pytest
@@ -152,6 +154,34 @@ def test_main_supports_an_explicit_saved_baseline(tmp_path: Path) -> None:
     assert "`fixture-revision`" in output_text
 
 
+def test_main_defaults_relative_paths_to_invocation_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    criterion = tmp_path / "target" / "criterion"
+    _write_estimate(criterion, "sampler/run_by_value_100", "release-a", 10_000.0)
+    _write_estimate(criterion, "sampler/run_by_value_100", "new", 9_000.0)
+    monkeypatch.chdir(tmp_path)
+
+    status = bench_compare.main(["release-a", "--revision", "fixture-revision"])
+
+    assert status == 0
+    output = tmp_path / "target" / "bench-reports" / "performance.md"
+    assert "Comparison against baseline **release-a**:" in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits are not portable to Windows")
+def test_atomic_report_write_preserves_existing_mode_and_sets_readable_new_default(tmp_path: Path) -> None:
+    existing = tmp_path / "existing.md"
+    existing.write_text("old", encoding="utf-8")
+    existing.chmod(0o640)
+    generated = tmp_path / "generated.md"
+
+    bench_compare._write_text(existing, "replacement")
+    bench_compare._write_text(generated, "new")
+
+    assert existing.read_text(encoding="utf-8") == "replacement"
+    assert stat.S_IMODE(existing.stat().st_mode) == 0o640
+    assert stat.S_IMODE(generated.stat().st_mode) == 0o644
+
+
 def test_main_fails_cleanly_when_the_baseline_is_missing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     criterion = tmp_path / "criterion"
     _write_estimate(criterion, "chain/step_by_value", "new", 100.0)
@@ -202,7 +232,7 @@ def test_read_estimate_wraps_malformed_json_with_the_criterion_path(tmp_path: Pa
         (130.0, (100.0, 120.0)),
     ],
 )
-def test_read_estimate_rejects_a_point_outside_its_confidence_interval(
+def test_read_estimate_accepts_a_point_outside_its_marginal_confidence_interval(
     tmp_path: Path,
     point: float,
     interval: tuple[float, float],
@@ -210,5 +240,31 @@ def test_read_estimate_rejects_a_point_outside_its_confidence_interval(
     criterion = tmp_path / "criterion"
     _write_estimate(criterion, "chain/step_by_value", "new", point, interval)
 
-    with pytest.raises(ValueError, match="must lie within"):
+    estimate = bench_compare.collect_sample(criterion, "new")["chain/step_by_value"]
+
+    assert estimate == bench_compare.Estimate(point, interval[0], interval[1])
+
+
+def test_estimate_rejects_an_incomplete_confidence_interval() -> None:
+    with pytest.raises(ValueError, match="require both bounds"):
+        bench_compare.Estimate(100.0, 90.0, None)
+
+
+@pytest.mark.parametrize(
+    ("interval", "message"),
+    [
+        ((0.0, 120.0), "finite and positive"),
+        ((100.0, math.inf), "finite and positive"),
+        ((120.0, 100.0), "lower bound exceeds upper bound"),
+    ],
+)
+def test_read_estimate_rejects_malformed_confidence_interval_bounds(
+    tmp_path: Path,
+    interval: tuple[float, float],
+    message: str,
+) -> None:
+    criterion = tmp_path / "criterion"
+    _write_estimate(criterion, "chain/step_by_value", "new", 110.0, interval)
+
+    with pytest.raises(ValueError, match=message):
         bench_compare.collect_sample(criterion, "new")

@@ -43,7 +43,9 @@ _MAX_RELEASE_ARCHIVE_SIZE_BYTES = 256 * 1024 * 1024
 _MAX_RELEASE_ARCHIVE_MEMBER_COUNT = 100_000
 _MAX_RELEASE_ARCHIVE_CONTENT_BYTES = 1024 * 1024 * 1024
 _CSV_SCHEMA = "criterion-comparison/v1"
-_PROVENANCE_SCHEMA = "mcmc-performance-provenance/v1"
+_PROVENANCE_SCHEMA = "mcmc-performance-provenance/v2"
+_LEGACY_PROVENANCE_SCHEMA = "mcmc-performance-provenance/v1"
+_SUPPORTED_PROVENANCE_SCHEMAS = frozenset({_LEGACY_PROVENANCE_SCHEMA, _PROVENANCE_SCHEMA})
 _BENCHMARK_SUITE = "stepping"
 _BENCHMARK_SCOPE = "release-signal"
 _CSV_COLUMNS = (
@@ -110,6 +112,7 @@ class SampleProvenance:
     commit: str
     operating_system: str
     architecture: str
+    cpu_model: str | None
     rustc: str
     criterion_version: str
     source_digest_sha256: str | None
@@ -530,6 +533,7 @@ def _sample_provenance_document(sample: SampleProvenance) -> dict[str, object]:
         "cargo_lock_sha256": sample.cargo_lock_sha256,
         "command": None if sample.command is None else list(sample.command),
         "commit": sample.commit,
+        "cpu_model": sample.cpu_model,
         "criterion_version": sample.criterion_version,
         "operating_system": sample.operating_system,
         "rustc": sample.rustc,
@@ -592,7 +596,23 @@ def _optional_sha256(document: dict[str, object], field: str, context: str) -> s
     return value
 
 
-def _parse_sample_provenance(document: dict[str, object], *, expected_tag: str, context: str) -> SampleProvenance:
+def _optional_string(document: dict[str, object], field: str, context: str) -> str | None:
+    value = document.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        msg = f"{context} field {field!r} must be null or a non-empty string"
+        raise TypeError(msg)
+    return value
+
+
+def _parse_sample_provenance(
+    document: dict[str, object],
+    *,
+    expected_tag: str,
+    context: str,
+    schema: str,
+) -> SampleProvenance:
     expected_fields = {
         "architecture",
         "benchmark_harness_sha256",
@@ -605,6 +625,8 @@ def _parse_sample_provenance(document: dict[str, object], *, expected_tag: str, 
         "source_digest_sha256",
         "tag",
     }
+    if schema == _PROVENANCE_SCHEMA:
+        expected_fields.add("cpu_model")
     if set(document) != expected_fields:
         msg = f"{context} fields do not match the provenance schema"
         raise ValueError(msg)
@@ -630,6 +652,7 @@ def _parse_sample_provenance(document: dict[str, object], *, expected_tag: str, 
         commit=commit,
         operating_system=_required_string(document, "operating_system", context),
         architecture=_required_string(document, "architecture", context),
+        cpu_model=_optional_string(document, "cpu_model", context) if schema == _PROVENANCE_SCHEMA else None,
         rustc=_required_string(document, "rustc", context),
         criterion_version=_required_string(document, "criterion_version", context),
         source_digest_sha256=_optional_sha256(document, "source_digest_sha256", context),
@@ -676,7 +699,7 @@ def _parse_report_settings(document: dict[str, object], pair: ReportId) -> Repor
     return settings
 
 
-def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -> MeasurementProvenance:
+def _parse_measurement_provenance(document: dict[str, object], pair: ReportId, schema: str) -> MeasurementProvenance:
     measurement = _object_field(document, "measurement", "comparison provenance")
     if set(measurement) != {"baseline", "current", "mode", "working_tree_applied"}:
         msg = "measurement provenance fields do not match the supported schema"
@@ -693,11 +716,13 @@ def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -
         _object_field(measurement, "current", "measurement provenance"),
         expected_tag=pair.current_tag,
         context="current sample provenance",
+        schema=schema,
     )
     baseline = _parse_sample_provenance(
         _object_field(measurement, "baseline", "measurement provenance"),
         expected_tag=pair.baseline_tag,
         context="baseline sample provenance",
+        schema=schema,
     )
     required_local_values = (
         current.source_digest_sha256,
@@ -713,21 +738,28 @@ def _parse_measurement_provenance(document: dict[str, object], pair: ReportId) -
         current.source_digest_sha256,
         current.cargo_lock_sha256,
         current.command,
+        current.cpu_model,
         baseline.source_digest_sha256,
         baseline.cargo_lock_sha256,
         baseline.command,
+        baseline.cpu_model,
     )
     if mode == "local-isolated-worktrees" and any(value is None for value in required_local_values):
         msg = "local measurement provenance requires commands and source-input hashes for both samples"
         raise ValueError(msg)
+    current_host = (current.operating_system, current.architecture, current.cpu_model)
+    baseline_host = (baseline.operating_system, baseline.architecture, baseline.cpu_model)
+    if mode == "local-isolated-worktrees" and current_host != baseline_host:
+        msg = "local measurement provenance requires matching operating system, architecture, and CPU model"
+        raise ValueError(msg)
     if mode == "github-release-assets" and (working_tree_applied or any(value is not None for value in asset_forbidden_values)):
-        msg = "GitHub asset provenance cannot claim local commands, source hashes, or working-tree changes"
+        msg = "GitHub asset provenance cannot claim CPU models, local commands, source hashes, or working-tree changes"
         raise ValueError(msg)
     return MeasurementProvenance(mode, working_tree_applied, current, baseline)
 
 
 def parse_provenance(text: str) -> tuple[ReportId, ReportSettings, MeasurementProvenance, str]:
-    """Parse the strict JSON sidecar paired with a comparison CSV."""
+    """Parse a JSON sidecar, migrating readable v1 samples to the v2 model."""
     try:
         raw_document = json.loads(text)
     except json.JSONDecodeError as error:
@@ -740,12 +772,13 @@ def parse_provenance(text: str) -> tuple[ReportId, ReportSettings, MeasurementPr
     if set(document) != {"csv_sha256", "csv_schema", "measurement", "release", "report", "schema"}:
         msg = "comparison provenance fields do not match the supported schema"
         raise ValueError(msg)
-    if document.get("schema") != _PROVENANCE_SCHEMA or document.get("csv_schema") != _CSV_SCHEMA:
+    schema = _required_string(document, "schema", "comparison provenance")
+    if schema not in _SUPPORTED_PROVENANCE_SCHEMAS or document.get("csv_schema") != _CSV_SCHEMA:
         msg = "comparison provenance has an unsupported schema"
         raise ValueError(msg)
     pair = _parse_release_pair(document)
     settings = _parse_report_settings(document, pair)
-    measurement = _parse_measurement_provenance(document, pair)
+    measurement = _parse_measurement_provenance(document, pair, schema)
     csv_sha256 = _required_string(document, "csv_sha256", "comparison provenance")
     if re.fullmatch(r"[0-9a-f]{64}", csv_sha256) is None:
         msg = "comparison provenance csv_sha256 must be a lowercase SHA-256 digest"
@@ -887,9 +920,13 @@ def temporary_worktree(repo_root: Path, parent: Path, name: str, reference: str)
             active_error = sys.exception()
             try:
                 run_git_command(["worktree", "remove", "--force", str(worktree)], cwd=repo_root, timeout=_COMMAND_TIMEOUT_SECONDS)
-            except ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+            except (ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as cleanup_error:
                 if active_error is None:
                     raise
+                recovery = f"git worktree remove --force {worktree}"
+                active_error.add_note(
+                    f"Cleanup also failed for temporary worktree {worktree}: {cleanup_error}. Inspect `git worktree list` and recover with `{recovery}`."
+                )
 
 
 def apply_current_tree(repo_root: Path, worktree: Path) -> None:
@@ -933,11 +970,23 @@ def apply_current_tree(repo_root: Path, worktree: Path) -> None:
         shutil.copy2(source, destination)
 
 
+def _print_phase(message: str) -> None:
+    """Print an immediately visible transition for a long-running phase."""
+    print(f"==> {message}", flush=True)
+
+
 def _run_stepping_benchmark(checkout: Path, *, save_baseline: str | None = None) -> None:
+    """Run the Criterion suite with output inherited by the operator's terminal."""
     command = ["bench", "--locked", "--bench", "stepping"]
     if save_baseline is not None:
         command.extend(["--", "--save-baseline", save_baseline])
-    run_safe_command("cargo", command, cwd=checkout, timeout=_BENCHMARK_TIMEOUT_SECONDS)
+    run_safe_command(
+        "cargo",
+        command,
+        cwd=checkout,
+        timeout=_BENCHMARK_TIMEOUT_SECONDS,
+        capture_output=False,
+    )
 
 
 def _criterion_dependency_version(checkout: Path) -> str:
@@ -1021,7 +1070,7 @@ def _file_sha256(path: Path) -> str:
 
 def _source_digest(checkout: Path) -> str:
     """Hash the Rust/package inputs that define the measured implementation."""
-    rust_sources = sorted((checkout / "src").rglob("*.rs"))
+    rust_sources = sorted((checkout / "src").rglob("*.rs"), key=lambda path: path.relative_to(checkout).as_posix())
     required_paths = [
         checkout / "Cargo.toml",
         checkout / "Cargo.lock",
@@ -1048,12 +1097,60 @@ def _source_digest(checkout: Path) -> str:
     return digest.hexdigest()
 
 
-def _local_sample_provenance(checkout: Path, tag: str, command: tuple[str, ...]) -> SampleProvenance:
+def _normalized_cpu_model(value: str | None) -> str | None:
+    """Collapse platform-specific whitespace in one processor description."""
+    if value is None:
+        return None
+    normalized = " ".join(value.split())
+    return normalized or None
+
+
+def _detect_cpu_model(*, cpuinfo_path: Path = Path("/proc/cpuinfo")) -> str | None:
+    """Return a concrete processor model when the host exposes one."""
+    system = platform.system()
+    if system == "Darwin":
+        try:
+            result = run_safe_command("sysctl", ["-n", "machdep.cpu.brand_string"], timeout=30)
+        except ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+            pass
+        else:
+            if model := _normalized_cpu_model(result.stdout):
+                return model
+    elif system == "Linux":
+        try:
+            lines = cpuinfo_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            key, separator, value = line.partition(":")
+            normalized_key = key.strip().casefold()
+            if not separator or normalized_key not in {"model name", "hardware", "processor"}:
+                continue
+            model = _normalized_cpu_model(value)
+            if model is not None and not (normalized_key == "processor" and model.isdecimal()):
+                return model
+
+    processor = _normalized_cpu_model(platform.processor())
+    if processor is not None:
+        return processor
+    if system == "Windows":
+        return _normalized_cpu_model(os.environ.get("PROCESSOR_IDENTIFIER"))
+    return None
+
+
+def _local_sample_provenance(
+    checkout: Path,
+    tag: str,
+    command: tuple[str, ...],
+    *,
+    cpu_model: str | None,
+) -> SampleProvenance:
     return SampleProvenance(
         tag=tag,
         commit=run_git_command(["--no-pager", "rev-parse", "HEAD"], cwd=checkout, timeout=30).stdout.strip(),
         operating_system=platform.platform(),
         architecture=platform.machine(),
+        cpu_model=cpu_model,
         rustc=run_safe_command("rustc", ["--version"], cwd=checkout, timeout=30).stdout.strip(),
         criterion_version=_criterion_dependency_version(checkout),
         source_digest_sha256=_source_digest(checkout),
@@ -1072,11 +1169,12 @@ def _local_measurement_provenance(
 ) -> MeasurementProvenance:
     baseline_command = ("cargo", "bench", "--locked", "--bench", "stepping", "--", "--save-baseline", pair.baseline_tag)
     current_command = ("cargo", "bench", "--locked", "--bench", "stepping")
+    cpu_model = _detect_cpu_model()
     return MeasurementProvenance(
         mode="local-isolated-worktrees",
         working_tree_applied=working_tree,
-        current=_local_sample_provenance(current_checkout, pair.current_tag, current_command),
-        baseline=_local_sample_provenance(baseline_checkout, pair.baseline_tag, baseline_command),
+        current=_local_sample_provenance(current_checkout, pair.current_tag, current_command, cpu_model=cpu_model),
+        baseline=_local_sample_provenance(baseline_checkout, pair.baseline_tag, baseline_command, cpu_model=cpu_model),
     )
 
 
@@ -1085,9 +1183,10 @@ def _local_measurement_context(measurement: MeasurementProvenance) -> tuple[str,
     source = "current `HEAD` with tracked and untracked working-tree changes applied" if measurement.working_tree_applied else "exact current release tag"
     current_harness = measurement.current.benchmark_harness_sha256 or "unavailable"
     baseline_harness = measurement.baseline.benchmark_harness_sha256 or "unavailable"
+    cpu_model = measurement.current.cpu_model or "unavailable"
     context = [
         "Source mode: same-host isolated worktrees; " + source + ".",
-        f"Host: `{measurement.current.operating_system}` on `{measurement.current.architecture}`.",
+        f"Host: `{measurement.current.operating_system}` on `{measurement.current.architecture}`; CPU: `{cpu_model}`.",
         (f"Current commit: `{measurement.current.commit}`; rustc: `{measurement.current.rustc}`; Criterion: `{measurement.current.criterion_version}`."),
         (f"Baseline commit: `{measurement.baseline.commit}`; rustc: `{measurement.baseline.rustc}`; Criterion: `{measurement.baseline.criterion_version}`."),
         f"Benchmark harness SHA-256 prefixes: current `{current_harness[:12]}`; baseline `{baseline_harness[:12]}`.",
@@ -1128,6 +1227,7 @@ def _asset_measurement_provenance(current: ReleaseMetadata, baseline: ReleaseMet
             commit=metadata.commit,
             operating_system=metadata.operating_system,
             architecture=metadata.architecture,
+            cpu_model=None,
             rustc=metadata.rustc,
             criterion_version=metadata.criterion_version,
             source_digest_sha256=None,
@@ -1201,8 +1301,12 @@ def generate_local_artifact(
             if apply_working_tree:
                 apply_current_tree(repo_root, current_checkout)
             with temporary_worktree(repo_root, parent, "baseline", pair.baseline_tag) as baseline_checkout:
+                _print_phase(f"Benchmarking baseline {pair.baseline_tag}; live Cargo and Criterion output follows")
                 _run_stepping_benchmark(baseline_checkout, save_baseline=pair.baseline_tag)
+                current_label = f"{pair.current_tag} working tree" if apply_working_tree else pair.current_tag
+                _print_phase(f"Benchmarking current {current_label}; live Cargo and Criterion output follows")
                 _run_stepping_benchmark(current_checkout)
+                _print_phase("Collecting Criterion samples and measurement provenance")
                 current_criterion = current_checkout / "target" / "criterion"
                 copy_criterion_sample(
                     source_criterion=baseline_checkout / "target" / "criterion",
@@ -1216,12 +1320,11 @@ def generate_local_artifact(
                     pair,
                     working_tree=apply_working_tree,
                 )
-                label = f"{pair.current_tag} working tree" if apply_working_tree else pair.current_tag
                 return _comparison_artifact(
                     current_criterion,
                     pair,
                     settings=ReportSettings(
-                        current_label=label,
+                        current_label=current_label,
                         baseline_label=pair.baseline_tag,
                         statistic="median",
                         revision=measurement.current.commit[:7],
@@ -1369,7 +1472,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--promote", action="store_true", help="Promote the report to docs/PERFORMANCE.md and archive the previous report.")
     parser.add_argument("--output", default="target/bench-reports/performance.md")
-    parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]))
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path.cwd(),
+        help="Repository root for relative inputs and outputs (default: current directory).",
+    )
     return parser.parse_args(argv)
 
 
@@ -1407,6 +1515,21 @@ def _format_command_failure(error: subprocess.CalledProcessError) -> str:
     return "\n".join(parts)
 
 
+def _format_os_error(error: OSError) -> str:
+    """Preserve native error codes while displaying copyable filesystem paths."""
+    if error.strerror is None:
+        return str(error)
+    message = error.strerror
+    if (winerror := getattr(error, "winerror", None)) is not None:
+        message = f"[WinError {winerror}] {message}"
+    elif error.errno is not None:
+        message = f"[Errno {error.errno}] {message}"
+    filenames = [os.fsdecode(filename) for filename in (error.filename, error.filename2) if filename is not None]
+    if filenames:
+        message += f": {' -> '.join(filenames)}"
+    return message
+
+
 def _validate_rerender_combination(args: argparse.Namespace) -> None:
     """Keep rerendering independent of GitHub, Git, Cargo, and pair inference."""
     if args.rerender is None:
@@ -1442,7 +1565,7 @@ def _rerender_measurements_path(repo_root: Path, configured_path: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     """Generate or rerender a report and optionally promote it."""
     args = _parse_args(sys.argv[1:] if argv is None else argv)
-    repo_root = Path(args.repo_root).resolve()
+    repo_root = args.repo_root.resolve()
     try:
         _validate_rerender_combination(args)
         if args.rerender is not None:
@@ -1497,10 +1620,11 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.TimeoutExpired as error:
         print(f"Performance workflow timed out after {error.timeout} seconds: {error.cmd}", file=sys.stderr)
         return 2
+    except OSError as error:
+        print(f"Performance workflow failed: {_format_os_error(error)}", file=sys.stderr)
+        return 2
     except (
         ExecutableNotFoundError,
-        FileNotFoundError,
-        OSError,
         RuntimeError,
         TypeError,
         ValueError,

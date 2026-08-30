@@ -13,7 +13,7 @@ just ci-portability   # Portability subset
 just ci-repository-tooling  # Repository tooling subset
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # All lint groups
-just setup            # Install/verify external dev tools
+just setup            # Install managed tools / verify system prerequisites
 just update           # Update dependencies, managed Cargo tools, and tool pins
 just test             # Focused unit + doc tests
 just test-unit        # Focused library unit tests
@@ -39,6 +39,7 @@ just examples         # Run all examples
 - `just yaml-check` - YAML formatting check through dprint Pretty YAML
 - `just action-lint` - GitHub Actions validation through `actionlint`
 - `just zizmor` - GitHub Actions security analysis through `zizmor`
+- `just justfile-fmt-check` - Justfile formatting check
 - `just toml-fmt-check` - TOML formatting check through Taplo
 - `just toml-lint` - TOML validation through Taplo
 - `just markdown-check` - Markdown formatting check through rumdl
@@ -96,7 +97,7 @@ The MSRV and contributor toolchain use Rust 1.98.0. The audit below follows the 
 
 ## Setup
 
-Run `just setup` or `just setup-tools` to install and verify external tools:
+Run `just setup` or `just setup-tools` to install repository-managed tools and verify system prerequisites:
 
 - `actionlint`
 - `cargo-edit`
@@ -105,15 +106,16 @@ Run `just setup` or `just setup-tools` to install and verify external tools:
 - `cargo-update`
 - `dprint`
 - `git-cliff`
-- `jq`
+- `jq` (system-provided; use a package manager or the [official installation instructions](https://jqlang.github.io/jq/download/))
 - `rumdl`
 - `taplo`
 - `typos`
 - `uv`
 - `zizmor`
 
-The setup recipe uses Cargo for Rust tools and `uv sync --locked --group dev` for project-managed Python 3.14 tools. Semgrep, Ruff, Ty, actionlint, and the
-support-script tests are pinned in `pyproject.toml` and invoked through the `uv_version` release pinned in the root [`justfile`](../../justfile).
+The setup recipe verifies `uv` and `jq` before managed installation work begins, then uses Cargo for Rust tools and the canonical `uv sync --locked` for the
+project-managed Python 3.14 environment. Semgrep, Ruff, Ty, actionlint, and the support-script tests are pinned in `pyproject.toml` and invoked through the
+`uv_version` release pinned in the root [`justfile`](../../justfile).
 
 Run `just update` when intentionally refreshing repository dependencies and managed tooling. It updates Cargo requirements and lockfile entries, advances
 exact Python development-tool pins without changing ranged requirements, upgrades the Cargo-installed CLI set, and then reconciles justfile pins with the
@@ -149,8 +151,8 @@ Python compilation, and extracted-code Ruff format/check plus Ty. `just notebook
 notebook set headlessly with `MPLBACKEND=Agg`.
 
 `just notebook-ising-figure` runs that validated workflow and promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. The notebook
-keeps plot labels and PNG metadata valid for an explicitly supplied `MCMC_TRACE_PATH`; the README caption records the fixed parameters used for the tracked
-default figure.
+keeps plot labels and PNG metadata valid for an explicitly supplied `MCMC_TRACE_PATH`; set `MCMC_NOTEBOOK_OUTPUT_DIR` when external or read-only trace storage
+requires a separate writable figure directory. The README caption records the fixed parameters used for the tracked default figure.
 
 Executed notebooks, IPython state, and Matplotlib caches are written below `target/notebooks/`; source notebooks remain unchanged. Heavier notebooks must be
 listed explicitly in the `slow_notebooks` justfile variable and run only through `just notebook-check-slow`. Use `just notebook-clear-outputs-all` for

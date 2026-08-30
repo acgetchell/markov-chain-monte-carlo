@@ -5,6 +5,48 @@ use std::error::Error;
 
 use rand::Rng;
 
+/// One endpoint's inputs to a weighted discrete proposal ratio.
+///
+/// Grouping the selected move-family weight, the endpoint's total family
+/// weight, and the concrete-site count prevents forward and reverse positional
+/// arguments from being interleaved accidentally.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[must_use]
+pub struct DiscreteProposalEndpoint {
+    selected_weight: f64,
+    total_weight: f64,
+    site_count: usize,
+}
+
+impl DiscreteProposalEndpoint {
+    /// Describe one endpoint of a weighted discrete proposal.
+    pub const fn new(selected_weight: f64, total_weight: f64, site_count: usize) -> Self {
+        Self {
+            selected_weight,
+            total_weight,
+            site_count,
+        }
+    }
+
+    /// Selected move-family weight at this endpoint.
+    #[must_use]
+    pub const fn selected_weight(self) -> f64 {
+        self.selected_weight
+    }
+
+    /// Sum of all move-family weights at this endpoint.
+    #[must_use]
+    pub const fn total_weight(self) -> f64 {
+        self.total_weight
+    }
+
+    /// Number of concrete sites in the selected family at this endpoint.
+    #[must_use]
+    pub const fn site_count(self) -> usize {
+        self.site_count
+    }
+}
+
 /// Hastings correction for a discrete proposal with weighted move families and
 /// uniformly sampled concrete sites.
 ///
@@ -45,64 +87,46 @@ pub struct DiscreteProposalRatio {
 }
 
 impl DiscreteProposalRatio {
-    /// Create a ratio from move-family weights, endpoint weight sums, and valid
-    /// concrete-site counts.
-    ///
-    /// `forward_weight` is the relative weight of the family that proposed the
-    /// current plan and `forward_weight_sum` is the sum of all family weights at
-    /// the current state. `reverse_weight` and `reverse_weight_sum` are the
-    /// corresponding values for the inverse family at the proposed state.
+    /// Create a ratio from named forward and reverse endpoint descriptions.
     ///
     /// The forward count and weight must be positive for a successful plan.
     /// Both endpoint weight sums must be positive and finite, and a family
     /// weight cannot exceed its endpoint sum. A zero reverse count or weight is
-    /// allowed and yields `f64::NEG_INFINITY`
-    /// from [`log_q_ratio`](Self::log_q_ratio), meaning the forward transition
-    /// should never be accepted under the Metropolis-Hastings correction.
+    /// allowed and yields `f64::NEG_INFINITY` from
+    /// [`log_q_ratio`](Self::log_q_ratio).
     ///
     /// # Errors
     ///
-    /// Returns [`DiscreteProposalRatioError::InvalidForwardWeight`] when the
-    /// forward move-family weight is not positive and finite or exceeds the
-    /// forward endpoint weight sum.
-    ///
-    /// Returns [`DiscreteProposalRatioError::InvalidReverseWeight`] when the
-    /// reverse move-family weight is negative, `NaN`, infinite, or exceeds the
-    /// reverse endpoint weight sum. A zero reverse weight is valid.
-    ///
-    /// Returns [`DiscreteProposalRatioError::InvalidForwardWeightSum`] or
-    /// [`DiscreteProposalRatioError::InvalidReverseWeightSum`] when the
-    /// corresponding endpoint weight sum is not positive and finite.
-    ///
-    /// Returns [`DiscreteProposalRatioError::ZeroForwardSiteCount`] when a
-    /// successful proposal reports no valid forward sites.  A zero reverse-site
-    /// count is valid.
+    /// Returns the endpoint-specific [`DiscreteProposalRatioError`] variant
+    /// when a weight, total weight, or successful forward site count is
+    /// invalid.
     ///
     /// # Examples
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::{
-    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    ///     DiscreteProposalEndpoint, DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
+    /// let forward = DiscreteProposalEndpoint::new(1.0, 4.0, 6);
+    /// let reverse = DiscreteProposalEndpoint::new(3.0, 4.0, 2);
+    /// let ratio = DiscreteProposalRatio::from_endpoints(forward, reverse)?;
     ///
     /// assert_eq!(ratio.forward_weight(), 1.0);
-    /// assert_eq!(ratio.forward_weight_sum(), 4.0);
-    /// assert_eq!(ratio.forward_site_count(), 6);
-    /// assert_eq!(ratio.reverse_weight(), 3.0);
-    /// assert_eq!(ratio.reverse_weight_sum(), 4.0);
     /// assert_eq!(ratio.reverse_site_count(), 2);
     /// # Ok::<(), DiscreteProposalRatioError>(())
     /// ```
-    pub fn new(
-        forward_weight: f64,
-        forward_weight_sum: f64,
-        forward_site_count: usize,
-        reverse_weight: f64,
-        reverse_weight_sum: f64,
-        reverse_site_count: usize,
+    pub fn from_endpoints(
+        forward: DiscreteProposalEndpoint,
+        reverse: DiscreteProposalEndpoint,
     ) -> Result<Self, DiscreteProposalRatioError> {
+        let forward_weight = forward.selected_weight;
+        let forward_weight_sum = forward.total_weight;
+        let forward_site_count = forward.site_count;
+        let reverse_weight = reverse.selected_weight;
+        let reverse_weight_sum = reverse.total_weight;
+        let reverse_site_count = reverse.site_count;
+
         if !forward_weight_sum.is_finite() || forward_weight_sum <= 0.0 {
             return Err(DiscreteProposalRatioError::InvalidForwardWeightSum {
                 weight_sum: forward_weight_sum,
@@ -174,7 +198,10 @@ impl DiscreteProposalRatio {
         forward_site_count: usize,
         reverse_site_count: usize,
     ) -> Result<Self, DiscreteProposalRatioError> {
-        Self::new(1.0, 1.0, forward_site_count, 1.0, 1.0, reverse_site_count)
+        Self::from_endpoints(
+            DiscreteProposalEndpoint::new(1.0, 1.0, forward_site_count),
+            DiscreteProposalEndpoint::new(1.0, 1.0, reverse_site_count),
+        )
     }
 
     /// Forward move-family weight.
@@ -183,10 +210,13 @@ impl DiscreteProposalRatio {
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::{
-    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    ///     DiscreteProposalEndpoint, DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
+    /// let ratio = DiscreteProposalRatio::from_endpoints(
+    ///     DiscreteProposalEndpoint::new(1.0, 4.0, 6),
+    ///     DiscreteProposalEndpoint::new(3.0, 4.0, 2),
+    /// )?;
     ///
     /// assert_eq!(ratio.forward_weight(), 1.0);
     /// # Ok::<(), DiscreteProposalRatioError>(())
@@ -208,10 +238,13 @@ impl DiscreteProposalRatio {
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::{
-    ///     DiscreteProposalRatio, DiscreteProposalRatioError,
+    ///     DiscreteProposalEndpoint, DiscreteProposalRatio, DiscreteProposalRatioError,
     /// };
     ///
-    /// let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2)?;
+    /// let ratio = DiscreteProposalRatio::from_endpoints(
+    ///     DiscreteProposalEndpoint::new(1.0, 4.0, 6),
+    ///     DiscreteProposalEndpoint::new(3.0, 4.0, 2),
+    /// )?;
     ///
     /// assert_eq!(ratio.reverse_weight(), 3.0);
     /// # Ok::<(), DiscreteProposalRatioError>(())
@@ -553,6 +586,12 @@ where
 /// This is not a logit or arbitrary score: differences between two returned
 /// values must be log probability ratios for the chain to target the intended
 /// distribution.  Return `f64::NEG_INFINITY` for impossible states.
+///
+/// A target evaluation must be observational: for a fixed behavior-relevant
+/// state and target configuration, repeated calls return the same log weight
+/// and do not change later transition probabilities. Interior mutability is
+/// permitted only when callers synchronize changes between transitions; each
+/// transition re-scores its current state before evaluating acceptance.
 pub trait Target<S> {
     /// Compute log-probability (or negative energy/action).
     fn log_prob(&self, state: &S) -> f64;
@@ -565,6 +604,12 @@ pub trait Target<S> {
 /// trait itself does not require `S: Clone`.  For state spaces where allocating
 /// a whole proposed state is expensive (e.g., triangulations, large graphs),
 /// see [`ProposalMut`] which mutates in place and supports cheap rollback.
+///
+/// `Proposal`, [`ProposalMut`], and [`DelayedProposal`] intentionally remain
+/// separate strategy contracts. They differ in when state mutation occurs,
+/// where rollback evidence lives, and which failure/telemetry capabilities are
+/// meaningful; normalizing them into one outcome would obscure those
+/// transition guarantees.
 pub trait Proposal<S> {
     /// Propose a new state from the current one.
     fn propose<R: Rng + ?Sized>(&self, current: &S, rng: &mut R) -> S;
@@ -606,6 +651,10 @@ impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &mut P {
 /// model for combinatorial state spaces (e.g., triangulations, graphs)
 /// where moves are invertible and cloning is expensive.
 ///
+/// This strategy is intentionally distinct from by-value [`Proposal`] and
+/// accept-before-mutation [`DelayedProposal`]: its undo token is part of the
+/// transition invariant, not a generic proposal outcome.
+///
 /// # Associated Types
 ///
 /// * [`Undo`](ProposalMut::Undo) — a small token that captures
@@ -631,7 +680,10 @@ pub trait ProposalMut<S> {
     /// prior state and any proposal-internal transition state changed by the
     /// attempt. Returning `None` must likewise leave transition-relevant
     /// proposal state unchanged; telemetry-only scratch may remain for
-    /// [`no_proposal_info`](Self::no_proposal_info) to consume.
+    /// [`no_proposal_info`](Self::no_proposal_info) to consume. If this method
+    /// unwinds before returning a token, it must likewise leave target and
+    /// transition-relevant proposal state unchanged because the chain has no
+    /// rollback evidence yet.
     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, rng: &mut R) -> Option<Self::Undo>;
 
     /// Produce telemetry metadata for a concrete in-place proposal.
@@ -665,7 +717,9 @@ pub trait ProposalMut<S> {
     ///
     /// Implementations must also restore proposal-internal transition state
     /// associated with the attempted move. Telemetry-only scratch storage need
-    /// not be restored because it cannot affect future transitions.
+    /// not be restored because it cannot affect future transitions. This
+    /// method must not panic: the chain also invokes it from a drop guard while
+    /// unwinding callbacks that run after a token has been produced.
     fn undo(&mut self, state: &mut S, token: Self::Undo);
 
     /// Log proposal ratio for the in-place move.
@@ -745,6 +799,11 @@ impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
 /// move family before discovering that no concrete site exists.  [`crate::Chain`]
 /// stores that metadata through [`crate::DelayedStep::info`] even though the step is
 /// counted as a rejection with no proposal.
+///
+/// This strategy is intentionally distinct from [`Proposal`] and
+/// [`ProposalMut`]. Its plan is scored before mutation and its typed errors are
+/// stage-specific, so collapsing it into a normalized proposal outcome would
+/// weaken the accept-before-mutation contract.
 pub trait DelayedProposal<S> {
     /// Concrete move descriptor produced before the Metropolis-Hastings decision.
     type Plan;
@@ -820,7 +879,7 @@ pub trait DelayedProposal<S> {
     ///         self.last_family.take()
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<()>>(
+    ///     fn proposed_log_prob<T: Target<()> + ?Sized>(
     ///         &self,
     ///         _: &(),
     ///         _: &(),
@@ -867,7 +926,7 @@ pub trait DelayedProposal<S> {
     /// # Errors
     ///
     /// Returns `Self::Error` when the proposal cannot evaluate the plan.
-    fn proposed_log_prob<T: Target<S>>(
+    fn proposed_log_prob<T: Target<S> + ?Sized>(
         &self,
         state: &S,
         plan: &Self::Plan,
@@ -910,6 +969,9 @@ pub trait DelayedProposal<S> {
     /// synchronized.  [`crate::Chain`] cannot repair a partially applied
     /// failed commit without an implementation-provided rollback token, so
     /// failure atomicity is part of this trait's correctness contract.
+    /// The same guarantee applies if `commit` unwinds. Checked delayed stepping
+    /// restores clone-isolated target state during unwinding, but cannot restore
+    /// proposal-internal state; unchecked delayed stepping has no snapshot.
     ///
     /// # Errors
     ///
@@ -943,7 +1005,7 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedProposal<S> for &mut P {
         (**self).no_plan_info()
     }
 
-    fn proposed_log_prob<T: Target<S>>(
+    fn proposed_log_prob<T: Target<S> + ?Sized>(
         &self,
         state: &S,
         plan: &Self::Plan,
@@ -994,7 +1056,7 @@ mod tests {
     struct SymmetricProposal;
     impl Proposal<Scalar> for SymmetricProposal {
         fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
-            Scalar(current.0 + 1.0)
+            Scalar(-current.0)
         }
         // log_q_ratio intentionally not overridden — uses default
     }
@@ -1009,7 +1071,7 @@ mod tests {
             _rng: &mut R,
         ) -> Option<f64> {
             let old = state.0;
-            state.0 += 1.0;
+            state.0 = -state.0;
             Some(old)
         }
         fn info(&self, state: &Scalar, _old: &f64) -> f64 {
@@ -1050,7 +1112,7 @@ mod tests {
         let shared = &proposal;
         let proposed = shared.propose(&Scalar(2.0), &mut rng());
 
-        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(proposed.0, -2.0);
         assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
     }
 
@@ -1060,8 +1122,8 @@ mod tests {
         let mut state = Scalar(2.0);
         let token = proposal.propose_mut(&mut state, &mut rng()).unwrap();
 
-        assert_relative_eq!(state.0, 3.0);
-        assert_relative_eq!(proposal.info(&state, &token), 3.0);
+        assert_relative_eq!(state.0, -2.0);
+        assert_relative_eq!(proposal.info(&state, &token), -2.0);
         assert_relative_eq!(proposal.log_q_ratio(&state, &token), 0.0);
 
         proposal.undo(&mut state, token);
@@ -1075,7 +1137,7 @@ mod tests {
         let mut state = Scalar(2.0);
         let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
 
-        assert_relative_eq!(state.0, 3.0);
+        assert_relative_eq!(state.0, -2.0);
         assert_relative_eq!(shared.log_q_ratio(&state, &token), 0.0);
 
         shared.undo(&mut state, token);
@@ -1095,7 +1157,7 @@ mod tests {
         let shared = &mut proposal;
         let proposed = shared.propose(&Scalar(2.0), &mut rng());
 
-        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(proposed.0, -2.0);
         assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
     }
 
@@ -1107,13 +1169,13 @@ mod tests {
 
         fn propose_plan<R: Rng + ?Sized>(
             &mut self,
-            _state: &Scalar,
+            state: &Scalar,
             _rng: &mut R,
         ) -> Result<Option<f64>, Self::Error> {
-            Ok(Some(1.0))
+            Ok(Some(-state.0))
         }
 
-        fn proposed_log_prob<T: Target<Scalar>>(
+        fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
             &self,
             _state: &Scalar,
             plan: &f64,
@@ -1155,7 +1217,11 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_accounts_for_move_weights() {
-        let ratio = DiscreteProposalRatio::new(1.0, 4.0, 6, 3.0, 4.0, 2).unwrap();
+        let ratio = DiscreteProposalRatio::from_endpoints(
+            DiscreteProposalEndpoint::new(1.0, 4.0, 6),
+            DiscreteProposalEndpoint::new(3.0, 4.0, 2),
+        )
+        .unwrap();
 
         assert_eq!(ratio.forward_weight().to_bits(), 1.0_f64.to_bits());
         assert_eq!(ratio.forward_weight_sum().to_bits(), 4.0_f64.to_bits());
@@ -1173,9 +1239,12 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_accounts_for_state_dependent_weight_sums() {
-        let ratio = DiscreteProposalRatio::new(1.0, 4.0, 1, 1.0, 8.0, 1)
-            .unwrap()
-            .log_q_ratio();
+        let ratio = DiscreteProposalRatio::from_endpoints(
+            DiscreteProposalEndpoint::new(1.0, 4.0, 1),
+            DiscreteProposalEndpoint::new(1.0, 8.0, 1),
+        )
+        .unwrap()
+        .log_q_ratio();
 
         assert_relative_eq!(ratio, 0.5_f64.ln(), epsilon = f64::EPSILON);
     }
@@ -1192,9 +1261,12 @@ mod tests {
 
     #[test]
     fn discrete_proposal_ratio_allows_zero_reverse_weight() {
-        let ratio = DiscreteProposalRatio::new(1.0, 1.0, 3, 0.0, 1.0, 1)
-            .unwrap()
-            .log_q_ratio();
+        let ratio = DiscreteProposalRatio::from_endpoints(
+            DiscreteProposalEndpoint::new(1.0, 1.0, 3),
+            DiscreteProposalEndpoint::new(0.0, 1.0, 1),
+        )
+        .unwrap()
+        .log_q_ratio();
 
         assert!(ratio.is_infinite());
         assert!(ratio.is_sign_negative());
@@ -1214,7 +1286,11 @@ mod tests {
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_forward_weights() {
         for weight in [0.0, -1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
-            let err = DiscreteProposalRatio::new(weight, 1.0, 1, 1.0, 1.0, 1).unwrap_err();
+            let err = DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(weight, 1.0, 1),
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+            )
+            .unwrap_err();
             assert_eq!(
                 err.to_string(),
                 format!(
@@ -1238,7 +1314,11 @@ mod tests {
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_reverse_weights() {
         for weight in [-1.0, 2.0, f64::NEG_INFINITY, f64::NAN, f64::INFINITY] {
-            let err = DiscreteProposalRatio::new(1.0, 1.0, 1, weight, 1.0, 1).unwrap_err();
+            let err = DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+                DiscreteProposalEndpoint::new(weight, 1.0, 1),
+            )
+            .unwrap_err();
             assert_eq!(
                 err.to_string(),
                 format!(
@@ -1262,7 +1342,11 @@ mod tests {
     #[test]
     fn discrete_proposal_ratio_rejects_invalid_endpoint_weight_sums() {
         for weight_sum in [0.0, -1.0, f64::NEG_INFINITY, f64::INFINITY] {
-            let forward = DiscreteProposalRatio::new(1.0, weight_sum, 1, 1.0, 1.0, 1).unwrap_err();
+            let forward = DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(1.0, weight_sum, 1),
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+            )
+            .unwrap_err();
             assert_eq!(
                 forward,
                 DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum }
@@ -1274,7 +1358,11 @@ mod tests {
                 )
             );
 
-            let reverse = DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, weight_sum, 1).unwrap_err();
+            let reverse = DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+                DiscreteProposalEndpoint::new(1.0, weight_sum, 1),
+            )
+            .unwrap_err();
             assert_eq!(
                 reverse,
                 DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum }
@@ -1288,12 +1376,18 @@ mod tests {
         }
 
         assert!(matches!(
-            DiscreteProposalRatio::new(1.0, f64::NAN, 1, 1.0, 1.0, 1),
+            DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(1.0, f64::NAN, 1),
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+            ),
             Err(DiscreteProposalRatioError::InvalidForwardWeightSum { weight_sum })
                 if weight_sum.is_nan()
         ));
         assert!(matches!(
-            DiscreteProposalRatio::new(1.0, 1.0, 1, 1.0, f64::NAN, 1),
+            DiscreteProposalRatio::from_endpoints(
+                DiscreteProposalEndpoint::new(1.0, 1.0, 1),
+                DiscreteProposalEndpoint::new(1.0, f64::NAN, 1),
+            ),
             Err(DiscreteProposalRatioError::InvalidReverseWeightSum { weight_sum })
                 if weight_sum.is_nan()
         ));
@@ -1310,10 +1404,10 @@ mod tests {
 
         let mut proposal = SymmetricDelayedProposal;
         let shared = &mut proposal;
-        let state = Scalar(0.0);
+        let state = Scalar(1.0);
         let plan = shared.propose_plan(&state, &mut rng()).unwrap().unwrap();
 
-        assert_relative_eq!(plan, 1.0);
+        assert_relative_eq!(plan, -1.0);
         assert_relative_eq!(
             shared
                 .proposed_log_prob(&state, &plan, &ZeroTarget)
@@ -1321,10 +1415,10 @@ mod tests {
             -1.0
         );
         assert_relative_eq!(shared.log_q_ratio(&state, &plan).unwrap(), 0.0);
-        assert_relative_eq!(shared.info(&plan), 1.0);
+        assert_relative_eq!(shared.info(&plan), -1.0);
 
-        let mut committed = Scalar(0.0);
+        let mut committed = Scalar(1.0);
         shared.commit(&mut committed, plan, &mut rng()).unwrap();
-        assert_relative_eq!(committed.0, 1.0);
+        assert_relative_eq!(committed.0, -1.0);
     }
 }

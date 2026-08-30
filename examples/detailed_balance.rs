@@ -7,7 +7,7 @@
 use core::convert::Infallible;
 
 use markov_chain_monte_carlo::prelude::testing::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 struct TwoStateTarget;
 impl Target<bool> for TwoStateTarget {
@@ -16,10 +16,14 @@ impl Target<bool> for TwoStateTarget {
     }
 }
 
-struct Flip;
-impl Proposal<bool> for Flip {
-    fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
-        !current
+struct LazyFlip;
+impl Proposal<bool> for LazyFlip {
+    fn propose<R: Rng + ?Sized>(&self, current: &bool, rng: &mut R) -> bool {
+        if rng.random_bool(0.5) {
+            !current
+        } else {
+            *current
+        }
     }
 }
 
@@ -57,7 +61,7 @@ impl DelayedProposal<bool> for DelayedFlip {
         Ok(Some(!*state))
     }
 
-    fn proposed_log_prob<T: Target<bool>>(
+    fn proposed_log_prob<T: Target<bool> + ?Sized>(
         &self,
         _: &bool,
         plan: &bool,
@@ -83,10 +87,10 @@ impl DelayedProposal<bool> for DelayedFlip {
 
 fn main() -> Result<(), DetailedBalanceError> {
     let target = TwoStateTarget;
-    let config = DetailedBalanceConfig::new(256, 1e-10, 1)?;
+    let config = DetailedBalanceConfig::new(16_384, 0.08, 256)?;
 
     let mut rng = StdRng::seed_from_u64(42);
-    let by_value = verify_detailed_balance(&false, &true, &target, &Flip, &mut rng, config)?;
+    let by_value = verify_detailed_balance(&false, &true, &target, &LazyFlip, &mut rng, config)?;
 
     let mut rng = StdRng::seed_from_u64(42);
     let mut in_place_proposal = FlipMut;
@@ -104,7 +108,7 @@ fn main() -> Result<(), DetailedBalanceError> {
     let batch = verify_detailed_balance_many(
         pairs.iter().map(|(current, proposed)| (current, proposed)),
         &target,
-        &Flip,
+        &LazyFlip,
         &mut rng,
         config,
     );
@@ -126,10 +130,15 @@ fn main() -> Result<(), DetailedBalanceError> {
 
     assert!(batch.is_success());
     assert!(delayed.is_success());
+    assert!(by_value.forward_hits >= config.min_hits());
+    assert!(by_value.reverse_hits >= config.min_hits());
 
     println!(
-        "by-value residual: {:+.3e} (se {:.3e})",
-        by_value.log_balance_residual, by_value.log_balance_standard_error
+        "by-value residual: {:+.3e} (se {:.3e}; hits {}/{})",
+        by_value.log_balance_residual,
+        by_value.log_balance_standard_error,
+        by_value.forward_hits,
+        by_value.reverse_hits
     );
     println!(
         "in-place residual: {:+.3e} (se {:.3e})",

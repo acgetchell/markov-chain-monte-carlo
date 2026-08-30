@@ -184,7 +184,8 @@ instead of matching `ThinningError::Run`, and replace `Step` field reads with th
 By-value `Chain::step` and `Sampler::step` now return `Step<()>`, and the by-value `Sampler` iterator yields `Result<Step<()>, McmcError>`; inspect or
 explicitly discard that telemetry where older code expected `()`. Construct `DiscreteProposalRatio` with the source-to-destination and
 destination-to-source endpoint weights as well as their normalizers. With the `serde` feature, `Sampler` now uses the same canonical checkpoint shape as its
-owned `Chain`; deserialize through `ChainCheckpoint` and resume with `Sampler::from_checkpoint` when target and proposal handles must be restored.
+owned `Chain`; deserialize a `ChainCheckpoint`, restore it with `Chain::from_checkpoint(checkpoint, target)`, and pass the resulting `Chain` plus the target,
+proposal, and RNG to `Sampler::new`.
 
 ## 📦 Cargo features
 

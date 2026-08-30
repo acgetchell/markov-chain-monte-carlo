@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -18,10 +19,24 @@ type CheckMode = Literal["lint", "execute", "clear"]
 type CellType = Literal["code", "markdown", "raw"]
 
 VALID_CELL_TYPES: set[CellType] = {"code", "markdown", "raw"}
+NOTEBOOK_ROOT_FIELDS = frozenset({"cells", "metadata", "nbformat", "nbformat_minor"})
+COMMON_CELL_FIELDS = frozenset({"cell_type", "id", "metadata", "source"})
+CELL_ALLOWED_FIELDS: dict[CellType, frozenset[str]] = {
+    "code": COMMON_CELL_FIELDS | {"execution_count", "outputs"},
+    "markdown": COMMON_CELL_FIELDS | {"attachments"},
+    "raw": COMMON_CELL_FIELDS | {"attachments"},
+}
+CELL_REQUIRED_FIELDS: dict[CellType, frozenset[str]] = {
+    "code": COMMON_CELL_FIELDS | {"execution_count", "outputs"},
+    "markdown": COMMON_CELL_FIELDS,
+    "raw": COMMON_CELL_FIELDS,
+}
 PYTHON_CELL_MAGICS = frozenset({"capture", "prun", "time", "timeit"})
 CELL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+JSON_MIME_RE = re.compile(r"^application/(.*\+)?json$")
 RUFF_LOCATION_RE = re.compile(r"^.+?:(?P<line>\d+):(?P<column>\d+):\s+(?P<message>.+)$")
 TY_LOCATION_RE = re.compile(r"^.+?:(?P<line>\d+):(?P<column>\d+):\s+(?P<message>.+)$")
+DEFAULT_OUTPUT_MODE = 0o644
 
 
 def is_json_object(value: object) -> TypeIs[dict[str, object]]:
@@ -102,7 +117,8 @@ class CheckOptions:
 def discover_notebooks(repo_root: Path) -> list[Path]:
     """Return repository notebooks while excluding Jupyter checkpoints."""
     notebook_root = repo_root / "notebooks"
-    return sorted(path for path in notebook_root.glob("**/*.ipynb") if ".ipynb_checkpoints" not in path.parts)
+    notebooks = (path for path in notebook_root.glob("**/*.ipynb") if ".ipynb_checkpoints" not in path.parts)
+    return sorted(notebooks, key=lambda path: path.relative_to(notebook_root).as_posix())
 
 
 def parse_cell_type(value: object, *, path: Path, index: int) -> CellType:
@@ -162,15 +178,48 @@ def parse_execution_count(value: object, *, path: Path, index: int) -> int | Non
     return value
 
 
+def validate_attachments(value: object, *, path: Path, index: int) -> None:
+    """Validate an nbformat attachment mapping and its MIME bundles."""
+    if not is_json_object(value):
+        msg = f"{path}: cell {index}: attachments must be a JSON object"
+        raise TypeError(msg)
+    for filename, raw_bundle in value.items():
+        if not is_json_object(raw_bundle):
+            msg = f"{path}: cell {index}: attachment {filename!r} must contain a JSON object MIME bundle"
+            raise TypeError(msg)
+        for mime_type, payload in raw_bundle.items():
+            if JSON_MIME_RE.fullmatch(mime_type) is not None:
+                continue
+            if not isinstance(payload, str) and not is_string_list(payload):
+                msg = f"{path}: cell {index}: attachment {filename!r} MIME value {mime_type!r} must be a string or list of strings"
+                raise TypeError(msg)
+
+
+def validate_cell_fields(value: dict[str, object], *, cell_type: CellType, path: Path, index: int) -> None:
+    """Reject missing, unknown, and cell-type-forbidden nbformat fields."""
+    present = frozenset(value)
+    missing = sorted(CELL_REQUIRED_FIELDS[cell_type] - present)
+    if missing:
+        msg = f"{path}: cell {index}: missing required {cell_type} field(s): {', '.join(missing)}"
+        raise TypeError(msg)
+    unsupported = sorted(present - CELL_ALLOWED_FIELDS[cell_type])
+    if unsupported:
+        msg = f"{path}: cell {index}: unsupported field(s) for {cell_type} cell: {', '.join(unsupported)}"
+        raise ValueError(msg)
+    if "attachments" in value:
+        validate_attachments(value["attachments"], path=path, index=index)
+
+
 def parse_cell(value: object, *, path: Path, index: int) -> NotebookCell:
     """Parse one raw notebook cell into trusted data."""
     if not is_json_object(value):
         msg = f"{path}: cell {index}: expected a JSON object"
         raise TypeError(msg)
+    cell_type = parse_cell_type(value.get("cell_type"), path=path, index=index)
+    validate_cell_fields(value, cell_type=cell_type, path=path, index=index)
     if not is_json_object(value.get("metadata")):
         msg = f"{path}: cell {index}: metadata must be a JSON object"
         raise TypeError(msg)
-    cell_type = parse_cell_type(value.get("cell_type"), path=path, index=index)
     output_count = parse_outputs(value.get("outputs"), path=path, index=index) if cell_type == "code" else 0
     execution_count = parse_execution_count(value.get("execution_count"), path=path, index=index) if cell_type == "code" else None
     return NotebookCell(
@@ -193,6 +242,10 @@ def load_notebook(path: Path) -> LoadedNotebook:
     if not is_json_object(raw_value):
         msg = f"{path}: notebook JSON must be an object"
         raise TypeError(msg)
+    unsupported = sorted(frozenset(raw_value) - NOTEBOOK_ROOT_FIELDS)
+    if unsupported:
+        msg = f"{path}: unsupported notebook field(s): {', '.join(unsupported)}"
+        raise ValueError(msg)
     nbformat = raw_value.get("nbformat")
     if isinstance(nbformat, bool) or not isinstance(nbformat, int):
         msg = f"{path}: nbformat must be integer 4, got {nbformat!r}"
@@ -201,9 +254,12 @@ def load_notebook(path: Path) -> LoadedNotebook:
         msg = f"{path}: expected nbformat 4, got {nbformat!r}"
         raise ValueError(msg)
     nbformat_minor = raw_value.get("nbformat_minor")
-    if isinstance(nbformat_minor, bool) or not isinstance(nbformat_minor, int) or nbformat_minor < 0:
-        msg = f"{path}: nbformat_minor must be a nonnegative integer"
+    if isinstance(nbformat_minor, bool) or not isinstance(nbformat_minor, int):
+        msg = f"{path}: nbformat_minor must be an integer"
         raise TypeError(msg)
+    if nbformat_minor < 5:
+        msg = f"{path}: expected nbformat 4.5 or newer for stable cell IDs, got 4.{nbformat_minor}"
+        raise ValueError(msg)
     metadata = raw_value.get("metadata")
     if not isinstance(metadata, dict):
         msg = f"{path}: metadata must be a JSON object"
@@ -444,9 +500,18 @@ def output_path_for(path: Path, *, repo_root: Path, output_dir: Path) -> Path:
     return output_path
 
 
+def destination_mode(path: Path) -> int:
+    """Return an existing destination's mode or the explicit mode for a new artifact."""
+    try:
+        return stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        return DEFAULT_OUTPUT_MODE
+
+
 def write_executed_notebook(nbformat: Any, notebook: Any, output_path: Path) -> None:
     """Atomically publish an executed notebook artifact."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_mode = destination_mode(output_path)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -459,6 +524,7 @@ def write_executed_notebook(nbformat: Any, notebook: Any, output_path: Path) -> 
         ) as handle:
             temporary_path = Path(handle.name)
             nbformat.write(notebook, handle)
+        temporary_path.chmod(output_mode)
         temporary_path.replace(output_path)
     finally:
         if temporary_path is not None:
@@ -475,19 +541,30 @@ def execute_notebook(path: Path, options: CheckOptions) -> Path:
     matplotlib_dir = output_dir / ".matplotlib"
     ipython_dir.mkdir(parents=True, exist_ok=True)
     matplotlib_dir.mkdir(parents=True, exist_ok=True)
-    os.environ["MPLBACKEND"] = "Agg"
-    os.environ.setdefault("IPYTHONDIR", str(ipython_dir))
-    os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_dir))
-    with path.open(encoding="utf-8") as handle:
-        notebook = nbformat.read(handle, as_version=4)
-    client = nbclient.NotebookClient(
-        notebook,
-        timeout=options.timeout,
-        kernel_name="python3",
-        resources={"metadata": {"path": str(options.repo_root)}},
-    )
-    client.execute()
-    write_executed_notebook(nbformat, notebook, output_path)
+    isolated_environment = {
+        "IPYTHONDIR": str(ipython_dir),
+        "MPLBACKEND": "Agg",
+        "MPLCONFIGDIR": str(matplotlib_dir),
+    }
+    previous_environment = {name: os.environ.get(name) for name in isolated_environment}
+    os.environ.update(isolated_environment)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            notebook = nbformat.read(handle, as_version=4)
+        client = nbclient.NotebookClient(
+            notebook,
+            timeout=options.timeout,
+            kernel_name="python3",
+            resources={"metadata": {"path": str(options.repo_root)}},
+        )
+        client.execute()
+        write_executed_notebook(nbformat, notebook, output_path)
+    finally:
+        for name, previous_value in previous_environment.items():
+            if previous_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous_value
     print(f"OK executed {path} -> {output_path}")
     return output_path
 
@@ -501,6 +578,7 @@ def execute_notebooks(paths: tuple[Path, ...], options: CheckOptions) -> None:
 def write_json_atomic(path: Path, value: dict[str, object]) -> None:
     """Atomically replace a JSON document after complete serialization."""
     serialized = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    output_mode = destination_mode(path)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -513,6 +591,7 @@ def write_json_atomic(path: Path, value: dict[str, object]) -> None:
         ) as handle:
             temporary_path = Path(handle.name)
             handle.write(serialized)
+        temporary_path.chmod(output_mode)
         temporary_path.replace(path)
     finally:
         if temporary_path is not None:
@@ -634,7 +713,10 @@ def main(argv: list[str] | None = None) -> int:
         return run(parse_args(sys.argv[1:] if argv is None else argv))
     except ModuleNotFoundError as error:
         dependency = error.name or "notebook dependency"
-        print(f"error: {dependency} is required; run the checker through `uv run --locked`", file=sys.stderr)
+        print(
+            f"error: {dependency} is required; install `markov-chain-monte-carlo-tooling[notebook]` or run the checker through `uv run --locked`",
+            file=sys.stderr,
+        )
         return 1
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

@@ -13,7 +13,7 @@
 //! information:
 //!
 //! - In-place stepping ([`Chain::step_mut`](crate::Chain::step_mut) and
-//!   [`Sampler::step_mut`](crate::Sampler::step_mut) returns a [`Step`] with
+//!   [`Sampler::step_mut`](crate::Sampler::step_mut)) returns a [`Step`] with
 //!   proposal metadata and an exact [`StepOutcome`].
 //! - Delayed stepping ([`Chain::step_delayed`](crate::Chain::step_delayed) and
 //!   [`Sampler::step_delayed`](crate::Sampler::step_delayed)) returns the same
@@ -21,10 +21,8 @@
 //! - Convert either structured step with the [`From`] implementations on
 //!   [`TraceStepOutcome`].
 //! - By-value stepping ([`Chain::step`](crate::Chain::step) and
-//!   [`Sampler::step`](crate::Sampler::step)) returns `Result<(), _>` with no
-//!   acceptance information, so a by-value caller cannot truthfully populate
-//!   accept/reject. Record from an in-place or delayed step when a trace must
-//!   capture acceptance exactly.
+//!   [`Sampler::step`](crate::Sampler::step)) returns a [`Step`] whose unit
+//!   metadata preserves the same exact outcome signal.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -86,7 +84,7 @@ impl TraceStepOutcome {
     ///
     /// let outcome = TraceStepOutcome::accepted();
     /// assert!(outcome.is_accepted());
-    /// assert!(outcome.had_proposal());
+    /// assert!(outcome.has_proposal());
     /// ```
     pub const fn accepted() -> Self {
         Self {
@@ -102,7 +100,7 @@ impl TraceStepOutcome {
     ///
     /// let outcome = TraceStepOutcome::rejected_proposal();
     /// assert!(!outcome.is_accepted());
-    /// assert!(outcome.had_proposal());
+    /// assert!(outcome.has_proposal());
     /// ```
     pub const fn rejected_proposal() -> Self {
         Self {
@@ -118,7 +116,7 @@ impl TraceStepOutcome {
     ///
     /// let outcome = TraceStepOutcome::no_proposal();
     /// assert!(!outcome.is_accepted());
-    /// assert!(!outcome.had_proposal());
+    /// assert!(!outcome.has_proposal());
     /// ```
     pub const fn no_proposal() -> Self {
         Self {
@@ -141,9 +139,9 @@ impl TraceStepOutcome {
     /// let rejected = TraceStepOutcome::from_proposal_acceptance(false);
     ///
     /// assert!(accepted.is_accepted());
-    /// assert!(accepted.had_proposal());
+    /// assert!(accepted.has_proposal());
     /// assert!(!rejected.is_accepted());
-    /// assert!(rejected.had_proposal());
+    /// assert!(rejected.has_proposal());
     /// ```
     pub const fn from_proposal_acceptance(accepted: bool) -> Self {
         if accepted {
@@ -161,7 +159,7 @@ impl TraceStepOutcome {
 
     /// Whether the step included a concrete proposal.
     #[must_use]
-    pub const fn had_proposal(self) -> bool {
+    pub const fn has_proposal(self) -> bool {
         self.proposed
     }
 }
@@ -183,6 +181,12 @@ impl<I> From<&Step<I>> for TraceStepOutcome {
 }
 
 /// One recorded post-step trace row.
+///
+/// A record intentionally owns its observable values so buffered traces,
+/// merged traces, and exported rows remain self-contained. Long-running jobs
+/// that do not need every row should instead send observations directly to a
+/// streaming accumulator such as [`crate::OnlineStats`] or
+/// [`crate::BinningAnalysis`] through the sampler's `*_observing_into` APIs.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub struct TraceRecord {
@@ -264,16 +268,19 @@ impl TraceRecord {
 #[non_exhaustive]
 pub enum TraceError {
     /// An observable name was empty.
+    #[non_exhaustive]
     EmptyObservableName {
         /// Zero-based position of the empty name.
         index: usize,
     },
     /// An observable name appeared more than once.
+    #[non_exhaustive]
     DuplicateObservableName {
         /// Duplicated observable name.
         name: String,
     },
     /// A row had a different number of values than the trace header.
+    #[non_exhaustive]
     ObservableCountMismatch {
         /// Number of values required by the header.
         expected: usize,
@@ -281,6 +288,7 @@ pub enum TraceError {
         actual: usize,
     },
     /// Two traces used different observable columns.
+    #[non_exhaustive]
     ObservableNamesMismatch {
         /// Observable columns required by the receiving trace.
         expected: Vec<String>,
@@ -292,17 +300,21 @@ pub enum TraceError {
 impl fmt::Display for TraceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyObservableName { index } => {
+            Self::EmptyObservableName { index, .. } => {
                 write!(f, "observable name at index {index} is empty")
             }
-            Self::DuplicateObservableName { name } => {
+            Self::DuplicateObservableName { name, .. } => {
                 write!(f, "observable name {name:?} appears more than once")
             }
-            Self::ObservableCountMismatch { expected, actual } => write!(
+            Self::ObservableCountMismatch {
+                expected, actual, ..
+            } => write!(
                 f,
                 "trace row has {actual} observable values, expected {expected}"
             ),
-            Self::ObservableNamesMismatch { expected, actual } => write!(
+            Self::ObservableNamesMismatch {
+                expected, actual, ..
+            } => write!(
                 f,
                 "trace observable columns differ: expected {expected:?}, got {actual:?}"
             ),
@@ -567,7 +579,7 @@ impl Trace {
                 record.chain_id.get(),
                 record.step,
                 record.outcome.is_accepted(),
-                record.outcome.had_proposal(),
+                record.outcome.has_proposal(),
                 record.log_prob
             )?;
             for value in &record.observable_values {

@@ -1,5 +1,11 @@
 # Benchmark Performance
 
+> [!WARNING]
+> **Legacy, non-reproducible report.** This pre-promotion working-tree snapshot is retained only as historical context. Repository-owned CSV measurements,
+> JSON provenance with exact commands, Cargo-lock and combined-source digests, a concrete CPU model, and native Criterion sample archives are unavailable.
+> Treat the rows below as legacy observations, not reproducible release evidence. The next committed `just performance-release` promotion will replace this
+> report with one linked to its tracked evidence; do not regenerate or promote it from an unrelated dirty tree.
+
 **markov-chain-monte-carlo** v0.4.1 working tree · `56d2cb5`
 **Statistic**: median
 

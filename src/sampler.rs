@@ -61,20 +61,6 @@ pub type TryObservedDelayedIntoRunResult<P, O, A> =
 pub type TryThinnedObservedRunResult<O, StepError, ObservationError> =
     Result<SampleBuffer<O>, ObservedStepError<StepError, ObservationError>>;
 
-/// Result returned by thinned infallible-observation streaming runs.
-pub type ThinnedObservedIntoRunResult<S, A> = Result<(), ObservedStreamError<S, Infallible, A>>;
-
-/// Result returned by thinned fallible-observation streaming runs.
-pub type TryThinnedObservedIntoRunResult<S, O, A> = Result<(), ObservedStreamError<S, O, A>>;
-
-/// Result returned by thinned infallible-observation delayed streaming runs.
-pub type ThinnedObservedDelayedIntoRunResult<P, A> =
-    ThinnedObservedIntoRunResult<DelayedStepError<P>, A>;
-
-/// Result returned by thinned fallible-observation delayed streaming runs.
-pub type TryThinnedObservedDelayedIntoRunResult<P, O, A> =
-    TryThinnedObservedIntoRunResult<DelayedStepError<P>, O, A>;
-
 /// Positive interval between retained samples in a thinned run.
 ///
 /// Constructing this type parses a raw `usize` once, allowing every thinned
@@ -179,9 +165,9 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// sampling.
 ///
 /// `Sampler` owns the chain and stores a proposal handle.  In typical use that
-/// handle is a shared borrow (`&P`) for by-value and in-place proposals, or a
-/// mutable borrow (`&mut P`) for delayed-commit proposals.  It also borrows the
-/// target and RNG.
+/// handle is commonly a shared borrow (`&P`) for by-value proposals. In-place
+/// and delayed proposals are stateful strategies, so they normally use an
+/// owned `P` or mutable borrow (`&mut P`). It also borrows the target and RNG.
 /// It provides [`step`](Self::step) / [`step_mut`](Self::step_mut) for
 /// single Metropolis–Hastings steps and [`run`](Self::run) /
 /// [`run_mut`](Self::run_mut) for bulk sampling.
@@ -211,8 +197,7 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// }
 ///
 /// let mut rng = StdRng::seed_from_u64(42);
-/// let chain = Chain::new(Scalar(0.0), &Normal)?;
-/// let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
+/// let mut sampler = Sampler::from_state(Scalar(0.0), &Normal, &Walk, &mut rng)?;
 ///
 /// // Burn-in
 /// sampler.run(1000)?;
@@ -224,7 +209,7 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// # Ok::<(), McmcError>(())
 /// ```
 #[must_use]
-pub struct Sampler<'a, S, T, P, R: ?Sized> {
+pub struct Sampler<'a, S, T: ?Sized, P, R: ?Sized> {
     /// The MCMC chain being sampled.
     chain: Chain<S>,
     target: &'a T,
@@ -233,7 +218,7 @@ pub struct Sampler<'a, S, T, P, R: ?Sized> {
 }
 
 #[cfg(feature = "serde")]
-impl<S: Serialize, T, P, R: ?Sized> Serialize for Sampler<'_, S, T, P, R> {
+impl<S: Serialize, T: ?Sized, P, R: ?Sized> Serialize for Sampler<'_, S, T, P, R> {
     fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
         Ser: Serializer,
@@ -242,7 +227,7 @@ impl<S: Serialize, T, P, R: ?Sized> Serialize for Sampler<'_, S, T, P, R> {
     }
 }
 
-impl<S: fmt::Debug, T, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
+impl<S: fmt::Debug, T: ?Sized, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sampler")
             .field("chain", &self.chain)
@@ -252,7 +237,7 @@ impl<S: fmt::Debug, T, P, R: ?Sized> fmt::Debug for Sampler<'_, S, T, P, R> {
 
 // --- Construction and decomposition (no trait bounds) ---
 
-impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
+impl<S, T: ?Sized, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// Shared reference to the inner chain.
     ///
     /// ```
@@ -265,7 +250,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -291,7 +276,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// struct Walk { width: f64 }
     /// impl Proposal<f64> for Walk {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    ///         current + self.width
+    ///         self.width - current
     ///     }
     /// }
     ///
@@ -320,7 +305,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// struct Walk { width: f64 }
     /// impl Proposal<f64> for Walk {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    ///         current + self.width
+    ///         self.width - current
     ///     }
     /// }
     ///
@@ -347,7 +332,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// # impl Target<f64> for T { fn log_prob(&self, x: &f64) -> f64 { -0.5 * x * x } }
     /// # struct P;
     /// # impl Proposal<f64> for P {
-    /// #     fn propose<R: rand::Rng + ?Sized>(&self, c: &f64, _r: &mut R) -> f64 { c + 1.0 }
+    /// #     fn propose<R: rand::Rng + ?Sized>(&self, c: &f64, _r: &mut R) -> f64 { -*c }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(1.0_f64, &T)?;
@@ -376,7 +361,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<i32> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    /// #         current + 1
+    /// #         1 - current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -437,7 +422,7 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -478,17 +463,21 @@ impl<S, T, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         mut step_once: impl FnMut(&mut Self) -> Result<(), E>,
         mut emit: impl FnMut(&Self) -> Result<(), E>,
     ) -> Result<(), E> {
-        for step in 1..=steps {
+        let interval = thin_interval.get();
+        let mut steps_until_emit = interval;
+        for _ in 0..steps {
             step_once(self)?;
-            if step % thin_interval.get() == 0 {
+            steps_until_emit -= 1;
+            if steps_until_emit == 0 {
                 emit(self)?;
+                steps_until_emit = interval;
             }
         }
         Ok(())
     }
 }
 
-impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
+impl<'a, S, T: Target<S> + ?Sized, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// Create a new sampler from its components.
     ///
     /// The sampler refreshes the chain's cached log-probability from the
@@ -504,7 +493,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -537,7 +526,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -563,7 +552,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -579,6 +568,53 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
         rng: &'a mut R,
     ) -> Result<Self, McmcError> {
         chain.refresh_current_log_prob(target)?;
+        Ok(Self {
+            chain,
+            target,
+            proposal,
+            rng,
+        })
+    }
+
+    /// Create a sampler and fresh chain while evaluating the initial state once.
+    ///
+    /// Use this constructor for a new run. [`Sampler::new`] remains the
+    /// attach/retarget constructor for an existing [`Chain`] and therefore
+    /// revalidates that chain's current score.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McmcError::NanInitialLogProb`] or
+    /// [`McmcError::InfiniteInitialLogProb`] when `target` rejects the initial
+    /// state.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::by_value::*;
+    /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+    ///
+    /// struct Flat;
+    /// impl Target<i32> for Flat {
+    ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+    /// }
+    /// struct Toggle;
+    /// impl Proposal<i32> for Toggle {
+    ///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
+    ///         1 - current
+    ///     }
+    /// }
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let sampler = Sampler::from_state(0, &Flat, &Toggle, &mut rng)?;
+    /// assert_eq!(*sampler.chain_ref().state(), 0);
+    /// # Ok::<(), McmcError>(())
+    /// ```
+    pub fn from_state(
+        initial: S,
+        target: &'a T,
+        proposal: P,
+        rng: &'a mut R,
+    ) -> Result<Self, McmcError> {
+        let chain = Chain::new(initial, target)?;
         Ok(Self {
             chain,
             target,
@@ -608,7 +644,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -628,7 +664,7 @@ impl<'a, S, T: Target<S>, P, R: ?Sized> Sampler<'a, S, T, P, R> {
 
 // --- By-value stepping ---
 
-impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
+impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// Perform a single by-value Metropolis–Hastings step.
     ///
     /// Delegates to [`Chain::step`].
@@ -656,7 +692,8 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     ///
     /// # Errors
     ///
-    /// Returns [`McmcError`] on NaN or +∞ log-probability or NaN log q-ratio.
+    /// Returns [`McmcError`] on NaN or +∞ current/proposed log-probability or
+    /// NaN or +∞ log q-ratio.
     pub fn step(&mut self) -> Result<Step<()>, McmcError> {
         self.chain.step(self.target, &self.proposal, self.rng)
     }
@@ -718,7 +755,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<i32> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    /// #         current + 1
+    /// #         1 - current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -726,7 +763,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// let mut sampler = Sampler::new(chain, &T, &P, &mut rng)?;
     ///
     /// let continuation = sampler.run_chunk(3)?;
-    /// assert_eq!(continuation.state(), &&3);
+    /// assert_eq!(continuation.state(), &&1);
     /// assert_eq!(continuation.total_steps(), 3);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -757,20 +794,20 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl Proposal<S> for Increment {
+    /// struct Toggle;
+    /// impl Proposal<S> for Toggle {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &S, _: &mut R) -> S {
-    ///         S(current.0 + 1)
+    ///         S(1 - current.0)
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Toggle, &mut rng)?;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let states = sampler.run_with_thinning(5, thin_interval)?;
-    /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
+    /// assert_eq!(states.as_slice(), &[S(0), S(0)]);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -809,7 +846,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -889,22 +926,22 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// impl Target<i32> for Flat {
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl Proposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl Proposal<i32> for Toggle {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    ///         current + 1
+    ///         1 - current
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, &Toggle, &mut rng)?;
     /// let mut coordinate = |state: &i32| *state;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let samples =
     ///     sampler.run_observing_with_thinning(5, thin_interval, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -1001,17 +1038,17 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// impl Target<i32> for Flat {
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl Proposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl Proposal<i32> for Toggle {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    ///         current + 1
+    ///         1 - current
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, &Toggle, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| f64::from(*state);
     /// let mut stats = OnlineStats::new();
@@ -1035,7 +1072,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> ThinnedObservedIntoRunResult<McmcError, A::Error>
+    ) -> ObservedIntoRunResult<McmcError, A::Error>
     where
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -1071,7 +1108,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -1113,7 +1150,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -1164,24 +1201,24 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// impl Target<i32> for Flat {
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl Proposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl Proposal<i32> for Toggle {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    ///         current + 1
+    ///         1 - current
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, &Toggle, &mut rng)
     ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<i32, Infallible>(*state);
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let samples =
     ///     sampler.try_run_observing_with_thinning(5, thin_interval, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), ObservedStepError<McmcError, Infallible>>(())
     /// ```
     ///
@@ -1224,7 +1261,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// # struct P;
     /// # impl Proposal<f64> for P {
     /// #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-    /// #         current + 1.0
+    /// #         -*current
     /// #     }
     /// # }
     /// let mut rng = StdRng::seed_from_u64(42);
@@ -1283,17 +1320,17 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// impl Target<i32> for Flat {
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl Proposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl Proposal<i32> for Toggle {
     ///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 {
-    ///         current + 1
+    ///         1 - current
     ///     }
     /// }
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, &Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, &Toggle, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &i32| Ok::<f64, Infallible>(f64::from(*state));
     /// let mut stats = OnlineStats::new();
@@ -1316,7 +1353,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> TryThinnedObservedIntoRunResult<McmcError, O::Error, A::Error>
+    ) -> TryObservedIntoRunResult<McmcError, O::Error, A::Error>
     where
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -1343,7 +1380,7 @@ impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
 
 // --- In-place stepping ---
 
-impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
+impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// Perform a single in-place Metropolis–Hastings step with rollback.
     ///
     /// Delegates to [`Chain::step_mut`] and returns structured telemetry for
@@ -1377,8 +1414,9 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// # Errors
     ///
-    /// Returns [`McmcError`] on NaN or +∞ log-probability or NaN log q-ratio
-    /// (state is rolled back before the error is returned).
+    /// Returns [`McmcError`] on NaN or +∞ current/proposed log-probability or
+    /// NaN or +∞ log q-ratio (state is rolled back before the error is
+    /// returned).
     pub fn step_mut(&mut self) -> Result<Step<P::Info>, McmcError> {
         self.chain
             .step_mut(self.target, &mut self.proposal, self.rng)
@@ -1452,14 +1490,14 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///
@@ -1472,10 +1510,10 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)?;
     ///
     /// let continuation = sampler.run_mut_chunk(3)?;
-    /// assert_eq!(continuation.state().0, 3);
+    /// assert_eq!(continuation.state().0, 1);
     /// assert_eq!(continuation.total_steps(), 3);
     /// # Ok::<(), McmcError>(())
     /// ```
@@ -1505,13 +1543,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
@@ -1520,11 +1558,11 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)?;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let states = sampler.run_mut_with_thinning(5, thin_interval)?;
-    /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
+    /// assert_eq!(states.as_slice(), &[S(0), S(0)]);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -1564,7 +1602,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -1606,7 +1644,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -1651,13 +1689,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
@@ -1666,13 +1704,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)?;
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)?;
     /// let mut coordinate = |state: &S| state.0;
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let samples =
     ///     sampler.run_mut_observing_with_thinning(5, thin_interval, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -1713,7 +1751,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -1772,13 +1810,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
@@ -1788,7 +1826,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| f64::from(state.0);
     /// let mut stats = OnlineStats::new();
@@ -1811,7 +1849,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> ThinnedObservedIntoRunResult<McmcError, A::Error>
+    ) -> ObservedIntoRunResult<McmcError, A::Error>
     where
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -1846,7 +1884,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -1894,7 +1932,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -1947,13 +1985,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
@@ -1963,14 +2001,14 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)
     ///     .map_err(ObservedStepError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<i32, Infallible>(state.0);
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let samples =
     ///     sampler.try_run_mut_observing_with_thinning(5, thin_interval, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), ObservedStepError<McmcError, Infallible>>(())
     /// ```
     ///
@@ -2016,7 +2054,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// #     type Undo = f64;
     /// #     type Info = f64;
     /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, _r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += 1.0; Some(old)
+    /// #         let old = s.0; s.0 = -s.0; Some(old)
     /// #     }
     /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
     /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
@@ -2078,13 +2116,13 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl ProposalMut<S> for Increment {
+    /// struct Toggle;
+    /// impl ProposalMut<S> for Toggle {
     ///     type Undo = i32;
     ///     type Info = i32;
     ///     fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut S, _: &mut R) -> Option<i32> {
     ///         let old = state.0;
-    ///         state.0 += 1;
+    ///         state.0 = 1 - state.0;
     ///         Some(old)
     ///     }
     ///     fn info(&self, state: &S, _: &i32) -> i32 { state.0 }
@@ -2094,7 +2132,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &Flat)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut sampler = Sampler::new(chain, &Flat, Increment, &mut rng)
+    /// let mut sampler = Sampler::new(chain, &Flat, Toggle, &mut rng)
     ///     .map_err(ObservedStreamError::Step)?;
     /// let mut coordinate = |state: &S| Ok::<f64, Infallible>(f64::from(state.0));
     /// let mut stats = OnlineStats::new();
@@ -2117,7 +2155,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> TryThinnedObservedIntoRunResult<McmcError, O::Error, A::Error>
+    ) -> TryObservedIntoRunResult<McmcError, O::Error, A::Error>
     where
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -2144,7 +2182,7 @@ impl<S, T: Target<S>, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R
 
 // --- Delayed-commit stepping ---
 
-impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
+impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, P, R> {
     /// Perform a single delayed-commit Metropolis-Hastings step.
     ///
     /// Delegates to [`Chain::step_delayed`].
@@ -2159,21 +2197,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     fn log_prob(&self, state: &i32) -> f64 { -f64::from(state.abs()) }
     /// }
     ///
-    /// struct MoveRight;
-    /// impl DelayedProposal<i32> for MoveRight {
+    /// struct ReflectAcrossMinusHalf;
+    /// impl DelayedProposal<i32> for ReflectAcrossMinusHalf {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(-1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2196,7 +2234,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = TargetLine;
-    /// let mut proposal = MoveRight;
+    /// let mut proposal = ReflectAcrossMinusHalf;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(-1, &target)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
@@ -2242,21 +2280,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     }
     /// }
     ///
-    /// struct MoveRight;
-    /// impl DelayedProposal<i32> for MoveRight {
+    /// struct ReflectAcrossMinusHalf;
+    /// impl DelayedProposal<i32> for ReflectAcrossMinusHalf {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(-1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2281,7 +2319,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = TargetLine;
-    /// let mut proposal = MoveRight;
+    /// let mut proposal = ReflectAcrossMinusHalf;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(-1, &target)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
@@ -2320,21 +2358,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
     ///
-    /// struct Increment;
-    /// impl DelayedProposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl DelayedProposal<i32> for Toggle {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2357,13 +2395,13 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// sampler.run_delayed(3)?;
-    /// assert_eq!(*sampler.chain_ref().state(), 3);
+    /// assert_eq!(*sampler.chain_ref().state(), 1);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
@@ -2394,21 +2432,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
     ///
-    /// struct Increment;
-    /// impl DelayedProposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl DelayedProposal<i32> for Toggle {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _: &i32,
+    ///         state: &i32,
     ///         _: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2433,13 +2471,13 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     ///
     /// let continuation = sampler.run_delayed_chunk(3)?;
-    /// assert_eq!(**continuation.state(), 3);
+    /// assert_eq!(**continuation.state(), 1);
     /// assert_eq!(continuation.total_steps(), 3);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -2490,21 +2528,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
     ///
-    /// struct Increment;
-    /// impl DelayedProposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl DelayedProposal<i32> for Toggle {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _: &i32,
+    ///         state: &i32,
     ///         _: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2529,7 +2567,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
@@ -2544,8 +2582,8 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     }
     /// })?;
     ///
-    /// assert_eq!(families, vec![(1, 1), (1, 2), (1, 3)]);
-    /// assert_eq!(**continuation.state(), 3);
+    /// assert_eq!(families, vec![(1, 1), (-1, 0), (1, 1)]);
+    /// assert_eq!(**continuation.state(), 1);
     /// assert_eq!(continuation.total_steps(), 3);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
@@ -2586,21 +2624,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// impl Target<S> for Flat {
     ///     fn log_prob(&self, _: &S) -> f64 { 0.0 }
     /// }
-    /// struct Increment;
-    /// impl DelayedProposal<S> for Increment {
+    /// struct Toggle;
+    /// impl DelayedProposal<S> for Toggle {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _: &S,
+    ///         state: &S,
     ///         _: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(1 - 2 * state.0))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<S>>(
+    ///     fn proposed_log_prob<T: Target<S> + ?Sized>(
     ///         &self,
     ///         state: &S,
     ///         plan: &i32,
@@ -2623,7 +2661,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(S(0), &target)
     ///     .map_err(DelayedStepError::Mcmc)?;
@@ -2632,7 +2670,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let thin_interval = ThinningInterval::MIN.saturating_add(1);
     ///
     /// let states = sampler.run_delayed_with_thinning(5, thin_interval)?;
-    /// assert_eq!(states.as_slice(), &[S(2), S(4)]);
+    /// assert_eq!(states.as_slice(), &[S(0), S(0)]);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
@@ -2670,18 +2708,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
@@ -2716,21 +2754,21 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
     /// }
     ///
-    /// struct Increment;
-    /// impl DelayedProposal<i32> for Increment {
+    /// struct Toggle;
+    /// impl DelayedProposal<i32> for Toggle {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -2753,14 +2791,14 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// }
     ///
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target).map_err(DelayedStepError::Mcmc)?;
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)?;
     /// let mut coordinate = |state: &i32| *state;
     ///
     /// let samples = sampler.run_delayed_observing(3, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[1, 2, 3]);
+    /// assert_eq!(samples.as_slice(), &[1, 0, 1]);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
@@ -2792,18 +2830,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)?;
@@ -2814,7 +2852,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// let samples =
     ///     sampler.run_delayed_observing_with_thinning(5, thin_interval, &mut coordinate)?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), DelayedStepError<Infallible>>(())
     /// ```
     ///
@@ -2852,18 +2890,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -2917,18 +2955,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -2957,7 +2995,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> ThinnedObservedDelayedIntoRunResult<P::Error, A::Error>
+    ) -> ObservedDelayedIntoRunResult<P::Error, A::Error>
     where
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -2988,18 +3026,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -3040,18 +3078,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -3059,12 +3097,12 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStepError::Step)?;
-    /// let mut positive = |state: &i32| {
-    ///     if *state > 0 { Ok(*state) } else { Err("not positive") }
+    /// let mut nonnegative = |state: &i32| {
+    ///     if *state >= 0 { Ok(*state) } else { Err("negative") }
     /// };
     ///
-    /// let samples = sampler.try_run_delayed_observing(2, &mut positive)?;
-    /// assert_eq!(samples.as_slice(), &[1, 2]);
+    /// let samples = sampler.try_run_delayed_observing(2, &mut nonnegative)?;
+    /// assert_eq!(samples.as_slice(), &[1, 0]);
     /// # Ok::<(), ObservedStepError<DelayedStepError<Infallible>, &'static str>>(())
     /// ```
     ///
@@ -3100,18 +3138,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -3125,7 +3163,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let samples = sampler.try_run_delayed_observing_with_thinning(
     ///     5, thin_interval, &mut coordinate,
     /// )?;
-    /// assert_eq!(samples.as_slice(), &[2, 4]);
+    /// assert_eq!(samples.as_slice(), &[0, 0]);
     /// # Ok::<(), ObservedStepError<DelayedStepError<Infallible>, Infallible>>(())
     /// ```
     ///
@@ -3167,18 +3205,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -3186,12 +3224,12 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     /// let mut sampler = Sampler::new(chain, &target, &mut proposal, &mut rng)
     ///     .map_err(DelayedStepError::Mcmc)
     ///     .map_err(ObservedStreamError::Step)?;
-    /// let mut positive = |state: &i32| {
-    ///     if *state > 0 { Ok(f64::from(*state)) } else { Err("not positive") }
+    /// let mut nonnegative = |state: &i32| {
+    ///     if *state >= 0 { Ok(f64::from(*state)) } else { Err("negative") }
     /// };
     /// let mut stats = OnlineStats::new();
     ///
-    /// sampler.try_run_delayed_observing_into(2, &mut positive, &mut stats)?;
+    /// sampler.try_run_delayed_observing_into(2, &mut nonnegative, &mut stats)?;
     /// assert_eq!(stats.count(), 2);
     /// # Ok::<(), ObservedStreamError<DelayedStepError<Infallible>, &'static str, StatisticsError>>(())
     /// ```
@@ -3236,18 +3274,18 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
     ///
     /// # struct Flat;
     /// # impl Target<i32> for Flat { fn log_prob(&self, _: &i32) -> f64 { 0.0 } }
-    /// # struct Increment;
-    /// # impl DelayedProposal<i32> for Increment {
+    /// # struct Toggle;
+    /// # impl DelayedProposal<i32> for Toggle {
     /// #     type Plan = i32;
     /// #     type Info = i32;
     /// #     type Error = Infallible;
-    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-    /// #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+    /// #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+    /// #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
     /// #     fn info(&self, plan: &i32) -> i32 { *plan }
     /// #     fn commit<R: Rng + ?Sized>(&mut self, state: &mut i32, plan: i32, _: &mut R) -> Result<(), Self::Error> { *state += plan; Ok(()) }
     /// # }
     /// let target = Flat;
-    /// let mut proposal = Increment;
+    /// let mut proposal = Toggle;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let chain = Chain::new(0, &target)
     ///     .map_err(DelayedStepError::Mcmc)
@@ -3276,7 +3314,7 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
         thin_interval: ThinningInterval,
         observable: &mut O,
         accumulator: &mut A,
-    ) -> TryThinnedObservedDelayedIntoRunResult<P::Error, O::Error, A::Error>
+    ) -> TryObservedDelayedIntoRunResult<P::Error, O::Error, A::Error>
     where
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
@@ -3304,7 +3342,9 @@ impl<S, T: Target<S>, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'_, S, T, 
 
 // --- Iterator (by-value proposal path only) ---
 
-impl<S, T: Target<S>, P: Proposal<S>, R: Rng + ?Sized> Iterator for Sampler<'_, S, T, P, R> {
+impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Iterator
+    for Sampler<'_, S, T, P, R>
+{
     type Item = Result<Step<()>, McmcError>;
 
     /// Perform one by-value step and yield the result.
@@ -3349,7 +3389,7 @@ mod tests {
     use core::convert::Infallible;
     use std::{assert_matches, cell::Cell};
 
-    use approx::assert_relative_eq;
+    use approx::{assert_relative_eq, relative_eq};
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
@@ -3404,6 +3444,44 @@ mod tests {
     struct MutWalk {
         width: f64,
     }
+
+    struct MutToValue {
+        value: Option<f64>,
+        log_q: f64,
+        undo_calls: usize,
+    }
+
+    impl ProposalMut<MutScalar> for MutToValue {
+        type Undo = f64;
+        type Info = f64;
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut MutScalar,
+            _rng: &mut R,
+        ) -> Option<f64> {
+            let value = self.value?;
+            Some(core::mem::replace(&mut state.0, value))
+        }
+
+        fn info(&self, state: &MutScalar, _token: &f64) -> f64 {
+            state.0
+        }
+
+        fn no_proposal_info(&mut self) -> Option<f64> {
+            Some(-1.0)
+        }
+
+        fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
+            self.log_q
+        }
+
+        fn undo(&mut self, state: &mut MutScalar, token: f64) {
+            state.0 = token;
+            self.undo_calls += 1;
+        }
+    }
+
     impl ProposalMut<MutScalar> for MutWalk {
         type Undo = f64;
         type Info = f64;
@@ -3591,6 +3669,99 @@ mod tests {
         let sampler = sampler!(chain, &ShiftedNormal, &Walk { width: 1.0 }, &mut rng);
 
         assert_relative_eq!(sampler.chain_ref().log_prob(), -40.5, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn fresh_construction_scores_once_while_chain_attachment_refreshes() {
+        struct CountingTarget(Cell<usize>);
+        impl Target<Scalar> for CountingTarget {
+            fn log_prob(&self, _state: &Scalar) -> f64 {
+                self.0.set(self.0.get() + 1);
+                0.0
+            }
+        }
+
+        let target = CountingTarget(Cell::new(0));
+        let mut rng = StdRng::seed_from_u64(42);
+        let sampler =
+            Sampler::from_state(Scalar(0.0), &target, Walk { width: 1.0 }, &mut rng).unwrap();
+        assert_eq!(target.0.get(), 1);
+
+        let chain = sampler.into_chain();
+        let _sampler = Sampler::new(chain, &target, Walk { width: 1.0 }, &mut rng).unwrap();
+        assert_eq!(target.0.get(), 2);
+    }
+
+    #[test]
+    fn checked_delayed_mismatch_is_atomic_and_sampler_remains_usable() {
+        struct MismatchThenConsistent {
+            mismatch: bool,
+        }
+        impl DelayedProposal<Scalar> for MismatchThenConsistent {
+            type Plan = f64;
+            type Info = ();
+            type Error = Infallible;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(0.0))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
+                &self,
+                _state: &Scalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(*plan)))
+            }
+
+            fn info(&self, _plan: &f64) {}
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = if self.mismatch { 2.0 } else { plan };
+                self.mismatch = false;
+                Ok(())
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut sampler = Sampler::from_state(
+            Scalar(1.0),
+            &Normal,
+            MismatchThenConsistent { mismatch: true },
+            &mut rng,
+        )
+        .unwrap();
+        let log_prob = sampler.chain_ref().log_prob();
+
+        let result = sampler.step_delayed_checked();
+
+        assert_matches!(
+            result,
+            Err(DelayedStepError::Mcmc(
+                McmcError::InconsistentDelayedCommitLogProb { mismatch }
+            )) if relative_eq!(mismatch.scored(), 0.0)
+                && relative_eq!(mismatch.committed(), -2.0)
+        );
+        assert_eq!(sampler.chain_ref().state(), &Scalar(1.0));
+        assert_eq!(sampler.chain_ref().log_prob().to_bits(), log_prob.to_bits());
+        assert_eq!(sampler.chain_ref().total_steps(), 0);
+
+        let step = sampler
+            .step_delayed_checked()
+            .expect("known-good retry remains usable");
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(sampler.chain_ref().state(), &Scalar(0.0));
+        assert_eq!(sampler.chain_ref().accepted(), 1);
     }
 
     #[test]
@@ -4116,6 +4287,107 @@ mod tests {
     }
 
     #[test]
+    fn owned_checkpoint_resumes_non_clone_in_place_state_and_rng() {
+        let mut uninterrupted_rng = StdRng::seed_from_u64(42);
+        let mut uninterrupted = sampler!(
+            mut_scalar_chain(2.0),
+            &Normal,
+            MutWalk { width: 1.0 },
+            &mut uninterrupted_rng,
+        );
+        uninterrupted.run_mut(64).unwrap();
+        let expected = uninterrupted.into_checkpoint();
+
+        let mut resumed_rng = StdRng::seed_from_u64(42);
+        let mut proposal = MutWalk { width: 1.0 };
+        let mut first = sampler!(
+            mut_scalar_chain(2.0),
+            &Normal,
+            &mut proposal,
+            &mut resumed_rng
+        );
+        first.run_mut(17).unwrap();
+        let checkpoint = first.into_checkpoint();
+        assert_eq!(checkpoint.total_steps(), 17);
+
+        let restored = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
+        let mut second = sampler!(restored, &Normal, &mut proposal, &mut resumed_rng);
+        second.run_mut(47).unwrap();
+        let actual = second.into_checkpoint();
+
+        assert_eq!(actual.state(), expected.state());
+        assert_eq!(actual.accepted(), expected.accepted());
+        assert_eq!(actual.rejected(), expected.rejected());
+        assert_eq!(actual.total_steps(), 64);
+        assert_eq!(
+            resumed_rng.random::<u64>(),
+            uninterrupted_rng.random::<u64>()
+        );
+    }
+
+    #[test]
+    fn borrowed_in_place_observation_uses_post_step_state_and_forwards_telemetry() {
+        let cases = [
+            (Some(0.0), 0.0, StepOutcome::Accepted, 0.0, 0.0, 0),
+            (
+                Some(1.0),
+                f64::NEG_INFINITY,
+                StepOutcome::RejectedProposal,
+                2.0,
+                1.0,
+                1,
+            ),
+            (None, 0.0, StepOutcome::NoProposal, 2.0, -1.0, 0),
+        ];
+        for (value, log_q, outcome, retained, info, undo_calls) in cases {
+            let mut proposal = MutToValue {
+                value,
+                log_q,
+                undo_calls: 0,
+            };
+            let mut rng = StdRng::seed_from_u64(42);
+            let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+            let mut observed = Vec::new();
+            let mut coordinate = |state: &MutScalar| {
+                observed.push(state.0);
+                state.0
+            };
+
+            let (step, sample) = sampler.step_mut_observing(&mut coordinate).unwrap();
+
+            assert_eq!(step.outcome(), outcome);
+            assert_eq!(step.info(), Some(&info));
+            assert_relative_eq!(sample, retained);
+            assert_eq!(observed, [retained]);
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(retained));
+            assert_eq!(sampler.chain_ref().total_steps(), 1);
+            assert_eq!(sampler.proposal_ref().undo_calls, undo_calls);
+        }
+    }
+
+    #[test]
+    fn borrowed_in_place_observation_skips_failed_step_after_rollback() {
+        let mut proposal = MutToValue {
+            value: Some(0.0),
+            log_q: f64::NAN,
+            undo_calls: 0,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &MutScalar| observed.push(state.0);
+
+        let result = sampler.step_mut_observing(&mut coordinate);
+
+        assert_matches!(result, Err(McmcError::NanLogQRatio));
+        assert!(observed.is_empty());
+        assert_eq!(sampler.chain_ref().state(), &MutScalar(2.0));
+        assert_relative_eq!(sampler.chain_ref().log_prob(), -2.0);
+        assert_eq!(sampler.chain_ref().total_steps(), 0);
+        assert_eq!(sampler.proposal_ref().undo_calls, 1);
+    }
+
+    #[test]
     fn bulk_mut_runs_skip_concrete_proposal_telemetry() {
         let mut rng = StdRng::seed_from_u64(42);
         let chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
@@ -4421,7 +4693,7 @@ mod tests {
             Ok(Some(0.0))
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             plan: &f64,
@@ -4458,7 +4730,48 @@ mod tests {
             Ok(Some(0.0))
         }
 
-        fn proposed_log_prob<T: Target<Scalar>>(
+        fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
+            &self,
+            _state: &Scalar,
+            plan: &f64,
+            target: &T,
+        ) -> Result<f64, Self::Error> {
+            Ok(target.log_prob(&Scalar(*plan)))
+        }
+
+        fn info(&self, plan: &f64) -> f64 {
+            *plan
+        }
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut Scalar,
+            plan: f64,
+            _rng: &mut R,
+        ) -> Result<(), Self::Error> {
+            state.0 = plan;
+            Ok(())
+        }
+    }
+
+    struct DelayedRandomWalk {
+        width: f64,
+    }
+
+    impl DelayedProposal<Scalar> for DelayedRandomWalk {
+        type Plan = f64;
+        type Info = f64;
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &Scalar,
+            rng: &mut R,
+        ) -> Result<Option<f64>, Self::Error> {
+            Ok(Some(state.0 + rng.random_range(-self.width..self.width)))
+        }
+
+        fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
             &self,
             _state: &Scalar,
             plan: &f64,
@@ -4500,7 +4813,7 @@ mod tests {
             Ok(Some(0.0))
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             plan: &f64,
@@ -4529,14 +4842,14 @@ mod tests {
         calls: usize,
     }
 
-    impl DelayedProposal<MutScalar> for CountingDelayedNoPlanInfo {
+    impl<S> DelayedProposal<S> for CountingDelayedNoPlanInfo {
         type Plan = ();
         type Info = ();
         type Error = Infallible;
 
         fn propose_plan<R: Rng + ?Sized>(
             &mut self,
-            _state: &MutScalar,
+            _state: &S,
             _rng: &mut R,
         ) -> Result<Option<()>, Self::Error> {
             Ok(None)
@@ -4547,9 +4860,9 @@ mod tests {
             Some(())
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<S> + ?Sized>(
             &self,
-            _state: &MutScalar,
+            _state: &S,
             _plan: &(),
             _target: &T,
         ) -> Result<f64, Self::Error> {
@@ -4562,7 +4875,7 @@ mod tests {
 
         fn commit<R: Rng + ?Sized>(
             &mut self,
-            _state: &mut MutScalar,
+            _state: &mut S,
             _plan: (),
             _rng: &mut R,
         ) -> Result<(), Self::Error> {
@@ -4582,6 +4895,41 @@ mod tests {
         assert_eq!(step.outcome(), StepOutcome::Accepted);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
         assert_eq!(sampler.chain_ref().total_steps(), 1);
+    }
+
+    #[test]
+    fn borrowed_delayed_no_plan_preserves_state_and_emits_telemetry() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut untouched_rng = StdRng::seed_from_u64(42);
+        let mut proposal = CountingDelayedNoPlanInfo::default();
+        let mut sampler = sampler!(scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+
+        let checked = sampler.step_delayed_checked().unwrap();
+        assert_eq!(checked.outcome(), StepOutcome::NoProposal);
+        assert_eq!(checked.info(), Some(&()));
+        assert_eq!(checked.log_alpha(), None);
+        assert_eq!(checked.log_prob_after(), None);
+        assert_eq!(sampler.proposal_ref().calls, 1);
+        assert_eq!(sampler.chain_ref().state(), &Scalar(2.0));
+        assert_eq!(sampler.chain_ref().rejected(), 1);
+
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &Scalar| {
+            observed.push(state.0);
+            state.0
+        };
+        let (step, sample) = sampler.step_delayed_observing(&mut coordinate).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::NoProposal);
+        assert_eq!(step.info(), Some(&()));
+        assert_relative_eq!(sample, 2.0);
+        assert_eq!(observed, [2.0]);
+        assert_eq!(sampler.proposal_ref().calls, 2);
+        let chain = sampler.into_chain();
+        assert_eq!(chain.state(), &Scalar(2.0));
+        assert_relative_eq!(chain.log_prob(), -2.0);
+        assert_eq!(chain.accepted(), 0);
+        assert_eq!(chain.rejected(), 2);
+        assert_eq!(rng.random::<u64>(), untouched_rng.random::<u64>());
     }
 
     #[test]
@@ -4689,6 +5037,52 @@ mod tests {
         assert_eq!(observed, 5);
         assert_eq!(second.total_steps(), 5);
         assert_eq!(second.state(), &&Scalar(0.0));
+    }
+
+    #[test]
+    fn delayed_chunk_checkpoint_resumes_across_sampler_reconstruction() {
+        let mut one_shot_rng = StdRng::seed_from_u64(42);
+        let mut one_shot_proposal = DelayedRandomWalk { width: 1.0 };
+        let mut one_shot = sampler!(
+            scalar_chain(2.0),
+            &Normal,
+            &mut one_shot_proposal,
+            &mut one_shot_rng,
+        );
+        one_shot.run_delayed(5).unwrap();
+        let expected_state = one_shot.chain_ref().state().clone();
+        let expected_accepted = one_shot.chain_ref().accepted();
+        let expected_rejected = one_shot.chain_ref().rejected();
+
+        let mut resumed_rng = StdRng::seed_from_u64(42);
+        let mut resumed_proposal = DelayedRandomWalk { width: 1.0 };
+        let first_checkpoint = {
+            let mut first = sampler!(
+                scalar_chain(2.0),
+                &Normal,
+                &mut resumed_proposal,
+                &mut resumed_rng,
+            );
+            let checkpoint = first
+                .run_delayed_chunk_observing(2, |_step, _state| {})
+                .unwrap();
+            ChainCheckpoint::new(
+                (**checkpoint.state()).clone(),
+                checkpoint.accepted(),
+                checkpoint.rejected(),
+            )
+        };
+
+        let restored = Chain::from_checkpoint(first_checkpoint, &Normal).unwrap();
+        let mut second = sampler!(restored, &Normal, &mut resumed_proposal, &mut resumed_rng,);
+        let continuation = second
+            .run_delayed_chunk_observing(3, |_step, _state| {})
+            .unwrap();
+
+        assert_eq!(continuation.state(), &&expected_state);
+        assert_eq!(continuation.accepted(), expected_accepted);
+        assert_eq!(continuation.rejected(), expected_rejected);
+        assert_eq!(continuation.total_steps(), 5);
     }
 
     #[test]
@@ -4927,7 +5321,7 @@ mod tests {
             }
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             plan: &f64,
@@ -4948,6 +5342,81 @@ mod tests {
         ) -> Result<(), Self::Error> {
             state.0 = plan;
             Ok(())
+        }
+    }
+
+    #[test]
+    fn delayed_observation_happens_after_commit_but_not_after_step_error() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut proposal = StopAfterFirstDelayed { calls: 0 };
+        let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+        let mut observed = Vec::new();
+        let mut coordinate = |state: &MutScalar| {
+            observed.push(state.0);
+            state.0
+        };
+
+        let (step, sample) = sampler.step_delayed_observing(&mut coordinate).unwrap();
+        assert_eq!(step.outcome(), StepOutcome::Accepted);
+        assert_eq!(step.info(), Some(&0.0));
+        assert_relative_eq!(sample, 0.0);
+
+        let failed = sampler.step_delayed_observing(&mut coordinate);
+        assert_matches!(
+            failed,
+            Err(DelayedStepError::Plan(DelayedRunError::PlannedStop))
+        );
+        assert_eq!(observed, [0.0]);
+        assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+        assert_relative_eq!(sampler.chain_ref().log_prob(), 0.0);
+        assert_eq!(sampler.chain_ref().accepted(), 1);
+        assert_eq!(sampler.chain_ref().rejected(), 0);
+    }
+
+    #[test]
+    fn fallible_delayed_observation_distinguishes_committed_and_failed_steps() {
+        for fail_observation in [false, true] {
+            let mut rng = StdRng::seed_from_u64(42);
+            let mut proposal = StopAfterFirstDelayed { calls: 0 };
+            let mut sampler = sampler!(mut_scalar_chain(2.0), &Normal, &mut proposal, &mut rng);
+            let mut observed = Vec::new();
+            let mut coordinate = |state: &MutScalar| {
+                observed.push(state.0);
+                if fail_observation {
+                    Err(ObservationFailure::Failed)
+                } else {
+                    Ok(state.0)
+                }
+            };
+
+            let result = sampler.try_step_delayed_observing(&mut coordinate);
+            if fail_observation {
+                assert_matches!(
+                    result,
+                    Err(ObservedStepError::Observation(ObservationFailure::Failed))
+                );
+            } else {
+                let (step, sample) = result.unwrap();
+                assert_eq!(step.outcome(), StepOutcome::Accepted);
+                assert_eq!(step.info(), Some(&0.0));
+                assert_relative_eq!(sample, 0.0);
+            }
+            // Observation failure cannot undo a successfully committed step.
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+            assert_eq!(sampler.chain_ref().accepted(), 1);
+            assert_eq!(sampler.chain_ref().rejected(), 0);
+
+            let failed = sampler.try_step_delayed_observing(&mut coordinate);
+            assert_matches!(
+                failed,
+                Err(ObservedStepError::Step(DelayedStepError::Plan(
+                    DelayedRunError::PlannedStop
+                )))
+            );
+            assert_eq!(observed, [0.0]);
+            assert_eq!(sampler.chain_ref().state(), &MutScalar(0.0));
+            assert_relative_eq!(sampler.chain_ref().log_prob(), 0.0);
+            assert_eq!(sampler.chain_ref().total_steps(), 1);
         }
     }
 
@@ -5017,53 +5486,5 @@ mod tests {
         assert!(sampler.next().is_some());
         assert!(sampler.next().is_some());
         assert!(sampler.next().is_some());
-    }
-
-    // --- Equivalence: sampler produces same results as raw chain ---
-
-    #[test]
-    fn sampler_matches_raw_chain() {
-        let proposal = Walk { width: 1.0 };
-        let steps = 100;
-
-        // Raw chain
-        let mut chain = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..steps {
-            let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
-        }
-
-        // Sampler
-        let chain2 = Chain::new(Scalar(0.0), &Normal).unwrap();
-        let mut rng2 = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(chain2, &Normal, &proposal, &mut rng2);
-        sampler.run(steps).unwrap();
-
-        assert_eq!(chain.state, *sampler.chain_ref().state());
-        assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
-        assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
-    }
-
-    #[test]
-    fn sampler_mut_matches_raw_chain() {
-        let mut proposal = MutWalk { width: 1.0 };
-        let steps = 100;
-
-        // Raw chain
-        let mut chain = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..steps {
-            let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
-        }
-
-        // Sampler
-        let chain2 = Chain::new(MutScalar(0.0), &Normal).unwrap();
-        let mut rng2 = StdRng::seed_from_u64(42);
-        let mut sampler = sampler!(chain2, &Normal, MutWalk { width: 1.0 }, &mut rng2);
-        sampler.run_mut(steps).unwrap();
-
-        assert_eq!(chain.state, *sampler.chain_ref().state());
-        assert_eq!(chain.accepted(), sampler.chain_ref().accepted());
-        assert_eq!(chain.rejected(), sampler.chain_ref().rejected());
     }
 }

@@ -69,8 +69,8 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust format check, core-library Clippy, Python and notebook checks, JSON, YAML, GitHub
-  Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
+- **Primary gate**: Run `just check` for non-mutating local validation (Rust and Justfile format checks, core-library Clippy, Python and notebook checks, JSON,
+  YAML, GitHub Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
 - **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **GitHub Actions security**: Validate workflows with `just zizmor` (uses `zizmor`)
@@ -104,7 +104,7 @@ just check            # Lint/validators (non-mutating)
 just ci               # Full CI simulation (checks + tests + examples)
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
-just setup            # Install/verify external dev tools
+just setup            # Install managed tools and verify system prerequisites
 just update           # Update dependencies, managed Cargo tools, and tool pins
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
@@ -161,8 +161,8 @@ The repository's docs have overlapping topics but distinct roles. When in doubt,
 
 - **`AGENTS.md`** (this file) — canonical rules for AI assistants and autonomous tooling: git/edit/validation policy, commit-message format, code-quality rules,
   documentation-generation rules. Authoritative when rules conflict.
-- **`CONTRIBUTING.md`** — human contributor workflow: prerequisites, `just setup` external tools, high-level repository layout, test categories, code style,
-  performance/benchmarking, PR checklist, release process. Mirrors the human-facing parts of this file.
+- **`CONTRIBUTING.md`** — human contributor workflow: prerequisites, `just setup` managed tools and system checks, high-level repository layout, test
+  categories, code style, performance/benchmarking, PR checklist, release process. Mirrors the human-facing parts of this file.
 - **`docs/code_organization.md`** — full tracked checkout tree, detailed file/module map, and "where does new code go?" guidance for `src/*.rs`, examples,
   tests, benches, docs, and scripts. Consult when adding a new function/type/trait and unsure which file owns it, and update it whenever tracked files move,
   appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
