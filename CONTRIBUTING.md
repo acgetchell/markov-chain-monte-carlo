@@ -49,8 +49,8 @@ Before you begin, ensure you have:
    cd markov-chain-monte-carlo
    ```
 
-2. **Setup the development environment** (installs / verifies external tools — see [Development Environment Setup](#development-environment-setup) for what gets
-   installed):
+2. **Setup the development environment** (installs repository-managed tools and verifies system prerequisites — see
+   [Development Environment Setup](#development-environment-setup) for what gets installed or checked):
 
    ```bash
    just setup
@@ -98,7 +98,7 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 
 ### External Tools
 
-`just setup` installs and verifies the external tools the project relies on:
+`just setup` installs repository-managed tools and verifies the system prerequisites the project relies on:
 
 - [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter, installed through `actionlint-py` in the uv dev environment
 - [cargo-edit](https://github.com/killercup/cargo-edit) — Cargo dependency requirement updates
@@ -107,14 +107,15 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 - [cargo-update](https://github.com/nabijaczleweli/cargo-update) — installed Cargo tool updates
 - [dprint](https://dprint.dev/) — YAML formatter
 - [git-cliff](https://git-cliff.org/) — changelog generation
-- [jq](https://jqlang.github.io/jq/) — JSON validator
+- [jq](https://jqlang.github.io/jq/download/) — system-provided JSON validator; install it with your package manager or the official instructions
 - [rumdl](https://rumdl.dev/) — Markdown formatter / linter
 - [taplo](https://taplo.tamasfe.dev/) — TOML formatter / linter
 - [typos](https://github.com/crate-ci/typos) — spell checker
 - [uv](https://docs.astral.sh/uv/) — Python package and tool runner (used for `semgrep`, `ruff`, `ty`, and the changelog/tagging Python helpers in `scripts/`)
 - [zizmor](https://github.com/zizmorcore/zizmor) — GitHub Actions security analyzer
 
-If anything is missing after `just setup`, the recipe prints what's still missing and how to install it.
+The recipe checks `uv` and `jq` before managed installation work begins. If either system prerequisite is unavailable or the pinned `uv` version does not
+match, it exits with installation guidance; Cargo and uv then install or synchronize the repository-managed tools.
 
 ## Project Structure
 
@@ -145,7 +146,7 @@ in lexicographic source order so both views remain easy to scan.
 **Essential Just commands:**
 
 ```bash
-just setup           # Install / verify external dev tools
+just setup           # Install managed tools / verify system prerequisites
 just update          # Update dependencies, managed Cargo tools, and tool pins
 just check           # Run linters / validators (non-mutating)
 just ci              # Full local CI simulation (mirrors .github/workflows/ci.yml)
@@ -459,8 +460,8 @@ descriptions or review notes instead.
 - [ ] Doctests pass (`cargo test --doc`)
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
-- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`, `toml-fmt-check`,
-      `toml-lint`, `markdown-check`, `spell-check`, `release-check`, `semgrep`, `semgrep-test`)
+- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`,
+      `justfile-fmt-check`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `release-check`, `semgrep`, `semgrep-test`)
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions

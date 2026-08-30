@@ -677,7 +677,7 @@ pub fn verify_detailed_balance<S, T, P, R>(
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
 where
     S: PartialEq,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -732,7 +732,7 @@ pub fn verify_detailed_balance_many<'a, S, T, P, R, I>(
 ) -> DetailedBalanceBatchReport
 where
     S: PartialEq + 'a,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
     I: IntoIterator<Item = (&'a S, &'a S)>,
@@ -819,7 +819,7 @@ pub fn verify_detailed_balance_mut<S, T, P, R>(
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
 where
     S: Clone + PartialEq,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -883,7 +883,7 @@ pub fn verify_detailed_balance_mut_many<'a, S, T, P, R, I>(
 ) -> DetailedBalanceBatchReport
 where
     S: Clone + PartialEq + 'a,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
     I: IntoIterator<Item = (&'a S, &'a S)>,
@@ -945,7 +945,7 @@ where
 ///         Ok(Some(!*state))
 ///     }
 ///
-///     fn proposed_log_prob<T: Target<bool>>(
+///     fn proposed_log_prob<T: Target<bool> + ?Sized>(
 ///         &self,
 ///         _: &bool,
 ///         plan: &bool,
@@ -992,7 +992,7 @@ pub fn verify_detailed_balance_delayed<S, T, P, R>(
     plan_matches: (impl Fn(&P::Plan) -> bool, impl Fn(&P::Plan) -> bool),
 ) -> Result<DetailedBalanceReport, DetailedBalanceError<P::Error>>
 where
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: DelayedProposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -1039,7 +1039,7 @@ where
 ///         Ok(Some(!*state))
 ///     }
 ///
-///     fn proposed_log_prob<T: Target<bool>>(
+///     fn proposed_log_prob<T: Target<bool> + ?Sized>(
 ///         &self,
 ///         _: &bool,
 ///         plan: &bool,
@@ -1091,7 +1091,7 @@ pub fn verify_detailed_balance_delayed_many<'a, S, T, P, R, I>(
 ) -> DetailedBalanceBatchReport<P::Error>
 where
     S: 'a,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: DelayedProposal<S> + ?Sized,
     P::Plan: 'a,
     R: Rng + ?Sized,
@@ -1133,7 +1133,7 @@ fn verify_detailed_balance_unchecked<S, T, P, R>(
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
 where
     S: PartialEq,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -1182,7 +1182,7 @@ fn verify_detailed_balance_mut_unchecked<S, T, P, R>(
 ) -> Result<DetailedBalanceReport, DetailedBalanceError>
 where
     S: Clone + PartialEq,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -1227,7 +1227,7 @@ fn verify_detailed_balance_delayed_unchecked<S, T, P, R, F, G>(
     plan_matches: (&F, &G),
 ) -> Result<DetailedBalanceReport, DetailedBalanceError<P::Error>>
 where
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: DelayedProposal<S> + ?Sized,
     R: Rng + ?Sized,
     F: Fn(&P::Plan) -> bool + ?Sized,
@@ -1277,7 +1277,7 @@ fn endpoint_log_probs<S, T, E>(
     target: &T,
 ) -> Result<EndpointLogProbs, DetailedBalanceError<E>>
 where
-    T: Target<S>,
+    T: Target<S> + ?Sized,
 {
     let current_log_prob = target.log_prob(current);
     check_log_prob(DetailedBalanceState::Current, current_log_prob)?;
@@ -1437,7 +1437,7 @@ fn estimate_mut_transition<S, T, P, R>(
 ) -> Result<TransitionEstimate, DetailedBalanceError>
 where
     S: Clone + PartialEq,
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
 {
@@ -1482,7 +1482,7 @@ fn estimate_delayed_transition<S, T, P, R, F>(
     plan_matches: &F,
 ) -> Result<TransitionEstimate, DetailedBalanceError<P::Error>>
 where
-    T: Target<S>,
+    T: Target<S> + ?Sized,
     P: DelayedProposal<S> + ?Sized,
     R: Rng + ?Sized,
     F: Fn(&P::Plan) -> bool + ?Sized,
@@ -1830,7 +1830,7 @@ mod tests {
             Ok(Some(!*state))
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             _: &bool,
             plan: &bool,
@@ -1943,7 +1943,7 @@ mod tests {
             }))
         }
 
-        fn proposed_log_prob<T: Target<[bool; 3]>>(
+        fn proposed_log_prob<T: Target<[bool; 3]> + ?Sized>(
             &self,
             state: &[bool; 3],
             plan: &OccupancyPlan,
@@ -2019,7 +2019,7 @@ mod tests {
             }
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             _: &bool,
             plan: &bool,
@@ -2069,7 +2069,7 @@ mod tests {
             Ok(Some(!*state))
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             _: &bool,
             plan: &bool,
@@ -2111,7 +2111,7 @@ mod tests {
             Ok(None)
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             _: &bool,
             plan: &bool,
@@ -2156,7 +2156,7 @@ mod tests {
             }
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             state: &bool,
             plan: &bool,

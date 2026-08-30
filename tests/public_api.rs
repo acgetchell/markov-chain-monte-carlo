@@ -4,15 +4,18 @@ use core::convert::Infallible;
 
 use markov_chain_monte_carlo::prelude::{self, by_value, delayed, in_place, testing};
 use markov_chain_monte_carlo::{
-    AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId, DelayedStep,
-    DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
-    DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
-    DetailedBalanceState, InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep,
-    ObservedMutStep, OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError,
-    Step, StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace, TraceError,
-    TraceRecord, TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
+    AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
+    DelayedCommitLogProbMismatch, DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
+    DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
+    DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, DiscreteProposalEndpoint,
+    InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
+    OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, StepOutcome,
+    StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
+    TraceStepOutcome, TryObservedMutStepResult,
 };
-use rand::{Rng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
+#[cfg(feature = "serde")]
+use serde_json::{Error as JsonError, json, to_value};
 
 struct Smoke;
 
@@ -54,7 +57,7 @@ impl delayed::DelayedProposal<f64> for Smoke {
         Ok(Some(()))
     }
 
-    fn proposed_log_prob<T: delayed::Target<f64>>(
+    fn proposed_log_prob<T: delayed::Target<f64> + ?Sized>(
         &self,
         state: &f64,
         (): &Self::Plan,
@@ -109,6 +112,8 @@ fn downstream_exports_compile() {
     let _: Option<TraceRecorder> = None;
     let _: Option<TraceStepOutcome> = None;
     let _: Option<McmcError> = None;
+    let _: Option<DelayedCommitLogProbMismatch> = None;
+    let _: Option<DiscreteProposalEndpoint> = None;
     let _: Option<SampleBuffer<f64>> = None;
     let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
     let _: Option<ThinningInterval> = None;
@@ -134,12 +139,62 @@ fn downstream_exports_compile() {
     let _: Option<by_value::Step<()>> = None;
     let _: Option<by_value::ObservedStep<f64>> = None;
     let _: Option<by_value::DiscreteProposalRatio> = None;
+    let _: Option<by_value::DiscreteProposalEndpoint> = None;
+    let _: Option<by_value::TryObservedRunResult<f64, Infallible>> = None;
     let _: Option<in_place::Step<()>> = None;
     let _: Option<in_place::ObservedMutStep<(), f64>> = None;
     let _: Option<in_place::DiscreteProposalRatioError> = None;
+    let _: Option<in_place::TryObservedRunResult<f64, Infallible>> = None;
     let _: Option<delayed::DelayedStep<()>> = None;
     let _: Option<delayed::ObservedDelayedStep<(), f64>> = None;
     let _: Option<delayed::DelayedStepError<Infallible>> = None;
+    let _: Option<delayed::TryObservedDelayedStepResult<(), f64, Infallible, Infallible>> = None;
+    let _: Option<delayed::TryObservedDelayedRunResult<f64, Infallible, Infallible>> = None;
     let _: Option<testing::DetailedBalanceConfig> = None;
     let _: Option<testing::DiscreteProposalRatio> = None;
+    let _: Option<testing::DiscreteProposalEndpoint> = None;
+}
+
+#[test]
+fn dynamically_dispatched_targets_work_across_public_workflows() {
+    let target_impl = Smoke;
+    let target: &dyn Target<f64> = &target_impl;
+    let mut rng = StdRng::seed_from_u64(9);
+
+    let mut by_value =
+        Sampler::from_state(0.0, target, Smoke, &mut rng).expect("flat target is valid");
+    let _ = by_value.step().expect("identity proposal is valid");
+
+    let mut chain = Chain::new(0.0, target).expect("flat target is valid");
+    let mut in_place = Smoke;
+    let _ = chain
+        .step_mut(target, &mut in_place, &mut rng)
+        .expect("identity in-place proposal is valid");
+
+    let mut delayed = Smoke;
+    let _ = chain
+        .step_delayed_checked(target, &mut delayed, &mut rng)
+        .expect("identity delayed proposal is valid");
+
+    let config = DetailedBalanceConfig::new(1, 0.0, 1).expect("valid diagnostic config");
+    let _report = testing::verify_detailed_balance(&0.0, &0.0, target, &Smoke, &mut rng, config);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn sampler_serializes_as_canonical_checkpoint() -> Result<(), JsonError> {
+    let target = Smoke;
+    let mut rng = StdRng::seed_from_u64(4);
+    let sampler = Sampler::from_state(1.0, &target, Smoke, &mut rng)
+        .expect("Smoke target always returns a finite log-probability");
+
+    let checkpoint = to_value(&sampler)?;
+
+    assert_eq!(checkpoint["state"], json!(1.0));
+    assert_eq!(checkpoint["accepted"], json!(0));
+    assert_eq!(checkpoint["rejected"], json!(0));
+    assert!(checkpoint.get("target").is_none());
+    assert!(checkpoint.get("proposal").is_none());
+    assert!(checkpoint.get("rng").is_none());
+    Ok(())
 }

@@ -3,6 +3,44 @@
 use std::error::Error;
 use std::fmt;
 
+/// The target scores that disagreed after a checked delayed commit.
+///
+/// Values of this type are produced only after both scores have passed the
+/// crate's log-probability validation, so equality is well-defined even though
+/// the underlying representation is `f64`.
+#[derive(Debug, Clone, Copy)]
+#[must_use]
+pub struct DelayedCommitLogProbMismatch {
+    scored: f64,
+    committed: f64,
+}
+
+impl DelayedCommitLogProbMismatch {
+    pub(crate) const fn new(scored: f64, committed: f64) -> Self {
+        Self { scored, committed }
+    }
+
+    /// Log-probability used for the acceptance decision.
+    #[must_use]
+    pub const fn scored(self) -> f64 {
+        self.scored
+    }
+
+    /// Log-probability obtained by re-scoring the committed state.
+    #[must_use]
+    pub const fn committed(self) -> f64 {
+        self.committed
+    }
+}
+
+impl PartialEq for DelayedCommitLogProbMismatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.scored == other.scored && self.committed == other.committed
+    }
+}
+
+impl Eq for DelayedCommitLogProbMismatch {}
+
 /// Errors that can occur during MCMC operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -32,7 +70,16 @@ pub enum McmcError {
     /// [`crate::Sampler::step_delayed_checked`] when the delayed plan scores
     /// one target score but [`crate::DelayedProposal::commit`] produces another.
     /// Equal target scores do not establish state or transition identity.
-    InconsistentDelayedCommitLogProb,
+    #[non_exhaustive]
+    InconsistentDelayedCommitLogProb {
+        /// The score used for acceptance and the score observed after commit.
+        mismatch: DelayedCommitLogProbMismatch,
+    },
+    /// An in-place transition lost the undo token required for guarded access
+    /// or explicit rollback.
+    ///
+    /// This reports an internal transition invariant failure without panicking.
+    MissingRollbackToken,
     /// Target returned +∞ log-probability for the initial state.
     ///
     /// This indicates infinite probability, which is invalid for any
@@ -116,11 +163,16 @@ impl fmt::Display for McmcError {
                     "target returned NaN log-probability after a checked delayed commit"
                 )
             }
-            Self::InconsistentDelayedCommitLogProb => {
+            Self::InconsistentDelayedCommitLogProb { mismatch } => {
                 write!(
                     f,
-                    "checked delayed commit produced a state with a different log-probability than the accepted plan"
+                    "checked delayed commit used log-probability {} for acceptance but committed a state with log-probability {}",
+                    mismatch.scored(),
+                    mismatch.committed(),
                 )
+            }
+            Self::MissingRollbackToken => {
+                write!(f, "in-place rollback guard is missing its undo token")
             }
             Self::InfiniteInitialLogProb => {
                 write!(
@@ -170,132 +222,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_nan_initial_log_prob() {
-        let msg = McmcError::NanInitialLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability for the initial state"
-        );
-    }
+    fn display_messages_name_each_error() {
+        let mismatch = DelayedCommitLogProbMismatch::new(-0.5, -2.0);
+        let cases = [
+            (
+                McmcError::NanInitialLogProb,
+                "target returned NaN log-probability for the initial state",
+            ),
+            (
+                McmcError::NanProposedLogProb,
+                "target returned NaN log-probability for a proposed state",
+            ),
+            (McmcError::NanLogQRatio, "proposal returned NaN log q-ratio"),
+            (
+                McmcError::NanReplacementLogProb,
+                "target returned NaN log-probability for a replacement state",
+            ),
+            (
+                McmcError::NanCheckpointLogProb,
+                "target returned NaN log-probability for a checkpoint state",
+            ),
+            (
+                McmcError::NanCurrentLogProb,
+                "target returned NaN log-probability for the current chain state",
+            ),
+            (
+                McmcError::NanCommittedLogProb,
+                "target returned NaN log-probability after a checked delayed commit",
+            ),
+            (
+                McmcError::InconsistentDelayedCommitLogProb { mismatch },
+                "checked delayed commit used log-probability -0.5 for acceptance but committed a state with log-probability -2",
+            ),
+            (
+                McmcError::MissingRollbackToken,
+                "in-place rollback guard is missing its undo token",
+            ),
+            (
+                McmcError::InfiniteInitialLogProb,
+                "target returned +inf log-probability for the initial state",
+            ),
+            (
+                McmcError::InfiniteProposedLogProb,
+                "target returned +inf log-probability for a proposed state",
+            ),
+            (
+                McmcError::InfiniteLogQRatio,
+                "proposal returned +inf log q-ratio",
+            ),
+            (
+                McmcError::InfiniteReplacementLogProb,
+                "target returned +inf log-probability for a replacement state",
+            ),
+            (
+                McmcError::InfiniteCheckpointLogProb,
+                "target returned +inf log-probability for a checkpoint state",
+            ),
+            (
+                McmcError::InfiniteCurrentLogProb,
+                "target returned +inf log-probability for the current chain state",
+            ),
+            (
+                McmcError::InfiniteCommittedLogProb,
+                "target returned +inf log-probability after a checked delayed commit",
+            ),
+        ];
 
-    #[test]
-    fn display_nan_proposed_log_prob() {
-        let msg = McmcError::NanProposedLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability for a proposed state"
-        );
-    }
+        for (error, expected) in cases {
+            assert_eq!(error.to_string(), expected, "wrong message for {error:?}");
+        }
 
-    #[test]
-    fn display_nan_log_q_ratio() {
-        let msg = McmcError::NanLogQRatio.to_string();
-        assert_eq!(msg, "proposal returned NaN log q-ratio");
-    }
-
-    #[test]
-    fn display_nan_replacement_log_prob() {
-        let msg = McmcError::NanReplacementLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability for a replacement state"
-        );
-    }
-
-    #[test]
-    fn display_nan_checkpoint_log_prob() {
-        let msg = McmcError::NanCheckpointLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability for a checkpoint state"
-        );
-    }
-
-    #[test]
-    fn display_nan_current_log_prob() {
-        let msg = McmcError::NanCurrentLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability for the current chain state"
-        );
-    }
-
-    #[test]
-    fn display_nan_committed_log_prob() {
-        let msg = McmcError::NanCommittedLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned NaN log-probability after a checked delayed commit"
-        );
-    }
-
-    #[test]
-    fn display_inconsistent_delayed_commit_log_prob() {
-        let msg = McmcError::InconsistentDelayedCommitLogProb.to_string();
-        assert_eq!(
-            msg,
-            "checked delayed commit produced a state with a different log-probability than the accepted plan"
-        );
-    }
-
-    #[test]
-    fn display_infinite_initial_log_prob() {
-        let msg = McmcError::InfiniteInitialLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability for the initial state"
-        );
-    }
-
-    #[test]
-    fn display_inf_proposed_log_prob() {
-        let msg = McmcError::InfiniteProposedLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability for a proposed state"
-        );
-    }
-
-    #[test]
-    fn display_infinite_log_q_ratio() {
-        let msg = McmcError::InfiniteLogQRatio.to_string();
-        assert_eq!(msg, "proposal returned +inf log q-ratio");
-    }
-
-    #[test]
-    fn display_infinite_replacement_log_prob() {
-        let msg = McmcError::InfiniteReplacementLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability for a replacement state"
-        );
-    }
-
-    #[test]
-    fn display_infinite_checkpoint_log_prob() {
-        let msg = McmcError::InfiniteCheckpointLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability for a checkpoint state"
-        );
-    }
-
-    #[test]
-    fn display_infinite_current_log_prob() {
-        let msg = McmcError::InfiniteCurrentLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability for the current chain state"
-        );
-    }
-
-    #[test]
-    fn display_infinite_committed_log_prob() {
-        let msg = McmcError::InfiniteCommittedLogProb.to_string();
-        assert_eq!(
-            msg,
-            "target returned +inf log-probability after a checked delayed commit"
-        );
+        assert_eq!(mismatch.scored().to_bits(), (-0.5_f64).to_bits());
+        assert_eq!(mismatch.committed().to_bits(), (-2.0_f64).to_bits());
     }
 
     #[test]

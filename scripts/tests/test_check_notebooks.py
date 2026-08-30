@@ -1,17 +1,54 @@
 """Behavioral tests for the notebook checker."""
 
+import configparser
 import json
+import os
+import shutil
+import stat
 import subprocess
+import sys
+import zipfile
+from email.parser import Parser
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from nbclient.exceptions import CellExecutionError
 
 import check_notebooks
 from subprocess_utils import ExecutableNotFoundError
 
 INVALID_EXECUTION_COUNT = True
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ISING_NOTEBOOK = REPO_ROOT / "notebooks" / "ising_trace_analysis.ipynb"
+CONSOLE_SCRIPTS = {
+    "archive-performance": "archive_performance",
+    "bench-compare": "bench_compare",
+    "check-notebooks": "check_notebooks",
+    "postprocess-changelog": "postprocess_changelog",
+    "release-check": "release_check",
+    "tag-release": "tag_release",
+    "update-python-dev-pins": "update_python_dev_pins",
+    "update-tool-pins": "update_cargo_tool_pins",
+}
+
+
+def copy_ising_notebook(root: Path) -> Path:
+    """Copy the real Ising notebook into a temporary repository fixture."""
+    notebook = root / "notebooks" / ISING_NOTEBOOK.name
+    notebook.parent.mkdir(parents=True, exist_ok=True)
+    notebook.write_bytes(ISING_NOTEBOOK.read_bytes())
+    return notebook
+
+
+def write_ising_trace(path: Path) -> None:
+    """Write the smallest valid trace accepted by the Ising notebook."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n0,0,false,false,-1.0,-2.0,0.5\n",
+        encoding="utf-8",
+    )
 
 
 def code_cell(
@@ -73,8 +110,8 @@ def check_options(
 
 class TestDiscoverNotebooks:
     def test_discovers_sorted_notebooks_and_excludes_checkpoints(self, tmp_path: Path) -> None:
-        first = tmp_path / "notebooks" / "a.ipynb"
-        second = tmp_path / "notebooks" / "nested" / "b.ipynb"
+        first = tmp_path / "notebooks" / "Z.ipynb"
+        second = tmp_path / "notebooks" / "a.ipynb"
         checkpoint = tmp_path / "notebooks" / ".ipynb_checkpoints" / "a.ipynb"
         elsewhere = tmp_path / "elsewhere.ipynb"
         for path in (first, second, checkpoint, elsewhere):
@@ -112,9 +149,10 @@ class TestLoadNotebook:
         ("mutation", "message"),
         [
             (lambda payload: payload.pop("cells"), "cells must be a list"),
+            (lambda payload: payload.__setitem__("unknown", None), "unsupported notebook field.*unknown"),
             (lambda payload: payload.__setitem__("nbformat", 3), "expected nbformat 4"),
             (lambda payload: payload.__setitem__("nbformat", 4.0), "nbformat must be integer 4"),
-            (lambda payload: payload.__setitem__("nbformat_minor", "5"), "nbformat_minor must be a nonnegative integer"),
+            (lambda payload: payload.__setitem__("nbformat_minor", "5"), "nbformat_minor must be an integer"),
             (lambda payload: payload.__setitem__("metadata", []), "metadata must be a JSON object"),
             (lambda payload: payload["cells"][0].__setitem__("metadata", []), "cell 1: metadata must be a JSON object"),
             (lambda payload: payload["cells"][0].__setitem__("source", 42), "source must be a string"),
@@ -152,6 +190,71 @@ class TestLoadNotebook:
 
         with pytest.raises((TypeError, ValueError), match=message):
             check_notebooks.load_notebook(notebook)
+
+    @pytest.mark.parametrize("minor", range(5))
+    def test_rejects_nbformat_versions_before_stable_cell_ids(self, tmp_path: Path, minor: int) -> None:
+        notebook = tmp_path / f"nbformat-4-{minor}.ipynb"
+        payload = {"cells": [code_cell()], "metadata": {}, "nbformat": 4, "nbformat_minor": minor}
+        notebook.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=rf"expected nbformat 4\.5 or newer.*got 4\.{minor}"):
+            check_notebooks.load_notebook(notebook)
+
+    @pytest.mark.parametrize(
+        ("cell", "message"),
+        [
+            ({key: value for key, value in code_cell().items() if key != "execution_count"}, "missing required code field.*execution_count"),
+            ({**code_cell(), "attachments": {}}, "unsupported field.*code cell: attachments"),
+            ({**code_cell(), "unknown": None}, "unsupported field.*code cell: unknown"),
+            ({**markdown_cell(), "outputs": []}, "unsupported field.*markdown cell: outputs"),
+            (
+                {"cell_type": "raw", "execution_count": None, "id": "raw-cell", "metadata": {}, "source": "text"},
+                "unsupported field.*raw cell: execution_count",
+            ),
+            ({**markdown_cell(), "attachments": []}, "attachments must be a JSON object"),
+            (
+                {**markdown_cell(), "attachments": {"image.png": "encoded"}},
+                "attachment 'image.png' must contain a JSON object MIME bundle",
+            ),
+            (
+                {**markdown_cell(), "attachments": {"image.png": []}},
+                "attachment 'image.png' must contain a JSON object MIME bundle",
+            ),
+            (
+                {**markdown_cell(), "attachments": {"image.png": {"image/png": 42}}},
+                "MIME value 'image/png' must be a string or list of strings",
+            ),
+            (
+                {**markdown_cell(), "attachments": {"image.png": {"image/png": ["encoded", 42]}}},
+                "MIME value 'image/png' must be a string or list of strings",
+            ),
+        ],
+    )
+    def test_rejects_cell_type_schema_violations(self, tmp_path: Path, cell: dict[str, object], message: str) -> None:
+        notebook = tmp_path / "invalid.ipynb"
+        write_notebook(notebook, [cell])
+
+        with pytest.raises((TypeError, ValueError), match=message):
+            check_notebooks.load_notebook(notebook)
+
+    def test_accepts_schema_valid_attachment_mime_values(self, tmp_path: Path) -> None:
+        notebook = tmp_path / "attachments.ipynb"
+        cell = {
+            **markdown_cell(),
+            "attachments": {
+                "image.png": {
+                    "image/png": ["encoded", "data"],
+                    "text/plain": "description",
+                    "application/json": {"width": 10, "visible": True},
+                    "application/vnd.example+json": [1, None, {"nested": "value"}],
+                }
+            },
+        }
+        write_notebook(notebook, [cell])
+
+        loaded = check_notebooks.load_notebook(notebook)
+
+        assert loaded.document.cells[0].cell_type == "markdown"
 
     def test_rejects_duplicate_cell_ids(self, tmp_path: Path) -> None:
         notebook = tmp_path / "duplicate.ipynb"
@@ -327,6 +430,11 @@ class TestExecuteNotebooks:
                 calls["kwargs"] = kwargs
 
             def execute(self) -> None:
+                calls["environment"] = {
+                    "IPYTHONDIR": check_notebooks.os.environ["IPYTHONDIR"],
+                    "MPLBACKEND": check_notebooks.os.environ["MPLBACKEND"],
+                    "MPLCONFIGDIR": check_notebooks.os.environ["MPLCONFIGDIR"],
+                }
                 calls["notebook"]["executed"] = True
 
         fake_nbformat = SimpleNamespace(read=fake_read, write=fake_write)
@@ -337,8 +445,8 @@ class TestExecuteNotebooks:
 
         monkeypatch.setattr(check_notebooks, "import_module", fake_import)
         monkeypatch.setenv("MPLBACKEND", "TkAgg")
-        monkeypatch.delenv("IPYTHONDIR", raising=False)
-        monkeypatch.delenv("MPLCONFIGDIR", raising=False)
+        monkeypatch.setenv("IPYTHONDIR", str(tmp_path / "ambient-ipython"))
+        monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "ambient-matplotlib"))
         options = check_options(tmp_path, mode="execute", paths=(notebook,))
 
         output_path = check_notebooks.execute_notebook(notebook, options)
@@ -346,14 +454,73 @@ class TestExecuteNotebooks:
         assert notebook.read_bytes() == source_before
         assert output_path == tmp_path / "target" / "notebooks" / "valid.ipynb"
         assert json.loads(output_path.read_text(encoding="utf-8")) == {"executed": True}
+        if os.name != "nt":
+            assert stat.S_IMODE(output_path.stat().st_mode) == 0o644
         assert calls["kwargs"] == {
             "timeout": 120,
             "kernel_name": "python3",
             "resources": {"metadata": {"path": str(tmp_path)}},
         }
-        assert check_notebooks.os.environ["MPLBACKEND"] == "Agg"
-        assert Path(check_notebooks.os.environ["IPYTHONDIR"]) == tmp_path / "target" / "notebooks" / ".ipython"
-        assert Path(check_notebooks.os.environ["MPLCONFIGDIR"]) == tmp_path / "target" / "notebooks" / ".matplotlib"
+        assert calls["environment"] == {
+            "IPYTHONDIR": str(tmp_path / "target" / "notebooks" / ".ipython"),
+            "MPLBACKEND": "Agg",
+            "MPLCONFIGDIR": str(tmp_path / "target" / "notebooks" / ".matplotlib"),
+        }
+        assert check_notebooks.os.environ["MPLBACKEND"] == "TkAgg"
+        assert Path(check_notebooks.os.environ["IPYTHONDIR"]) == tmp_path / "ambient-ipython"
+        assert Path(check_notebooks.os.environ["MPLCONFIGDIR"]) == tmp_path / "ambient-matplotlib"
+
+    def test_explicit_repository_root_never_falls_back_to_an_ambient_trace(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runtime_root = tmp_path / "runtime"
+        configured_root = tmp_path / "configured"
+        notebook = copy_ising_notebook(runtime_root)
+        (configured_root / "examples").mkdir(parents=True)
+        (configured_root / "Cargo.toml").write_text("[package]\nname = 'fixture'\n", encoding="utf-8")
+        (configured_root / "examples" / "ising_1d.rs").write_text("// fixture\n", encoding="utf-8")
+        ambient_trace = runtime_root / "target" / "ising_1d_trace.csv"
+        write_ising_trace(ambient_trace)
+        monkeypatch.setenv("MCMC_REPO_ROOT", str(configured_root))
+        monkeypatch.setenv("IPYTHONDIR", str(tmp_path / "ambient-ipython"))
+        monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "ambient-matplotlib"))
+        monkeypatch.delenv("MCMC_TRACE_PATH", raising=False)
+        monkeypatch.delenv("MCMC_NOTEBOOK_OUTPUT_DIR", raising=False)
+        options = check_options(runtime_root, mode="execute", paths=(notebook,))
+
+        with pytest.raises(CellExecutionError) as error:
+            check_notebooks.execute_notebook(notebook, options)
+
+        message = str(error.value)
+        assert str(configured_root / "target" / "ising_1d_trace.csv") in message
+        assert Path(check_notebooks.os.environ["IPYTHONDIR"]) == tmp_path / "ambient-ipython"
+        assert Path(check_notebooks.os.environ["MPLCONFIGDIR"]) == tmp_path / "ambient-matplotlib"
+        assert str(ambient_trace) not in message
+        assert not (configured_root / "target" / "notebooks" / "ising_energy_trace.png").exists()
+
+    def test_explicit_trace_writes_figure_only_to_configured_output_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runtime_root = tmp_path / "runtime"
+        notebook = copy_ising_notebook(runtime_root)
+        trace_path = tmp_path / "mounted-input" / "trace.csv"
+        figure_root = tmp_path / "figure-output"
+        write_ising_trace(trace_path)
+        monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
+        monkeypatch.setenv("MCMC_REPO_ROOT", str(tmp_path / "invalid-root-is-ignored"))
+        monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(figure_root))
+        options = check_options(runtime_root, mode="execute", paths=(notebook,))
+
+        executed = check_notebooks.execute_notebook(notebook, options)
+
+        assert executed.is_file()
+        assert (figure_root / "ising_energy_trace.png").is_file()
+        assert not (trace_path.parent / "notebooks" / "ising_energy_trace.png").exists()
+        assert not (runtime_root / "target" / "notebooks" / "ising_energy_trace.png").exists()
 
 
 class TestClearNotebooks:
@@ -369,6 +536,8 @@ class TestClearNotebooks:
                 )
             ],
         )
+        if os.name != "nt":
+            notebook.chmod(0o640)
 
         assert check_notebooks.clear_notebook(notebook) is True
 
@@ -380,6 +549,8 @@ class TestClearNotebooks:
         assert raw["cells"][0]["metadata"] == {"tags": ["keep"]}
         assert serialized.startswith('{\n  "cells": [')
         assert serialized.endswith("\n")
+        if os.name != "nt":
+            assert stat.S_IMODE(notebook.stat().st_mode) == 0o640
 
     def test_clears_execution_metadata_without_other_generated_state(self, tmp_path: Path) -> None:
         notebook = tmp_path / "metadata.ipynb"
@@ -438,7 +609,153 @@ class TestCli:
         monkeypatch.setattr(check_notebooks, "import_module", missing_dependency)
 
         assert check_notebooks.main(["execute", str(notebook), "--repo-root", str(tmp_path)]) == 1
-        assert capsys.readouterr().err == "error: nbclient is required; run the checker through `uv run --locked`\n"
+        assert capsys.readouterr().err == (
+            "error: nbclient is required; install `markov-chain-monte-carlo-tooling[notebook]` or run the checker through `uv run --locked`\n"
+        )
+
+
+@pytest.fixture(scope="session")
+def tooling_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the published wheel once for outside-checkout consumer tests."""
+    uv = shutil.which("uv")
+    assert uv is not None
+    output_dir = tmp_path_factory.mktemp("tooling-wheel")
+    source_dir = output_dir / "source"
+    source_dir.mkdir()
+    for filename in ("LICENSE", "pyproject.toml"):
+        shutil.copy2(REPO_ROOT / filename, source_dir / filename)
+    shutil.copytree(REPO_ROOT / "scripts", source_dir / "scripts", ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    subprocess.run(  # noqa: S603 - uv is resolved and every argument is a test constant or fixture path.
+        [
+            uv,
+            "build",
+            "--wheel",
+            "--offline",
+            "--no-build-logs",
+            "--out-dir",
+            str(output_dir),
+            str(source_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheels = tuple(output_dir.glob("*.whl"))
+    assert len(wheels) == 1
+    return wheels[0]
+
+
+class TestBuiltToolingPackage:
+    def test_wheel_declares_notebook_extra_and_console_scripts(self, tooling_wheel: Path) -> None:
+        with zipfile.ZipFile(tooling_wheel) as archive:
+            metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+            entry_points_name = next(name for name in archive.namelist() if name.endswith(".dist-info/entry_points.txt"))
+            metadata = Parser().parsestr(archive.read(metadata_name).decode("utf-8"))
+            parser = configparser.ConfigParser()
+            parser.read_string(archive.read(entry_points_name).decode("utf-8"))
+
+        requirements = metadata.get_all("Requires-Dist") or []
+        assert metadata.get_all("Provides-Extra") == ["notebook"]
+        assert "# Tooling Scripts" in metadata.get_payload()
+        for dependency in ("ipykernel", "matplotlib", "nbclient", "nbformat", "polars"):
+            assert any(requirement.startswith(dependency) and 'extra == "notebook"' in requirement for requirement in requirements)
+        assert {name: value.partition(":")[0] for name, value in parser["console_scripts"].items()} == CONSOLE_SCRIPTS
+
+    @pytest.mark.parametrize("module_name", CONSOLE_SCRIPTS.values(), ids=CONSOLE_SCRIPTS)
+    def test_wheel_console_script_help_works_outside_checkout(self, tooling_wheel: Path, tmp_path: Path, module_name: str) -> None:
+        command = (
+            "import importlib, pathlib, sys; "
+            "module = importlib.import_module(sys.argv[1]); "
+            "assert str(module.__file__).startswith(str(pathlib.Path(sys.argv[2]).resolve())); "
+            "raise SystemExit(module.main(['--help']))"
+        )
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(tooling_wheel)
+
+        result = subprocess.run(  # noqa: S603 - the current interpreter and fixed module names exercise the built wheel.
+            [sys.executable, "-c", command, module_name, str(tooling_wheel)],
+            cwd=tmp_path,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "usage:" in result.stdout.lower()
+
+    def test_wheel_notebook_extra_supports_execution_outside_checkout(self, tooling_wheel: Path, tmp_path: Path) -> None:
+        notebook = tmp_path / "notebooks" / "minimal.ipynb"
+        write_notebook(notebook, [code_cell("value = 1")])
+        output_dir = tmp_path / "artifacts"
+        command = (
+            "import check_notebooks, pathlib, sys; "
+            "assert str(check_notebooks.__file__).startswith(str(pathlib.Path(sys.argv[1]).resolve())); "
+            "raise SystemExit(check_notebooks.main(['execute', sys.argv[2], '--repo-root', sys.argv[3], "
+            "'--output-dir', sys.argv[4], '--no-ruff', '--no-format', '--no-ty']))"
+        )
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(tooling_wheel)
+
+        result = subprocess.run(  # noqa: S603 - the current interpreter exercises the built wheel with declared extra dependencies.
+            [sys.executable, "-c", command, str(tooling_wheel), str(notebook), str(tmp_path), str(output_dir)],
+            cwd=tmp_path,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (output_dir / "minimal.ipynb").is_file()
+
+    def test_wheel_bench_compare_defaults_to_invocation_repository(self, tooling_wheel: Path, tmp_path: Path) -> None:
+        criterion = tmp_path / "target" / "criterion" / "chain" / "step_by_value"
+        for sample, point in (("release-a", 100.0), ("new", 80.0)):
+            estimate = criterion / sample / "estimates.json"
+            estimate.parent.mkdir(parents=True, exist_ok=True)
+            statistic = {"point_estimate": point}
+            estimate.write_text(json.dumps({"median": statistic, "mean": statistic}), encoding="utf-8")
+        command = (
+            "import bench_compare, pathlib, sys; "
+            "assert str(bench_compare.__file__).startswith(str(pathlib.Path(sys.argv[1]).resolve())); "
+            "raise SystemExit(bench_compare.main(['release-a', '--revision', 'fixture']))"
+        )
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(tooling_wheel)
+
+        result = subprocess.run(  # noqa: S603 - the current interpreter exercises the built wheel's operational default paths.
+            [sys.executable, "-c", command, str(tooling_wheel)],
+            cwd=tmp_path,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "target" / "bench-reports" / "performance.md").is_file()
+
+    def test_wheel_archive_performance_defaults_to_invocation_repository(self, tooling_wheel: Path, tmp_path: Path) -> None:
+        command = (
+            "import archive_performance, pathlib, sys; "
+            "assert str(archive_performance.__file__).startswith(str(pathlib.Path(sys.argv[1]).resolve())); "
+            "raise SystemExit(archive_performance.main(['--rerender', 'missing.csv']))"
+        )
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(tooling_wheel)
+
+        result = subprocess.run(  # noqa: S603 - the current interpreter exercises the built wheel's operational default paths.
+            [sys.executable, "-c", command, str(tooling_wheel)],
+            cwd=tmp_path,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 2
+        assert str(tmp_path / "missing.csv") in result.stderr
 
     def test_returns_success_when_no_notebooks_are_found(
         self,

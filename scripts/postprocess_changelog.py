@@ -31,8 +31,11 @@ def postprocess(path: Path) -> None:
     """Read *path*, apply hygiene fixes, and replace it atomically."""
     text = path.read_text(encoding="utf-8")
 
-    # 1. Strip trailing blank lines — keep exactly one trailing newline.
-    text = text.rstrip("\n") + "\n"
+    # 1. Strip trailing blank lines — keep nonblank content unchanged and one final newline.
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    text = "\n".join(lines) + "\n"
 
     mode = stat.S_IMODE(path.stat().st_mode)
     temporary: Path | None = None
@@ -80,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {changelog} not found", file=sys.stderr)
         return 1
 
-    postprocess(changelog)
+    try:
+        postprocess(changelog)
+    except (OSError, UnicodeError) as error:
+        print(f"Error: could not post-process {changelog}: {error}", file=sys.stderr)
+        return 1
     return 0
 
 

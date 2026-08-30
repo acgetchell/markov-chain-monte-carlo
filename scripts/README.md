@@ -23,6 +23,9 @@ access, Git worktrees, and Cargo. Native Criterion archives attached to GitHub R
 The legacy v0.4.1 curated report predates the tracked pair, so no-argument rerendering becomes available after the next release promotion; use an explicit
 generated CSV path for a pre-migration repair.
 
+Installed `bench-compare` and `archive-performance` commands resolve relative paths from the current directory by default. Run them from the repository root or
+pass `--repo-root` explicitly.
+
 The benchmark command contracts and interpretation limits live in [`docs/BENCHMARKING.md`](../docs/BENCHMARKING.md).
 
 ## Dependency and Tool Updates
@@ -59,6 +62,9 @@ just notebook-clear-outputs-all
 and checks extracted code with Ruff and Ty. `just notebook-check` generates required example artifacts and executes only the fast notebook set headlessly.
 Executed notebooks and runtime caches are written under `target/notebooks/`, leaving source notebooks unchanged. `just notebook-check-slow` adds only the
 explicitly configured heavier notebook set; `just notebook-clear-outputs-all` intentionally clears source outputs and counts in place.
+
+Installed consumers can enable notebook execution with `markov-chain-monte-carlo-tooling[notebook]`. The repository's `notebook` dependency group mirrors
+that installable extra for `uv`-managed development workflows.
 
 ## Changelog
 

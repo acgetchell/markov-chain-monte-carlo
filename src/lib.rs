@@ -69,11 +69,13 @@
 //! stream.  This keeps reproducibility and RNG stream splitting under caller
 //! control.
 //!
-//! Bulk observing methods return a [`SampleBuffer`], which stores one output
-//! per step.  For production runs with many samples, use compact observables or
-//! single-step observing loops when retaining every measurement is unnecessary.
-//! [`OnlineStats`] and [`BinningAnalysis`] provide constant-memory statistics
-//! for those streaming measurement loops.  Samplers also provide
+//! Buffered observing methods return a [`SampleBuffer`], which stores one output
+//! per retained step. For production runs that need summaries rather than every
+//! measurement, use the `*_observing_into` and
+//! `*_observing_into_with_thinning` sampler methods to stream directly into a
+//! [`TryAccumulator`]. [`OnlineStats`] retains O(1) state, while
+//! [`BinningAnalysis`] retains an O(log n) hierarchy without storing all
+//! samples. Samplers also provide
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
 //! Parse raw positive intervals once with [`ThinningInterval::new`], then pass
@@ -110,20 +112,19 @@
 //! # impl Target<i32> for Flat {
 //! #     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
 //! # }
-//! # struct Advance;
-//! # impl DelayedProposal<i32> for Advance {
+//! # struct Toggle;
+//! # impl DelayedProposal<i32> for Toggle {
 //! #     type Plan = i32;
 //! #     type Info = i32;
 //! #     type Error = Infallible;
-//! #     fn propose_plan<R: Rng + ?Sized>(&mut self, _: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1)) }
-//! #     fn proposed_log_prob<T: Target<i32>>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
+//! #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
+//! #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
 //! #     fn info(&self, plan: &i32) -> i32 { *plan }
 //! #     fn commit<R: Rng + ?Sized>(&mut self, s: &mut i32, p: i32, _: &mut R) -> Result<(), Self::Error> { *s += p; Ok(()) }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let mut proposal = Advance;
-//! let chain = Chain::new(0, &Flat).map_err(DelayedStepError::Mcmc)?;
-//! let mut sampler = Sampler::new(chain, &Flat, &mut proposal, &mut rng)
+//! let mut proposal = Toggle;
+//! let mut sampler = Sampler::from_state(0, &Flat, &mut proposal, &mut rng)
 //!     .map_err(DelayedStepError::Mcmc)?;
 //!
 //! // Domain-specific measurements stay outside the generic sampler.
@@ -299,21 +300,22 @@
 //!     }
 //! }
 //!
-//! struct MoveRight;
-//! impl DelayedProposal<i32> for MoveRight {
+//! // Applying this proposal twice returns to the original state, so its default symmetric Hastings correction is valid.
+//! struct ReflectAcrossMinusHalf;
+//! impl DelayedProposal<i32> for ReflectAcrossMinusHalf {
 //!     type Plan = i32;
 //!     type Info = i32;
 //!     type Error = Infallible;
 //!
 //!     fn propose_plan<R: Rng + ?Sized>(
 //!         &mut self,
-//!         _state: &i32,
+//!         state: &i32,
 //!         _rng: &mut R,
 //!     ) -> Result<Option<i32>, Self::Error> {
-//!         Ok(Some(1))
+//!         Ok(Some(-1 - 2 * *state))
 //!     }
 //!
-//!     fn proposed_log_prob<T: Target<i32>>(
+//!     fn proposed_log_prob<T: Target<i32> + ?Sized>(
 //!         &self,
 //!         state: &i32,
 //!         plan: &i32,
@@ -339,7 +341,7 @@
 //!
 //! fn main() -> Result<(), DelayedStepError<Infallible>> {
 //!     let target = TargetLine;
-//!     let mut proposal = MoveRight;
+//!     let mut proposal = ReflectAcrossMinusHalf;
 //!     let mut rng = StdRng::seed_from_u64(42);
 //!     let mut chain = Chain::new(-1, &target).map_err(DelayedStepError::Mcmc)?;
 //!
@@ -371,8 +373,7 @@
 //! #     }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let chain = Chain::new(Scalar(0.0), &Normal)?;
-//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
+//! let mut sampler = Sampler::from_state(Scalar(0.0), &Normal, &Walk, &mut rng)?;
 //!
 //! // Burn-in
 //! sampler.run(1000)?;
@@ -405,8 +406,7 @@
 //! #     }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let chain = Chain::new(Scalar(0.0), &Normal)?;
-//! let mut sampler = Sampler::new(chain, &Normal, &Walk, &mut rng)?;
+//! let mut sampler = Sampler::from_state(Scalar(0.0), &Normal, &Walk, &mut rng)?;
 //! let mut energy = |state: &Scalar| 0.5 * state.0 * state.0;
 //!
 //! let samples: SampleBuffer<f64> = sampler.run_observing(256, &mut energy)?;
@@ -446,12 +446,11 @@
 //! # struct P;
 //! # impl Proposal<f64> for P {
 //! #     fn propose<R: Rng + ?Sized>(&self, current: &f64, _rng: &mut R) -> f64 {
-//! #         current + 1.0
+//! #         -*current
 //! #     }
 //! # }
 //! let mut rng = StdRng::seed_from_u64(42);
-//! let chain = Chain::new(0.0, &T).map_err(ObservedStreamError::Step)?;
-//! let mut sampler = Sampler::new(chain, &T, &P, &mut rng)
+//! let mut sampler = Sampler::from_state(0.0, &T, &P, &mut rng)
 //!     .map_err(ObservedStreamError::Step)?;
 //! let mut coordinate = |state: &f64| *state;
 //! let mut stats = OnlineStats::new();
@@ -474,18 +473,16 @@ pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
 };
 pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
-pub use error::McmcError;
+pub use error::{DelayedCommitLogProbMismatch, McmcError};
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
 pub use sampler::{
     InvalidThinningInterval, ObservedDelayedIntoRunResult, ObservedDelayedStep,
     ObservedDelayedStepResult, ObservedIntoRunResult, ObservedMutStep, ObservedStep, Sampler,
-    ThinnedObservedDelayedIntoRunResult, ThinnedObservedIntoRunResult, ThinningInterval,
-    TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult, TryObservedDelayedStepResult,
-    TryObservedIntoRunResult, TryObservedMutStepResult, TryObservedRunResult,
-    TryObservedStepResult, TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedIntoRunResult,
-    TryThinnedObservedRunResult,
+    ThinningInterval, TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
+    TryObservedDelayedStepResult, TryObservedIntoRunResult, TryObservedMutStepResult,
+    TryObservedRunResult, TryObservedStepResult, TryThinnedObservedRunResult,
 };
 pub use statistics::{BinningAnalysis, BinningEstimate, OnlineStats, StatisticsError};
 pub use testing::{
@@ -496,8 +493,8 @@ pub use testing::{
     verify_detailed_balance_mut, verify_detailed_balance_mut_many,
 };
 pub use traits::{
-    AdditiveTarget, DelayedProposal, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal,
-    ProposalMut, Target,
+    AdditiveTarget, DelayedProposal, DiscreteProposalEndpoint, DiscreteProposalRatio,
+    DiscreteProposalRatioError, Proposal, ProposalMut, Target,
 };
 
 /// Convenience re-exports for common usage.
@@ -543,11 +540,11 @@ pub use traits::{
 pub mod prelude {
     pub use crate::{
         AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-        InvalidThinningInterval, McmcError, Observable, ObservedIntoRunResult, ObservedStepError,
-        ObservedStreamError, OnlineStats, SampleBuffer, Sampler, StatisticsError, Target,
-        ThinnedObservedIntoRunResult, ThinningInterval, Trace, TraceError, TraceRecord,
+        DelayedCommitLogProbMismatch, InvalidThinningInterval, McmcError, Observable,
+        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
+        Sampler, StatisticsError, Target, ThinningInterval, Trace, TraceError, TraceRecord,
         TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-        TryThinnedObservedIntoRunResult, TryThinnedObservedRunResult,
+        TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.
@@ -556,12 +553,12 @@ pub mod prelude {
     /// importing the in-place or delayed proposal traits.
     pub mod by_value {
         pub use crate::{
-            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalRatio,
-            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
-            ObservedIntoRunResult, ObservedStep, ObservedStepError, ObservedStreamError, Proposal,
-            SampleBuffer, Sampler, Step, StepOutcome, StepRejectionReason, Target,
-            ThinnedObservedIntoRunResult, ThinningInterval, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult, TryObservedStepResult, TryThinnedObservedIntoRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalEndpoint,
+            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
+            Observable, ObservedIntoRunResult, ObservedStep, ObservedStepError,
+            ObservedStreamError, Proposal, SampleBuffer, Sampler, Step, StepOutcome,
+            StepRejectionReason, Target, ThinningInterval, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryObservedRunResult, TryObservedStepResult,
             TryThinnedObservedRunResult,
         };
     }
@@ -573,12 +570,12 @@ pub mod prelude {
     /// delayed proposal traits.
     pub mod in_place {
         pub use crate::{
-            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalRatio,
-            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
-            ObservedIntoRunResult, ObservedMutStep, ObservedStepError, ObservedStreamError,
-            ProposalMut, SampleBuffer, Sampler, Step, StepOutcome, StepRejectionReason, Target,
-            ThinnedObservedIntoRunResult, ThinningInterval, TryAccumulator, TryObservable,
-            TryObservedIntoRunResult, TryObservedMutStepResult, TryThinnedObservedIntoRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DiscreteProposalEndpoint,
+            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
+            Observable, ObservedIntoRunResult, ObservedMutStep, ObservedStepError,
+            ObservedStreamError, ProposalMut, SampleBuffer, Sampler, Step, StepOutcome,
+            StepRejectionReason, Target, ThinningInterval, TryAccumulator, TryObservable,
+            TryObservedIntoRunResult, TryObservedMutStepResult, TryObservedRunResult,
             TryThinnedObservedRunResult,
         };
     }
@@ -589,13 +586,14 @@ pub mod prelude {
     /// errors, without importing the by-value or in-place proposal traits.
     pub mod delayed {
         pub use crate::{
-            AdditiveTarget, Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError,
-            DiscreteProposalRatio, DiscreteProposalRatioError, InvalidThinningInterval, McmcError,
-            Observable, ObservedDelayedIntoRunResult, ObservedDelayedStep,
-            ObservedDelayedStepResult, ObservedStepError, ObservedStreamError, SampleBuffer,
-            Sampler, StepOutcome, StepRejectionReason, Target, ThinnedObservedDelayedIntoRunResult,
-            ThinningInterval, TryAccumulator, TryObservable, TryObservedDelayedIntoRunResult,
-            TryThinnedObservedDelayedIntoRunResult, TryThinnedObservedRunResult,
+            AdditiveTarget, Chain, ChainCheckpoint, DelayedCommitLogProbMismatch, DelayedProposal,
+            DelayedStep, DelayedStepError, DiscreteProposalEndpoint, DiscreteProposalRatio,
+            DiscreteProposalRatioError, InvalidThinningInterval, McmcError, Observable,
+            ObservedDelayedIntoRunResult, ObservedDelayedStep, ObservedDelayedStepResult,
+            ObservedStepError, ObservedStreamError, SampleBuffer, Sampler, StepOutcome,
+            StepRejectionReason, Target, ThinningInterval, TryAccumulator, TryObservable,
+            TryObservedDelayedIntoRunResult, TryObservedDelayedRunResult,
+            TryObservedDelayedStepResult, TryThinnedObservedRunResult,
         };
     }
 
@@ -611,210 +609,10 @@ pub mod prelude {
             AdditiveTarget, DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
             DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
             DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
-            DiscreteProposalRatio, DiscreteProposalRatioError, Proposal, ProposalMut, Target,
-            verify_detailed_balance, verify_detailed_balance_delayed,
+            DiscreteProposalEndpoint, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal,
+            ProposalMut, Target, verify_detailed_balance, verify_detailed_balance_delayed,
             verify_detailed_balance_delayed_many, verify_detailed_balance_many,
             verify_detailed_balance_mut, verify_detailed_balance_mut_many,
         };
-    }
-}
-
-#[cfg(test)]
-mod public_api_smoke_tests {
-    use core::convert::Infallible;
-
-    use rand::{Rng, rngs::StdRng};
-    #[cfg(feature = "serde")]
-    use serde_json::{Error as JsonError, json, to_value};
-
-    use super::{
-        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-        DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
-        DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
-        DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
-        InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
-        OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step,
-        StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord,
-        TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
-        prelude::{self, by_value, delayed, in_place, testing},
-    };
-
-    struct Smoke;
-
-    impl Target<f64> for Smoke {
-        fn log_prob(&self, _: &f64) -> f64 {
-            0.0
-        }
-    }
-
-    impl Proposal<f64> for Smoke {
-        fn propose<R: Rng + ?Sized>(&self, current: &f64, _: &mut R) -> f64 {
-            *current
-        }
-    }
-
-    impl ProposalMut<f64> for Smoke {
-        type Undo = ();
-        type Info = ();
-
-        fn propose_mut<R: Rng + ?Sized>(&mut self, _: &mut f64, _: &mut R) -> Option<Self::Undo> {
-            Some(())
-        }
-
-        fn info(&self, _: &f64, _token: &Self::Undo) {}
-
-        fn undo(&mut self, _: &mut f64, (): Self::Undo) {}
-    }
-
-    impl delayed::DelayedProposal<f64> for Smoke {
-        type Plan = ();
-        type Info = ();
-        type Error = Infallible;
-
-        fn propose_plan<R: Rng + ?Sized>(
-            &mut self,
-            _: &f64,
-            _: &mut R,
-        ) -> Result<Option<Self::Plan>, Self::Error> {
-            Ok(Some(()))
-        }
-
-        fn proposed_log_prob<T: delayed::Target<f64>>(
-            &self,
-            state: &f64,
-            (): &Self::Plan,
-            target: &T,
-        ) -> Result<f64, Self::Error> {
-            Ok(target.log_prob(state))
-        }
-
-        fn info(&self, (): &Self::Plan) -> Self::Info {}
-
-        fn commit<R: Rng + ?Sized>(
-            &mut self,
-            _: &mut f64,
-            (): Self::Plan,
-            _: &mut R,
-        ) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn public_reexports_compile() {
-        fn needs_target<T: prelude::Target<f64>>() {}
-        fn needs_by_value<P: by_value::Proposal<f64>>() {}
-        fn needs_in_place<P: in_place::ProposalMut<f64>>() {}
-        fn needs_delayed<P: delayed::DelayedProposal<f64>>() {}
-        fn needs_testing_target<T: testing::Target<f64>>() {}
-        fn needs_testing_proposal<P: testing::Proposal<f64>>() {}
-        fn needs_observable<O: Observable<f64, Output = f64>>(_: &mut O) {}
-
-        needs_target::<Smoke>();
-        needs_by_value::<Smoke>();
-        needs_in_place::<Smoke>();
-        needs_delayed::<Smoke>();
-        needs_testing_target::<Smoke>();
-        needs_testing_proposal::<Smoke>();
-
-        let mut observable = |state: &f64| *state;
-        needs_observable(&mut observable);
-
-        let _: Option<AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<Chain<f64>> = None;
-        let _: Option<ChainCheckpoint<f64>> = None;
-        let _: Option<Step<()>> = None;
-        let _: Option<DelayedStep<()>> = None;
-        let _: Option<StepOutcome> = None;
-        let _: Option<StepRejectionReason> = None;
-        let _: Option<ChainId> = None;
-        let _: Option<Trace> = None;
-        let _: Option<TraceError> = None;
-        let _: Option<TraceRecord> = None;
-        let _: Option<TraceRecorder> = None;
-        let _: Option<TraceStepOutcome> = None;
-        let _: Option<McmcError> = None;
-        let _: Option<SampleBuffer<f64>> = None;
-        let _: Option<Sampler<'_, f64, Smoke, Smoke, StdRng>> = None;
-        let _: Option<ThinningInterval> = None;
-        let _: Option<InvalidThinningInterval> = None;
-        let _: Option<ObservedDelayedStep<(), f64>> = None;
-        let _: Option<ObservedMutStep<(), f64>> = None;
-        let _: Option<TryObservedMutStepResult<(), f64, Infallible>> = None;
-        let _: Option<BinningAnalysis> = None;
-        let _: Option<BinningEstimate> = None;
-        let _: Option<OnlineStats> = None;
-        let _: Option<StatisticsError> = None;
-        let _: Option<DetailedBalanceConfig> = None;
-        let _: Option<DetailedBalanceDirection> = None;
-        let _: Option<DetailedBalanceError> = None;
-        let _: Option<DetailedBalanceFailure> = None;
-        let _: Option<DetailedBalanceDelayedTransition<'_, f64, ()>> = None;
-        let _: Option<DetailedBalanceBatchReport> = None;
-        let _: Option<DetailedBalanceReport> = None;
-        let _: Option<DetailedBalanceState> = None;
-        let _: Option<prelude::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<prelude::ChainId> = None;
-        let _: Option<prelude::Trace> = None;
-        let _: Option<prelude::TraceError> = None;
-        let _: Option<prelude::TraceRecord> = None;
-        let _: Option<prelude::TraceRecorder> = None;
-        let _: Option<prelude::TraceStepOutcome> = None;
-        let _: Option<prelude::TryThinnedObservedRunResult<f64, McmcError, Infallible>> = None;
-        let _: Option<by_value::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<by_value::DiscreteProposalRatio> = None;
-        let _: Option<by_value::DiscreteProposalRatioError> = None;
-        let _: Option<by_value::ThinnedObservedIntoRunResult<McmcError, Infallible>> = None;
-        let _: Option<in_place::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<in_place::Step<()>> = None;
-        let _: Option<in_place::StepOutcome> = None;
-        let _: Option<in_place::StepRejectionReason> = None;
-        let _: Option<in_place::ObservedMutStep<(), f64>> = None;
-        let _: Option<in_place::TryObservedMutStepResult<(), f64, Infallible>> = None;
-        let _: Option<in_place::DiscreteProposalRatio> = None;
-        let _: Option<in_place::DiscreteProposalRatioError> = None;
-        let _: Option<
-            in_place::TryThinnedObservedIntoRunResult<McmcError, Infallible, Infallible>,
-        > = None;
-        let _: Option<delayed::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<delayed::DiscreteProposalRatio> = None;
-        let _: Option<delayed::DiscreteProposalRatioError> = None;
-        let _: Option<delayed::StepOutcome> = None;
-        let _: Option<delayed::StepRejectionReason> = None;
-        let _: Option<delayed::ThinnedObservedDelayedIntoRunResult<Infallible, Infallible>> = None;
-        let _: Option<delayed::McmcError> = None;
-        let _: Option<testing::DetailedBalanceConfig> = None;
-        let _: Option<testing::DetailedBalanceError> = None;
-        let _: Option<testing::DetailedBalanceReport> = None;
-        let _: Option<testing::AdditiveTarget<Smoke, Smoke>> = None;
-        let _: Option<testing::DiscreteProposalRatio> = None;
-        let _: Option<testing::DiscreteProposalRatioError> = None;
-        let _: Option<
-            delayed::TryObservedDelayedIntoRunResult<Infallible, Infallible, Infallible>,
-        > = None;
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn sampler_serializes_as_canonical_checkpoint() -> Result<(), JsonError> {
-        let target = Smoke;
-        let proposal = Smoke;
-        let mut rng = Smoke;
-        let Ok(chain) = Chain::new(1.0, &target) else {
-            unreachable!("Smoke target always returns a finite log-probability");
-        };
-        let Ok(sampler) = Sampler::new(chain, &target, proposal, &mut rng) else {
-            unreachable!("Smoke target always returns a finite current log-probability");
-        };
-
-        let checkpoint = to_value(&sampler)?;
-
-        assert_eq!(checkpoint["state"], json!(1.0));
-        assert_eq!(checkpoint["accepted"], json!(0));
-        assert_eq!(checkpoint["rejected"], json!(0));
-        assert!(checkpoint.get("target").is_none());
-        assert!(checkpoint.get("proposal").is_none());
-        assert!(checkpoint.get("rng").is_none());
-        Ok(())
     }
 }

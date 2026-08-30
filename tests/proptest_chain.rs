@@ -78,7 +78,7 @@ impl DelayedProposal<Scalar> for DelayedWalk {
         Ok(Some(rng.random_range(-self.width..self.width)))
     }
 
-    fn proposed_log_prob<T: Target<Scalar>>(
+    fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
         &self,
         state: &Scalar,
         plan: &f64,
@@ -522,21 +522,21 @@ fn run_chunk_allows_next_chunk_size_from_current_state() {
         }
     }
 
-    struct Increment;
-    impl Proposal<Counter> for Increment {
+    struct Toggle;
+    impl Proposal<Counter> for Toggle {
         fn propose<R: Rng + ?Sized>(&self, current: &Counter, _: &mut R) -> Counter {
-            Counter(current.0 + 1)
+            Counter(1 - current.0)
         }
     }
 
     let mut one_shot_rng = StdRng::seed_from_u64(42);
-    let one_shot_chain = Chain::new(Counter(0), &Flat).unwrap();
-    let mut one_shot = Sampler::new(one_shot_chain, &Flat, &Increment, &mut one_shot_rng).unwrap();
+    let one_shot_chain = Chain::new(Counter(2), &Flat).unwrap();
+    let mut one_shot = Sampler::new(one_shot_chain, &Flat, &Toggle, &mut one_shot_rng).unwrap();
     one_shot.run(5).unwrap();
 
     let mut chunked_rng = StdRng::seed_from_u64(42);
-    let chunked_chain = Chain::new(Counter(0), &Flat).unwrap();
-    let mut chunked = Sampler::new(chunked_chain, &Flat, &Increment, &mut chunked_rng).unwrap();
+    let chunked_chain = Chain::new(Counter(2), &Flat).unwrap();
+    let mut chunked = Sampler::new(chunked_chain, &Flat, &Toggle, &mut chunked_rng).unwrap();
 
     let next_chunk_size = {
         let continuation = chunked.run_chunk(2).unwrap();

@@ -3,17 +3,20 @@
 use core::{convert::Infallible, fmt};
 use std::hint::black_box;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use markov_chain_monte_carlo::StepOutcome;
 use markov_chain_monte_carlo::prelude::by_value::Proposal;
 use markov_chain_monte_carlo::prelude::delayed::DelayedProposal;
 use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
-use markov_chain_monte_carlo::prelude::{BinningAnalysis, Chain, OnlineStats, Sampler, Target};
+use markov_chain_monte_carlo::prelude::{
+    BinningAnalysis, Chain, OnlineStats, Sampler, Target, ThinningInterval,
+};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
 const SEED: u64 = 42;
 const BULK_STEPS: usize = 100;
+const THIN_INTERVALS: [usize; 3] = [1, 2, 16];
 const SPIN_COUNT: usize = 256;
 // A single boundary-spin flip has log acceptance ratio -2 * beta. This value
 // is below every representable `ln(Open01)` draw, making rollback deterministic.
@@ -96,24 +99,45 @@ impl ProposalMut<SpinChain> for SpinFlip {
     }
 }
 
-struct DelayedWalk {
+struct ScalarReflectionMut {
     delta: f64,
 }
 
-impl DelayedProposal<Scalar> for DelayedWalk {
+impl ProposalMut<Scalar> for ScalarReflectionMut {
+    type Undo = f64;
+    type Info = ();
+
+    fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut Scalar, _rng: &mut R) -> Option<f64> {
+        let old = state.0;
+        state.0 = self.delta - state.0;
+        Some(old)
+    }
+
+    fn info(&self, _state: &Scalar, _token: &f64) {}
+
+    fn undo(&mut self, state: &mut Scalar, token: f64) {
+        state.0 = token;
+    }
+}
+
+struct DelayedReflection {
+    delta: f64,
+}
+
+impl DelayedProposal<Scalar> for DelayedReflection {
     type Plan = f64;
     type Info = ();
     type Error = Infallible;
 
     fn propose_plan<R: Rng + ?Sized>(
         &mut self,
-        _state: &Scalar,
+        state: &Scalar,
         _rng: &mut R,
     ) -> Result<Option<f64>, Self::Error> {
-        Ok(Some(self.delta))
+        Ok(Some(2.0_f64.mul_add(-state.0, self.delta)))
     }
 
-    fn proposed_log_prob<T: Target<Scalar>>(
+    fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
         &self,
         state: &Scalar,
         plan: &f64,
@@ -150,7 +174,7 @@ impl DelayedProposal<Scalar> for NoDelayedPlan {
         Ok(None)
     }
 
-    fn proposed_log_prob<T: Target<Scalar>>(
+    fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
         &self,
         _state: &Scalar,
         _plan: &f64,
@@ -292,7 +316,7 @@ fn bench_delayed_steps(c: &mut Criterion) {
 
     {
         let mut chain = scalar_chain(&flat);
-        let mut proposal = DelayedWalk { delta: 1.0 };
+        let mut proposal = DelayedReflection { delta: 1.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
         let outcome = chain
             .step_delayed(&flat, &mut proposal, &mut rng)
@@ -303,7 +327,7 @@ fn bench_delayed_steps(c: &mut Criterion) {
 
     {
         let mut chain = scalar_chain(&normal);
-        let mut proposal = DelayedWalk { delta: 100.0 };
+        let mut proposal = DelayedReflection { delta: 100.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
         let outcome = chain
             .step_delayed(&normal, &mut proposal, &mut rng)
@@ -323,10 +347,11 @@ fn bench_delayed_steps(c: &mut Criterion) {
         assert_eq!(outcome, StepOutcome::NoProposal);
     }
 
-    // These names retain their v0.4.0 steady-state lifecycle contracts.
-    c.bench_function("chain/step_delayed_accept_commit", |b| {
+    // Reflection-specific names keep these scientifically valid workloads
+    // distinct from the earlier one-way delayed fixtures.
+    c.bench_function("chain/step_delayed_accept_reflection", |b| {
         let mut chain = scalar_chain(&flat);
-        let mut proposal = DelayedWalk { delta: 1.0 };
+        let mut proposal = DelayedReflection { delta: 1.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
@@ -338,9 +363,9 @@ fn bench_delayed_steps(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("chain/step_delayed_reject_plan", |b| {
+    c.bench_function("chain/step_delayed_reject_reflection", |b| {
         let mut chain = scalar_chain(&normal);
-        let mut proposal = DelayedWalk { delta: 100.0 };
+        let mut proposal = DelayedReflection { delta: 100.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
 
         b.iter(|| {
@@ -406,8 +431,8 @@ fn bench_sampler_runs(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("sampler/run_delayed_100", |b| {
-        let mut delayed = DelayedWalk { delta: 1.0 };
+    c.bench_function("sampler/run_delayed_reflection_100", |b| {
+        let mut delayed = DelayedReflection { delta: 1.0 };
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut sampler = Sampler::new(scalar_chain(&flat), &flat, &mut delayed, &mut rng)
             .or_abort("sampler delayed setup");
@@ -419,6 +444,98 @@ fn bench_sampler_runs(c: &mut Criterion) {
             black_box(sampler.chain_ref().state().0);
         });
     });
+
+    bench_thinned_sampler_runs(c, &target, &proposal, &flat);
+}
+
+/// Register fixed-seed thinning workloads for every proposal strategy.
+fn bench_thinned_sampler_runs(
+    c: &mut Criterion,
+    target: &Normal,
+    proposal: &RandomWalk,
+    flat: &FlatTarget,
+) {
+    {
+        let mut group = c.benchmark_group("sampler/run_by_value_thinned_100");
+        for interval in THIN_INTERVALS {
+            group.bench_with_input(
+                BenchmarkId::from_parameter(interval),
+                &interval,
+                |b, &interval| {
+                    let mut rng = StdRng::seed_from_u64(SEED);
+                    let mut sampler = Sampler::from_state(Scalar(0.0), target, proposal, &mut rng)
+                        .or_abort("thinned by-value sampler setup");
+                    let thin = ThinningInterval::new(interval).or_abort("valid thinning interval");
+
+                    b.iter(|| {
+                        let retained = sampler
+                            .run_with_thinning(black_box(BULK_STEPS), thin)
+                            .or_abort("thinned by-value sampler run");
+                        black_box(retained.len());
+                    });
+                },
+            );
+        }
+        group.finish();
+    }
+
+    {
+        let mut group = c.benchmark_group("sampler/run_mut_thinned_100");
+        for interval in THIN_INTERVALS {
+            group.bench_with_input(
+                BenchmarkId::from_parameter(interval),
+                &interval,
+                |b, &interval| {
+                    let mut rng = StdRng::seed_from_u64(SEED);
+                    let mut sampler = Sampler::from_state(
+                        Scalar(0.0),
+                        flat,
+                        ScalarReflectionMut { delta: 1.0 },
+                        &mut rng,
+                    )
+                    .or_abort("thinned in-place sampler setup");
+                    let thin = ThinningInterval::new(interval).or_abort("valid thinning interval");
+
+                    b.iter(|| {
+                        let retained = sampler
+                            .run_mut_with_thinning(black_box(BULK_STEPS), thin)
+                            .or_abort("thinned in-place sampler run");
+                        black_box(retained.len());
+                    });
+                },
+            );
+        }
+        group.finish();
+    }
+
+    {
+        let mut group = c.benchmark_group("sampler/run_delayed_thinned_100");
+        for interval in THIN_INTERVALS {
+            group.bench_with_input(
+                BenchmarkId::from_parameter(interval),
+                &interval,
+                |b, &interval| {
+                    let mut rng = StdRng::seed_from_u64(SEED);
+                    let mut sampler = Sampler::from_state(
+                        Scalar(0.0),
+                        flat,
+                        DelayedReflection { delta: 1.0 },
+                        &mut rng,
+                    )
+                    .or_abort("thinned delayed sampler setup");
+                    let thin = ThinningInterval::new(interval).or_abort("valid thinning interval");
+
+                    b.iter(|| {
+                        let retained = sampler
+                            .run_delayed_with_thinning(black_box(BULK_STEPS), thin)
+                            .or_abort("thinned delayed sampler run");
+                        black_box(retained.len());
+                    });
+                },
+            );
+        }
+        group.finish();
+    }
 }
 
 /// Register observing benchmarks to compare collection and online accumulation.

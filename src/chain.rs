@@ -10,7 +10,9 @@ use rand::{Rng, RngExt};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer};
 
-use crate::{DelayedProposal, McmcError, Proposal, ProposalMut, Target};
+use crate::{
+    DelayedCommitLogProbMismatch, DelayedProposal, McmcError, Proposal, ProposalMut, Target,
+};
 
 /// Decide acceptance from a precomputed `log(u)`.
 ///
@@ -87,7 +89,9 @@ fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError
     }
     if committed.partial_cmp(&scored) != Some(Ordering::Equal) {
         cold_path();
-        return Err(McmcError::InconsistentDelayedCommitLogProb);
+        return Err(McmcError::InconsistentDelayedCommitLogProb {
+            mismatch: DelayedCommitLogProbMismatch::new(scored, committed),
+        });
     }
     Ok(())
 }
@@ -225,7 +229,7 @@ impl<I> Step<I> {
     ///         Ok(None)
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<()>>(
+    ///     fn proposed_log_prob<T: Target<()> + ?Sized>(
     ///         &self,
     ///         _: &(),
     ///         _: &(),
@@ -657,6 +661,97 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for DiscardDe
     fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
 }
 
+/// Roll back an in-place proposal unless the accepted mutation is committed.
+///
+/// The guard begins only after [`ProposalMut::propose_mut`] returns its undo
+/// token. That trait method remains responsible for unwind atomicity before a
+/// token exists, and [`ProposalMut::undo`] must not panic.
+struct InPlaceRollback<'a, S, P: ProposalMut<S> + ?Sized> {
+    state: &'a mut S,
+    proposal: &'a mut P,
+    token: Option<P::Undo>,
+}
+
+impl<'a, S, P: ProposalMut<S> + ?Sized> InPlaceRollback<'a, S, P> {
+    const fn new(state: &'a mut S, proposal: &'a mut P, token: P::Undo) -> Self {
+        Self {
+            state,
+            proposal,
+            token: Some(token),
+        }
+    }
+
+    const fn state(&self) -> &S {
+        self.state
+    }
+
+    const fn proposal(&self) -> &P {
+        self.proposal
+    }
+
+    const fn token(&self) -> Result<&P::Undo, McmcError> {
+        match self.token.as_ref() {
+            Some(token) => Ok(token),
+            None => Err(McmcError::MissingRollbackToken),
+        }
+    }
+
+    fn commit(mut self) {
+        self.token = None;
+    }
+
+    fn rollback(mut self) -> Result<(), McmcError> {
+        let Some(token) = self.token.take() else {
+            return Err(McmcError::MissingRollbackToken);
+        };
+        self.proposal.undo(self.state, token);
+        Ok(())
+    }
+}
+
+impl<S, P: ProposalMut<S> + ?Sized> Drop for InPlaceRollback<'_, S, P> {
+    fn drop(&mut self) {
+        if let Some(token) = self.token.take() {
+            self.proposal.undo(self.state, token);
+        }
+    }
+}
+
+/// Restore a cloned state unless a checked delayed commit is verified.
+struct StateSnapshotRollback<'a, S> {
+    state: &'a mut S,
+    snapshot: Option<S>,
+}
+
+impl<'a, S> StateSnapshotRollback<'a, S> {
+    const fn new(state: &'a mut S, snapshot: S) -> Self {
+        Self {
+            state,
+            snapshot: Some(snapshot),
+        }
+    }
+
+    const fn state(&self) -> &S {
+        self.state
+    }
+
+    const fn state_mut(&mut self) -> &mut S {
+        self.state
+    }
+
+    fn commit(mut self) {
+        self.snapshot = None;
+    }
+}
+
+impl<S> Drop for StateSnapshotRollback<'_, S> {
+    fn drop(&mut self) {
+        if let Some(snapshot) = self.snapshot.take() {
+            *self.state = snapshot;
+        }
+    }
+}
+
 /// A single MCMC chain.
 #[derive(Debug)]
 #[must_use]
@@ -701,7 +796,7 @@ impl<S> Chain<S> {
     /// Returns [`McmcError::NanInitialLogProb`] if the target's log-probability
     /// for the initial state is NaN, or [`McmcError::InfiniteInitialLogProb`]
     /// if it is +∞.
-    pub fn new<T: Target<S>>(initial: S, target: &T) -> Result<Self, McmcError> {
+    pub fn new<T: Target<S> + ?Sized>(initial: S, target: &T) -> Result<Self, McmcError> {
         let log_prob = target.log_prob(&initial);
         if log_prob.is_nan() {
             cold_path();
@@ -748,7 +843,7 @@ impl<S> Chain<S> {
     /// assert_eq!(chain.total_steps(), 18);
     /// # Ok::<(), McmcError>(())
     /// ```
-    pub fn from_checkpoint<T: Target<S>>(
+    pub fn from_checkpoint<T: Target<S> + ?Sized>(
         checkpoint: ChainCheckpoint<S>,
         target: &T,
     ) -> Result<Self, McmcError> {
@@ -772,9 +867,10 @@ impl<S> Chain<S> {
 
     /// Refresh the cached log-probability for the current state.
     ///
-    /// This is used when a chain is paired with a sampler target, so resumed or
-    /// transferred chains do not continue sampling from a stale cache.
-    pub(crate) fn refresh_current_log_prob<T: Target<S>>(
+    /// Every transition calls this before proposal generation, and sampler
+    /// attachment calls it before storing a target, so retargeted chains and
+    /// behavior-relevant interior changes cannot reuse a stale cache.
+    pub(crate) fn refresh_current_log_prob<T: Target<S> + ?Sized>(
         &mut self,
         target: &T,
     ) -> Result<(), McmcError> {
@@ -826,12 +922,14 @@ impl<S> Chain<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`McmcError::NanProposedLogProb`] or
+    /// Returns [`McmcError::NanCurrentLogProb`] or
+    /// [`McmcError::InfiniteCurrentLogProb`] if re-scoring the current state
+    /// fails before proposal generation. Returns [`McmcError::NanProposedLogProb`] or
     /// [`McmcError::InfiniteProposedLogProb`] if the target's log-probability
     /// for the proposed state is NaN or +∞, [`McmcError::NanLogQRatio`] or
     /// [`McmcError::InfiniteLogQRatio`] if the proposal's log q-ratio is
     /// NaN or +∞.
-    pub fn step<T: Target<S>, P: Proposal<S> + ?Sized, R: Rng + ?Sized>(
+    pub fn step<T: Target<S> + ?Sized, P: Proposal<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &P,
@@ -841,7 +939,11 @@ impl<S> Chain<S> {
     }
 
     /// Perform a by-value step without constructing telemetry.
-    pub(crate) fn step_without_telemetry<T: Target<S>, P: Proposal<S> + ?Sized, R: Rng + ?Sized>(
+    pub(crate) fn step_without_telemetry<
+        T: Target<S> + ?Sized,
+        P: Proposal<S> + ?Sized,
+        R: Rng + ?Sized,
+    >(
         &mut self,
         target: &T,
         proposal: &P,
@@ -852,7 +954,7 @@ impl<S> Chain<S> {
 
     fn step_with_mode<
         M: ValueTelemetryMode,
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: Proposal<S> + ?Sized,
         R: Rng + ?Sized,
     >(
@@ -861,6 +963,7 @@ impl<S> Chain<S> {
         proposal: &P,
         rng: &mut R,
     ) -> Result<M::Output, McmcError> {
+        self.refresh_current_log_prob(target)?;
         let log_prob_before = self.log_prob;
         let proposed = proposal.propose(&self.state, rng);
         let log_prob_new = target.log_prob(&proposed);
@@ -923,10 +1026,14 @@ impl<S> Chain<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`McmcError::NanProposedLogProb`],
+    /// Returns [`McmcError::NanCurrentLogProb`] or
+    /// [`McmcError::InfiniteCurrentLogProb`] before mutation if re-scoring the
+    /// current state fails. Returns [`McmcError::NanProposedLogProb`],
     /// [`McmcError::InfiniteProposedLogProb`], [`McmcError::NanLogQRatio`],
-    /// or [`McmcError::InfiniteLogQRatio`] after rolling back the state.
-    pub fn step_mut<T: Target<S>, P: ProposalMut<S> + ?Sized, R: Rng + ?Sized>(
+    /// or [`McmcError::InfiniteLogQRatio`] after rolling back the state. Once
+    /// [`ProposalMut::propose_mut`] returns an undo token, callback unwinding
+    /// also invokes [`ProposalMut::undo`] through a scoped rollback guard.
+    pub fn step_mut<T: Target<S> + ?Sized, P: ProposalMut<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &mut P,
@@ -940,7 +1047,7 @@ impl<S> Chain<S> {
     /// Bulk sampler methods use this path when their return type does not expose
     /// per-step metadata. The transition mechanics are shared with [`step_mut`](Self::step_mut).
     pub(crate) fn step_mut_without_telemetry<
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: ProposalMut<S> + ?Sized,
         R: Rng + ?Sized,
     >(
@@ -955,7 +1062,7 @@ impl<S> Chain<S> {
     /// Execute one in-place transition with a statically selected telemetry policy.
     fn step_mut_with_mode<
         M: MutTelemetryMode<S, P>,
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: ProposalMut<S> + ?Sized,
         R: Rng + ?Sized,
     >(
@@ -964,6 +1071,7 @@ impl<S> Chain<S> {
         proposal: &mut P,
         rng: &mut R,
     ) -> Result<M::Output, McmcError> {
+        self.refresh_current_log_prob(target)?;
         let log_prob_before = self.log_prob;
         let Some(token) = proposal.propose_mut(&mut self.state, rng) else {
             let output = M::no_proposal(proposal, log_prob_before);
@@ -971,24 +1079,22 @@ impl<S> Chain<S> {
             return Ok(output);
         };
 
-        let log_prob_new = target.log_prob(&self.state);
-        if let Err(err) = check_proposed_log_prob(log_prob_new) {
-            proposal.undo(&mut self.state, token);
-            return Err(err);
-        }
+        let rollback = InPlaceRollback::new(&mut self.state, proposal, token);
+        let log_prob_new = target.log_prob(rollback.state());
+        check_proposed_log_prob(log_prob_new)?;
 
-        let log_q = proposal.log_q_ratio(&self.state, &token);
-        if let Err(err) = check_log_q_ratio(log_q) {
-            proposal.undo(&mut self.state, token);
-            return Err(err);
-        }
+        let log_q = rollback
+            .proposal()
+            .log_q_ratio(rollback.state(), rollback.token()?);
+        check_log_q_ratio(log_q)?;
 
         let log_alpha = log_prob_new - log_prob_before + log_q;
-        let captured = M::capture(proposal, &self.state, &token);
+        let captured = M::capture(rollback.proposal(), rollback.state(), rollback.token()?);
 
         let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
+            rollback.commit();
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
             Ok(M::accepted(
@@ -998,7 +1104,7 @@ impl<S> Chain<S> {
                 log_alpha,
             ))
         } else {
-            proposal.undo(&mut self.state, token);
+            rollback.rollback()?;
             self.rejected = self.rejected.saturating_add(1);
             Ok(M::rejected(captured, log_prob_before, log_alpha))
         }
@@ -1033,21 +1139,21 @@ impl<S> Chain<S> {
     ///     }
     /// }
     ///
-    /// struct MoveRight;
-    /// impl DelayedProposal<i32> for MoveRight {
+    /// struct ReflectAcrossMinusHalf;
+    /// impl DelayedProposal<i32> for ReflectAcrossMinusHalf {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(-1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -1072,7 +1178,7 @@ impl<S> Chain<S> {
     /// }
     ///
     /// let target = TargetLine;
-    /// let mut proposal = MoveRight;
+    /// let mut proposal = ReflectAcrossMinusHalf;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(-1, &target)?;
     ///
@@ -1084,13 +1190,15 @@ impl<S> Chain<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`DelayedStepError::Plan`] if planning fails,
+    /// Returns [`DelayedStepError::Mcmc`] with a current-score error if
+    /// re-scoring the current state fails before planning. Returns
+    /// [`DelayedStepError::Plan`] if planning fails,
     /// [`DelayedStepError::ProposedLogProb`] if proposed log-probability
     /// evaluation fails, [`DelayedStepError::LogQRatio`] if proposal-ratio
     /// evaluation fails, [`DelayedStepError::Mcmc`] on invalid
     /// log-probability or log q-ratio values, and [`DelayedStepError::Commit`]
     /// if applying an accepted move fails.
-    pub fn step_delayed<T: Target<S>, P: DelayedProposal<S> + ?Sized, R: Rng + ?Sized>(
+    pub fn step_delayed<T: Target<S> + ?Sized, P: DelayedProposal<S> + ?Sized, R: Rng + ?Sized>(
         &mut self,
         target: &T,
         proposal: &mut P,
@@ -1101,7 +1209,7 @@ impl<S> Chain<S> {
 
     /// Perform a delayed step without constructing proposal telemetry.
     pub(crate) fn step_delayed_without_telemetry<
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: DelayedProposal<S> + ?Sized,
         R: Rng + ?Sized,
     >(
@@ -1116,7 +1224,7 @@ impl<S> Chain<S> {
     /// Execute one delayed transition with a statically selected telemetry policy.
     fn step_delayed_with_mode<
         M: DelayedTelemetryMode<S, P>,
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: DelayedProposal<S> + ?Sized,
         R: Rng + ?Sized,
     >(
@@ -1125,6 +1233,8 @@ impl<S> Chain<S> {
         proposal: &mut P,
         rng: &mut R,
     ) -> Result<M::Output, DelayedStepError<P::Error>> {
+        self.refresh_current_log_prob(target)
+            .map_err(DelayedStepError::Mcmc)?;
         let log_prob_before = self.log_prob;
         let Some(plan) = proposal
             .propose_plan(&self.state, rng)
@@ -1185,8 +1295,10 @@ impl<S> Chain<S> {
     /// produce a rollback-isolated snapshot for every part of `state` that
     /// [`DelayedProposal::commit`] can mutate. A shallow clone containing shared
     /// interior-mutability handles does not satisfy that contract. If `commit`
-    /// returns an error, the clone is assigned back before the error is returned;
-    /// the proposal remains responsible for its own internal state.
+    /// returns an error or unwinds, the clone is assigned back before control
+    /// leaves the method. The guard remains armed through the post-commit
+    /// target evaluation; the proposal remains responsible for its own internal
+    /// state.
     ///
     /// # Examples
     ///
@@ -1202,21 +1314,21 @@ impl<S> Chain<S> {
     ///     }
     /// }
     ///
-    /// struct MoveRight;
-    /// impl DelayedProposal<i32> for MoveRight {
+    /// struct ReflectAcrossMinusHalf;
+    /// impl DelayedProposal<i32> for ReflectAcrossMinusHalf {
     ///     type Plan = i32;
     ///     type Info = i32;
     ///     type Error = Infallible;
     ///
     ///     fn propose_plan<R: Rng + ?Sized>(
     ///         &mut self,
-    ///         _state: &i32,
+    ///         state: &i32,
     ///         _rng: &mut R,
     ///     ) -> Result<Option<i32>, Self::Error> {
-    ///         Ok(Some(1))
+    ///         Ok(Some(-1 - 2 * *state))
     ///     }
     ///
-    ///     fn proposed_log_prob<T: Target<i32>>(
+    ///     fn proposed_log_prob<T: Target<i32> + ?Sized>(
     ///         &self,
     ///         state: &i32,
     ///         plan: &i32,
@@ -1241,7 +1353,7 @@ impl<S> Chain<S> {
     /// }
     ///
     /// let target = TargetLine;
-    /// let mut proposal = MoveRight;
+    /// let mut proposal = ReflectAcrossMinusHalf;
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(-1, &target)?;
     ///
@@ -1266,10 +1378,12 @@ impl<S> Chain<S> {
     ) -> Result<DelayedStep<P::Info>, DelayedStepError<P::Error>>
     where
         S: Clone,
-        T: Target<S>,
+        T: Target<S> + ?Sized,
         P: DelayedProposal<S> + ?Sized,
         R: Rng + ?Sized,
     {
+        self.refresh_current_log_prob(target)
+            .map_err(DelayedStepError::Mcmc)?;
         let log_prob_before = self.log_prob;
         let Some(plan) = proposal
             .propose_plan(&self.state, rng)
@@ -1296,16 +1410,15 @@ impl<S> Chain<S> {
 
         if accept {
             let state_before_commit = self.state.clone();
-            if let Err(err) = proposal.commit(&mut self.state, plan, rng) {
-                self.state = state_before_commit;
-                return Err(DelayedStepError::Commit(err));
-            }
+            let mut rollback = StateSnapshotRollback::new(&mut self.state, state_before_commit);
+            proposal
+                .commit(rollback.state_mut(), plan, rng)
+                .map_err(DelayedStepError::Commit)?;
 
-            let committed_log_prob = target.log_prob(&self.state);
-            if let Err(err) = check_committed_log_prob(log_prob_new, committed_log_prob) {
-                self.state = state_before_commit;
-                return Err(DelayedStepError::Mcmc(err));
-            }
+            let committed_log_prob = target.log_prob(rollback.state());
+            check_committed_log_prob(log_prob_new, committed_log_prob)
+                .map_err(DelayedStepError::Mcmc)?;
+            rollback.commit();
 
             self.log_prob = committed_log_prob;
             self.accepted = self.accepted.saturating_add(1);
@@ -1362,7 +1475,7 @@ impl<S> Chain<S> {
     /// assert_relative_eq!(chain.log_prob(), -2.0, epsilon = 1e-12);
     /// # Ok::<(), McmcError>(())
     /// ```
-    pub fn replace_state<T: Target<S>>(
+    pub fn replace_state<T: Target<S> + ?Sized>(
         &mut self,
         new_state: S,
         target: &T,
@@ -1610,9 +1723,13 @@ impl<S> Chain<S> {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use std::assert_matches;
+    use std::{
+        assert_matches,
+        cell::Cell,
+        panic::{AssertUnwindSafe, catch_unwind},
+    };
 
-    use approx::assert_relative_eq;
+    use approx::{assert_relative_eq, relative_eq};
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
@@ -1927,7 +2044,7 @@ mod tests {
             Ok(Some(!*state))
         }
 
-        fn proposed_log_prob<T: Target<bool>>(
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
             &self,
             _: &bool,
             plan: &bool,
@@ -2031,9 +2148,30 @@ mod tests {
         let mut chain = Chain::new(Scalar(1.0), &NanAtOrigin).unwrap();
         let proposal = FixedProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
+        let snapshot = (
+            chain.state().clone(),
+            chain.log_prob().to_bits(),
+            chain.accepted(),
+            chain.rejected(),
+        );
 
         let result = chain.step(&NanAtOrigin, &proposal, &mut rng);
         assert_matches!(result, Err(McmcError::NanProposedLogProb));
+        assert_eq!(
+            (
+                chain.state().clone(),
+                chain.log_prob().to_bits(),
+                chain.accepted(),
+                chain.rejected(),
+            ),
+            snapshot
+        );
+
+        let _ = chain
+            .step(&NanAtOrigin, &FixedProposal(1.0), &mut rng)
+            .expect("valid retry remains usable");
+        assert_eq!(chain.state(), &Scalar(1.0));
+        assert_eq!(chain.accepted(), 1);
     }
 
     #[test]
@@ -2081,9 +2219,30 @@ mod tests {
         let mut chain = Chain::new(Scalar(1.0), &InfAtOrigin).unwrap();
         let proposal = FixedProposal(0.0);
         let mut rng = StdRng::seed_from_u64(42);
+        let snapshot = (
+            chain.state().clone(),
+            chain.log_prob().to_bits(),
+            chain.accepted(),
+            chain.rejected(),
+        );
 
         let result = chain.step(&InfAtOrigin, &proposal, &mut rng);
         assert_matches!(result, Err(McmcError::InfiniteProposedLogProb));
+        assert_eq!(
+            (
+                chain.state().clone(),
+                chain.log_prob().to_bits(),
+                chain.accepted(),
+                chain.rejected(),
+            ),
+            snapshot
+        );
+
+        let _ = chain
+            .step(&InfAtOrigin, &FixedProposal(1.0), &mut rng)
+            .expect("valid retry remains usable");
+        assert_eq!(chain.state(), &Scalar(1.0));
+        assert_eq!(chain.accepted(), 1);
     }
 
     #[test]
@@ -2163,6 +2322,270 @@ mod tests {
             MutScalar(1.0),
             "State should be rolled back after +inf log_prob"
         );
+    }
+
+    #[test]
+    fn every_transition_rescores_the_current_state_with_the_active_target() {
+        struct ConstructionTarget;
+        impl<S> Target<S> for ConstructionTarget {
+            fn log_prob(&self, _state: &S) -> f64 {
+                0.0
+            }
+        }
+
+        struct FavorCurrent;
+        impl Target<Scalar> for FavorCurrent {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                if state.0.to_bits() == 0.0_f64.to_bits() {
+                    100.0
+                } else {
+                    0.0
+                }
+            }
+        }
+        impl Target<MutScalar> for FavorCurrent {
+            fn log_prob(&self, state: &MutScalar) -> f64 {
+                if state.0.to_bits() == 0.0_f64.to_bits() {
+                    100.0
+                } else {
+                    0.0
+                }
+            }
+        }
+
+        struct SetOneDelayed;
+        impl DelayedProposal<Scalar> for SetOneDelayed {
+            type Plan = f64;
+            type Info = ();
+            type Error = Infallible;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(1.0))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
+                &self,
+                _state: &Scalar,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(*plan)))
+            }
+
+            fn info(&self, _plan: &f64) {}
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = plan;
+                Ok(())
+            }
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let mut by_value = Chain::new(Scalar(0.0), &ConstructionTarget).unwrap();
+        let step = by_value
+            .step(&FavorCurrent, &FixedProposal(1.0), &mut rng)
+            .unwrap();
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_relative_eq!(step.log_prob_before(), 100.0);
+        assert_relative_eq!(by_value.log_prob(), 100.0);
+
+        let mut in_place = Chain::new(MutScalar(0.0), &ConstructionTarget).unwrap();
+        let mut mut_proposal = FixedMutProposal(1.0);
+        let step = in_place
+            .step_mut(&FavorCurrent, &mut mut_proposal, &mut rng)
+            .unwrap();
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(in_place.state(), &MutScalar(0.0));
+        assert_relative_eq!(in_place.log_prob(), 100.0);
+
+        let mut delayed = Chain::new(Scalar(0.0), &ConstructionTarget).unwrap();
+        let mut delayed_proposal = SetOneDelayed;
+        let step = delayed
+            .step_delayed(&FavorCurrent, &mut delayed_proposal, &mut rng)
+            .unwrap();
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(delayed.state(), &Scalar(0.0));
+        assert_relative_eq!(delayed.log_prob(), 100.0);
+
+        let mut checked = Chain::new(Scalar(0.0), &ConstructionTarget).unwrap();
+        let step = checked
+            .step_delayed_checked(&FavorCurrent, &mut delayed_proposal, &mut rng)
+            .unwrap();
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(checked.state(), &Scalar(0.0));
+        assert_relative_eq!(checked.log_prob(), 100.0);
+    }
+
+    #[test]
+    fn sampler_detects_interior_target_changes_before_acceptance() {
+        struct MutableTarget {
+            favor_current: Cell<bool>,
+        }
+        impl Target<Scalar> for MutableTarget {
+            fn log_prob(&self, state: &Scalar) -> f64 {
+                if self.favor_current.get() && state.0.to_bits() == 0.0_f64.to_bits() {
+                    100.0
+                } else {
+                    0.0
+                }
+            }
+        }
+
+        let target = MutableTarget {
+            favor_current: Cell::new(false),
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut sampler =
+            crate::Sampler::from_state(Scalar(0.0), &target, FixedProposal(1.0), &mut rng).unwrap();
+
+        target.favor_current.set(true);
+        let step = sampler.step().unwrap();
+
+        assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+        assert_eq!(sampler.chain_ref().state(), &Scalar(0.0));
+        assert_relative_eq!(sampler.chain_ref().log_prob(), 100.0);
+    }
+
+    #[test]
+    fn in_place_guard_rolls_back_panicking_post_mutation_callbacks() {
+        struct StageTarget(&'static str);
+        impl Target<MutScalar> for StageTarget {
+            fn log_prob(&self, state: &MutScalar) -> f64 {
+                assert!(
+                    self.0 != "target" || state.0.to_bits() != 1.0_f64.to_bits(),
+                    "target callback panic"
+                );
+                0.0
+            }
+        }
+
+        struct PanickingProposal {
+            stage: &'static str,
+            undo_calls: usize,
+        }
+        impl ProposalMut<MutScalar> for PanickingProposal {
+            type Undo = f64;
+            type Info = ();
+
+            fn propose_mut<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut MutScalar,
+                _rng: &mut R,
+            ) -> Option<f64> {
+                let old = state.0;
+                state.0 = 1.0;
+                Some(old)
+            }
+
+            fn info(&self, _state: &MutScalar, _token: &f64) {
+                assert!(self.stage != "info", "info callback panic");
+            }
+
+            fn log_q_ratio(&self, _state: &MutScalar, _token: &f64) -> f64 {
+                assert!(self.stage != "log_q", "log-q callback panic");
+                0.0
+            }
+
+            fn undo(&mut self, state: &mut MutScalar, token: f64) {
+                self.undo_calls += 1;
+                state.0 = token;
+            }
+        }
+
+        for stage in ["target", "log_q", "info"] {
+            let target = StageTarget(stage);
+            let mut chain = Chain::new(MutScalar(0.0), &target).unwrap();
+            let mut proposal = PanickingProposal {
+                stage,
+                undo_calls: 0,
+            };
+            let mut rng = StdRng::seed_from_u64(42);
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = chain.step_mut(&target, &mut proposal, &mut rng);
+            }));
+
+            assert!(result.is_err(), "stage {stage} should unwind");
+            assert_eq!(chain.state(), &MutScalar(0.0));
+            assert_eq!(chain.log_prob().to_bits(), 0.0_f64.to_bits());
+            assert_eq!(chain.total_steps(), 0);
+            assert_eq!(proposal.undo_calls, 1);
+        }
+    }
+
+    #[test]
+    fn in_place_guard_reports_a_missing_token_without_panicking() {
+        let mut state = MutScalar(1.0);
+        let mut proposal = FixedMutProposal(0.0);
+        let mut guard = InPlaceRollback::new(&mut state, &mut proposal, 1.0);
+        guard.token = None;
+
+        assert_matches!(guard.token(), Err(McmcError::MissingRollbackToken));
+        assert_matches!(guard.rollback(), Err(McmcError::MissingRollbackToken));
+        assert_eq!(state, MutScalar(1.0));
+    }
+
+    #[test]
+    fn checked_delayed_guard_restores_state_when_commit_unwinds() {
+        struct PanickingCommit;
+        impl DelayedProposal<Scalar> for PanickingCommit {
+            type Plan = ();
+            type Info = ();
+            type Error = Infallible;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                _state: &Scalar,
+                _rng: &mut R,
+            ) -> Result<Option<()>, Self::Error> {
+                Ok(Some(()))
+            }
+
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
+                &self,
+                _state: &Scalar,
+                (): &(),
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&Scalar(0.0)))
+            }
+
+            fn info(&self, (): &()) {}
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut Scalar,
+                (): (),
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.0 = 2.0;
+                panic!("commit callback panic");
+            }
+        }
+
+        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let log_prob = chain.log_prob();
+        let mut proposal = PanickingCommit;
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = chain.step_delayed_checked(&Normal, &mut proposal, &mut rng);
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(chain.state(), &Scalar(1.0));
+        assert_eq!(chain.log_prob().to_bits(), log_prob.to_bits());
+        assert_eq!(chain.total_steps(), 0);
     }
 
     // --- Seeded determinism ---
@@ -2700,7 +3123,7 @@ mod tests {
             }
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             plan: &f64,
@@ -2748,7 +3171,7 @@ mod tests {
             Ok(None)
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             _plan: &f64,
@@ -2798,7 +3221,7 @@ mod tests {
             self.last_family.take()
         }
 
-        fn proposed_log_prob<T: Target<MutScalar>>(
+        fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
             &self,
             _state: &MutScalar,
             _plan: &f64,
@@ -2839,7 +3262,7 @@ mod tests {
             Ok(Some(self.scored))
         }
 
-        fn proposed_log_prob<T: Target<Scalar>>(
+        fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
             &self,
             _state: &Scalar,
             plan: &f64,
@@ -3169,7 +3592,7 @@ mod tests {
                 Ok(Some(0.0))
             }
 
-            fn proposed_log_prob<T: Target<MutScalar>>(
+            fn proposed_log_prob<T: Target<MutScalar> + ?Sized>(
                 &self,
                 _state: &MutScalar,
                 plan: &f64,
@@ -3228,7 +3651,7 @@ mod tests {
                 Ok(Some(0.0))
             }
 
-            fn proposed_log_prob<T: Target<Scalar>>(
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
                 &self,
                 _state: &Scalar,
                 plan: &f64,
@@ -3301,7 +3724,7 @@ mod tests {
                 Ok(Some(0.0))
             }
 
-            fn proposed_log_prob<T: Target<Scalar>>(
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
                 &self,
                 _state: &Scalar,
                 plan: &f64,
@@ -3335,8 +3758,10 @@ mod tests {
         assert_matches!(
             result,
             Err(DelayedStepError::Mcmc(
-                McmcError::InconsistentDelayedCommitLogProb
+                McmcError::InconsistentDelayedCommitLogProb { mismatch }
             ))
+            if relative_eq!(mismatch.scored(), 0.0)
+                && relative_eq!(mismatch.committed(), -2.0)
         );
         assert_eq!(chain.state, Scalar(1.0));
         assert_relative_eq!(chain.log_prob(), log_prob);
@@ -3426,7 +3851,7 @@ mod tests {
                 Ok(Some(0.0))
             }
 
-            fn proposed_log_prob<T: Target<Scalar>>(
+            fn proposed_log_prob<T: Target<Scalar> + ?Sized>(
                 &self,
                 _state: &Scalar,
                 plan: &f64,

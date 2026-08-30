@@ -769,6 +769,15 @@ dependencies = [
     { name = "packaging" },
 ]
 
+[package.optional-dependencies]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+    { name = "nbclient" },
+    { name = "nbformat" },
+    { name = "polars" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "actionlint-py" },
@@ -786,7 +795,15 @@ notebook = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "packaging", specifier = ">=26.2" }]
+requires-dist = [
+    { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=7.3.0" },
+    { name = "matplotlib", marker = "extra == 'notebook'", specifier = ">=3.11.1" },
+    { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.11.0" },
+    { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.10.4" },
+    { name = "packaging", specifier = ">=26.2" },
+    { name = "polars", marker = "extra == 'notebook'", specifier = ">=1.43.2" },
+]
+provides-extras = ["notebook"]
 
 [package.metadata.requires-dev]
 dev = [

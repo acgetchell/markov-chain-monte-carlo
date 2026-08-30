@@ -28,12 +28,15 @@ profiling. Benchmark results are empirical and machine-dependent; they are not c
 - by-value stepping and in-place acceptance/rollback paths;
 - delayed-proposal accepted, rejected, and no-plan paths;
 - fixed 100-step `Sampler` runs for by-value, in-place, and delayed proposals;
+- fixed 100-step thinned runs for by-value, in-place, and delayed proposals at thinning intervals 1, 2, and 16;
 - buffered observation, manual online accumulation, `OnlineStats`, and `BinningAnalysis`.
 
 The harness measures transition and observation overhead, not distribution convergence. It has two deliberate fixture-lifecycle contracts:
 
 - Chain-step, 100-step sampler, and buffered-observation benchmarks construct the chain, sampler, proposal, and seeded RNG once outside `b.iter`. Warmup and
   measured iterations advance that same state and RNG. These are steady-state latency or throughput measurements that exclude fixture construction.
+- The thinned 100-step sampler groups follow that same persistent sampler/RNG lifecycle. Each timed iteration includes creation of the retained-state
+  `Vec`, cloning of retained states, and destruction of the returned buffer.
 - Manual online accumulation, `OnlineStats`, and `BinningAnalysis` use `iter_batched` to create a fresh chain and fixed-seed RNG outside each timed 100-step
   batch. Their timed work includes construction performed by the workflow itself, such as `Sampler` and accumulator construction.
 
@@ -159,13 +162,15 @@ Rerendering reads only the release CSV and its adjacent provenance file. It reje
 settings, and any CSV whose SHA-256 digest no longer matches the sidecar. Promotion publishes the Markdown and tracked evidence pair in one rollback-safe
 transaction, so a partial write cannot leave the curated report pointing at missing evidence.
 
-The checked-in v0.4.1 report predates tracked compact evidence. Until the next `performance-release` promotion establishes that pair, the no-argument rerender
-exits with a migration diagnostic; pass an explicit generated CSV path when repairing the legacy report. After that first promotion, a fresh checkout can
-rerender directly from the tracked pair.
+The checked-in v0.4.1 report predates tracked compact evidence and is explicitly labeled legacy and non-reproducible. Its CSV measurements, JSON provenance
+with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable. Until the next committed
+`performance-release` promotion establishes a complete evidence pair, the no-argument rerender exits with a migration diagnostic. Do not manufacture a
+replacement from an unrelated dirty tree; an explicit generated CSV path is only for repairing evidence from the original controlled measurement. After
+the first complete promotion, a fresh checkout can rerender directly from the tracked pair.
 
 Review the report's release pair, comparable-row coverage, environment, harness hashes, and lifecycle contracts before committing it. The Markdown report
-records Criterion medians and marginal confidence intervals plus the source commits, toolchains, Criterion versions, and host platform and architecture
-available for the selected mode. The displayed marginal intervals are not a paired statistical-significance claim.
+records Criterion medians and marginal confidence intervals plus the source commits, toolchains, Criterion versions, and host platform, architecture, and
+concrete CPU model available for the selected mode. The displayed marginal intervals are not a paired statistical-significance claim.
 
 ## Saved Comparison Schema
 
@@ -173,10 +178,13 @@ The versioned CSV stores one deterministic row per benchmark name. Each row is c
 point estimate and available confidence bounds for both samples. Missing-sample fields are blank by construction. This compact dataset is directly usable by
 standard CSV tooling; Parquet would add conversion and dependency overhead without helping these small release-signal tables.
 
-The adjacent JSON records the release pair, report settings, exact benchmark commands, commits, host and Rust/Criterion versions, and SHA-256 hashes for
-`Cargo.lock` and `benches/stepping.rs`. A combined source digest covers `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `benches/stepping.rs`, and every Rust
-source file. The sidecar also binds itself to the CSV by digest. GitHub-asset comparisons propagate the benchmark-harness hash when their native Criterion
-archive uses metadata schema 2 and explicitly leave local-command, Cargo-lock, and combined-source hashes absent.
+The adjacent JSON records the release pair, report settings, exact benchmark commands, commits, host operating system, architecture and CPU model,
+Rust/Criterion versions, and SHA-256 hashes for `Cargo.lock` and `benches/stepping.rs`. A combined source digest covers `Cargo.toml`, `Cargo.lock`,
+`rust-toolchain.toml`, `benches/stepping.rs`, and every Rust source file. The sidecar also binds itself to the CSV by digest. Provenance schema v2 requires a
+nullable `cpu_model` field for every sample; legacy v1 sidecars remain readable and migrate to an unavailable CPU model in memory. The local producer detects
+the CPU model once and records the same value for both same-host samples when available, or JSON null for both when detection is unavailable. Local samples
+must also agree on operating system and architecture. GitHub-asset comparisons propagate the benchmark-harness hash when their native Criterion archive
+uses metadata schema 2 and require CPU-model, local-command, Cargo-lock, and combined-source hashes to remain null.
 
 Files below `target/bench-reports/` are ignored local release work products. Keep the CSV and JSON with any external research record that cites the local
 same-host comparison. After publication, the native Criterion tarballs attached to GitHub Releases are the durable repository-owned measurements from which

@@ -15,6 +15,35 @@ For every proposal family, validate that:
 - Reverse moves are possible wherever the target chain requires them.
 - Representative forward/reverse transitions satisfy detailed balance after the Metropolis-Hastings correction.
 
+## Interpreting Empirical Checks
+
+`DetailedBalanceConfig::new(samples, tolerance, min_hits)` controls a statistical diagnostic, not a proof. The helper draws `samples` proposals from each
+endpoint independently. For a selected transition, it counts exact endpoint hits (or matching delayed plans), weights those hits by their
+Metropolis-Hastings acceptance probabilities, and estimates the accepted transition probability in each direction. It then compares the log flows
+
+```text
+log pi(current) + log P(current -> proposed)
+log pi(proposed) + log P(proposed -> current)
+```
+
+through `log_balance_residual`, their difference. When both flows are impossible, the residual is defined as zero. Choose representative transitions whose
+forward and reverse proposal probabilities are large enough to observe reliably; rare transitions need more samples or a domain-specific analytic check.
+
+The three configuration values have distinct roles:
+
+- `samples` is the number of proposal draws in each direction. More samples reduce Monte Carlo noise but do not expand transition coverage.
+- `min_hits` is a data-adequacy guard. If either direction produces fewer matching proposals, the helper returns `InsufficientHits` instead of interpreting
+  an unstable estimate.
+- `tolerance` is the sole pass/fail threshold: the check succeeds only when `abs(log_balance_residual) <= tolerance`. Set it before looking at the result,
+  based on the sampling budget and the scientific sensitivity of the test.
+
+`log_balance_standard_error` is an approximate Monte Carlo standard error obtained from the observed acceptance-weight variance, and `z_score()` reports
+the residual divided by that estimate when it is finite and positive. Both are diagnostic context; neither changes the configured tolerance decision.
+
+Use caller-owned, explicitly seeded RNGs so failures reproduce. For stochastic kernels, repeat representative checks with several fixed seeds or raise the
+sample budget to confirm the conclusion is stable rather than tuning the tolerance to one draw. A passing local check does not establish ergodicity,
+convergence, mixing quality, or correctness for transitions that were not tested.
+
 ## By-Value Proposals
 
 Use `Proposal<S>` when proposed states are cheap to create by value. This is the simplest path for small numeric states or small discrete systems.
@@ -84,9 +113,9 @@ bounded search that returns `Ok(None)` after failing to find a valid site is an 
 correction for successful moves.
 
 Use `DiscreteProposalRatio::from_counts(forward_sites, reverse_sites)?` for the common equal-normalized-family-probability case, or
-`DiscreteProposalRatio::new(...)` when inverse move families have different selection weights or endpoint totals. Construction rejects invalid
-successful-forward inputs immediately. A zero reverse-site count is valid and computes to `-inf`, while a successful plan with zero forward sites is
-reported as an invalid proposal-ratio input.
+`DiscreteProposalRatio::from_endpoints(forward, reverse)` with named `DiscreteProposalEndpoint` values when inverse move families have different selection
+weights or endpoint totals. Construction rejects invalid successful-forward inputs immediately. A zero reverse-site count is valid and computes to `-inf`,
+while a successful plan with zero forward sites is reported as an invalid proposal-ratio input.
 
 ## Continuous Proposals
 

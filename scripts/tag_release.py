@@ -7,16 +7,15 @@ reference message when the changelog section is too large.
 Usage:
     tag-release v1.2.3          # create annotated tag from CHANGELOG.md
     tag-release v1.2.3 --force  # recreate tag if it already exists
-    tag-release v1.2.3 --debug  # verbose output
 
 Ported from the delaunay project's changelog_utils.py (tag-creation subset).
 """
 
 import argparse
-import logging
 import re
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NewType
@@ -29,15 +28,13 @@ from subprocess_utils import (
 
 # GitHub's maximum size for git tag annotations (bytes)
 _GITHUB_TAG_ANNOTATION_LIMIT = 125_000
+_MAX_COMMAND_DIAGNOSTIC_CHARS = 4_000
 
 # ANSI color codes for terminal output
 _GREEN = "\033[0;32m"
 _BLUE = "\033[0;34m"
 _YELLOW = "\033[1;33m"
 _RESET = "\033[0m"
-
-log = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # SemVer validation
@@ -91,7 +88,6 @@ class TagOptions:
 
     version: ReleaseVersion
     force: bool
-    debug: bool
 
 
 def validate_semver(tag_version: str) -> None:
@@ -241,6 +237,20 @@ def _github_anchor(changelog: Path, version: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _cargo_package_version(cargo_toml: Path) -> str:
+    """Read the authoritative package version from ``Cargo.toml``."""
+    document = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
+    package = document.get("package")
+    if not isinstance(package, dict):
+        msg = f"{cargo_toml} is missing a [package] table"
+        raise TypeError(msg)
+    version = package.get("version")
+    if not isinstance(version, str) or not version.strip():
+        msg = f"{cargo_toml} [package] version must be a non-empty string"
+        raise TypeError(msg)
+    return version
+
+
 def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> None:
     """Create an annotated git tag with changelog content.
 
@@ -251,14 +261,22 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
     tag = release.tag
     version = release.number
 
-    # Check for existing tag (but don't delete yet — validate first)
+    # Validate the requested release against authoritative package metadata
+    # before even inspecting the tag ref. No Git state is touched on mismatch.
+    changelog = find_changelog()
+    cargo_toml = changelog.with_name("Cargo.toml")
+    cargo_version = _cargo_package_version(cargo_toml)
+    if version != cargo_version:
+        msg = f"requested tag {tag} does not match {cargo_toml} [package] version {cargo_version}"
+        raise ValueError(msg)
+
+    # Check for an existing tag only after release metadata passes preflight.
     tag_existed = _tag_exists(tag)
     if tag_existed and not force:
         msg = f"Tag '{tag}' already exists; use --force to recreate it or delete it manually"
         raise FileExistsError(msg)
 
     # Extract changelog section (before any mutation)
-    changelog = find_changelog()
     section = extract_changelog_section(changelog, version)
     section_bytes = len(section.encode("utf-8"))
 
@@ -323,29 +341,40 @@ def parse_args(argv: list[str] | None = None) -> TagOptions:
     )
     parser.add_argument("version", type=parse_release_version_argument, help="Tag version (e.g. v1.2.3)")
     parser.add_argument("--force", action="store_true", help="Recreate tag if it already exists")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     namespace = parser.parse_args(argv)
-    return TagOptions(version=namespace.version, force=namespace.force, debug=namespace.debug)
+    return TagOptions(version=namespace.version, force=namespace.force)
+
+
+def _format_command_failure(error: subprocess.CalledProcessError) -> str:
+    """Return bounded Git diagnostics without exposing unrelated process state."""
+    command = " ".join(str(part) for part in error.cmd) if isinstance(error.cmd, list | tuple) else str(error.cmd)
+    message = f"command failed with exit {error.returncode}: {command}"
+    detail = error.stderr or error.stdout
+    if detail:
+        rendered = str(detail).strip()
+        if len(rendered) > _MAX_COMMAND_DIAGNOSTIC_CHARS:
+            rendered = f"{rendered[:_MAX_COMMAND_DIAGNOSTIC_CHARS]}…"
+        channel = "stderr" if error.stderr else "stdout"
+        message = f"{message}\n{channel}:\n{rendered}"
+    return message
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for ``tag-release``."""
     options = parse_args(argv)
 
-    if options.debug:
-        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
-    else:
-        logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
-
     try:
         create_tag(options.version, force=options.force)
+    except subprocess.CalledProcessError as exc:
+        print(f"Error: {_format_command_failure(exc)}", file=sys.stderr)
+        return 1
     except (
+        TypeError,
         ValueError,
         FileNotFoundError,
         FileExistsError,
         LookupError,
         ExecutableNotFoundError,
-        subprocess.CalledProcessError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

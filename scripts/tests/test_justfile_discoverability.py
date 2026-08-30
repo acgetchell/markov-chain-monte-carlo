@@ -122,6 +122,23 @@ def test_pinned_tool_guards_reference_their_justfile_versions() -> None:
         assert version_name in json.dumps(recipes[guard]["body"]), guard
 
 
+def test_python_environment_has_one_canonical_ci_sync() -> None:
+    recipes = _recipes()
+    notebook_dependencies = {dependency["recipe"] for dependency in recipes["notebook-sync"]["dependencies"]}
+
+    assert notebook_dependencies == {"python-sync"}
+    assert recipes["notebook-sync"]["body"] == []
+    assert recipes["python-sync"]["body"] == [["uv sync --locked"]]
+    dry_run = _run_just("--dry-run", "ci")
+    assert (dry_run.stdout + dry_run.stderr).count("uv sync --locked") == 1
+
+
+def test_setup_checks_system_prerequisites_before_managed_installs() -> None:
+    dependencies = {dependency["recipe"] for dependency in _recipes()["setup-tools"]["dependencies"]}
+
+    assert dependencies == {"_ensure-jq", "_ensure-uv"}
+
+
 def test_justfile_validation_is_wired_into_repository_gates() -> None:
     recipes = _recipes()
 
@@ -204,10 +221,24 @@ def test_release_workflow_uses_the_canonical_baseline_recipe() -> None:
     assert "--clobber" not in workflow
 
 
+def test_audit_workflow_self_triggers_and_preserves_readable_failure_output() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+    assert "pull_request:\n    paths:\n      - .github/workflows/audit.yml" in workflow
+    assert "cargo audit --json > audit-results.json\n          json_status=$?" in workflow
+    assert "cargo audit\n          readable_status=$?" in workflow
+    assert 'if (( json_status != 0 )); then\n            exit "$json_status"' in workflow
+    assert 'exit "$readable_status"' in workflow
+
+
 def test_release_performance_docs_record_the_prospective_asset_boundary() -> None:
     benchmarking = (REPO_ROOT / "docs" / "BENCHMARKING.md").read_text(encoding="utf-8")
+    performance = (REPO_ROOT / "docs" / "PERFORMANCE.md").read_text(encoding="utf-8")
     releasing = (REPO_ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
 
+    assert "Legacy, non-reproducible report" in performance
+    assert "Repository-owned CSV measurements" in performance
+    assert "native Criterion sample archives are unavailable" in performance
     assert "releases through `v0.4.1` have no Criterion baseline attachment" in benchmarking
     assert "`v0.4.2` release therefore creates the first durable" in benchmarking
     assert "`v0.4.3` creates the first complete historical pair" in benchmarking

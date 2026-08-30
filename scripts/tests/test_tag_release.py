@@ -1,5 +1,6 @@
 """Tests for tag_release.py — annotated tag creation with size-limit handling."""
 
+import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -251,12 +252,50 @@ class TestTagSizeLimit:
         assert len(section.encode("utf-8")) > _GITHUB_TAG_ANNOTATION_LIMIT
 
 
+class TestCargoPackageVersion:
+    def test_reads_the_authoritative_package_version(self, tmp_path: Path) -> None:
+        cargo_toml = tmp_path / "Cargo.toml"
+        cargo_toml.write_text('[package]\nname = "fixture"\nversion = "1.2.3"\n', encoding="utf-8")
+
+        assert tag_release._cargo_package_version(cargo_toml) == "1.2.3"
+
+    def test_rejects_a_missing_package_version(self, tmp_path: Path) -> None:
+        cargo_toml = tmp_path / "Cargo.toml"
+        cargo_toml.write_text('[package]\nname = "fixture"\n', encoding="utf-8")
+
+        with pytest.raises(TypeError, match=r"Cargo\.toml \[package\] version"):
+            tag_release._cargo_package_version(cargo_toml)
+
+
 # ---------------------------------------------------------------------------
 # create_tag workflow (mocked git)
 # ---------------------------------------------------------------------------
 
 
 class TestCreateTag:
+    @pytest.fixture(autouse=True)
+    def _matching_cargo_metadata(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "fixture"\nversion = "1.0.0"\n', encoding="utf-8")
+
+    def test_mismatched_package_version_fails_before_tag_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        changelog = tmp_path / "CHANGELOG.md"
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "fixture"\nversion = "1.2.3"\n', encoding="utf-8")
+        tag_exists = MagicMock()
+        create_git_tag = MagicMock()
+        monkeypatch.setattr(tag_release, "find_changelog", lambda: changelog)
+        monkeypatch.setattr(tag_release, "_tag_exists", tag_exists)
+        monkeypatch.setattr(tag_release, "run_git_command_with_input", create_git_tag)
+
+        with pytest.raises(ValueError, match=r"requested tag v1\.0\.0 does not match .* version 1\.2\.3"):
+            tag_release.create_tag("v1.0.0")
+
+        tag_exists.assert_not_called()
+        create_git_tag.assert_not_called()
+
     @patch("tag_release.run_git_command_with_input")
     @patch("tag_release._tag_exists", return_value=False)
     @patch("tag_release.find_changelog")
@@ -330,8 +369,16 @@ class TestCreateTag:
         assert "CHANGELOG.md" in tag_message
         assert len(tag_message) < 1000
 
+    @patch("tag_release.find_changelog")
     @patch("tag_release._tag_exists", return_value=True)
-    def test_existing_tag_without_force_is_rejected(self, _mock_exists: MagicMock) -> None:
+    def test_existing_tag_without_force_is_rejected(
+        self,
+        _mock_exists: MagicMock,
+        mock_find: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_find.return_value = tmp_path / "CHANGELOG.md"
+
         with pytest.raises(FileExistsError, match="already exists"):
             tag_release.create_tag("v1.0.0", force=False)
 
@@ -379,3 +426,22 @@ class TestCreateTag:
             tag_release.create_tag("v1.0.0", force=True)
 
         mock_git_input.assert_not_called()
+
+
+class TestMain:
+    def test_reports_captured_git_stderr_without_traceback(self, capsys: pytest.CaptureFixture[str]) -> None:
+        error = subprocess.CalledProcessError(
+            128,
+            ["git", "tag", "--annotate", "v1.0.0"],
+            output="less useful output\n",
+            stderr="fatal: unable to create tag object\n",
+        )
+
+        with patch("tag_release.create_tag", side_effect=error):
+            status = tag_release.main(["v1.0.0"])
+
+        captured = capsys.readouterr()
+        assert status == 1
+        assert captured.out == ""
+        assert captured.err == ("Error: command failed with exit 128: git tag --annotate v1.0.0\nstderr:\nfatal: unable to create tag object\n")
+        assert "Traceback" not in captured.err

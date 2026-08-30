@@ -81,6 +81,104 @@ def test_find_release_metadata_mismatches_reports_stale_date_and_dois(tmp_path: 
     ]
 
 
+def test_release_date_uses_the_current_package_heading_not_the_first_release(tmp_path: Path) -> None:
+    """Date synchronization targets Cargo's version even if another release is listed first."""
+    _write_project(tmp_path)
+    (tmp_path / "CHANGELOG.md").write_text(
+        (f"# Changelog\n\n## [1.2.2] - 2026-08-03\n\n- Older\n\n## [{_VERSION}] - {_RELEASE_DATE}\n\n- Current\n"),
+        encoding="utf-8",
+    )
+
+    assert release_check.find_release_metadata_mismatches(tmp_path) == []
+
+
+def test_release_metadata_rejects_a_missing_citation_date(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    citation = tmp_path / "CITATION.cff"
+    citation.write_text(citation.read_text(encoding="utf-8").replace(f"date-released: {_RELEASE_DATE}\n", ""), encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CITATION\.cff must contain exactly one top-level date-released; found 0"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_a_malformed_citation_date_with_its_line(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    citation = tmp_path / "CITATION.cff"
+    citation.write_text(citation.read_text(encoding="utf-8").replace(_RELEASE_DATE, "2026/08/04"), encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CITATION\.cff:4: top-level date-released"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_duplicate_citation_dates_with_both_lines(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    citation = tmp_path / "CITATION.cff"
+    citation.write_text(citation.read_text(encoding="utf-8") + f"date-released: {_RELEASE_DATE}\n", encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CITATION\.cff:4 .*found 2 at lines 4, 5"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_a_malformed_current_changelog_date_with_its_line(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(changelog.read_text(encoding="utf-8").replace(_RELEASE_DATE, "2026/08/04"), encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CHANGELOG\.md:3: current-version heading"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        f"## [{_VERSION} - {_RELEASE_DATE}",
+        f"## {_VERSION}] - {_RELEASE_DATE}",
+        f"## [v{_VERSION} - {_RELEASE_DATE}",
+        f"## v{_VERSION}] - {_RELEASE_DATE}",
+    ],
+)
+def test_release_metadata_rejects_asymmetric_current_changelog_brackets(tmp_path: Path, heading: str) -> None:
+    _write_project(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        changelog.read_text(encoding="utf-8").replace(f"## [{_VERSION}] - {_RELEASE_DATE}", heading),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CHANGELOG\.md:3: current-version heading"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_a_current_changelog_heading_without_a_date(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        changelog.read_text(encoding="utf-8").replace(f"## [{_VERSION}] - {_RELEASE_DATE}", f"## [{_VERSION}]"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CHANGELOG\.md:3: current-version heading"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_an_impossible_current_changelog_date(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(changelog.read_text(encoding="utf-8").replace(_RELEASE_DATE, "2026-02-30"), encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CHANGELOG\.md:3: changelog release date is not a valid calendar date"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
+def test_release_metadata_rejects_duplicate_current_changelog_dates_with_both_lines(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(changelog.read_text(encoding="utf-8") + f"\n## [{_VERSION}] - {_RELEASE_DATE}\n", encoding="utf-8")
+
+    with pytest.raises(release_check.ReleaseCheckError, match=r"CHANGELOG\.md:3 .*found 2 at lines 3, 9"):
+        release_check.find_release_metadata_mismatches(tmp_path)
+
+
 def test_find_version_mismatches_reports_all_structured_metadata(tmp_path: Path) -> None:
     """Cargo, Python, uv, and citation metadata must agree."""
     _write_project(tmp_path, metadata_version="1.2.2")

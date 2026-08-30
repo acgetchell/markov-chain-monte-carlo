@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+import postprocess_changelog
 from postprocess_changelog import postprocess
 
 if TYPE_CHECKING:
@@ -19,6 +20,15 @@ class TestPostprocess:
         postprocess(f)
 
         assert f.read_text(encoding="utf-8") == "# Changelog\n\n- Item\n"
+
+    @pytest.mark.parametrize("trailing", ["   \n\n", "\t \r\n\r\n"])
+    def test_strips_whitespace_only_trailing_lines_without_changing_content(self, tmp_path: Path, trailing: str) -> None:
+        f = tmp_path / "CHANGELOG.md"
+        f.write_bytes(f"# Changelog\n\n- Item  \n{trailing}".encode())
+
+        postprocess(f)
+
+        assert f.read_bytes() == b"# Changelog\n\n- Item  \n"
 
     def test_preserves_single_trailing_newline(self, tmp_path: Path) -> None:
         f = tmp_path / "CHANGELOG.md"
@@ -76,3 +86,20 @@ class TestPostprocess:
 
         assert f.read_text(encoding="utf-8") == original
         assert tuple(tmp_path.iterdir()) == (f,)
+
+    def test_main_reports_atomic_replace_failure_without_traceback(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        changelog = tmp_path / "CHANGELOG.md"
+        changelog.write_text("# Changelog\n", encoding="utf-8")
+
+        with patch("postprocess_changelog.postprocess", side_effect=OSError("injected replace failure")):
+            result = postprocess_changelog.main([str(changelog)])
+
+        captured = capsys.readouterr()
+        assert result == 1
+        assert captured.out == ""
+        assert captured.err == f"Error: could not post-process {changelog}: injected replace failure\n"
+        assert "Traceback" not in captured.err

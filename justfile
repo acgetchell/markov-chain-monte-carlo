@@ -121,7 +121,11 @@ _ensure-git-cliff:
 _ensure-jq:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v jq >/dev/null || { echo "❌ 'jq' not found. Install with your system package manager."; exit 1; }
+    command -v jq >/dev/null || {
+        echo "❌ 'jq' not found. Install it with your system package manager or follow:"
+        echo "   https://jqlang.github.io/jq/download/"
+        exit 1
+    }
 
 _ensure-rumdl:
     #!/usr/bin/env bash
@@ -401,7 +405,7 @@ help-workflows:
     @echo "  just ci-repository-tooling # Repository tooling subset for CI-shape timing"
     @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
-    @echo "  just setup          # Install/verify external dev tools"
+    @echo "  just setup          # Install managed tools and verify system prerequisites"
     @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
     @echo "  just changelog-unreleased <ver>  # Regenerate CHANGELOG.md for a release tag"
@@ -554,10 +558,9 @@ notebook-ising-figure: notebook-check
 notebook-lint: _ensure-uv
     uv run --locked --group dev --group notebook check-notebooks lint --repo-root .
 
-# Synchronize the notebook-capable Python environment.
+# Compatibility entry point for the canonical Python environment sync.
 [group('notebooks')]
-notebook-sync: _ensure-uv
-    uv sync --locked --group dev --group notebook
+notebook-sync: python-sync
 
 # Compare stored GitHub Release benchmark assets without local benchmark runs.
 [group('benchmarks and performance')]
@@ -689,10 +692,10 @@ python-fix: python-sync
 [group('validation')]
 python-lint: python-check
 
-# Synchronize the development Python environment.
+# Synchronize the complete default Python environment once.
 [group('build and setup')]
 python-sync: _ensure-uv
-    uv sync --locked --group dev
+    uv sync --locked
 
 # Type-check Python support scripts with Ty.
 [group('validation')]
@@ -773,13 +776,13 @@ semgrep-test: _ensure-uv
     expect_semgrep_count 2 mcmc.docs.check-before-fix-command-order docs/check_fix_order.md
     uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/tests/python_exceptions.py
 
-# Install or verify the complete development environment.
+# Install managed tools and verify system prerequisites.
 [group('build and setup')]
 setup: setup-tools
 
-# Install or synchronize external development tools.
+# Install repository-managed tools and verify system prerequisites.
 [group('build and setup')]
-setup-tools: _ensure-uv
+setup-tools: _ensure-uv _ensure-jq
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -837,7 +840,7 @@ setup-tools: _ensure-uv
     echo ""
 
     echo "Ensuring uv-managed Python tools..."
-    uv sync --locked --group dev
+    uv sync --locked
     echo ""
 
     echo "Verifying required commands..."

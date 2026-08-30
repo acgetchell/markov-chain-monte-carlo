@@ -43,6 +43,9 @@ were accepted where they made invalid states unrepresentable or preserved valida
 - [x] [#82](https://github.com/acgetchell/markov-chain-monte-carlo/issues/82) - Run general parse-don't-validate audit
 - [x] [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
 - [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
+
+## Unreleased Maintenance
+
 - [x] [#142](https://github.com/acgetchell/markov-chain-monte-carlo/issues/142) - Update Rust to 1.98.0 and forbid relaxed algebraic `f64` operations
 
 ## Planned Milestones

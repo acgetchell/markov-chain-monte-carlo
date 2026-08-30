@@ -161,7 +161,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
   README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report, while `docs/archive/performance/` owns its tracked
-  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-rerender`, not by hand.
+  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-rerender`, not by hand. The warning on
+  the pre-evidence v0.4.1 report is a one-time migration status marker, not permission to edit generated measurements; the next evidence-backed promotion
+  replaces the complete file.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
 - `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, dependency and tool-pin updates,
   release metadata validation, and release tagging.

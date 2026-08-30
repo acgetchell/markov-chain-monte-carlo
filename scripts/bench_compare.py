@@ -9,6 +9,7 @@ saved baseline and writes a compact, reviewable report.
 import argparse
 import json
 import math
+import stat
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from subprocess_utils import ExecutableNotFoundError, run_git_command
 type Statistic = Literal["mean", "median"]
 
 _MAX_FACTOR_PRECISION = 16
+DEFAULT_OUTPUT_MODE = 0o644
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,9 +44,6 @@ class Estimate:
             raise ValueError(msg)
         if self.lower_ns is not None and self.upper_ns is not None and self.lower_ns > self.upper_ns:
             msg = "Criterion confidence interval lower bound exceeds upper bound"
-            raise ValueError(msg)
-        if self.lower_ns is not None and self.upper_ns is not None and not self.lower_ns <= self.point_ns <= self.upper_ns:
-            msg = "Criterion point estimate must lie within its confidence interval"
             raise ValueError(msg)
 
 
@@ -87,10 +86,6 @@ class ReportSettings:
     statistic: Statistic
     revision: str
     measurement_context: tuple[str, ...] = ()
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
 
 
 def _numeric_field(data: dict[str, object], field: str, path: Path) -> float:
@@ -295,6 +290,10 @@ def render_report(
 
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output_mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        output_mode = DEFAULT_OUTPUT_MODE
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -310,6 +309,7 @@ def _write_text(path: Path, text: str) -> None:
         if temporary is None:
             msg = f"failed to create a temporary output for {path}"
             raise RuntimeError(msg)
+        temporary.chmod(output_mode)
         temporary.replace(path)
     finally:
         if temporary is not None and temporary.exists():
@@ -319,6 +319,12 @@ def _write_text(path: Path, text: str) -> None:
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare Criterion's current sample with a saved baseline.")
     parser.add_argument("baseline", nargs="?", default="last", help="Criterion baseline name (default: last).")
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path.cwd(),
+        help="Repository root for relative inputs and outputs (default: current directory).",
+    )
     parser.add_argument("--criterion-dir", default="target/criterion")
     parser.add_argument("--output", default="target/bench-reports/performance.md")
     parser.add_argument("--current-label", default="working tree")
@@ -331,7 +337,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Render a comparison report, returning 2 for missing or invalid samples."""
     args = _parse_args(sys.argv[1:] if argv is None else argv)
-    root = _repo_root()
+    root = args.repo_root.resolve()
     criterion_dir = Path(args.criterion_dir)
     if not criterion_dir.is_absolute():
         criterion_dir = root / criterion_dir

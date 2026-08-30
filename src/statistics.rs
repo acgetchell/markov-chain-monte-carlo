@@ -125,6 +125,8 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 /// so invalid floating-point values are rejected before they can become part of
 /// the accumulator state.
 ///
+/// The accumulator uses constant memory regardless of sample count.
+///
 /// ```
 /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 ///
@@ -604,6 +606,9 @@ impl BinningLevel {
 /// so invalid floating-point values are rejected before they can become part of
 /// the binning hierarchy.
 ///
+/// The hierarchy retains logarithmically many levels and does not retain the
+/// original samples, so memory grows as `O(log n)` for `n` measurements.
+///
 /// ```
 /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
 ///
@@ -904,7 +909,7 @@ impl BinningAnalysis {
                 .levels
                 .get(level_index)
                 .cloned()
-                .unwrap_or_else(|| self.new_staged_level(level_index));
+                .unwrap_or_else(|| self.new_staged_level());
             let next_block_mean = match level.push_block_mean(block_mean) {
                 Ok(next_block_mean) => next_block_mean,
                 Err(err) => {
@@ -928,15 +933,13 @@ impl BinningAnalysis {
     /// Create a lazily allocated level without mutating the visible hierarchy.
     ///
     /// This mirrors `ensure_level` for staged updates, deriving the next block
-    /// size from either the latest staged level or the existing hierarchy.
-    fn new_staged_level(&self, level_index: usize) -> BinningLevel {
-        let block_size = if level_index == 0 {
-            1
-        } else if let Some((_, previous)) = self.staged_levels.last() {
-            previous.block_size.saturating_mul(2)
-        } else {
-            self.levels[level_index - 1].block_size.saturating_mul(2)
-        };
+    /// size from the latest staged level. An empty staged hierarchy is always
+    /// creating level zero.
+    fn new_staged_level(&self) -> BinningLevel {
+        let block_size = self
+            .staged_levels
+            .last()
+            .map_or(1, |(_, previous)| previous.block_size.saturating_mul(2));
 
         BinningLevel::new(block_size)
     }
