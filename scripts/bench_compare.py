@@ -273,7 +273,8 @@ def render_report(
             "just performance-local",
             "just performance-github-assets",
             "just performance-release",
-            "just performance-rerender",
+            "just performance-doc",
+            "just performance-readme",
             "just performance-release <current-tag> <baseline-tag>",
             "```",
             "",
@@ -299,6 +300,7 @@ def _write_text(path: Path, text: str) -> None:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="",
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",

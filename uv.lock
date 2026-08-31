@@ -787,11 +787,7 @@ dev = [
     { name = "ty" },
 ]
 notebook = [
-    { name = "ipykernel" },
-    { name = "matplotlib" },
-    { name = "nbclient" },
-    { name = "nbformat" },
-    { name = "polars" },
+    { name = "markov-chain-monte-carlo-tooling", extra = ["notebook"] },
 ]
 
 [package.metadata]
@@ -813,13 +809,7 @@ dev = [
     { name = "semgrep", specifier = "==1.175.0" },
     { name = "ty", specifier = ">=0.0.66" },
 ]
-notebook = [
-    { name = "ipykernel", specifier = ">=7.3.0" },
-    { name = "matplotlib", specifier = ">=3.11.1" },
-    { name = "nbclient", specifier = ">=0.11.0" },
-    { name = "nbformat", specifier = ">=5.10.4" },
-    { name = "polars", specifier = ">=1.43.2" },
-]
+notebook = [{ name = "markov-chain-monte-carlo-tooling", extras = ["notebook"] }]
 
 [[package]]
 name = "matplotlib"

@@ -15,7 +15,8 @@ profiling. Benchmark results are empirical and machine-dependent; they are not c
 | `just performance-local` | Compare the current working tree with the latest stable published release in isolated worktrees | `target/bench-reports/performance.{csv,provenance.json,md}` |
 | `just performance-github-assets` | Compare the two latest durable GitHub Release benchmark assets without running Cargo | `target/bench-reports/github-assets-performance.{csv,provenance.json,md}` |
 | `just performance-release` | Persist, validate, and promote the release comparison and its evidence; archive the previous curated report | `target/bench-reports/release-performance.{csv,provenance.json}`, `docs/PERFORMANCE.md`, and `docs/archive/performance/` |
-| `just performance-rerender` | Rebuild and promote the curated report and tracked evidence solely from saved release measurements | `docs/PERFORMANCE.md` and `docs/archive/performance/` |
+| `just performance-doc` | Rebuild and promote the curated report and tracked evidence solely from saved release measurements | `docs/PERFORMANCE.md` and `docs/archive/performance/` |
+| `just performance-readme` | Publish the README table, SVG, and tag-pinned links from validated retained release evidence | Marked README section and `docs/archive/performance/<current>-vs-<baseline>.svg` |
 | `just bench` | Run the full current Criterion harness for profiling or exploration | `target/criterion/` |
 
 `just bench-compare <baseline>`, `just performance-github-assets <current-tag> <baseline-tag>`, and
@@ -155,12 +156,22 @@ just performance-release v0.4.1 v0.4.0
 After a successful measurement, rerender the report without GitHub access, Git worktrees, or Cargo:
 
 ```bash
-just performance-rerender
+just performance-doc
+just performance-readme
 ```
 
 Rerendering reads only the release CSV and its adjacent provenance file. It rejects reordered or malformed rows, mismatched release metadata, changed report
 settings, and any CSV whose SHA-256 digest no longer matches the sidecar. Promotion publishes the Markdown and tracked evidence pair in one rollback-safe
 transaction, so a partial write cannot leave the curated report pointing at missing evidence.
+
+README publication reads the same tracked CSV/JSON schema and validates the current release pair before rendering. It checks each tracked destination for
+repository containment, then publishes the marked README section and SVG together with rollback on failure. Missing CSV or JSON directs the maintainer to
+`just performance-release` before changing the README; a digest mismatch reports an integrity error. The plot shows point-estimate time ratios, not mixing,
+convergence, effective sample size, or statistical significance. Keep local release tags current: README publication checks an existing tag with read-only
+Git commands and requires its report, CSV, JSON, and SVG to match exactly. Repaired or same-version evidence that differs must stay local or be published as
+part of a newly prepared release. New-release working-tree evidence may target its future tag; commit all linked artifacts before creating it. Same-version
+comparisons retain their working-tree label. With unchanged evidence and the locked rendering environment, both publication commands produce unchanged
+contents; rerunning measurements can produce different observations.
 
 The checked-in v0.4.1 report predates tracked compact evidence and is explicitly labeled legacy and non-reproducible. Its CSV measurements, JSON provenance
 with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable. Until the next committed

@@ -39,7 +39,7 @@ jobs:
           cache: false
 
       - name: Set up just
-        uses: ./.github/actions/setup-just
+        uses: $/.github/actions/setup-just
 
       - name: Export Python version
         id: python_version

@@ -473,14 +473,27 @@ def _cargo_add_references(path: Path, package_name: str) -> list[VersionReferenc
     return references
 
 
-def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionReference]:
-    """Return release-pinned README links that should track the package version."""
+def _readme_tag_link_pattern(repository_slug: str, *, include_main: bool = False) -> re.Pattern[str]:
+    """Match owned README links while retaining their artifact paths."""
     escaped_slug = re.escape(repository_slug)
-    tag_link_re = re.compile(
+    branch = "main|" if include_main else ""
+    return re.compile(
         rf"https://(?:github\.com/{escaped_slug}/(?:blob|raw|tree)/|raw\.githubusercontent\.com/{escaped_slug}/)"
         r"(?:v(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)"
-        r"|(?P<revision>[0-9a-f]{7,40}))(?=/|$|[^0-9A-Za-z._+-])"
+        rf"|(?P<revision>{branch}[0-9a-f]{{7,40}}))(?=/|$|[^0-9A-Za-z._+-])"
+        r'(?P<path>/[^\s)\]>"?#]*)?'
     )
+
+
+def is_performance_artifact_link(match: re.Match[str]) -> bool:
+    """Keep measured artifacts pinned to their measured release during metadata updates."""
+    path = match.group("path") or ""
+    return path == "/docs/PERFORMANCE.md" or path.startswith("/docs/archive/performance/")
+
+
+def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionReference]:
+    """Return release-pinned, non-artifact README links that track the package version."""
+    tag_link_re = _readme_tag_link_pattern(repository_slug)
     references: list[VersionReference] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         references.extend(
@@ -492,6 +505,7 @@ def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionRefe
                 line.strip(),
             )
             for match in tag_link_re.finditer(line)
+            if not is_performance_artifact_link(match)
         )
     return references
 

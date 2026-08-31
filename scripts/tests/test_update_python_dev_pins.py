@@ -113,6 +113,39 @@ def test_resolve_latest_pins_keeps_ranged_constraints(
     ]
 
 
+def test_resolution_retains_project_and_compound_constraints_on_managed_distributions() -> None:
+    manifest = project_text("packaging==26.2", "packaging<27", "packaging!=26.4; python_version >= '3.14'", "ruff==0.16.2,!=0.16.3")
+    _python, pins = update_python_dev_pins.parse_project(manifest)
+
+    assert update_python_dev_pins._resolution_requirements(manifest, pins).splitlines() == [
+        "packaging>=26",
+        "packaging",
+        "packaging<27",
+        "packaging!=26.4; python_version >= '3.14'",
+        "ruff==0.16.2,!=0.16.3",
+    ]
+
+
+def test_symlinked_lock_is_rejected_before_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest = tmp_path / "pyproject.toml"
+    manifest.write_text(project_text("ruff==0.16.2"), encoding="utf-8")
+    retained = tmp_path / "retained.lock"
+    retained.write_bytes(b"must not change\n")
+    lock = tmp_path / "uv.lock"
+    try:
+        lock.symlink_to(retained)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this runner")
+    original = manifest.read_bytes()
+    monkeypatch.setattr(update_python_dev_pins, "run_safe_command", lambda *_args, **_kwargs: pytest.fail("uv ran before rejecting a symlink"))
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        update_python_dev_pins.update_dev_pins(manifest)
+    assert manifest.read_bytes() == original
+    assert retained.read_bytes() == b"must not change\n"
+    assert lock.is_symlink()
+
+
 def test_update_dev_pins_resolves_then_applies_one_transaction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -149,6 +182,11 @@ def test_update_dev_pins_resolves_then_applies_one_transaction(
         "uv",
         ["add", "--dev", "--no-sync", "ruff==0.16.4", "semgrep==1.174.0"],
     )
+    snapshot = (pyproject.read_bytes(), uv_lock.read_bytes())
+    assert update_python_dev_pins.update_dev_pins(pyproject) == {}
+    assert len(calls) == 3
+    assert calls[-1][1][:2] == ["pip", "compile"]
+    assert (pyproject.read_bytes(), uv_lock.read_bytes()) == snapshot
 
 
 def test_update_dev_pins_rolls_back_collateral_manifest_changes(

@@ -351,13 +351,13 @@ def _publish_texts(outputs: tuple[tuple[Path, str], ...]) -> None:
         msg = "transactional publication requires unique output paths"
         raise ValueError(msg)
 
-    previous = {path: path.read_text(encoding="utf-8") if path.exists() else None for path in paths}
+    previous = {path: path.read_bytes().decode("utf-8") if path.exists() else None for path in paths}
     completed: list[Path] = []
     try:
         for path, text in outputs:
             _write_text(path, text)
             completed.append(path)
-    except (OSError, RuntimeError) as error:
+    except BaseException as error:
         rollback_failures: list[str] = []
         for path in reversed(completed):
             try:
@@ -814,6 +814,10 @@ def _artifact_from_text(csv_text: str, provenance_text: str) -> ComparisonArtifa
 def load_comparison_artifact(csv_path: Path) -> ComparisonArtifact:
     """Load and validate a CSV comparison and its adjacent provenance JSON."""
     sidecar = provenance_path(csv_path)
+    for path in (csv_path, sidecar):
+        if not path.is_file():
+            msg = f"retained release evidence is missing: {path}; run just performance-release before publication"
+            raise FileNotFoundError(msg)
     return _artifact_from_text(csv_path.read_text(encoding="utf-8"), sidecar.read_text(encoding="utf-8"))
 
 
@@ -1557,7 +1561,7 @@ def _rerender_measurements_path(repo_root: Path, configured_path: str) -> Path:
     curated_pair = parse_report_id(current_report.read_text(encoding="utf-8"))
     path = repo_root / "docs" / "archive" / "performance" / f"{curated_pair.evidence_stem}.csv"
     if not path.is_file():
-        msg = f"tracked evidence is unavailable for the current curated report: {path}; pass an explicit CSV path or promote the next release comparison first"
+        msg = f"tracked evidence is unavailable for the current curated report: {path}; run just performance-release or pass an explicit CSV path"
         raise FileNotFoundError(msg)
     return path
 

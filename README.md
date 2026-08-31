@@ -93,12 +93,13 @@ For the detailed contract, see the
 - [📦 Cargo features](#-cargo-features)
 - [🧪 Examples](#-examples)
 - [📖 Documentation](#-documentation)
+- [Performance](#performance)
 - [👀 Reviewer guide](#-reviewer-guide)
 - [🧩 Ecosystem](#-ecosystem)
 - [🤝 Contributing](#-contributing)
 - [📚 Citation](#-citation)
 - [🔎 References](#-references)
-- [🤖 AI-assisted development](#-ai-assisted-development)
+- [🤖 AI Agents](#-ai-agents)
 - [📜 License](#-license)
 
 ## 🚀 Quick start
@@ -233,6 +234,16 @@ The Ising trace notebook lives at
 - [Release process](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/RELEASING.md)
 - [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/SECURITY.md)
 
+## Performance
+
+<!-- PERFORMANCE:BEGIN -->
+
+The next complete release comparison will publish a table and plot here from retained measurements. The
+[legacy report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/PERFORMANCE.md) predates retained evidence and cannot be reproduced.
+See the [benchmark methodology](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/BENCHMARKING.md) for workload contracts and limits.
+
+<!-- PERFORMANCE:END -->
+
 ## 👀 Reviewer guide
 
 For a short reading path through the repository's scientific contract, validation strategy, roadmap boundaries, and reproducible local checks, see
@@ -271,23 +282,12 @@ If you use this crate in academic work or downstream research software, please c
 For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
 [`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md).
 
-## 🤖 AI-assisted development
+## 🤖 AI Agents
 
-This repository contains an `AGENTS.md` file, which defines the rules and invariants for AI coding assistants and autonomous agents working on this codebase.
-
-Portions of this library were developed with the assistance of AI tools including [ChatGPT], [Claude], [Codex], and [CodeRabbit].
-
-All accepted code and documentation changes are reviewed, edited, and validated by the author.
-
-For tool citation metadata, see the
-[AI-assisted development tools](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md#ai-assisted-development-tools) section of
-`REFERENCES.md`.
+AI coding assistants should read [`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/AGENTS.md) before proposing or applying changes.
+See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CONTRIBUTING.md#ai-assisted-development) for the repository's AI-assisted
+development note.
 
 ## 📜 License
 
 This project is licensed under the [BSD 3-Clause License](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/LICENSE).
-
-[ChatGPT]: https://openai.com/chatgpt
-[Claude]: https://www.anthropic.com/claude
-[Codex]: https://openai.com/codex
-[CodeRabbit]: https://coderabbit.ai/

@@ -6,10 +6,11 @@ Python utilities used by local repository workflows.
 
 ```bash
 just bench-compare [baseline]
+just performance-doc [measurements-path]
 just performance-local
 just performance-github-assets [current-tag baseline-tag]
+just performance-readme
 just performance-release [current-tag baseline-tag]
-just performance-rerender [measurements-path]
 ```
 
 `bench-compare` discovers Criterion samples below `target/criterion`, compares `new` with a saved baseline, and writes Markdown under
@@ -18,10 +19,16 @@ worktrees. GitHub Release comparisons resolve two published tags and consume the
 `performance-*` command writes deterministic CSV plus structured JSON provenance below `target/bench-reports/`, reloads those files, and renders Markdown from
 the validated artifact. Release-promotion runs infer or accept a release pair, measure it in isolated worktrees, and safely promote one curated report into
 `docs/PERFORMANCE.md` while preserving prior reports and the promoted CSV/JSON evidence under `docs/archive/performance/`. With no path,
-`performance-rerender` resolves the tracked evidence for the current curated report; an explicit path can rerender another saved pair. Both modes avoid GitHub
+`performance-doc` resolves the tracked evidence for the current curated report; an explicit path can rerender another saved pair. Both modes avoid GitHub
 access, Git worktrees, and Cargo. Native Criterion archives attached to GitHub Releases remain the richer raw evidence for historical reanalysis.
 The legacy v0.4.1 curated report predates the tracked pair, so no-argument rerendering becomes available after the next release promotion; use an explicit
 generated CSV path for a pre-migration repair.
+
+`performance-readme` uses the same validated retained CSV/JSON pair to generate the marked README table and a deterministic SVG beside the evidence, with
+tag-pinned links. It does not run benchmarks or discover releases. Read-only Git checks require existing tags to contain the exact report, CSV, JSON, and
+rendered SVG; repaired or same-version evidence that differs stays local. A new-release working-tree comparison can target its future tag; keep local release
+tags current and commit every linked artifact before creating that tag. Missing evidence fails before publication with `just performance-release` recovery
+guidance; invalid digests remain integrity errors. Both README and SVG are prepared before replacement, with rollback on publication failure.
 
 Installed `bench-compare` and `archive-performance` commands resolve relative paths from the current directory by default. Run them from the repository root or
 pass `--repo-root` explicitly.
@@ -42,8 +49,16 @@ updates Cargo requirements and lockfiles, upgrades those managed Cargo tools, re
 ## Release Metadata
 
 ```bash
+TAG=vX.Y.Z
+just update-version "$TAG"
+just changelog-unreleased "$TAG"
 just release-check
 ```
+
+`update-release-version` infers the previous stable published GitHub release, prepares versions, UTC dates, and active documentation references, validates
+them, and replaces them transactionally. It preserves dependency versions, the concept DOI, and existing performance artifact links. Same-tag reruns on the
+same UTC day leave contents unchanged; another UTC day updates citation and existing target changelog dates. The changelog recipe uses its offline
+`--sync-changelog-date` mode after generation. No benchmark measurement or dependency upgrade is part of metadata preparation.
 
 `release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
 `CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation. It also checks that the citation
@@ -70,8 +85,11 @@ that installable extra for `uv`-managed development workflows.
 
 ```bash
 just changelog
-just changelog-unreleased v0.3.0
+just changelog-unreleased "$TAG"
 ```
+
+For unreleased notes, first prepare `$TAG` using the [Release Metadata](#release-metadata) sequence above. The tag must match the prepared Cargo and citation
+versions before generating the changelog.
 
 `just changelog` runs `git-cliff -o CHANGELOG.md` in offline mode and then `postprocess-changelog` to apply lightweight markdown hygiene. Configuration lives in
 `cliff.toml` at the repository root.

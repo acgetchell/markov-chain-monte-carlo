@@ -106,12 +106,14 @@ just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install managed tools and verify system prerequisites
 just update           # Update dependencies, managed Cargo tools, and tool pins
+just update-version vX.Y.Z # Prepare release metadata without dependency upgrades
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
 just release-check    # Validate synchronized release metadata and references
 just performance-release  # Persist, validate, and promote release benchmark evidence
-just performance-rerender # Rebuild the curated report from saved release evidence
+just performance-doc # Rebuild the curated report from saved release evidence
+just performance-readme # Publish the README table and SVG from retained evidence
 ```
 
 For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).

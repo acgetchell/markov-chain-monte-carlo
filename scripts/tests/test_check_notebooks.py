@@ -27,9 +27,11 @@ CONSOLE_SCRIPTS = {
     "bench-compare": "bench_compare",
     "check-notebooks": "check_notebooks",
     "postprocess-changelog": "postprocess_changelog",
+    "publish-performance-readme": "publish_performance_readme",
     "release-check": "release_check",
     "tag-release": "tag_release",
     "update-python-dev-pins": "update_python_dev_pins",
+    "update-release-version": "update_release_version",
     "update-tool-pins": "update_cargo_tool_pins",
 }
 
@@ -618,7 +620,8 @@ class TestCli:
 def tooling_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the published wheel once for outside-checkout consumer tests."""
     uv = shutil.which("uv")
-    assert uv is not None
+    if uv is None:
+        pytest.skip("uv is required to build the tooling wheel")
     output_dir = tmp_path_factory.mktemp("tooling-wheel")
     source_dir = output_dir / "source"
     source_dir.mkdir()
@@ -630,7 +633,6 @@ def tooling_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
             uv,
             "build",
             "--wheel",
-            "--offline",
             "--no-build-logs",
             "--out-dir",
             str(output_dir),

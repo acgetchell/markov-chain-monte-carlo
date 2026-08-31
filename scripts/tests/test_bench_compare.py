@@ -70,6 +70,9 @@ def test_render_report_includes_release_pair_and_coverage_notes(tmp_path: Path) 
     assert "CI relation" not in report
     assert "Current-only rows without a saved baseline:" in report
     assert "`chain/new_path`" in report
+    assert "just performance-doc\n" in report
+    assert "just performance-readme\n" in report
+    assert "performance-rerender" not in report
     assert max(map(len, report.splitlines())) <= 160
 
 

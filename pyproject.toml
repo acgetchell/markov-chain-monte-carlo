@@ -35,14 +35,16 @@ archive-performance = "archive_performance:main"
 bench-compare = "bench_compare:main"
 check-notebooks = "check_notebooks:main"
 postprocess-changelog = "postprocess_changelog:main"
+publish-performance-readme = "publish_performance_readme:main"
 release-check = "release_check:main"
 tag-release = "tag_release:main"
 update-python-dev-pins = "update_python_dev_pins:main"
+update-release-version = "update_release_version:main"
 update-tool-pins = "update_cargo_tool_pins:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "release_check", "subprocess_utils", "tag_release", "update_cargo_tool_pins", "update_python_dev_pins" ]
+py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "publish_performance_readme", "release_check", "subprocess_utils", "tag_release", "update_cargo_tool_pins", "update_python_dev_pins", "update_release_version" ]
 
 [dependency-groups]
 dev = [
@@ -52,13 +54,7 @@ dev = [
     "semgrep==1.175.0",
     "ty>=0.0.66",
 ]
-notebook = [
-    "ipykernel>=7.3.0",
-    "matplotlib>=3.11.1",
-    "nbclient>=0.11.0",
-    "nbformat>=5.10.4",
-    "polars>=1.43.2",
-]
+notebook = [ "markov-chain-monte-carlo-tooling[notebook]" ]
 
 [tool.ruff]
 line-length = 160
@@ -104,11 +100,13 @@ known-first-party = [
     "bench_compare",
     "check_notebooks",
     "postprocess_changelog",
+    "publish_performance_readme",
     "release_check",
     "subprocess_utils",
     "tag_release",
     "update_cargo_tool_pins",
     "update_python_dev_pins",
+    "update_release_version",
 ]
 force-single-line = false
 split-on-trailing-comma = true

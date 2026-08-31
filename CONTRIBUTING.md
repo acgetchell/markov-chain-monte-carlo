@@ -16,6 +16,7 @@ agents and autonomous tooling should follow [`AGENTS.md`](AGENTS.md), which is t
 - [Performance and Benchmarking](#performance-and-benchmarking)
 - [Submitting Changes](#submitting-changes)
 - [Types of Contributions](#types-of-contributions)
+- [AI-Assisted Development](#ai-assisted-development)
 - [Release Process](#release-process)
 - [Getting Help](#getting-help)
 
@@ -97,6 +98,10 @@ This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.
 **No manual toolchain setup is needed** — just have `rustup` installed ([rustup.rs][rustup]).
 
 ### External Tools
+
+Install Git, Bash, `rustup`/Cargo with a native compiler/linker, the pinned [just](https://github.com/casey/just) and `uv`, and `jq` before running setup.
+The expected tool versions live in the root justfile. Release discovery and publication additionally require an authenticated
+[GitHub CLI](https://cli.github.com/); setup does not install `gh`.
 
 `just setup` installs repository-managed tools and verifies the system prerequisites the project relies on:
 
@@ -382,14 +387,16 @@ Benchmarks live in [`benches/`](benches/) and use [Criterion](https://docs.rs/cr
 just bench-latest           # run the fixed-seed release-signal set
 just bench-latest-vs-last   # rerun and compare with the saved local baseline
 just performance-local      # compare the current tree with the latest stable release
-just performance-rerender   # rebuild the curated report from saved release measurements
+just performance-doc   # rebuild the curated report from saved release measurements
+just performance-readme    # publish the README table and SVG from retained evidence
 just bench                  # run all benchmarks for broader profiling
 just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
 Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to save validated CSV/JSON evidence
-and update the curated report, `just performance-rerender` to reproduce that report without remeasuring, and `just performance-github-assets` for comparisons
+and update the curated report, `just performance-doc` to reproduce it, `just performance-readme` to publish its table and plot without remeasuring,
+and `just performance-github-assets` for comparisons
 that consume durable release artifacts without local measurements. See
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
@@ -491,18 +498,35 @@ descriptions or review notes instead.
 - Improve `docs/*.md` topic guides
 - Add references to [`REFERENCES.md`](REFERENCES.md) and cite them from the relevant docs
 
+## AI-Assisted Development
+
+This repository contains an [`AGENTS.md`](AGENTS.md) file, which defines the canonical rules and invariants for AI coding assistants and autonomous agents
+working on this codebase.
+
+AI tools, including ChatGPT, Claude, CodeRabbit, and Codex, are expected to read and follow `AGENTS.md` when proposing or applying changes.
+
+Portions of this library were developed with the assistance of these tools:
+
+- [ChatGPT](https://openai.com/chatgpt)
+- [Claude](https://www.anthropic.com/claude)
+- [CodeRabbit](https://coderabbit.ai/)
+- [Codex](https://openai.com/codex)
+
+All AI-assisted work must be reviewed and validated by a human maintainer before it is merged.
+
+For full tool citation metadata, see the [AI-assisted development tools](REFERENCES.md#ai-assisted-development-tools) section of
+[`REFERENCES.md`](REFERENCES.md).
+
 ## Release Process
 
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
-1. Update version metadata in `Cargo.toml`, `CITATION.cff`, and `pyproject.toml`; refresh `Cargo.lock` and `uv.lock`.
-2. Regenerate `CHANGELOG.md` for the new tag: `just changelog-unreleased v0.X.Y`.
-3. Run `just release-check` to confirm the release metadata and active current-version references agree.
-4. Run `just performance-release`, review the curated report, and confirm it reproduces with `just performance-rerender`.
-5. Run `just fix`, `just ci`, and `just publish-check` for the final local release validation.
-6. Commit and push the release PR.
-7. After merge, tag the release with `just tag v0.X.Y` and create the GitHub Release.
-8. Publish to crates.io.
+1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
+2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG"`.
+3. Run `just performance-release`, review the retained evidence, and publish the README table and SVG with `just performance-readme`.
+4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
+5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
+6. Publish to crates.io, create the GitHub Release, verify the durable Criterion baseline attachment, and delete the merged release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
