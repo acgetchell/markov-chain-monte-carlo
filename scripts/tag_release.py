@@ -251,6 +251,12 @@ def _cargo_package_version(cargo_toml: Path) -> str:
     return version
 
 
+def _print_status(message: str) -> None:
+    """Escape characters unsupported by redirected or legacy console output."""
+    encoding = sys.stdout.encoding or "utf-8"
+    print(message.encode(encoding, errors="backslashreplace").decode(encoding))
+
+
 def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> None:
     """Create an annotated git tag with changelog content.
 
@@ -282,7 +288,7 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
 
     # Check size limit
     if section_bytes > _GITHUB_TAG_ANNOTATION_LIMIT:
-        print(f"{_YELLOW}⚠ Changelog section ({section_bytes:,} bytes) exceeds GitHub's tag limit ({_GITHUB_TAG_ANNOTATION_LIMIT:,} bytes){_RESET}")
+        _print_status(f"{_YELLOW}⚠ Changelog section ({section_bytes:,} bytes) exceeds GitHub's tag limit ({_GITHUB_TAG_ANNOTATION_LIMIT:,} bytes){_RESET}")
         anchor = _github_anchor(changelog, version)
         repo_url = _get_repo_url()
         tag_message = (
@@ -292,14 +298,14 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
             f"For detailed release notes, refer to CHANGELOG.md in the repository.\n"
         )
         is_truncated = True
-        print(f"{_BLUE}→ Creating annotated tag with CHANGELOG.md reference{_RESET}")
+        _print_status(f"{_BLUE}→ Creating annotated tag with CHANGELOG.md reference{_RESET}")
     else:
         tag_message = section
         is_truncated = False
         print(f"{_BLUE}Tag message preview ({section_bytes:,} bytes):{_RESET}")
         preview = section.split("\n")[:20]
         print("----------------------------------------")
-        print("\n".join(preview))
+        _print_status("\n".join(preview))
         if len(section.split("\n")) > 20:
             print("... (truncated for preview)")
         print("----------------------------------------")
@@ -316,7 +322,7 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
     run_git_command_with_input(command, input_data=tag_message)
 
     # Success
-    print(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")
+    _print_status(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")
     print()
     print("Next steps:")
     if force:

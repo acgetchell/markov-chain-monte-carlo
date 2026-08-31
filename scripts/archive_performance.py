@@ -935,7 +935,18 @@ def temporary_worktree(repo_root: Path, parent: Path, name: str, reference: str)
 
 def apply_current_tree(repo_root: Path, worktree: Path) -> None:
     """Apply tracked and untracked current-tree content to an isolated worktree."""
-    patch = run_git_command(["--no-pager", "diff", "--binary", "HEAD"], cwd=repo_root, timeout=_COMMAND_TIMEOUT_SECONDS).stdout
+    # A text stdout pipe would normalize CRLF patch content or reject non-UTF-8 bytes.
+    with tempfile.TemporaryFile(mode="w+b") as patch_file:
+        run_git_command(
+            ["--no-pager", "diff", "--binary", "HEAD"],
+            cwd=repo_root,
+            timeout=_COMMAND_TIMEOUT_SECONDS,
+            capture_output=False,
+            stdout=patch_file,
+            stderr=subprocess.PIPE,
+        )
+        patch_file.seek(0)
+        patch = patch_file.read()
     if patch:
         run_git_command_with_input(
             ["apply", "--binary", "--whitespace=nowarn"],

@@ -126,9 +126,11 @@ class TestRunGitCommand:
 
 class TestRunGitCommandWithInput:
     @pytest.mark.parametrize(
-        "contents", ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0"], ids=["empty", "lf", "crlf", "cr", "mixed-unicode"]
+        "contents",
+        ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0", b"line\r\n", b"byte\xe9\r\n\0"],
+        ids=["empty", "lf", "crlf", "cr", "mixed-unicode", "bytes-crlf", "raw-bytes"],
     )
-    def test_preserves_stdin_bytes_with_windows_text_pipes(self, monkeypatch: pytest.MonkeyPatch, contents: str) -> None:
+    def test_preserves_stdin_bytes_with_windows_text_pipes(self, monkeypatch: pytest.MonkeyPatch, contents: str | bytes) -> None:
         monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
 
         def windows_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
@@ -147,17 +149,20 @@ class TestRunGitCommandWithInput:
         result = run_git_command_with_input(["--no-pager", "hash-object", "--stdin"], contents)
 
         assert result.returncode == 0
-        assert result.stdout == contents.encode("utf-8").hex() + "\n"
+        expected = contents.encode("utf-8") if isinstance(contents, str) else contents
+        assert result.stdout == expected.hex() + "\n"
         assert result.stderr == ""
 
     @pytest.mark.parametrize(
-        "contents", ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0"], ids=["empty", "lf", "crlf", "cr", "mixed-unicode"]
+        "contents",
+        ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0", b"line\r\n", b"byte\xe9\r\n\0"],
+        ids=["empty", "lf", "crlf", "cr", "mixed-unicode", "bytes-crlf", "raw-bytes"],
     )
-    def test_hashes_the_same_bytes_as_a_literal_file(self, tmp_path: Path, contents: str) -> None:
+    def test_hashes_the_same_bytes_as_a_literal_file(self, tmp_path: Path, contents: str | bytes) -> None:
         if shutil.which("git") is None:
             pytest.skip("git is required to compare stdin with file hashing")
         source = tmp_path / "payload.txt"
-        source.write_bytes(contents.encode("utf-8"))
+        source.write_bytes(contents.encode("utf-8") if isinstance(contents, str) else contents)
         expected = run_git_command(["--no-pager", "hash-object", "--no-filters", str(source)], cwd=tmp_path, timeout=30)
 
         actual = run_git_command_with_input(["--no-pager", "hash-object", "--no-filters", "--stdin"], contents, cwd=tmp_path, timeout=30)

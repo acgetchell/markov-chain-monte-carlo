@@ -101,14 +101,15 @@ def run_git_command(
 
 def run_git_command_with_input(
     args: list[str],
-    input_data: str,
+    input_data: str | bytes,
     cwd: Path | None = None,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
-    """Run Git with exact encoded stdin and decoded text output.
+    """Run Git with byte-exact stdin and decoded text output.
 
     Transport stdin as bytes so Windows cannot translate LF to CRLF or double
     the CR in existing CRLF content. Git owns any path-specific clean filters.
+    Strings are encoded once; supplied bytes are passed through unchanged.
     Captured output and command-error diagnostics retain text-mode decoding.
 
     Args:
@@ -139,7 +140,7 @@ def run_git_command_with_input(
     result = subprocess.run(  # noqa: S603
         [git_path, *args],
         cwd=cwd,
-        input=input_data.encode(encoding, errors),
+        input=input_data.encode(encoding, errors) if isinstance(input_data, str) else input_data,
         text=False,
         check=False,
         **run_kwargs,

@@ -5,17 +5,19 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tarfile
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
 
 import archive_performance
 import bench_compare
+from subprocess_utils import run_safe_command
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -1118,15 +1120,17 @@ def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
     untracked.parent.mkdir(parents=True)
     untracked.write_text("fixture\n", encoding="utf-8")
     worktree.mkdir()
-    applied: list[tuple[list[str], str, Path]] = []
+    applied: list[tuple[list[str], bytes, Path]] = []
     git_calls: list[list[str]] = []
 
-    def fake_git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def fake_git(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         git_calls.append(args)
-        stdout = "tracked patch\n" if "diff" in args else f"{relative_name}\0"
-        return subprocess.CompletedProcess(args, 0, stdout=stdout)
+        if "diff" in args:
+            kwargs["stdout"].write(b"tracked patch\n")
+            return subprocess.CompletedProcess(args, 0)
+        return subprocess.CompletedProcess(args, 0, stdout=f"{relative_name}\0")
 
-    def fake_git_with_input(args: list[str], input_text: str, *, cwd: Path, **_kwargs: object) -> object:
+    def fake_git_with_input(args: list[str], input_text: bytes, *, cwd: Path, **_kwargs: object) -> object:
         applied.append((args, input_text, cwd))
         return subprocess.CompletedProcess(args, 0)
 
@@ -1136,10 +1140,35 @@ def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
     archive_performance.apply_current_tree(repo_root, worktree)
 
     assert applied == [
-        (["apply", "--binary", "--whitespace=nowarn"], "tracked patch\n", worktree),
+        (["apply", "--binary", "--whitespace=nowarn"], b"tracked patch\n", worktree),
     ]
     assert git_calls[-1] == ["ls-files", "--others", "--exclude-standard", "-z", "--"]
     assert (worktree / relative_name).read_text(encoding="utf-8") == "fixture\n"
+
+
+@pytest.mark.parametrize("patch_bytes", [b"context\r\n+changed\r\n", b"context\n+changed\r\n", b"+byte\xe9\r\n"])
+def test_apply_current_tree_preserves_patch_output_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patch_bytes: bytes,
+) -> None:
+    applied: list[str | bytes] = []
+
+    def emit_git_output(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "diff" in args:
+            return run_safe_command(sys.executable, ["-c", f"import sys; sys.stdout.buffer.write({patch_bytes!r})"], **kwargs)
+        return subprocess.CompletedProcess(args, 0, stdout="")
+
+    def capture_patch(args: list[str], input_data: str | bytes, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        applied.append(input_data)
+        return subprocess.CompletedProcess(args, 0, stdout="")
+
+    monkeypatch.setattr(archive_performance, "run_git_command", emit_git_output)
+    monkeypatch.setattr(archive_performance, "run_git_command_with_input", capture_patch)
+
+    archive_performance.apply_current_tree(tmp_path, tmp_path)
+
+    assert applied == [patch_bytes]
 
 
 def test_apply_current_tree_rejects_untracked_symlinks(

@@ -11,13 +11,26 @@ toolchain, the pinned `just` and `uv`, and `jq`. Run `just setup` to install man
 `uv` and `jq` before managed installations; it does not install these system prerequisites. Install and authenticate GitHub CLI (`gh auth login`) for stable
 release discovery and publication. Network access is required for dependency refreshes, GitHub discovery, and uncached benchmark builds.
 
-## Preparation sequence
+### Dependency and tool refresh
 
-The commands below are the canonical order. Run `just update` first and review, validate, and merge its dependency/tool changes separately. Then choose the
-release tag once and create the release branch before preparing metadata. The only manually supplied release value is `TAG`:
+Run the dependency and tool refresh as a separate maintenance change before release preparation:
 
 ```bash
 just update
+```
+
+`just update` updates Cargo requirements and lockfiles, resolves exact `dependency-groups.dev` pins as one compatible set, upgrades the managed Cargo tools,
+reconciles their pins and the active uv pin, and syncs Python. The Python resolver retains project and other development constraints, including constraints
+on the same distribution as an exact pin. Ranged, compound, wildcard, marked, runtime, and build requirements are not rewritten. Symlinked `uv.lock` is
+rejected before resolving or mutating pins. Review and validate all dependency, lockfile, and tool-pin changes, then merge them into `main` before creating
+`release/$TAG`. Do not carry unreviewed dependency changes into the release branch.
+
+## Preparation sequence
+
+After the prerequisite changes are merged, start with a clean working tree. The commands below update `main` to the reviewed changes and create the release
+branch before preparing metadata. The only manually supplied release value is `TAG`:
+
+```bash
 TAG=vX.Y.Z
 git checkout main
 git pull --ff-only
@@ -29,13 +42,6 @@ just performance-readme
 just ci
 cargo publish --locked --allow-dirty --dry-run
 ```
-
-### Dependency and tool refresh
-
-`just update` updates Cargo requirements and lockfiles, resolves exact `dependency-groups.dev` pins as one compatible set, upgrades the managed Cargo tools,
-reconciles their pins and the active uv pin, and syncs Python. The Python resolver retains project and other development constraints, including constraints
-on the same distribution as an exact pin. Ranged, compound, wildcard, marked, runtime, and build requirements are not rewritten. Symlinked `uv.lock` is
-rejected before resolving or mutating pins. Review the dependency diff and validate it before opening the release PR.
 
 ### Release metadata
 

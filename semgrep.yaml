@@ -73,6 +73,7 @@ rules:
           - pattern: run_safe_command("git", ..., input=$INPUT, ...)
           - pattern: subprocess_utils.run_safe_command("git", ..., input=$INPUT, ...)
           - pattern: subprocess.run(["git", ...], ..., input=$INPUT, ...)
+          - pattern: subprocess.Popen(["git", ...], ..., stdin=subprocess.PIPE, ...)
       - pattern-not: $CALL(..., input=None, ...)
 
   - id: mcmc.python.text-writes-explicit-policy

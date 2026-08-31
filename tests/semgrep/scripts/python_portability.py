@@ -55,6 +55,13 @@ def git_input_routing(payload, argv) -> None:
     subprocess.run(["git", "hash-object", "--stdin"], input=payload, text=True)
     # ruleid: mcmc.python.git-stdin-use-shared-helper
     run_process(["git", "hash-object", "--stdin"], input=payload, text=True)
+    # ruleid: mcmc.python.git-stdin-use-shared-helper
+    process = subprocess.Popen(["git", "hash-object", "--stdin"], stdin=subprocess.PIPE, text=True)
+    process.communicate(payload)
+    # Even binary Git input must go through the shared helper.
+    # ruleid: mcmc.python.git-stdin-use-shared-helper
+    process = subprocess.Popen(["git", "hash-object", "--stdin"], stdin=subprocess.PIPE, text=False)
+    process.communicate(payload.encode("utf-8"))
 
     # ok: mcmc.python.git-stdin-use-shared-helper
     git_input(argv, payload)
@@ -69,6 +76,12 @@ def git_input_routing(payload, argv) -> None:
     run_safe_command("ruff", ["check", "-"], input=payload)
     # ok: mcmc.python.git-stdin-use-shared-helper, mcmc.python.git-stdin-binary-transport
     subprocess.run(["formatter"], input=payload, text=True, encoding="utf-8")
+    # ok: mcmc.python.git-stdin-use-shared-helper, mcmc.python.git-stdin-binary-transport
+    process = subprocess.Popen(["formatter"], stdin=subprocess.PIPE, text=True, encoding="utf-8")
+    process.communicate(payload)
+    # Git commands without piped stdin do not need the input helper.
+    # ok: mcmc.python.git-stdin-use-shared-helper, mcmc.python.git-stdin-binary-transport
+    subprocess.Popen(["git", "status"], stdout=subprocess.PIPE, text=True)
 
 
 def path_text_writes(path: Path, contents: str, newline_policy: str) -> None:
