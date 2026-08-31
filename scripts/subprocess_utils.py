@@ -101,11 +101,16 @@ def run_git_command(
 
 def run_git_command_with_input(
     args: list[str],
-    input_data: str,
+    input_data: str | bytes,
     cwd: Path | None = None,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a git command securely with stdin input using full executable path.
+    """Run Git with byte-exact stdin and decoded text output.
+
+    Transport stdin as bytes so Windows cannot translate LF to CRLF or double
+    the CR in existing CRLF content. Git owns any path-specific clean filters.
+    Strings are encoded once; supplied bytes are passed through unchanged.
+    Captured output and command-error diagnostics retain text-mode decoding.
 
     Args:
         args: Git command arguments (without 'git' prefix)
@@ -123,12 +128,27 @@ def run_git_command_with_input(
     """
     git_path = get_safe_executable("git")
     run_kwargs = _build_run_kwargs("run_git_command_with_input", **kwargs)
-    return subprocess.run(  # noqa: S603,PLW1510
+    encoding = run_kwargs.pop("encoding") or "utf-8"
+    errors = run_kwargs.pop("errors", None) or "strict"
+    check = run_kwargs.pop("check")
+    run_kwargs.pop("text")
+    run_kwargs.pop("universal_newlines", None)
+
+    def decode(output: bytes | None) -> str | None:
+        return None if output is None else output.decode(encoding, errors).replace("\r\n", "\n").replace("\r", "\n")
+
+    result = subprocess.run(  # noqa: S603
         [git_path, *args],
         cwd=cwd,
-        input=input_data,
+        input=input_data.encode(encoding, errors) if isinstance(input_data, str) else input_data,
+        text=False,
+        check=False,
         **run_kwargs,
     )
+    completed = subprocess.CompletedProcess(result.args, result.returncode, decode(result.stdout), decode(result.stderr))
+    if check:
+        completed.check_returncode()
+    return completed
 
 
 def run_safe_command(

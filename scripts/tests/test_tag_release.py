@@ -1,5 +1,6 @@
 """Tests for tag_release.py — annotated tag creation with size-limit handling."""
 
+import io
 import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -276,6 +277,43 @@ class TestCreateTag:
     @pytest.fixture(autouse=True)
     def _matching_cargo_metadata(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text('[package]\nname = "fixture"\nversion = "1.0.0"\n', encoding="utf-8")
+
+    @pytest.mark.parametrize(
+        ("section", "oversized"),
+        [("### Fixed\n\n- ASCII notes", False), ("### Fixed\n\n- Correct \u03bb sampling", False), ("### Fixed\n\n- Reference notes", True)],
+    )
+    def test_legacy_windows_stdout_does_not_break_tag_creation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        section: str,
+        oversized: bool,
+    ) -> None:
+        create_git_tag = MagicMock()
+        monkeypatch.setattr(tag_release, "find_changelog", lambda: tmp_path / "CHANGELOG.md")
+        monkeypatch.setattr(tag_release, "_tag_exists", lambda _tag: False)
+        monkeypatch.setattr(tag_release, "extract_changelog_section", lambda *_args: section)
+        monkeypatch.setattr(tag_release, "run_git_command_with_input", create_git_tag)
+        if oversized:
+            monkeypatch.setattr(tag_release, "_GITHUB_TAG_ANNOTATION_LIMIT", 1)
+            monkeypatch.setattr(tag_release, "_github_anchor", lambda *_args: "100")
+            monkeypatch.setattr(tag_release, "_get_repo_url", lambda: "https://github.com/example/project")
+
+        with io.BytesIO() as buffer, io.TextIOWrapper(buffer, encoding="cp1252", write_through=True) as output:
+            with monkeypatch.context() as context:
+                context.setattr(tag_release.sys, "stdout", output)
+                status = tag_release.main(["v1.0.0"])
+            rendered = buffer.getvalue().decode("cp1252")
+
+        assert status == 0
+        create_git_tag.assert_called_once()
+        assert create_git_tag.call_args.args == (["tag", "--annotate", "v1.0.0", "-F", "-", "--cleanup=verbatim"],)
+        if oversized:
+            assert "https://github.com/example/project/blob/v1.0.0/CHANGELOG.md#100" in create_git_tag.call_args.kwargs["input_data"]
+        else:
+            assert create_git_tag.call_args.kwargs["input_data"] == section
+        assert "Successfully created tag 'v1.0.0'" in rendered
+        assert "gh release create v1.0.0" in rendered
 
     def test_mismatched_package_version_fails_before_tag_lookup(
         self,

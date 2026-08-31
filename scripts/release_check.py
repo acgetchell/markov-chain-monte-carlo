@@ -30,6 +30,8 @@ SKIP_DIRS = frozenset(
 SKIP_MARKDOWN_FILES = frozenset({"CHANGELOG.md"})
 ZENODO_CONCEPT_DOI = "10.5281/zenodo.20033111"
 
+# Semgrep 1.175.0 falls back to tree-sitter for this alias; that parser
+# mishandles rf-string prefixes, so standalone regex f-strings below use escapes.
 type ParsedObject = dict[str, object]
 
 
@@ -186,7 +188,7 @@ def _read_python_project_info(pyproject_toml: Path) -> PythonProjectInfo:
 def _toml_table_key_line(path: Path, table_name: str, key: str) -> int:
     """Return the line number for *key* in a TOML table."""
     current_table: str | None = None
-    key_re = re.compile(rf"^{re.escape(key)}\s*=")
+    key_re = re.compile(f"^{re.escape(key)}\\s*=")
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
@@ -219,7 +221,7 @@ def _array_table_key_line(path: Path, table_name: str, table_index: int, key: st
     """Return the line for *key* inside the requested array-table entry."""
     current_index = -1
     in_target_table = False
-    key_re = re.compile(rf"^{re.escape(key)}\s*=")
+    key_re = re.compile(f"^{re.escape(key)}\\s*=")
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         stripped = line.strip()
         if stripped == f"[[{table_name}]]":
@@ -296,7 +298,7 @@ def _citation_reference(path: Path) -> VersionReference:
 
 _VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 _CHANGELOG_RELEASE_RE = re.compile(
-    rf"^##\s+(?P<opening_bracket>\[)?v?(?P<version>{_VERSION_PATTERN})(?(opening_bracket)\])\s+-\s+(?P<date>\d{{4}}-\d{{2}}-\d{{2}})\s*$"
+    f"^##\\s+(?P<opening_bracket>\\[)?v?(?P<version>{_VERSION_PATTERN})(?(opening_bracket)\\])\\s+-\\s+(?P<date>\\d{{4}}-\\d{{2}}-\\d{{2}})\\s*$"
 )
 
 
@@ -327,7 +329,7 @@ def _single_reference(references: list[MetadataReference], path: Path, descripti
 
 def _citation_metadata_reference(path: Path, field: str, value_pattern: str, kind: MetadataKind) -> MetadataReference:
     """Return one non-empty top-level scalar from CITATION.cff."""
-    pattern = re.compile(rf"^{re.escape(field)}:\s*(?P<quote>['\"]?)(?P<value>{value_pattern})(?P=quote)\s*(?:#.*)?$")
+    pattern = re.compile(f"^{re.escape(field)}:\\s*(?P<quote>['\\\"]?)(?P<value>{value_pattern})(?P=quote)\\s*(?:#.*)?$")
     references: list[MetadataReference] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.startswith(f"{field}:"):
@@ -359,7 +361,7 @@ def _citation_date_reference(path: Path) -> MetadataReference:
 def _current_changelog_heading_candidate_re(version: str) -> re.Pattern[str]:
     """Recognize even malformed level-two headings for one package version."""
     escaped = re.escape(version)
-    return re.compile(rf"^##\s+\[?v?{escaped}\]?(?:\s|$)")
+    return re.compile(f"^##\\s+\\[?v?{escaped}\\]?(?:\\s|$)")
 
 
 def _changelog_date_reference(path: Path, version: str) -> MetadataReference | None:
@@ -413,7 +415,7 @@ def _references_doi_reference(path: Path) -> MetadataReference:
 
 def _changelog_comparison_references(path: Path, version: str) -> list[VersionReference]:
     """Return comparison targets whose link label is the current version."""
-    comparison_re = re.compile(rf"^\[{re.escape(version)}\]:\s+\S+/compare/v{_VERSION_PATTERN}\.\.\.v(?P<version>{_VERSION_PATTERN})(?:\s|$)")
+    comparison_re = re.compile(f"^\\[{re.escape(version)}\\]:\\s+\\S+/compare/v{_VERSION_PATTERN}\\.\\.\\.v(?P<version>{_VERSION_PATTERN})(?:\\s|$)")
     references: list[VersionReference] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         match = comparison_re.match(line)
@@ -435,7 +437,7 @@ def _iter_markdown_files(root: Path) -> list[Path]:
 def _dependency_regex(package_name: str) -> re.Pattern[str]:
     """Build a regex for Cargo dependency snippets naming *package_name*."""
     escaped_name = re.escape(package_name)
-    return re.compile(rf'(?<![\w.-]){escaped_name}\s*=\s*(?:"(?P<plain>[^"]+)"|\{{[^}}]*version\s*=\s*"(?P<table>[^"]+)"[^}}]*\}})')
+    return re.compile(f'(?<![\\w.-]){escaped_name}\\s*=\\s*(?:"(?P<plain>[^"]+)"|\\{{[^}}]*version\\s*=\\s*"(?P<table>[^"]+)"[^}}]*\\}})')
 
 
 def _dependency_references(path: Path, package_name: str) -> list[VersionReference]:
@@ -459,7 +461,7 @@ def _dependency_references(path: Path, package_name: str) -> list[VersionReferen
 def _cargo_add_regex(package_name: str) -> re.Pattern[str]:
     """Build a regex for versioned cargo-add commands naming *package_name*."""
     escaped_name = re.escape(package_name)
-    return re.compile(rf"(?<![\w.-])cargo\s+add\b[^`\n]*?(?<![\w.-]){escaped_name}@(?P<version>[^\s`]+)")
+    return re.compile(f"(?<![\\w.-])cargo\\s+add\\b[^`\\n]*?(?<![\\w.-]){escaped_name}@(?P<version>[^\\s`]+)")
 
 
 def _cargo_add_references(path: Path, package_name: str) -> list[VersionReference]:
@@ -473,14 +475,27 @@ def _cargo_add_references(path: Path, package_name: str) -> list[VersionReferenc
     return references
 
 
-def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionReference]:
-    """Return release-pinned README links that should track the package version."""
+def _readme_tag_link_pattern(repository_slug: str, *, include_main: bool = False) -> re.Pattern[str]:
+    """Match owned README links while retaining their artifact paths."""
     escaped_slug = re.escape(repository_slug)
-    tag_link_re = re.compile(
+    branch = "main|" if include_main else ""
+    return re.compile(
         rf"https://(?:github\.com/{escaped_slug}/(?:blob|raw|tree)/|raw\.githubusercontent\.com/{escaped_slug}/)"
         r"(?:v(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)"
-        r"|(?P<revision>[0-9a-f]{7,40}))(?=/|$|[^0-9A-Za-z._+-])"
+        rf"|(?P<revision>{branch}[0-9a-f]{{7,40}}))(?=/|$|[^0-9A-Za-z._+-])"
+        r'(?P<path>/[^\s)\]>"?#]*)?'
     )
+
+
+def is_performance_artifact_link(match: re.Match[str]) -> bool:
+    """Keep measured artifacts pinned to their measured release during metadata updates."""
+    path = match.group("path") or ""
+    return path == "/docs/PERFORMANCE.md" or path.startswith("/docs/archive/performance/")
+
+
+def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionReference]:
+    """Return release-pinned, non-artifact README links that track the package version."""
+    tag_link_re = _readme_tag_link_pattern(repository_slug)
     references: list[VersionReference] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         references.extend(
@@ -492,6 +507,7 @@ def _readme_tag_references(path: Path, repository_slug: str) -> list[VersionRefe
                 line.strip(),
             )
             for match in tag_link_re.finditer(line)
+            if not is_performance_artifact_link(match)
         )
     return references
 

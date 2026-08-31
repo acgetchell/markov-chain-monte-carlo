@@ -18,10 +18,11 @@ RELEASE_PERFORMANCE_RECIPES = {
     "bench-latest-vs-last",
     "bench-save-baseline",
     "bench-save-last",
+    "performance-doc",
     "performance-github-assets",
     "performance-local",
+    "performance-readme",
     "performance-release",
-    "performance-rerender",
 }
 UPDATE_RECIPES = {
     "update",
@@ -29,6 +30,7 @@ UPDATE_RECIPES = {
     "update-cargo-tools",
     "update-dependencies",
     "update-python-dependencies",
+    "update-version",
 }
 
 
@@ -153,11 +155,25 @@ def test_justfile_validation_is_wired_into_repository_gates() -> None:
 
 def test_release_performance_recipes_are_public_and_documented() -> None:
     recipes = _recipes()
+    assert "performance-rerender" not in recipes
 
     for name in RELEASE_PERFORMANCE_RECIPES:
         assert name in recipes
         assert recipes[name]["private"] is False
         assert recipes[name]["doc"], name
+
+
+def test_release_commands_separate_preparation_measurement_and_publication() -> None:
+    recipes = _recipes()
+    preflight = {dependency["recipe"] for dependency in recipes["update-version"]["dependencies"]}
+    assert "_ensure-gh" in preflight
+    results = [_run_just("--dry-run", name) for name in ("performance-doc", "performance-readme")]
+    commands = "\n".join(result.stdout + result.stderr for result in results)
+    assert "archive-performance --rerender --promote" in commands
+    assert "publish-performance-readme" in commands
+    assert "cargo bench" not in commands
+    assert "--infer-release" not in commands
+    assert "--sync-changelog-date" in json.dumps(recipes["changelog-unreleased"]["body"])
 
 
 def test_release_performance_recipes_are_discoverable_in_help() -> None:

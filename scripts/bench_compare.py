@@ -214,7 +214,13 @@ def _markdown_code_span(value: str) -> str:
 def _git_revision(root: Path) -> str:
     try:
         return run_git_command(["--no-pager", "rev-parse", "--short", "HEAD"], cwd=root, timeout=10).stdout.strip()
-    except ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+    except (
+        # Keep tuple syntax for the pinned Semgrep Python parser.
+        ExecutableNotFoundError,
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ):
         return "unknown"
 
 
@@ -273,7 +279,8 @@ def render_report(
             "just performance-local",
             "just performance-github-assets",
             "just performance-release",
-            "just performance-rerender",
+            "just performance-doc",
+            "just performance-readme",
             "just performance-release <current-tag> <baseline-tag>",
             "```",
             "",
@@ -299,6 +306,7 @@ def _write_text(path: Path, text: str) -> None:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="",
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",

@@ -10,7 +10,7 @@ cargo_llvm_cov_version := "0.9.0"
 cargo_nextest_version := "0.9.143"
 cargo_update_version := "22.1.1"
 clippy_sarif_version := "0.8.0"
-dprint_version := "0.56.1"
+dprint_version := "0.57.0"
 git_cliff_version := "2.13.1"
 just_version := "1.58.0"
 python_version := "3.14"
@@ -19,7 +19,7 @@ sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
 typos_version := "1.50.0"
 uv_version := "0.12.7"
-zizmor_version := "1.29.0"
+zizmor_version := "1.30.0"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
 slow_notebooks := ""
@@ -104,6 +104,14 @@ _ensure-dprint:
         echo "   cargo install --locked dprint --version {{ dprint_version }}"
         exit 1
     fi
+
+_ensure-gh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v gh >/dev/null || {
+        echo "❌ 'gh' not found. Install GitHub CLI: https://cli.github.com/" >&2
+        exit 1
+    }
 
 _ensure-git-cliff:
     #!/usr/bin/env bash
@@ -212,7 +220,10 @@ action-lint: _ensure-actionlint
         files+=("$file")
     done < <(git ls-files -co --exclude-standard -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
     if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 uv run --locked actionlint
+        # actionlint 1.7.12 predates $/ syntax; ignore only this valid self-repository reference.
+        # Remove when https://github.com/rhysd/actionlint/issues/711 is released.
+        printf '%s\0' "${files[@]}" | xargs -0 uv run --locked actionlint \
+            -ignore '^specifying action "\$/\.github/actions/setup-just" in invalid format because ref is missing\.'
     else
         echo "No workflow files found to lint."
     fi
@@ -269,8 +280,9 @@ changelog: _ensure-git-cliff python-sync
 changelog-unreleased version: _ensure-git-cliff python-sync
     #!/usr/bin/env bash
     set -euo pipefail
-    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ version }} -o CHANGELOG.md
+    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ quote(version) }} -o CHANGELOG.md
     uv run --locked postprocess-changelog
+    uv run --locked update-release-version {{ quote(version) }} --sync-changelog-date
 
 # Non-mutating validation gate
 [group('workflows')]
@@ -284,7 +296,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep semgrep-test
+check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -297,7 +309,7 @@ check-rust: fmt-check clippy
 # Run the flat union of GitHub-equivalent validators and tests, including the
 # same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -398,52 +410,54 @@ fmt-check:
 [group('workflows')]
 help-workflows:
     @echo "Common Just workflows:"
+    @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
+    @echo "  just changelog-unreleased <tag> # Generate notes using the prepared release date"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
-    @echo "  just ci-rust        # Rust correctness subset for CI-shape timing"
+    @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
     @echo "  just ci-portability # Portability subset for CI-shape timing"
     @echo "  just ci-repository-tooling # Repository tooling subset for CI-shape timing"
-    @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
+    @echo "  just ci-rust        # Rust correctness subset for CI-shape timing"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
-    @echo "  just setup          # Install managed tools and verify system prerequisites"
-    @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
-    @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
-    @echo "  just changelog-unreleased <ver>  # Regenerate CHANGELOG.md for a release tag"
     @echo "  just release-check  # Validate synchronized release metadata and references"
+    @echo "  just setup          # Install managed tools and verify system prerequisites"
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
+    @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
+    @echo "  just update-version <tag> # Prepare release metadata from one stable tag"
     @echo ""
     @echo "Quality groups:"
+    @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
     @echo "  just lint           # All linting (code + docs + config)"
     @echo "  just lint-code      # Rust + Python + Semgrep checks"
     @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
     @echo "  just lint-docs      # Markdown and spelling checks"
-    @echo "  just python-check   # Ruff + Ty checks for Python tooling"
-    @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
-    @echo "  just notebook-lint  # Validate JSON, output hygiene, and extracted Python"
     @echo "  just notebook-check # Lint all notebooks and execute the fast notebook set"
-    @echo "  just notebook-ising-figure # Regenerate the tracked Ising trace figure"
     @echo "  just notebook-check-slow # Include explicitly configured heavy notebooks"
+    @echo "  just notebook-ising-figure # Regenerate the tracked Ising trace figure"
+    @echo "  just notebook-lint  # Validate JSON, output hygiene, and extracted Python"
+    @echo "  just python-check   # Ruff + Ty checks for Python tooling"
     @echo "  just zizmor         # GitHub Actions security analysis"
     @echo ""
     @echo "Testing:"
-    @echo "  just test           # Focused unit + doctest buckets"
-    @echo "  just test-rust      # Broad release Rust tests + doctests"
-    @echo "  just test-all       # Broad Rust + Python tooling tests"
     @echo "  just bench          # Run Criterion benchmarks"
+    @echo "  just bench-compare [baseline] # Render existing measurements against a baseline"
+    @echo "  just bench-compile  # Compile benchmarks without measuring"
     @echo "  just bench-latest   # Run the fixed-seed release-signal set"
     @echo "  just bench-latest-vs-last # Measure and compare against the saved 'last' baseline"
-    @echo "  just bench-compare [baseline] # Render existing measurements against a baseline"
     @echo "  just bench-save-baseline <tag> # Save a named local Criterion baseline"
     @echo "  just bench-save-last # Save the conventional local 'last' baseline"
-    @echo "  just bench-compile  # Compile benchmarks without measuring"
-    @echo "  just performance-local # Compare the current tree with the latest stable release"
-    @echo "  just performance-github-assets # Compare durable GitHub Release assets"
-    @echo "  just performance-release # Promote/archive the release-to-release report"
-    @echo "  just performance-rerender # Rebuild the curated report from saved measurements"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
     @echo "  just example <name> # Run one example, e.g. just example ising_1d"
     @echo "  just examples       # Run all examples"
+    @echo "  just performance-doc # Rebuild the curated report from retained measurements"
+    @echo "  just performance-github-assets # Compare durable GitHub Release assets"
+    @echo "  just performance-local # Compare the current tree with the latest stable release"
+    @echo "  just performance-readme # Publish the README table and SVG from retained evidence"
+    @echo "  just performance-release # Promote/archive the release-to-release report"
+    @echo "  just test           # Focused unit + doctest buckets"
+    @echo "  just test-all       # Broad Rust + Python tooling tests"
+    @echo "  just test-rust      # Broad release Rust tests + doctests"
     @echo ""
     @echo "Use 'just --list' for the complete grouped recipe reference."
 
@@ -463,7 +477,7 @@ lint: lint-code lint-docs lint-config
 
 # Check Rust, Python, and repository-owned Semgrep rules.
 [group('validation')]
-lint-code: fmt-check clippy python-check semgrep semgrep-test
+lint-code: fmt-check clippy python-check semgrep-test semgrep
 
 # Check JSON, TOML, YAML, GitHub Actions, and Just configuration.
 [group('validation')]
@@ -562,6 +576,18 @@ notebook-lint: _ensure-uv
 [group('notebooks')]
 notebook-sync: python-sync
 
+# Rebuild and promote the curated report from tracked or explicitly saved release measurements.
+[group('benchmarks and performance')]
+performance-doc measurements_path="": python-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    measurements_path={{ quote(measurements_path) }}
+    if [[ -n "$measurements_path" ]]; then
+        uv run --locked archive-performance --rerender "$measurements_path" --promote
+    else
+        uv run --locked archive-performance --rerender --promote
+    fi
+
 # Compare stored GitHub Release benchmark assets without local benchmark runs.
 [group('benchmarks and performance')]
 performance-github-assets current_tag="" baseline_tag="": python-sync
@@ -584,6 +610,11 @@ performance-github-assets current_tag="" baseline_tag="": python-sync
 performance-local: python-sync
     uv run --locked archive-performance --current-vs-latest --measurements-output target/bench-reports/performance.csv --output target/bench-reports/performance.md
 
+# Publish the README table, SVG, and pinned links from validated retained release evidence.
+[group('benchmarks and performance')]
+performance-readme: python-sync
+    uv run --locked publish-performance-readme
+
 # Generate a release-to-release report, promote it, and archive the previous report.
 [group('benchmarks and performance')]
 performance-release current_tag="" baseline_tag="": python-sync
@@ -599,18 +630,6 @@ performance-release current_tag="" baseline_tag="": python-sync
         uv run --locked archive-performance "$current_tag" "$baseline_tag" --measurements-output target/bench-reports/release-performance.csv --promote
     else
         uv run --locked archive-performance --infer-release --measurements-output target/bench-reports/release-performance.csv --promote
-    fi
-
-# Rebuild and promote the curated report from tracked or explicitly saved release measurements.
-[group('benchmarks and performance')]
-performance-rerender measurements_path="": python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    measurements_path={{ quote(measurements_path) }}
-    if [[ -n "$measurements_path" ]]; then
-        uv run --locked archive-performance --rerender "$measurements_path" --promote
-    else
-        uv run --locked archive-performance --rerender --promote
     fi
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
@@ -731,6 +750,8 @@ semgrep-test: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
     cd tests/semgrep
+
+    uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/python_portability.py
 
     expect_semgrep_count() {
         local expected="$1"
@@ -1032,6 +1053,11 @@ update-python-dependencies: _ensure-uv-available
     uv run --locked update-python-dev-pins
     uv lock --upgrade
     uv sync --locked --group dev
+
+# Prepare versions, dates, and active references from a stable tag without upgrading dependencies.
+[group('release')]
+update-version tag: _ensure-gh python-sync
+    uv run --locked update-release-version {{ quote(tag) }}
 
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)

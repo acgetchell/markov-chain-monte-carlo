@@ -249,4 +249,5 @@ Keep these checks focused. Avoid broad community rule packs unless they prove lo
 ## Publishing
 
 Before publishing, prefer updating documentation first. Doc-only changes still require a version bump on crates.io. Release version updates should keep
-`Cargo.toml`, `Cargo.lock`, `CITATION.cff`, `pyproject.toml`, and `uv.lock` in sync.
+`Cargo.toml`, `Cargo.lock`, `CITATION.cff`, `pyproject.toml`, and `uv.lock` in sync through `just update-version "$TAG"`. This requires GitHub CLI for stable
+release discovery. Follow [RELEASING.md](../RELEASING.md) for the shared dependency refresh, preparation, retained-evidence publication, and post-merge order.

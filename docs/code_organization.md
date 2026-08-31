@@ -90,11 +90,13 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── bench_compare.py
 │   ├── check_notebooks.py
 │   ├── postprocess_changelog.py
+│   ├── publish_performance_readme.py
 │   ├── release_check.py
 │   ├── subprocess_utils.py
 │   ├── tag_release.py
 │   ├── update_cargo_tool_pins.py
 │   ├── update_python_dev_pins.py
+│   ├── update_release_version.py
 │   └── tests/
 │       ├── __init__.py
 │       ├── test_archive_performance.py
@@ -102,11 +104,13 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── test_check_notebooks.py
 │       ├── test_justfile_discoverability.py
 │       ├── test_postprocess_changelog.py
+│       ├── test_publish_performance_readme.py
 │       ├── test_release_check.py
 │       ├── test_subprocess_utils.py
 │       ├── test_tag_release.py
 │       ├── test_update_cargo_tool_pins.py
-│       └── test_update_python_dev_pins.py
+│       ├── test_update_python_dev_pins.py
+│       └── test_update_release_version.py
 ├── semgrep.yaml
 ├── src/
 │   ├── chain.rs
@@ -137,6 +141,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── docs/
 │       │   └── check_fix_order.md
 │       ├── scripts/
+│       │   ├── python_portability.py
 │       │   └── tests/
 │       │       └── python_exceptions.py
 │       └── src/
@@ -161,12 +166,14 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
   README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report, while `docs/archive/performance/` owns its tracked
-  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-rerender`, not by hand. The warning on
+  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-doc`, not by hand. The warning on
   the pre-evidence v0.4.1 report is a one-time migration status marker, not permission to edit generated measurements; the next evidence-backed promotion
   replaces the complete file.
+  `just performance-readme` owns the marked README performance section and pair-specific SVGs beside the retained evidence; it never measures benchmarks.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
 - `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, dependency and tool-pin updates,
-  release metadata validation, and release tagging.
+  release metadata preparation/validation, retained-data README publication, and release tagging. `update_release_version.py` owns coordinated version/date
+  changes; `publish_performance_readme.py` renders README outputs using the evidence schema owned by `archive_performance.py`.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `justfile`, `semgrep.yaml`, `dprint.json`, `rumdl.toml`, `cliff.toml`, `typos.toml`,
   `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.
 

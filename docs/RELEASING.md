@@ -1,207 +1,144 @@
 # Releasing markov-chain-monte-carlo
 
-This guide documents the release flow for this crate. Changelog generation and annotated release tags are automated locally with `git-cliff` plus the Python
-helpers in `scripts/`.
+Release preparation follows the same command sequence as la-stack. Choose one stable tag, `vX.Y.Z`; commands infer the package version, prior published stable
+GitHub release, and current UTC release date. Dependency and tool upgrades should land separately before the release PR. Feature and API work should already
+be merged; keep the release PR focused on metadata, generated notes, retained benchmark evidence, and publication assets.
 
-Applies to versions `vX.Y.Z`. Prefer updating documentation before publishing to crates.io.
+## Prerequisites
 
-## Conventions
+Start from an up-to-date `main` and install the prerequisites described in [CONTRIBUTING.md](../CONTRIBUTING.md): Git, Bash, `rustup`/Cargo and a native build
+toolchain, the pinned `just` and `uv`, and `jq`. Run `just setup` to install managed tools, Rust components, and the locked Python environment. Setup checks
+`uv` and `jq` before managed installations; it does not install these system prerequisites. Install and authenticate GitHub CLI (`gh auth login`) for stable
+release discovery and publication. Network access is required for dependency refreshes, GitHub discovery, and uncached benchmark builds.
 
-Use a tag with a leading `v` and a Cargo version without it:
+### Dependency and tool refresh
+
+Run the dependency and tool refresh as a separate maintenance change before release preparation:
+
+```bash
+just update
+```
+
+`just update` updates Cargo requirements and lockfiles, resolves exact `dependency-groups.dev` pins as one compatible set, upgrades the managed Cargo tools,
+reconciles their pins and the active uv pin, and syncs Python. The Python resolver retains project and other development constraints, including constraints
+on the same distribution as an exact pin. Ranged, compound, wildcard, marked, runtime, and build requirements are not rewritten. Symlinked `uv.lock` is
+rejected before resolving or mutating pins. Review and validate all dependency, lockfile, and tool-pin changes, then merge them into `main` before creating
+`release/$TAG`. Do not carry unreviewed dependency changes into the release branch.
+
+## Preparation sequence
+
+After the prerequisite changes are merged, start with a clean working tree. The commands below update `main` to the reviewed changes and create the release
+branch before preparing metadata. The only manually supplied release value is `TAG`:
 
 ```bash
 TAG=vX.Y.Z
-VERSION=${TAG#v}
-```
-
-Start from an up-to-date `main`:
-
-```bash
 git checkout main
 git pull --ff-only
-git --no-pager status --short
-```
-
-## Release PR
-
-The release PR should primarily contain version, changelog, and documentation updates. Major behavior or API changes should already be merged before release
-prep begins.
-
-Small release-critical fixes are acceptable if they are discovered during validation, but keep the PR focused.
-
-### 1. Create the release branch
-
-```bash
-git checkout -b release/$TAG
-```
-
-### 2. Bump package and citation metadata
-
-Preferred, if `cargo-edit` is installed:
-
-```bash
-cargo set-version "$VERSION"
-```
-
-Alternatively, edit `Cargo.toml` manually and update the package `version`.
-
-Also update release metadata for this exact version:
-
-- `CITATION.cff` `version` and `date-released`
-- `pyproject.toml` project `version`
-
-The `CITATION.cff` `doi` is the stable Zenodo concept DOI for the repository, not a DOI for one deposited version. Preserve it across routine releases and keep
-the README badge target and `REFERENCES.md` DOI synchronized with it. Set `date-released` to the intended UTC release date; after changelog generation it must
-match the latest release heading in `CHANGELOG.md`.
-
-Then refresh lockfiles/build metadata:
-
-```bash
-cargo check
-uv sync
-```
-
-`uv sync` installs the default `dev` and `notebook` dependency groups (configured in `[tool.uv] default-groups`), refreshing `uv.lock` so the notebook
-execution dependencies exercised by `just ci` are provisioned during release validation.
-
-### 3. Generate the changelog
-
-Regenerate `CHANGELOG.md` with the release section for commits since the previous tag:
-
-```bash
+git checkout -b "release/$TAG"
+just update-version "$TAG"
 just changelog-unreleased "$TAG"
-```
-
-Review `CHANGELOG.md` for accuracy. Do not hand-edit generated changelog content; if a release note is wrong, fix the source commit message, `cliff.toml`, or
-the changelog post-processing helper, then regenerate.
-
-The generator is intentionally local/offline. It uses squash commit bodies for unreleased entries and annotated tag notes for older tagged releases. Put
-release-note-worthy bullets in the squash commit body before merging feature PRs; details that live only in GitHub PR descriptions or old hand edits are not
-recoverable from local git history.
-
-Pass the tag form, including the leading `v`, so compare links point at the eventual release tag.
-
-For a patch release, keep the notes focused on fixes, dependency updates, tooling, and documentation. Do not pull planned feature-roadmap issues into a patch
-release unless they are small and explicitly intended for that patch.
-
-Validate the generated release section, synchronized package and citation metadata, lockfiles, and active current-version references:
-
-```bash
-just release-check
-```
-
-The checker treats `Cargo.toml` as the version source of truth. It checks the root package in `Cargo.lock`, the Python tooling package in `pyproject.toml` and
-`uv.lock`, `CITATION.cff`, the latest generated `CHANGELOG.md` release, versioned installation examples, release-pinned README links, and the current tag in
-explicit `performance-release` examples. It also requires the citation release date to match the changelog and the concept DOI to agree across
-`CITATION.cff`, the README badge, and `REFERENCES.md`. Historical changelog entries, archived documentation, release-asset comparison pairs, and test fixtures
-remain independent of the current package version.
-
-### 4. Update the release performance comparison
-
-After finalizing the package version, generate the curated release-to-release report:
-
-```bash
 just performance-release
-```
-
-Review `docs/PERFORMANCE.md` and any newly archived report under `docs/archive/performance/`. The default command reads the current tag from `Cargo.toml`. An
-unpublished current version measures the patched working tree against the latest stable release; an already-published current version measures that tag against
-the preceding stable release. Use `just performance-release <current-tag> <baseline-tag>` only for an explicit repair. The command must also leave
-`target/bench-reports/release-performance.csv` and `target/bench-reports/release-performance.provenance.json`; it reloads and validates these artifacts before
-promoting the Markdown report.
-
-Check the comparable-row coverage, host and toolchain, and benchmark-harness hash prefixes. If the harness hashes differ, verify every shared benchmark name
-against the lifecycle contract in [`docs/BENCHMARKING.md`](BENCHMARKING.md): state and RNG lifecycle, setup boundary, step count, target/proposal and outcome
-path, and output ownership must remain comparable. Rename a materially changed workload rather than publishing a false release-to-release comparison.
-
-Confirm that the tracked measurements can reproduce the curated report without another benchmark run or ignored build artifacts:
-
-```bash
-just performance-rerender
-```
-
-By default, this rerender path resolves the comparison pair from `docs/PERFORMANCE.md` and reads its compact CSV and JSON provenance from
-`docs/archive/performance/`. Pass an explicit path, such as `just performance-rerender target/bench-reports/release-performance.csv`, to validate a separately
-saved artifact. Rerendering does not resolve releases, create Git worktrees, or run Cargo.
-
-Commit the promoted CSV and JSON provenance with `docs/PERFORMANCE.md`; they are the compact, repository-owned evidence needed to reproduce the curated table
-from a fresh checkout. The native Criterion archives attached to GitHub Releases preserve the richer raw samples and support independent historical
-reanalysis. Keep the compact pair and native archives with any external research record that cites the comparison.
-
-For a same-host development comparison that does not modify committed docs, use `just performance-local`. To compare durable assets from two already-published
-releases without running Cargo locally, use `just performance-github-assets` or pass an explicit release pair. See
-[`docs/BENCHMARKING.md`](BENCHMARKING.md) for the full command contracts and measurement limits.
-
-### 5. Validate locally
-
-Run the normal release validation gates:
-
-```bash
-just fix
+just performance-readme
 just ci
-just publish-check
+cargo publish --locked --allow-dirty --dry-run
 ```
 
-`just fix` reruns formatters and auto-fixes. `just ci` covers formatting, Clippy, Python tooling checks, benchmark harness compilation, docs, tests, example
-output validation, YAML, TOML, Markdown, spelling, GitHub Actions, and Semgrep checks. `just publish-check` validates crates.io metadata and runs
-`cargo publish --locked --allow-dirty --dry-run`.
+### Release metadata
 
-### 6. Commit, push, and open the PR
+`just update-version "$TAG"` requires canonical stable `vX.Y.Z` syntax and an available `gh`. It excludes drafts and prereleases when inferring the prior
+published stable release. It prepares the root versions in `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and `uv.lock`, citation version/date, active
+installation and release-command examples, and non-artifact README links. Dependency lock entries are preserved. It validates the complete proposed metadata
+before replacing files and restores earlier contents if publication fails.
 
-Review the diff carefully:
+The stable Zenodo concept DOI stays `10.5281/zenodo.20033111` across releases. Keep it in `CITATION.cff`, the README badge target, and `REFERENCES.md`; do not
+substitute a version DOI or add version-specific citation identifiers. The updater validates these existing DOI references rather than changing them.
+
+The release date is the current UTC day. Rerunning with the same tag on the same UTC day leaves contents unchanged. Rerunning on another UTC day deliberately
+updates the citation and any existing target changelog heading together. The updater does not upgrade dependencies, generate changelog content, measure
+benchmarks, or redirect existing performance artifact links to a tag whose artifacts have not been published yet.
+
+### Generated changelog
+
+`just changelog-unreleased "$TAG"` generates notes from local Git history without creating a tag, applies Markdown hygiene, and synchronizes the new heading
+with the prepared citation date. This date synchronization is offline, so crossing UTC midnight during generation does not split the citation and changelog
+dates. To intentionally move the release date, rerun `just update-version "$TAG"`.
+
+Review `CHANGELOG.md`; never hand-edit generated content. Fix source commit messages, `cliff.toml`, or the post-processing helper and regenerate. Squash commit
+bodies supply unreleased details; annotated tag notes supply older release details. Put release-note-worthy bullets in squash commit bodies because GitHub
+PR descriptions and old manual edits are not recoverable from local history. Keep patch-release notes focused on the changes intended for that patch.
+
+### Retained performance evidence and publication
+
+`just performance-release` infers the current tag from `Cargo.toml` and measures against the appropriate prior stable release in isolated worktrees. An
+unpublished current version uses the patched working tree; an already published version uses that tag against its predecessor. Explicit
+`just performance-release <current-tag> <baseline-tag>` pairs are for repairs. Measurement reruns produce new observations and are not idempotent.
+
+The command saves and validates `target/bench-reports/release-performance.{csv,provenance.json}`, promotes `docs/PERFORMANCE.md`, and retains the compact pair
+under `docs/archive/performance/`. Review comparable-row coverage, host/toolchain details, and harness hashes. If harness hashes differ, verify the shared
+workloads against the lifecycle contract in [BENCHMARKING.md](BENCHMARKING.md). Rename changed workloads instead of comparing unlike operations.
+
+`just performance-readme` consumes this validated retained pair without GitHub discovery or new measurements. It replaces only the marked README performance
+section and the pair's SVG under `docs/archive/performance/`, with tag-pinned report, CSV, JSON, and image links. Tracked paths are checked for containment
+individually, independent of link labels. Missing evidence names `just performance-release` as the recovery command before changing the README; a digest
+mismatch remains a separate integrity failure. Local release tags must be current: read-only Git checks require an existing current tag to contain the exact
+report, CSV, JSON, and rendered SVG before publication. Repaired or same-version evidence that differs cannot be published under that tag; keep it local or
+prepare a new release. New-release working-tree comparisons may target the future release tag; commit all linked artifacts before creating it. Identical
+tagged artifacts can be republished without changes, and same-version comparisons retain their source label.
+
+To reproduce the curated report without measuring again:
 
 ```bash
-git --no-pager diff
-git --no-pager status --short
+just performance-doc
+just performance-readme
 ```
 
-Suggested PR metadata:
+`performance-doc` reads the current report's retained CSV/JSON pair by default. An explicit CSV path can repair another saved pair. It replaces the former
+`performance-rerender` command; there is no compatibility alias. These retained-data transformations are content-idempotent with unchanged evidence and the
+locked rendering environment. Native Criterion archives attached to GitHub Releases remain richer raw evidence for independent reanalysis.
 
-- Title: `chore(release): release $TAG`
-- Summary: version bump, changelog update, and release documentation updates
-- Validation: include the `just ci` and `just publish-check` results
+Commit the report, compact evidence, archive index, SVG, and README together. For development without modifying committed publication artifacts, use
+`just performance-local`; same-version current-tree-versus-published-tag comparisons remain supported. `just performance-github-assets` compares durable
+release assets without local Cargo measurements. See [BENCHMARKING.md](BENCHMARKING.md) for measurement limits.
 
-## After the PR Merges
+### Validation and release PR
 
-Sync `main` to the merge commit:
+`just ci` covers repository checks, Rust and Python tests, doctests, notebook execution, example validation, docs, and benchmark compilation. If formatting is
+needed, run `just fix`, review the resulting diff, and rerun CI. `just release-check` is included in CI and verifies synchronized package versions, active
+references, concept DOI, and citation/changelog dates. Historical documentation and performance artifact links keep their own release identity.
+
+The explicit Cargo dry run verifies packaging without publishing. `just publish-check` additionally validates crates.io metadata and runs the same dry run.
+Review the full diff, commit and push the release branch, and open a PR. Include the CI and packaging validation results. Do not tag or publish before the
+release PR merges.
+
+## After the PR merges
+
+Sync `main`, create an annotated tag from the generated release notes, and verify that it targets the release merge before pushing:
 
 ```bash
 git checkout main
 git pull --ff-only
-```
-
-Create and push an annotated tag from the release changelog section:
-
-```bash
 just tag "$TAG"
+git --no-pager show --no-patch "$TAG"
+test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
 git push origin "$TAG"
-```
-
-Create the GitHub release:
-
-```bash
+cargo publish --locked
 gh release create "$TAG" --title "$TAG" --notes-from-tag
 ```
 
-The `Release Benchmarks` workflow then saves the `stepping` Criterion suite and attaches
-`markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz` to the GitHub Release. Verify the release attachment exists; the workflow's 30-day Actions artifact is
-diagnostic only and is not the durable baseline. Historical releases are not backfilled; `performance-github-assets` requires two releases published through
-this workflow. Because `v0.4.1` and earlier releases have no Criterion baseline attachment, `v0.4.2` establishes the initial asset. After publishing
-`v0.4.3`, run `just performance-github-assets` and verify the `v0.4.3`-against-`v0.4.2` pair before treating the release-benchmark adoption as complete.
-
-Publish to crates.io:
+Publishing to crates.io precedes creating the GitHub release. The GitHub release triggers `Release Benchmarks`, which measures the `stepping` suite and
+attaches `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`. Verify the workflow succeeds and the durable release attachment exists:
 
 ```bash
-cargo publish --locked
+gh release view "$TAG" --json assets --jq '.assets[].name'
 ```
 
-## Notes
+The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.1` and earlier releases have no Criterion baseline attachment.
+`v0.4.2` establishes the initial asset. After publishing `v0.4.3`, run `just performance-github-assets` and verify the `v0.4.3`-against-`v0.4.2` pair before
+treating release-benchmark adoption as complete.
 
-- Do not tag or publish until the release PR has merged.
-- Keep release PRs small: version, changelog, docs, and release-critical fixes.
-- `just changelog` regenerates the full changelog from local git history; do not hand-edit generated changelog content.
-- `just changelog-unreleased <tag>` regenerates `CHANGELOG.md` as if `<tag>` were the release tag, without creating the tag.
-- `cliff.toml` skips release-prep commits, filters CI/action dependency churn, and keeps Rust-library dependency bumps concise.
-- `just tag <tag>` creates the annotated release tag from the matching `CHANGELOG.md` section.
-- Run `just ci` before handing off a release PR.
-- Run `just publish-check` before publishing.
+After confirming publication and the durable baseline, delete the merged release branch locally and remotely:
+
+```bash
+git branch -d "release/$TAG"
+git push origin --delete "release/$TAG"
+```

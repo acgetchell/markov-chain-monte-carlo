@@ -96,6 +96,16 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
   `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
+- Treat hashes, patches, serialized artifacts, and byte-sensitive fixtures as exact bytes. Use `read_bytes()`/`write_bytes()` with deliberate encoding;
+  do not let text I/O silently normalize or translate their line endings.
+- Route Git stdin through `subprocess_utils.run_git_command_with_input`. Its subprocess boundary must use explicit binary mode; Git owns any configured
+  clean filters. Ordinary text-mode tool invocations remain allowed when exact input bytes are not part of their contract.
+- Production text file writers must pass explicit non-`None` `encoding` and `newline` keyword arguments. Use UTF-8 and `newline="\n"` for generated LF
+  text, or `newline=""` to preserve supplied line endings. This includes temporary files; Git checkout settings do not control Python text I/O.
+- Add platform-independent regressions for Windows-specific behavior where practical, including LF/CRLF and path handling. Keep byte-sensitive fixture
+  contents explicit, and fix implementation defects without weakening intended-behavior assertions or skipping Windows coverage.
+- Report the actual validation platform. A macOS or Linux run, including Windows emulation tests, does not establish that native Windows CI passes.
+  Semgrep enforces recognizable source patterns; behavioral tests and native Windows CI remain necessary.
 
 ## Common Commands
 
@@ -106,12 +116,14 @@ just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install managed tools and verify system prerequisites
 just update           # Update dependencies, managed Cargo tools, and tool pins
+just update-version vX.Y.Z # Prepare release metadata without dependency upgrades
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
 just release-check    # Validate synchronized release metadata and references
 just performance-release  # Persist, validate, and promote release benchmark evidence
-just performance-rerender # Rebuild the curated report from saved release evidence
+just performance-doc # Rebuild the curated report from saved release evidence
+just performance-readme # Publish the README table and SVG from retained evidence
 ```
 
 For detailed command references, coverage, and tooling notes, see [`docs/dev/rust.md`](docs/dev/rust.md).
