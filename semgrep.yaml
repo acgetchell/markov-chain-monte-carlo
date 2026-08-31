@@ -108,6 +108,8 @@ rules:
                       - pattern: tempfile.NamedTemporaryFile(..., mode=$MODE, ...)
                       - pattern: tempfile.TemporaryFile($MODE, ...)
                       - pattern: tempfile.TemporaryFile(..., mode=$MODE, ...)
+                      - pattern: tempfile.SpooledTemporaryFile($MAX_SIZE, $MODE, ...)
+                      - pattern: tempfile.SpooledTemporaryFile(..., mode=$MODE, ...)
                   - metavariable-regex:
                       metavariable: $MODE
                       regex: ^['"](?=[^'"]*[wax+])(?![^'"]*b)[rawxt+]+['"]$
@@ -128,6 +130,8 @@ rules:
               - pattern: tempfile.NamedTemporaryFile(..., mode=$MODE, ..., encoding=None, ...)
               - pattern: tempfile.TemporaryFile($MODE, ..., encoding=None, ...)
               - pattern: tempfile.TemporaryFile(..., mode=$MODE, ..., encoding=None, ...)
+              - pattern: tempfile.SpooledTemporaryFile($MAX_SIZE, $MODE, ..., encoding=None, ...)
+              - pattern: tempfile.SpooledTemporaryFile(..., mode=$MODE, ..., encoding=None, ...)
               - pattern: open($PATH, $MODE, ..., newline=None, ...)
               - pattern: open(..., mode=$MODE, ..., newline=None, ...)
               - pattern: io.open($PATH, $MODE, ..., newline=None, ...)
@@ -140,6 +144,8 @@ rules:
               - pattern: tempfile.NamedTemporaryFile(..., mode=$MODE, ..., newline=None, ...)
               - pattern: tempfile.TemporaryFile($MODE, ..., newline=None, ...)
               - pattern: tempfile.TemporaryFile(..., mode=$MODE, ..., newline=None, ...)
+              - pattern: tempfile.SpooledTemporaryFile($MAX_SIZE, $MODE, ..., newline=None, ...)
+              - pattern: tempfile.SpooledTemporaryFile(..., mode=$MODE, ..., newline=None, ...)
           - metavariable-regex:
               metavariable: $MODE
               regex: ^['"](?=[^'"]*[wax+])(?![^'"]*b)[rawxt+]+['"]$

@@ -137,6 +137,30 @@ def temporary_text_writes(path: Path) -> None:
     tempfile.TemporaryFile(mode="w+", encoding="utf-8", newline="\n")
 
 
+def spooled_text_writes() -> None:
+    # SpooledTemporaryFile takes max_size before its positional mode argument.
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+", encoding="utf-8")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+", encoding="utf-8")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+", newline="\n")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+", newline="\n")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+", encoding=None, newline="\n")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+", encoding=None, newline="\n")
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+", encoding="utf-8", newline=None)
+    # ruleid: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+", encoding="utf-8", newline=None)
+    # ok: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+", encoding="utf-8", newline="\n")
+    # ok: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+", encoding="utf-8", newline="")
+
+
 def other_file_writers(path: Path, descriptor: int) -> None:
     # ruleid: mcmc.python.text-writes-explicit-policy
     open(path, "w", encoding="utf-8")
@@ -189,6 +213,12 @@ def byte_writes_and_reads_are_exempt(path: Path, descriptor: int) -> None:
     tempfile.NamedTemporaryFile()
     # ok: mcmc.python.text-writes-explicit-policy
     tempfile.TemporaryFile(mode="wb")
+    # ok: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile()
+    # ok: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(1024, "w+b")
+    # ok: mcmc.python.text-writes-explicit-policy
+    tempfile.SpooledTemporaryFile(max_size=1024, mode="w+b")
     # ok: mcmc.python.text-writes-explicit-policy
     path.open(encoding="utf-8")
     # ok: mcmc.python.text-writes-explicit-policy
