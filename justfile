@@ -296,7 +296,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep semgrep-test
+check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -309,7 +309,7 @@ check-rust: fmt-check clippy
 # Run the flat union of GitHub-equivalent validators and tests, including the
 # same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check test-python semgrep semgrep-test notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -477,7 +477,7 @@ lint: lint-code lint-docs lint-config
 
 # Check Rust, Python, and repository-owned Semgrep rules.
 [group('validation')]
-lint-code: fmt-check clippy python-check semgrep semgrep-test
+lint-code: fmt-check clippy python-check semgrep-test semgrep
 
 # Check JSON, TOML, YAML, GitHub Actions, and Just configuration.
 [group('validation')]
@@ -750,6 +750,8 @@ semgrep-test: _ensure-uv
     #!/usr/bin/env bash
     set -euo pipefail
     cd tests/semgrep
+
+    uv run --locked semgrep scan --metrics off --test --strict --config ../../semgrep.yaml scripts/python_portability.py
 
     expect_semgrep_count() {
         local expected="$1"

@@ -18,11 +18,11 @@ from archive_performance import (
     provenance_path,
 )
 from bench_compare import _format_estimate, _format_relative_performance, _markdown_code_span
+from release_check import _read_cargo_package_info
 from subprocess_utils import ExecutableNotFoundError, run_git_command, run_git_command_with_input
 
 BEGIN = "<!-- PERFORMANCE:BEGIN -->"
 END = "<!-- PERFORMANCE:END -->"
-REPOSITORY = "acgetchell/markov-chain-monte-carlo"
 
 
 def _require_contained(root: Path, path: Path) -> None:
@@ -54,10 +54,10 @@ def _svg(artifact: ComparisonArtifact) -> str:
         return output.getvalue()
 
 
-def _markdown(artifact: ComparisonArtifact, evidence: Path, svg: Path) -> str:
+def _markdown(artifact: ComparisonArtifact, evidence: Path, svg: Path, repository_slug: str) -> str:
     pair = artifact.pair
-    base = f"https://github.com/{REPOSITORY}/blob/{pair.current_tag}/"
-    raw = f"https://raw.githubusercontent.com/{REPOSITORY}/{pair.current_tag}/"
+    base = f"https://github.com/{repository_slug}/blob/{pair.current_tag}/"
+    raw = f"https://raw.githubusercontent.com/{repository_slug}/{pair.current_tag}/"
     rows = sorted(artifact.comparison_set.comparisons, key=lambda row: row.benchmark)
     lines = [
         (
@@ -142,7 +142,8 @@ def publish_readme(root: Path) -> tuple[Path, ...]:
     if original.count(BEGIN) != 1 or original.count(END) != 1 or original.index(BEGIN) >= original.index(END):
         msg = "README.md must contain exactly one ordered PERFORMANCE marker pair"
         raise ValueError(msg)
-    contents = _markdown(artifact, evidence.relative_to(root), svg.relative_to(root))
+    repository_slug = _read_cargo_package_info(root / "Cargo.toml").repository_slug
+    contents = _markdown(artifact, evidence.relative_to(root), svg.relative_to(root), repository_slug)
     updated = original[: original.index(BEGIN) + len(BEGIN)] + "\n\n" + contents + "\n\n" + original[original.index(END) :]
     rendered_svg = _svg(artifact)
     assets = (*((path, path.read_bytes().decode("utf-8")) for path in (report, evidence, provenance_path(evidence))), (svg, rendered_svg))

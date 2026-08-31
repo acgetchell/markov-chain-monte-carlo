@@ -214,7 +214,13 @@ def _markdown_code_span(value: str) -> str:
 def _git_revision(root: Path) -> str:
     try:
         return run_git_command(["--no-pager", "rev-parse", "--short", "HEAD"], cwd=root, timeout=10).stdout.strip()
-    except ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+    except (
+        # Keep tuple syntax for the pinned Semgrep Python parser.
+        ExecutableNotFoundError,
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ):
         return "unknown"
 
 

@@ -1115,7 +1115,13 @@ def _detect_cpu_model(*, cpuinfo_path: Path = Path("/proc/cpuinfo")) -> str | No
     if system == "Darwin":
         try:
             result = run_safe_command("sysctl", ["-n", "machdep.cpu.brand_string"], timeout=30)
-        except ExecutableNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+        except (
+            # Keep tuple syntax for the pinned Semgrep Python parser.
+            ExecutableNotFoundError,
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
             pass
         else:
             if model := _normalized_cpu_model(result.stdout):

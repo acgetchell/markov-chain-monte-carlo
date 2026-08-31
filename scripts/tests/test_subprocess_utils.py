@@ -1,5 +1,7 @@
 """Tests for subprocess_utils.py."""
 
+import io
+import shutil
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -123,24 +125,140 @@ class TestRunGitCommand:
 
 
 class TestRunGitCommandWithInput:
+    @pytest.mark.parametrize(
+        "contents", ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0"], ids=["empty", "lf", "crlf", "cr", "mixed-unicode"]
+    )
+    def test_preserves_stdin_bytes_with_windows_text_pipes(self, monkeypatch: pytest.MonkeyPatch, contents: str) -> None:
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
+
+        def windows_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+            payload = kwargs["input"]
+            text_mode = kwargs.get("text") or kwargs.get("encoding") or kwargs.get("universal_newlines")
+            if text_mode:
+                # Windows text-mode stdin translates every LF, including the LF in CRLF.
+                with io.BytesIO() as buffer, io.TextIOWrapper(buffer, encoding="utf-8", newline="\r\n", write_through=True) as pipe:
+                    pipe.write(payload)
+                    payload = buffer.getvalue()
+            output = payload.hex() + "\n"
+            return subprocess.CompletedProcess(args, 0, output if text_mode else output.encode(), "" if text_mode else b"")
+
+        monkeypatch.setattr(subprocess_utils.subprocess, "run", windows_run)
+
+        result = run_git_command_with_input(["--no-pager", "hash-object", "--stdin"], contents)
+
+        assert result.returncode == 0
+        assert result.stdout == contents.encode("utf-8").hex() + "\n"
+        assert result.stderr == ""
+
+    @pytest.mark.parametrize(
+        "contents", ["", "line\n", "line\r\n", "line\r", "line \u00e9\nsecond\r\nlast\r\0"], ids=["empty", "lf", "crlf", "cr", "mixed-unicode"]
+    )
+    def test_hashes_the_same_bytes_as_a_literal_file(self, tmp_path: Path, contents: str) -> None:
+        if shutil.which("git") is None:
+            pytest.skip("git is required to compare stdin with file hashing")
+        source = tmp_path / "payload.txt"
+        source.write_bytes(contents.encode("utf-8"))
+        expected = run_git_command(["--no-pager", "hash-object", "--no-filters", str(source)], cwd=tmp_path, timeout=30)
+
+        actual = run_git_command_with_input(["--no-pager", "hash-object", "--no-filters", "--stdin"], contents, cwd=tmp_path, timeout=30)
+
+        assert actual.returncode == 0
+        assert actual.stdout == expected.stdout
+        assert actual.stderr == ""
+
     def test_passes_stdin_to_git(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         calls: dict[str, Any] = {}
         monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/usr/bin/git")
 
-        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
             calls["args"] = args
             calls["kwargs"] = kwargs
-            return subprocess.CompletedProcess(args, 0, stdout="hash\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout=b"hash\r\n", stderr=b"notice\rnext\r\n")
 
         monkeypatch.setattr(subprocess_utils.subprocess, "run", fake_run)
 
         result = run_git_command_with_input(["hash-object", "--stdin"], "content", cwd=tmp_path)
 
         assert result.stdout == "hash\n"
+        assert result.stderr == "notice\nnext\n"
         assert calls["args"] == ["/usr/bin/git", "hash-object", "--stdin"]
         assert calls["kwargs"]["cwd"] == tmp_path
-        assert calls["kwargs"]["input"] == "content"
-        assert calls["kwargs"]["text"] is True
+        assert calls["kwargs"]["input"] == b"content"
+        assert calls["kwargs"]["text"] is False
+        assert "encoding" not in calls["kwargs"]
+
+    @pytest.mark.parametrize("check", [True, False])
+    def test_failed_command_preserves_text_diagnostics(self, monkeypatch: pytest.MonkeyPatch, check: bool) -> None:
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
+        monkeypatch.setattr(
+            subprocess_utils.subprocess,
+            "run",
+            lambda args, **_kwargs: subprocess.CompletedProcess(args, 7, b"partial\r\n", b"failed\r\n"),
+        )
+
+        if check:
+            with pytest.raises(subprocess.CalledProcessError) as raised:
+                run_git_command_with_input(["--no-pager", "hash-object", "--stdin"], "content", check=True)
+            outcome = raised.value
+            assert outcome.cmd == ["/tools/git", "--no-pager", "hash-object", "--stdin"]
+        else:
+            outcome = run_git_command_with_input(["--no-pager", "hash-object", "--stdin"], "content", check=False)
+
+        assert outcome.returncode == 7
+        assert outcome.stdout == "partial\n"
+        assert outcome.stderr == "failed\n"
+
+    @pytest.mark.parametrize(("encoding", "errors", "encoded"), [("latin-1", "strict", b"line \xe9\r\n"), ("ascii", "replace", b"line ?\r\n")])
+    def test_honors_encoding_and_error_policy_without_newline_translation(
+        self, monkeypatch: pytest.MonkeyPatch, encoding: str, errors: str, encoded: bytes
+    ) -> None:
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
+
+        def echo(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            assert kwargs["input"] == encoded
+            assert kwargs["text"] is False
+            assert "encoding" not in kwargs
+            assert "errors" not in kwargs
+            assert "universal_newlines" not in kwargs
+            return subprocess.CompletedProcess(args, 0, kwargs["input"], b"")
+
+        monkeypatch.setattr(subprocess_utils.subprocess, "run", echo)
+
+        result = run_git_command_with_input([], "line \u00e9\r\n", encoding=encoding, errors=errors, universal_newlines=True)
+
+        assert result.stdout == encoded.decode(encoding).replace("\r\n", "\n")
+
+    def test_allows_uncaptured_output(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
+
+        def run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            assert kwargs["capture_output"] is False
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(subprocess_utils.subprocess, "run", run)
+
+        result = run_git_command_with_input([], "content", capture_output=False)
+
+        assert result.returncode == 0
+        assert result.stdout is None
+        assert result.stderr is None
+
+    def test_preserves_timeout_and_partial_output(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(subprocess_utils, "get_safe_executable", lambda _command: "/tools/git")
+        timeout = subprocess.TimeoutExpired(["/tools/git"], 3, output=b"partial\r\n", stderr=b"diagnostic\r\n")
+
+        def run(_args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            assert kwargs["timeout"] == 3
+            raise timeout
+
+        monkeypatch.setattr(subprocess_utils.subprocess, "run", run)
+
+        with pytest.raises(subprocess.TimeoutExpired) as raised:
+            run_git_command_with_input([], "content", timeout=3)
+
+        assert raised.value is timeout
+        assert raised.value.output == b"partial\r\n"
+        assert raised.value.stderr == b"diagnostic\r\n"
 
     def test_rejects_executable_override(self) -> None:
         kwargs: dict[str, Any] = {"executable": "/malicious/fake-git"}

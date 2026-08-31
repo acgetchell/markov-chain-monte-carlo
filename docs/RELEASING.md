@@ -19,20 +19,15 @@ release tag once and create the release branch before preparing metadata. The on
 ```bash
 just update
 TAG=vX.Y.Z
+git checkout main
+git pull --ff-only
+git checkout -b "release/$TAG"
 just update-version "$TAG"
 just changelog-unreleased "$TAG"
 just performance-release
 just performance-readme
 just ci
 cargo publish --locked --allow-dirty --dry-run
-```
-
-For the release branch, use:
-
-```bash
-git checkout main
-git pull --ff-only
-git checkout -b "release/$TAG"
 ```
 
 ### Dependency and tool refresh

@@ -436,7 +436,7 @@ def ty_diagnostics(path: Path, snapshot: CodeSnapshot, repo_root: Path) -> list[
     """Run Ty on extracted notebook code."""
     with tempfile.TemporaryDirectory(prefix="notebook-check-") as temporary_directory:
         extracted_path = Path(temporary_directory) / f"{path.stem}_notebook.py"
-        extracted_path.write_text(snapshot.source, encoding="utf-8")
+        extracted_path.write_text(snapshot.source, encoding="utf-8", newline="\n")
         result = tool_result(
             "ty",
             ["check", "--project", str(repo_root), "--output-format", "concise", str(extracted_path)],
@@ -517,6 +517,7 @@ def write_executed_notebook(nbformat: Any, notebook: Any, output_path: Path) -> 
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
+            newline="\n",
             dir=output_path.parent,
             prefix=f".{output_path.stem}-",
             suffix=".ipynb",
@@ -584,6 +585,7 @@ def write_json_atomic(path: Path, value: dict[str, object]) -> None:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
+            newline="\n",
             dir=path.parent,
             prefix=f".{path.stem}-",
             suffix=path.suffix,

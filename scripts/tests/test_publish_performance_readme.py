@@ -1,6 +1,7 @@
 """Retained-data README publication validates before writing and preserves prior output."""
 
 import hashlib
+import re
 import shutil
 from dataclasses import replace
 from subprocess import CompletedProcess
@@ -27,7 +28,14 @@ def _unpublished_tag(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(publisher, "run_git_command", git)
 
 
-def _prepare(root: Path, *, same_version: bool = False, published: bool = False, benchmark: str = "chain/shared") -> tuple[Path, Path]:
+def _prepare(
+    root: Path,
+    *,
+    same_version: bool = False,
+    published: bool = False,
+    benchmark: str = "chain/shared",
+    repository: str = "https://github.com/acgetchell/markov-chain-monte-carlo",
+) -> tuple[Path, Path]:
     artifact = _comparison_artifact()
     comparison_set = artifact.comparison_set
     artifact = replace(
@@ -49,7 +57,9 @@ def _prepare(root: Path, *, same_version: bool = False, published: bool = False,
             settings=replace(artifact.settings, current_label=f"{pair.current_tag} working tree", baseline_label=pair.baseline_tag),
             measurement=replace(artifact.measurement, working_tree_applied=True, baseline=replace(artifact.measurement.baseline, tag=pair.baseline_tag)),
         )
-    (root / "Cargo.toml").write_text('[package]\nname = "markov-chain-monte-carlo"\nversion = "0.5.0"\n', encoding="utf-8")
+    (root / "Cargo.toml").write_text(
+        f'[package]\nname = "markov-chain-monte-carlo"\nversion = "0.5.0"\nrepository = "{repository}"\n', encoding="utf-8", newline="\n"
+    )
     (root / "README.md").write_text(f"# Project\n\n{publisher.BEGIN}\n\nNot published yet.\n\n{publisher.END}\n\nKeep this prose.\n", encoding="utf-8")
     archive = root / "docs" / "archive" / "performance"
     archive_performance.promote_report(artifact=artifact, current_path=root / "docs" / "PERFORMANCE.md", archive_dir=archive)
@@ -77,6 +87,22 @@ def test_publication_is_deterministic_uses_retained_data_and_never_measures(tmp_
     assert publisher.publish_readme(tmp_path) == ()
     assert ((tmp_path / "README.md").read_text(encoding="utf-8"), svg.read_bytes()) == snapshot
     assert (evidence.read_bytes(), archive_performance.provenance_path(evidence).read_bytes()) == originals
+
+
+@pytest.mark.parametrize("suffix", ["", "/", ".git", ".git/"])
+def test_publication_uses_manifest_repository_for_all_links(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
+    evidence, svg = _prepare(tmp_path, repository=f"https://github.com/release-owner/mcmc-fork{suffix}")
+    monkeypatch.setattr(publisher, "_svg", lambda _artifact: "<svg/>\n")
+
+    publisher.publish_readme(tmp_path)
+
+    readme = (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert re.findall(r"https://[^\s)]+", readme) == [
+        f"https://raw.githubusercontent.com/release-owner/mcmc-fork/v0.5.0/{svg.relative_to(tmp_path).as_posix()}",
+        "https://github.com/release-owner/mcmc-fork/blob/v0.5.0/docs/PERFORMANCE.md",
+        f"https://github.com/release-owner/mcmc-fork/blob/v0.5.0/{evidence.relative_to(tmp_path).as_posix()}",
+        f"https://github.com/release-owner/mcmc-fork/blob/v0.5.0/{archive_performance.provenance_path(evidence).relative_to(tmp_path).as_posix()}",
+    ]
 
 
 def _existing_tag(monkeypatch: pytest.MonkeyPatch, root: Path, assets: dict[str, bytes]) -> None:
