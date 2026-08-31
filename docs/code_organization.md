@@ -59,7 +59,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── RELEASING.md
 │   ├── archive/
 │   │   └── performance/
-│   │       └── README.md
+│   │       ├── README.md
+│   │       ├── v0.4.1-vs-v0.4.0.md
+│   │       ├── v0.4.2-vs-v0.4.1.csv
+│   │       ├── v0.4.2-vs-v0.4.1.provenance.json
+│   │       └── v0.4.2-vs-v0.4.1.svg
 │   ├── assets/
 │   │   └── ising_energy_trace.png
 │   ├── code_organization.md
@@ -166,9 +170,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
   README or crate-level contract material. `docs/PERFORMANCE.md` is the generated curated release report, while `docs/archive/performance/` owns its tracked
-  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-doc`, not by hand. The warning on
-  the pre-evidence v0.4.1 report is a one-time migration status marker, not permission to edit generated measurements; the next evidence-backed promotion
-  replaces the complete file.
+  CSV/JSON evidence and older reports; update them together through `just performance-release` or `just performance-doc`, not by hand. The archived
+  pre-evidence v0.4.1 report retains its legacy warning; the current curated report is backed by tracked evidence. Neither report should be hand-edited.
   `just performance-readme` owns the marked README performance section and pair-specific SVGs beside the retained evidence; it never measures benchmarks.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
 - `scripts/` — Python helpers for benchmark comparison and report promotion, notebook checks, changelog post-processing, dependency and tool-pin updates,

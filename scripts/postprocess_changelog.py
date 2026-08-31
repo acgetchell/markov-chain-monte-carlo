@@ -5,7 +5,8 @@ Applies lightweight markdown hygiene that is difficult to express in
 Tera templates:
 
   1. Strip trailing blank lines (git-cliff Tera templates emit an extra
-     trailing newline that triggers markdownlint MD012).
+     trailing newline that triggers Markdown rule MD012).
+  2. Apply the repository's pinned rumdl Markdown rules before publishing.
 
 Usage:
     postprocess-changelog                     # default: CHANGELOG.md
@@ -14,10 +15,19 @@ Usage:
 
 import argparse
 import stat
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from subprocess_utils import ExecutableNotFoundError, run_safe_command
+
+_FORMAT_TIMEOUT_SECONDS = 30
+
+
+class MarkdownFormatError(RuntimeError):
+    """Raised when rumdl cannot produce valid formatted Markdown."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +38,7 @@ class PostprocessOptions:
 
 
 def postprocess(path: Path) -> None:
-    """Read *path*, apply hygiene fixes, and replace it atomically with LF newlines."""
+    """Read *path*, produce valid Markdown, and replace it atomically with LF newlines."""
     text = path.read_text(encoding="utf-8")
 
     # 1. Strip trailing blank lines — keep nonblank content unchanged and one final newline.
@@ -36,6 +46,7 @@ def postprocess(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     text = "\n".join(lines) + "\n"
+    text = _format_markdown(text, path)
 
     mode = stat.S_IMODE(path.stat().st_mode)
     temporary: Path | None = None
@@ -56,6 +67,39 @@ def postprocess(path: Path) -> None:
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
+
+
+def _format_markdown(text: str, path: Path) -> str:
+    """Apply configured rumdl fixes to *text* and return normalized LF Markdown."""
+    config = _find_rumdl_config(path)
+    try:
+        result = run_safe_command(
+            "rumdl",
+            ["check", "--fix", "--stdin", "--stdin-filename", str(path), "--no-cache", "--config", str(config)],
+            input=text,
+            timeout=_FORMAT_TIMEOUT_SECONDS,
+        )
+    except subprocess.CalledProcessError as error:
+        diagnostics = (error.stderr or error.stdout or "unknown formatter error").strip()
+        raise MarkdownFormatError(f"rumdl could not format {path.name}: {diagnostics}") from error
+
+    if text.strip() and not result.stdout.strip():
+        raise MarkdownFormatError(f"rumdl returned empty output for nonempty {path.name}")
+    return "\n".join(result.stdout.splitlines()).rstrip() + "\n"
+
+
+def _find_rumdl_config(path: Path) -> Path:
+    """Find the repository rumdl configuration from the output path or current directory."""
+    searched: set[Path] = set()
+    for root in (path.resolve().parent, Path.cwd().resolve()):
+        for directory in (root, *root.parents):
+            if directory in searched:
+                continue
+            searched.add(directory)
+            config = directory / "rumdl.toml"
+            if config.is_file():
+                return config
+    raise MarkdownFormatError(f"rumdl.toml not found for {path}")
 
 
 def parse_args(argv: list[str] | None = None) -> PostprocessOptions:
@@ -86,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         postprocess(changelog)
-    except (OSError, UnicodeError) as error:
+    except (ExecutableNotFoundError, OSError, RuntimeError, subprocess.TimeoutExpired, UnicodeError) as error:
         print(f"Error: could not post-process {changelog}: {error}", file=sys.stderr)
         return 1
     return 0

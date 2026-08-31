@@ -269,7 +269,7 @@ build:
 
 # Changelog generation (git-cliff + post-processing)
 [group('release')]
-changelog: _ensure-git-cliff python-sync
+changelog: _ensure-git-cliff _ensure-rumdl python-sync
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_CLIFF_OFFLINE=true git-cliff -o CHANGELOG.md
@@ -277,7 +277,7 @@ changelog: _ensure-git-cliff python-sync
 
 # Regenerate CHANGELOG.md for a release tag before the tag exists
 [group('release')]
-changelog-unreleased version: _ensure-git-cliff python-sync
+changelog-unreleased version: _ensure-git-cliff _ensure-rumdl python-sync
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_CLIFF_OFFLINE=true git-cliff --tag {{ quote(version) }} -o CHANGELOG.md

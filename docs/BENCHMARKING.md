@@ -150,7 +150,7 @@ evidence triplet. The active pair may be remeasured during release preparation, 
 For an explicit repair path:
 
 ```bash
-just performance-release v0.4.1 v0.4.0
+just performance-release v0.4.2 v0.4.1
 ```
 
 After a successful measurement, rerender the report without GitHub access, Git worktrees, or Cargo:
@@ -173,11 +173,10 @@ part of a newly prepared release. New-release working-tree evidence may target i
 comparisons retain their working-tree label. With unchanged evidence and the locked rendering environment, both publication commands produce unchanged
 contents; rerunning measurements can produce different observations.
 
-The checked-in v0.4.1 report predates tracked compact evidence and is explicitly labeled legacy and non-reproducible. Its CSV measurements, JSON provenance
-with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable. Until the next committed
-`performance-release` promotion establishes a complete evidence pair, the no-argument rerender exits with a migration diagnostic. Do not manufacture a
-replacement from an unrelated dirty tree; an explicit generated CSV path is only for repairing evidence from the original controlled measurement. After
-the first complete promotion, a fresh checkout can rerender directly from the tracked pair.
+The [archived v0.4.1 report](archive/performance/v0.4.1-vs-v0.4.0.md) predates tracked compact evidence and remains labeled legacy and non-reproducible. Its
+CSV measurements, JSON provenance with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable.
+Do not manufacture a replacement from an unrelated dirty tree; an explicit generated CSV path is only for repairing evidence from the original controlled
+measurement. The current curated report has a tracked CSV/JSON pair, so a fresh checkout can rerender it with `just performance-doc` without new measurements.
 
 Review the report's release pair, comparable-row coverage, environment, harness hashes, and lifecycle contracts before committing it. The Markdown report
 records Criterion medians and marginal confidence intervals plus the source commits, toolchains, Criterion versions, and host platform, architecture, and

@@ -1,15 +1,9 @@
 # Benchmark Performance
 
-> [!WARNING]
-> **Legacy, non-reproducible report.** This pre-promotion working-tree snapshot is retained only as historical context. Repository-owned CSV measurements,
-> JSON provenance with exact commands, Cargo-lock and combined-source digests, a concrete CPU model, and native Criterion sample archives are unavailable.
-> Treat the rows below as legacy observations, not reproducible release evidence. The next committed `just performance-release` promotion will replace this
-> report with one linked to its tracked evidence; do not regenerate or promote it from an unrelated dirty tree.
-
-**markov-chain-monte-carlo** v0.4.1 working tree · `56d2cb5`
+**markov-chain-monte-carlo** v0.4.2 working tree · `ef21cc6`
 **Statistic**: median
 
-Comparison against baseline **v0.4.0**:
+Comparison against baseline **v0.4.1**:
 
 Positive time reduction means the current duration is lower (faster); negative means it is higher (slower).
 The relative-performance column states how many times the current version is faster or slower.
@@ -18,29 +12,49 @@ Shown confidence intervals are Criterion's marginal intervals; they are not a pa
 ## Measurement Context
 
 - Source mode: same-host isolated worktrees; current `HEAD` with tracked and untracked working-tree changes applied.
-- Host: `macOS-26.6-arm64-arm-64bit-Mach-O` on `arm64`.
-- Current commit: `56d2cb5a6a8e9e5909fe2c6da2c76704f4f81004`; rustc: `rustc 1.97.1 (8bab26f4f 2026-07-14)`; Criterion: `0.8.2`.
-- Baseline commit: `e88fc901fa3b02c34e6c67d785d897231b75754d`; rustc: `rustc 1.96.0 (ac68faa20 2026-05-25)`; Criterion: `0.8.2`.
-- Benchmark harness SHA-256 prefixes: current `7763d9a61040`; baseline `77e1fc0e4212`.
+- Host: `macOS-26.6.2-arm64-arm-64bit-Mach-O` on `arm64`; CPU: `Apple M4 Max`.
+- Current commit: `ef21cc6430329cefa64497f7eed1ffa8e669bea3`; rustc: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; Criterion: `0.8.2`.
+- Baseline commit: `b0d93a1b386aaec7222866fef24feeef6cf13475`; rustc: `rustc 1.97.1 (8bab26f4f 2026-07-14)`; Criterion: `0.8.2`.
+- Benchmark harness SHA-256 prefixes: current `823f21999027`; baseline `7763d9a61040`.
 - Benchmark harness hashes differ; verify that every shared name retains the same workload contract.
 
 ## Results
 
 | Benchmark | Baseline | Current | Time reduction | Current vs baseline |
 |:----------|---------:|--------:|---------------:|--------------------:|
-| `chain_step_by_value` | 15.92 ns (15.87 ns - 15.99 ns) | 16.33 ns (16.28 ns - 16.38 ns) | -2.53% | 1.03x slower |
-| `chain_step_delayed_accept_commit` | 8.05 ns (8.03 ns - 8.07 ns) | 8.06 ns (8.03 ns - 8.08 ns) | -0.20% | 1.002x slower |
-| `chain_step_delayed_no_plan` | 1.14 ns (1.13 ns - 1.14 ns) | 1.12 ns (1.12 ns - 1.13 ns) | +1.37% | 1.01x faster |
-| `chain_step_delayed_reject_plan` | 8.13 ns (8.10 ns - 8.18 ns) | 8.19 ns (8.16 ns - 8.20 ns) | -0.78% | 1.008x slower |
-| `chain_step_mut_accept` | 12.19 ns (12.16 ns - 12.24 ns) | 13.05 ns (13.00 ns - 13.11 ns) | -7.06% | 1.07x slower |
-| `chain_step_mut_reject_rollback` | 105.57 ns (105.14 ns - 105.76 ns) | 109.02 ns (108.69 ns - 109.19 ns) | -3.27% | 1.03x slower |
-| `observing_manual_online_sum_100` | 980.30 ns (976.83 ns - 983.27 ns) | 964.58 ns (964.13 ns - 964.91 ns) | +1.60% | 1.02x faster |
-| `observing_run_observing_buffer_100` | 1.61 µs (1.61 µs - 1.62 µs) | 1.62 µs (1.62 µs - 1.62 µs) | -0.47% | 1.005x slower |
-| `observing_run_observing_into_binning_100` | 2.06 µs (2.05 µs - 2.06 µs) | 2.04 µs (2.03 µs - 2.04 µs) | +1.02% | 1.01x faster |
-| `observing_run_observing_into_online_stats_100` | 1.30 µs (1.30 µs - 1.31 µs) | 1.30 µs (1.30 µs - 1.31 µs) | -0.02% | 1.0002x slower |
-| `sampler_run_by_value_100` | 1.58 µs (1.57 µs - 1.58 µs) | 1.58 µs (1.58 µs - 1.58 µs) | +0.05% | 1.0005x faster |
-| `sampler_run_delayed_100` | 932.73 ns (927.50 ns - 935.80 ns) | 949.96 ns (946.69 ns - 952.84 ns) | -1.85% | 1.02x slower |
-| `sampler_run_mut_100` | 1.08 µs (1.08 µs - 1.08 µs) | 1.09 µs (1.08 µs - 1.09 µs) | -0.24% | 1.002x slower |
+| `chain_step_by_value` | 15.80 ns (15.74 ns - 15.87 ns) | 16.91 ns (16.90 ns - 16.93 ns) | -7.04% | 1.07x slower |
+| `chain_step_delayed_no_plan` | 1.03 ns (1.03 ns - 1.03 ns) | 0.73 ns (0.73 ns - 0.73 ns) | +29.46% | 1.42x faster |
+| `chain_step_mut_accept` | 12.68 ns (12.66 ns - 12.70 ns) | 13.69 ns (13.65 ns - 13.72 ns) | -7.96% | 1.08x slower |
+| `chain_step_mut_reject_rollback` | 102.78 ns (102.21 ns - 103.47 ns) | 198.01 ns (197.44 ns - 198.35 ns) | -92.66% | 1.93x slower |
+| `observing_manual_online_sum_100` | 934.48 ns (933.26 ns - 935.27 ns) | 1.28 µs (1.27 µs - 1.28 µs) | -36.45% | 1.36x slower |
+| `observing_run_observing_buffer_100` | 1.56 µs (1.56 µs - 1.56 µs) | 1.78 µs (1.77 µs - 1.78 µs) | -14.02% | 1.14x slower |
+| `observing_run_observing_into_binning_100` | 1.97 µs (1.96 µs - 1.97 µs) | 2.23 µs (2.23 µs - 2.23 µs) | -13.48% | 1.13x slower |
+| `observing_run_observing_into_online_stats_100` | 1.25 µs (1.24 µs - 1.25 µs) | 1.60 µs (1.60 µs - 1.60 µs) | -28.42% | 1.28x slower |
+| `sampler_run_by_value_100` | 1.50 µs (1.50 µs - 1.51 µs) | 1.54 µs (1.53 µs - 1.54 µs) | -2.15% | 1.02x slower |
+| `sampler_run_mut_100` | 1.04 µs (1.04 µs - 1.04 µs) | 1.28 µs (1.28 µs - 1.28 µs) | -22.89% | 1.23x slower |
+
+## Coverage Notes
+
+Current-only rows without a saved baseline:
+
+- `chain_step_delayed_accept_reflection`
+- `chain_step_delayed_reject_reflection`
+- `sampler_run_by_value_thinned_100/1`
+- `sampler_run_by_value_thinned_100/16`
+- `sampler_run_by_value_thinned_100/2`
+- `sampler_run_delayed_reflection_100`
+- `sampler_run_delayed_thinned_100/1`
+- `sampler_run_delayed_thinned_100/16`
+- `sampler_run_delayed_thinned_100/2`
+- `sampler_run_mut_thinned_100/1`
+- `sampler_run_mut_thinned_100/16`
+- `sampler_run_mut_thinned_100/2`
+
+Baseline-only rows without a current sample:
+
+- `chain_step_delayed_accept_commit`
+- `chain_step_delayed_reject_plan`
+- `sampler_run_delayed_100`
 
 ## How to Update
 
@@ -48,7 +62,8 @@ Shown confidence intervals are Criterion's marginal intervals; they are not a pa
 just performance-local
 just performance-github-assets
 just performance-release
-just performance-rerender
+just performance-doc
+just performance-readme
 just performance-release <current-tag> <baseline-tag>
 ```
 
@@ -57,3 +72,8 @@ The curated release report is `docs/PERFORMANCE.md`.
 Older curated reports are indexed under `docs/archive/performance/`.
 
 See `docs/BENCHMARKING.md` for command semantics and reproducibility limits.
+
+## Reproducibility Evidence
+
+- [CSV measurements](archive/performance/v0.4.2-vs-v0.4.1.csv)
+- [JSON provenance](archive/performance/v0.4.2-vs-v0.4.1.provenance.json)

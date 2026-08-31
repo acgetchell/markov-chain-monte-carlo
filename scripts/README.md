@@ -91,8 +91,9 @@ just changelog-unreleased "$TAG"
 For unreleased notes, first prepare `$TAG` using the [Release Metadata](#release-metadata) sequence above. The tag must match the prepared Cargo and citation
 versions before generating the changelog.
 
-`just changelog` runs `git-cliff -o CHANGELOG.md` in offline mode and then `postprocess-changelog` to apply lightweight markdown hygiene. Configuration lives in
-`cliff.toml` at the repository root.
+`just changelog` runs `git-cliff -o CHANGELOG.md` in offline mode and then `postprocess-changelog` to trim trailing blank lines and apply the Markdown rules in
+`rumdl.toml`, including prose wrapping at 160 characters. The postprocessor validates the complete result before atomically replacing the changelog. Both
+recipes verify the pinned rumdl version before generation. Git history rendering is configured in `cliff.toml` at the repository root.
 
 Changelog entries are generated from local git metadata:
 

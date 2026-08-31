@@ -1,0 +1,68 @@
+{
+  "csv_schema": "criterion-comparison/v1",
+  "csv_sha256": "4a8dbd2e6c647446dea2a677f6d04b771dee5b68516f9b408dbb5be39c9dc26c",
+  "measurement": {
+    "baseline": {
+      "architecture": "arm64",
+      "benchmark_harness_sha256": "7763d9a61040885ae7b8092526c79d0a83609c775d73bae0495aa2e6cd404f0c",
+      "cargo_lock_sha256": "c1d15fbfc462f9fc15453f315581c037fb75c44c721e2735e01772591b215882",
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "--bench",
+        "stepping",
+        "--",
+        "--save-baseline",
+        "v0.4.1"
+      ],
+      "commit": "b0d93a1b386aaec7222866fef24feeef6cf13475",
+      "cpu_model": "Apple M4 Max",
+      "criterion_version": "0.8.2",
+      "operating_system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+      "source_digest_sha256": "5665918d221294cf42b842f5395724a7aaca107bc249d3340cecb716bfa832ee",
+      "tag": "v0.4.1"
+    },
+    "current": {
+      "architecture": "arm64",
+      "benchmark_harness_sha256": "823f21999027643203fd69e8dd9401efc1d8ca4794de07883fee407419e3b9eb",
+      "cargo_lock_sha256": "6ecf887d50b749f6becdc268a9c97ddde7bfb7eeaf5b093c1e0ec60fcde0e0de",
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "--bench",
+        "stepping"
+      ],
+      "commit": "ef21cc6430329cefa64497f7eed1ffa8e669bea3",
+      "cpu_model": "Apple M4 Max",
+      "criterion_version": "0.8.2",
+      "operating_system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "source_digest_sha256": "5e8feb078b9185bce3511ef0ec1c12ae1b90deb8f23a89c548ec47728a48e502",
+      "tag": "v0.4.2"
+    },
+    "mode": "local-isolated-worktrees",
+    "working_tree_applied": true
+  },
+  "release": {
+    "baseline_tag": "v0.4.1",
+    "current_tag": "v0.4.2"
+  },
+  "report": {
+    "baseline_label": "v0.4.1",
+    "current_label": "v0.4.2 working tree",
+    "measurement_context": [
+      "Source mode: same-host isolated worktrees; current `HEAD` with tracked and untracked working-tree changes applied.",
+      "Host: `macOS-26.6.2-arm64-arm-64bit-Mach-O` on `arm64`; CPU: `Apple M4 Max`.",
+      "Current commit: `ef21cc6430329cefa64497f7eed1ffa8e669bea3`; rustc: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; Criterion: `0.8.2`.",
+      "Baseline commit: `b0d93a1b386aaec7222866fef24feeef6cf13475`; rustc: `rustc 1.97.1 (8bab26f4f 2026-07-14)`; Criterion: `0.8.2`.",
+      "Benchmark harness SHA-256 prefixes: current `823f21999027`; baseline `7763d9a61040`.",
+      "Benchmark harness hashes differ; verify that every shared name retains the same workload contract."
+    ],
+    "revision": "ef21cc6",
+    "statistic": "median"
+  },
+  "schema": "mcmc-performance-provenance/v2"
+}

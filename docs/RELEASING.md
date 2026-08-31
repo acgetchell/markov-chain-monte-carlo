@@ -61,7 +61,8 @@ benchmarks, or redirect existing performance artifact links to a tag whose artif
 
 `just changelog-unreleased "$TAG"` generates notes from local Git history without creating a tag, applies Markdown hygiene, and synchronizes the new heading
 with the prepared citation date. This date synchronization is offline, so crossing UTC midnight during generation does not split the citation and changelog
-dates. To intentionally move the release date, rerun `just update-version "$TAG"`.
+dates. The postprocessor applies rumdl's configured fixes, including prose wrapping at 160 characters, before atomically publishing the changelog. To
+intentionally move the release date, rerun `just update-version "$TAG"`.
 
 Review `CHANGELOG.md`; never hand-edit generated content. Fix source commit messages, `cliff.toml`, or the post-processing helper and regenerate. Squash commit
 bodies supply unreleased details; annotated tag notes supply older release details. Put release-note-worthy bullets in squash commit bodies because GitHub

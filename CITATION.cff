@@ -2,9 +2,9 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "markov-chain-monte-carlo: A composable MCMC framework for Rust"
-version: "0.4.1"
+version: "0.4.2"
 doi: 10.5281/zenodo.20033111
-date-released: 2026-08-04
+date-released: 2026-08-31
 url: "https://github.com/acgetchell/markov-chain-monte-carlo"
 repository-code: "https://github.com/acgetchell/markov-chain-monte-carlo"
 authors:
