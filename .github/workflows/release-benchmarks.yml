@@ -1,23 +1,28 @@
 name: Release Benchmarks
+run-name: Release benchmark ${{ inputs.release_tag }}
 
-# Publish durable Criterion baselines for every GitHub Release. Release jobs do
-# not restore or save dependency caches because the resulting archive is a
-# long-lived comparison input rather than a development-speed optimization.
+# Attach a durable Criterion baseline to a draft GitHub Release, then publish
+# it. Release jobs do not restore or save dependency caches because the archive
+# is a long-lived comparison input rather than a development-speed optimization.
 
 permissions:
   contents: read
 
 on:
-  release:
-    types:
-      - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable tag with a draft GitHub Release
+        required: true
+        type: string
 
 concurrency:
-  group: release-benchmarks-${{ github.event.release.tag_name }}
+  group: release-benchmarks-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.release_tag }}
   RUST_BACKTRACE: 1
 
 jobs:
@@ -28,9 +33,29 @@ jobs:
       release-asset: ${{ steps.package-baseline.outputs.asset }}
 
     steps:
+      - name: Validate draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must use stable vX.Y.Z syntax: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          read -r release_draft release_immutable < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+              --jq '[.draft, .immutable] | @tsv'
+          )
+          if [[ "$release_draft" != "true" || "$release_immutable" != "false" ]]; then
+            echo "::error::Release $RELEASE_TAG must exist as a mutable draft" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.release_tag }}
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -59,13 +84,9 @@ jobs:
           python-version: ${{ steps.python_version.outputs.value }}
 
       - name: Save release Criterion baseline
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: just bench-save-baseline "$RELEASE_TAG"
 
       - name: Record release benchmark metadata
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
 
@@ -117,8 +138,6 @@ jobs:
 
       - name: Package release Criterion baseline
         id: package-baseline
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
 
@@ -129,7 +148,7 @@ jobs:
       - name: Upload temporary baseline artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bench-baseline-${{ github.event.release.tag_name }}
+          name: bench-baseline-${{ inputs.release_tag }}
           path: ${{ steps.package-baseline.outputs.asset }}
           retention-days: 30
           if-no-files-found: error
@@ -145,15 +164,27 @@ jobs:
       - name: Download release baseline
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bench-baseline-${{ github.event.release.tag_name }}
+          name: bench-baseline-${{ inputs.release_tag }}
 
-      - name: Attach baseline to GitHub Release
+      - name: Attach baseline and publish GitHub Release
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_ASSET: ${{ needs.release-baseline.outputs.release-asset }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" "$RELEASE_ASSET"
+        run: |
+          set -euo pipefail
+
+          read -r release_draft release_immutable < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+              --jq '[.draft, .immutable] | @tsv'
+          )
+          if [[ "$release_draft" != "true" || "$release_immutable" != "false" ]]; then
+            echo "::error::Release $RELEASE_TAG is no longer a mutable draft" >&2
+            exit 1
+          fi
+
+          gh release upload "$RELEASE_TAG" "$RELEASE_ASSET"
+          gh release edit "$RELEASE_TAG" --draft=false
 
       - name: Release baseline summary
         env:
@@ -164,5 +195,5 @@ jobs:
           {
             echo "### Release Benchmark Baseline"
             echo ""
-            echo "Uploaded release asset: \`$RELEASE_ASSET\`"
+            echo "Uploaded release asset and published draft: \`$RELEASE_ASSET\`"
           } >> "$GITHUB_STEP_SUMMARY"
