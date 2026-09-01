@@ -133,7 +133,7 @@ class TestPostprocess:
             postprocess(f)
 
         assert f.read_text(encoding="utf-8") == original
-        assert tuple(tmp_path.iterdir()) == (f,)
+        assert tuple(sorted(tmp_path.iterdir(), key=lambda path: path.name.casefold())) == (f,)
 
     def test_main_reports_atomic_replace_failure_without_traceback(
         self,
