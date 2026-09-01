@@ -3,7 +3,7 @@
 [![DOI](https://badgen.net/badge/DOI/10.5281%2Fzenodo.20033111/blue)](https://doi.org/10.5281/zenodo.20033111)
 [![Crates.io](https://badgen.net/crates/v/markov-chain-monte-carlo)](https://crates.io/crates/markov-chain-monte-carlo)
 [![Downloads](https://badgen.net/crates/d/markov-chain-monte-carlo)](https://crates.io/crates/markov-chain-monte-carlo)
-[![License](https://badgen.net/github/license/acgetchell/markov-chain-monte-carlo)](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/LICENSE)
+[![License](https://badgen.net/github/license/acgetchell/markov-chain-monte-carlo)](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/LICENSE)
 [![Docs.rs](https://docs.rs/markov-chain-monte-carlo/badge.svg)](https://docs.rs/markov-chain-monte-carlo)
 [![CI](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/codeql.yml)
@@ -12,7 +12,7 @@
 [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
 [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
 
-![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/main/docs/assets/ising_energy_trace.png)
+![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.4.2/docs/assets/ising_energy_trace.png)
 
 _Open-boundary 1-D Ising chain with 50 spins, β = 0.5, J = 1, seed 42, 5,000 burn-in steps, and 20,000 recorded steps. `just notebook-check`
 regenerates `target/ising_1d_trace.csv`, the executed notebook, and the PNG under `target/notebooks/`; `just notebook-ising-figure` promotes that exact PNG to
@@ -68,7 +68,7 @@ checkpoints, and empirical detailed-balance diagnostics for representative discr
 mixed, or that a scientific model is appropriate for a downstream study.
 
 For the detailed contract, see the
-[scientific basis and scope guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md).
+[scientific basis and scope guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/scientific_basis.md).
 
 ## ✨ Features
 
@@ -194,18 +194,18 @@ proposal, and RNG to `Sampler::new`.
 
 ## 🧪 Examples
 
-Complete runnable examples live in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/main/examples):
+Complete runnable examples live in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.4.2/examples):
 
-- [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/normal_1d.rs) — by-value random-walk sampler for a normal
-  target
-- [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/ising_1d.rs) — in-place spin-flip proposals for a
+- [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/normal_1d.rs) — by-value random-walk sampler for a
+  normal target
+- [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/ising_1d.rs) — in-place spin-flip proposals for a
   non-`Clone` open-boundary Ising state, with energy/magnetization trace CSV export
-- [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/iterator_sampling.rs) — `Sampler` as an iterator
-- [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/detailed_balance.rs) — by-value, in-place, delayed,
-  and batch detailed-balance checks
-- [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/delayed_chunked_telemetry.rs) — per-step
+- [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/iterator_sampling.rs) — `Sampler` as an iterator
+- [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/detailed_balance.rs) — by-value, in-place,
+  delayed, and batch detailed-balance checks
+- [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/delayed_chunked_telemetry.rs) — per-step
   delayed telemetry and post-step state recorded across resumable chunks
-- [`examples/additive_target_bias.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/examples/additive_target_bias.rs) — model and bias
+- [`examples/additive_target_bias.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/additive_target_bias.rs) — model and bias
   log-weight terms composed with `AdditiveTarget`
 
 Run them with:
@@ -215,39 +215,60 @@ just examples
 ```
 
 For proposal-specific testing patterns, see the
-[proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md).
+[proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).
 
 The Ising trace notebook lives at
-[`notebooks/ising_trace_analysis.ipynb`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/notebooks/ising_trace_analysis.ipynb). Run
+[`notebooks/ising_trace_analysis.ipynb`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb). Run
 `just notebook-check` to generate `target/ising_1d_trace.csv`, validate the source notebook, and write a headlessly executed copy under `target/notebooks/`.
 
 ## 📖 Documentation
 
 - [docs.rs API documentation](https://docs.rs/markov-chain-monte-carlo)
-- [Reviewer guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/reviewer_guide.md)
-- [Changelog](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CHANGELOG.md)
-- [Scientific basis and scope](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md)
-- [Proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/proposal_validation.md)
-- [Roadmap](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/roadmap.md)
-- [Code organization guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/code_organization.md)
-- [Rust development workflow](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/dev/rust.md)
-- [Release process](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/RELEASING.md)
-- [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/SECURITY.md)
+- [Reviewer guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/reviewer_guide.md)
+- [Changelog](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CHANGELOG.md)
+- [Scientific basis and scope](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/scientific_basis.md)
+- [Proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md)
+- [Roadmap](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/roadmap.md)
+- [Code organization guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/code_organization.md)
+- [Rust development workflow](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/dev/rust.md)
+- [Release process](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/RELEASING.md)
+- [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/SECURITY.md)
 
 ## Performance
 
 <!-- PERFORMANCE:BEGIN -->
 
-The next complete release comparison will publish a table and plot here from retained measurements. The
-[legacy report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/PERFORMANCE.md) predates retained evidence and cannot be reproduced.
-See the [benchmark methodology](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/BENCHMARKING.md) for workload contracts and limits.
+**v0.4.2 working tree against v0.4.1**; median elapsed time, with recorded confidence bounds where available.
+
+![Release workload time ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.svg)
+
+| Workload | Baseline | Current | Relative time |
+| --- | --- | --- | --- |
+| `chain_step_by_value` | 15.80 ns (15.74 ns - 15.87 ns) | 16.91 ns (16.90 ns - 16.93 ns) | 1.07x slower |
+| `chain_step_delayed_no_plan` | 1.03 ns (1.03 ns - 1.03 ns) | 0.73 ns (0.73 ns - 0.73 ns) | 1.42x faster |
+| `chain_step_mut_accept` | 12.68 ns (12.66 ns - 12.70 ns) | 13.69 ns (13.65 ns - 13.72 ns) | 1.08x slower |
+| `chain_step_mut_reject_rollback` | 102.78 ns (102.21 ns - 103.47 ns) | 198.01 ns (197.44 ns - 198.35 ns) | 1.93x slower |
+| `observing_manual_online_sum_100` | 934.48 ns (933.26 ns - 935.27 ns) | 1.28 µs (1.27 µs - 1.28 µs) | 1.36x slower |
+| `observing_run_observing_buffer_100` | 1.56 µs (1.56 µs - 1.56 µs) | 1.78 µs (1.77 µs - 1.78 µs) | 1.14x slower |
+| `observing_run_observing_into_binning_100` | 1.97 µs (1.96 µs - 1.97 µs) | 2.23 µs (2.23 µs - 2.23 µs) | 1.13x slower |
+| `observing_run_observing_into_online_stats_100` | 1.25 µs (1.24 µs - 1.25 µs) | 1.60 µs (1.60 µs - 1.60 µs) | 1.28x slower |
+| `sampler_run_by_value_100` | 1.50 µs (1.50 µs - 1.51 µs) | 1.54 µs (1.53 µs - 1.54 µs) | 1.02x slower |
+| `sampler_run_mut_100` | 1.04 µs (1.04 µs - 1.04 µs) | 1.28 µs (1.28 µs - 1.28 µs) | 1.23x slower |
+
+Coverage: 10 comparable, 12 current-only, 3 baseline-only workloads.
+
+These workload timings do not measure mixing, convergence, or effective sample size. Ratios are point estimates, not significance tests.
+
+- [Report and measurement context](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/PERFORMANCE.md)
+- [CSV measurements](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.csv)
+- [JSON provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.provenance.json)
 
 <!-- PERFORMANCE:END -->
 
 ## 👀 Reviewer guide
 
 For a short reading path through the repository's scientific contract, validation strategy, roadmap boundaries, and reproducible local checks, see
-[`docs/reviewer_guide.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/reviewer_guide.md).
+[`docs/reviewer_guide.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/reviewer_guide.md).
 
 ## 🧩 Ecosystem
 
@@ -265,29 +286,29 @@ The long-term architecture separates:
 
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CONTRIBUTING.md) for the full contributor guide (project layout,
+See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CONTRIBUTING.md) for the full contributor guide (project layout,
 development workflow, code style, testing, documentation layout, performance/benchmarking, and the release process). Community expectations live in
-[`CODE_OF_CONDUCT.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CODE_OF_CONDUCT.md). AI assistants should follow
-[`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/AGENTS.md).
+[`CODE_OF_CONDUCT.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CODE_OF_CONDUCT.md). AI assistants should follow
+[`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/AGENTS.md).
 
 Quick local workflow: run `just setup` once, then run `just check` before opening a pull request. For the full command list, run `just --list`.
 
 ## 📚 Citation
 
 If you use this crate in academic work or downstream research software, please cite it using
-[`CITATION.cff`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CITATION.cff) or GitHub's "Cite this repository" feature.
+[`CITATION.cff`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CITATION.cff) or GitHub's "Cite this repository" feature.
 
 ## 🔎 References
 
 For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
-[`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md).
+[`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/REFERENCES.md).
 
 ## 🤖 AI Agents
 
-AI coding assistants should read [`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/AGENTS.md) before proposing or applying changes.
-See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/CONTRIBUTING.md#ai-assisted-development) for the repository's AI-assisted
-development note.
+AI coding assistants should read [`AGENTS.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/AGENTS.md) before proposing or applying
+changes. See [CONTRIBUTING.md](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CONTRIBUTING.md#ai-assisted-development) for the repository's
+AI-assisted development note.
 
 ## 📜 License
 
-This project is licensed under the [BSD 3-Clause License](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/LICENSE).
+This project is licensed under the [BSD 3-Clause License](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/LICENSE).

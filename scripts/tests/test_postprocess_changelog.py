@@ -1,5 +1,6 @@
 """Tests for postprocess_changelog.py — trailing blank line hygiene."""
 
+import subprocess
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -22,13 +23,13 @@ class TestPostprocess:
         assert f.read_text(encoding="utf-8") == "# Changelog\n\n- Item\n"
 
     @pytest.mark.parametrize("trailing", ["   \n\n", "\t \r\n\r\n"])
-    def test_strips_whitespace_only_trailing_lines_without_changing_content(self, tmp_path: Path, trailing: str) -> None:
+    def test_strips_whitespace_only_trailing_lines_and_invalid_trailing_spaces(self, tmp_path: Path, trailing: str) -> None:
         f = tmp_path / "CHANGELOG.md"
         f.write_bytes(f"# Changelog\n\n- Item  \n{trailing}".encode())
 
         postprocess(f)
 
-        assert f.read_bytes() == b"# Changelog\n\n- Item  \n"
+        assert f.read_bytes() == b"# Changelog\n\n- Item\n"
 
     @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
     def test_output_uses_lf_even_with_windows_text_file_defaults(
@@ -51,7 +52,7 @@ class TestPostprocess:
 
         postprocess(changelog)
 
-        assert changelog.read_bytes() == b"# Changelog\n\n- Item  \n"
+        assert changelog.read_bytes() == b"# Changelog\n\n- Item\n"
         assert tuple(tmp_path.iterdir()) == (changelog,)
 
     def test_preserves_single_trailing_newline(self, tmp_path: Path) -> None:
@@ -80,6 +81,14 @@ class TestPostprocess:
         result = f.read_text(encoding="utf-8")
         # Internal blank lines preserved, only trailing ones stripped
         assert result == "# Changelog\n\n## [1.0.0]\n\n### Added\n\n- Item\n"
+
+    def test_wraps_generated_markdown_to_the_configured_limit(self, tmp_path: Path) -> None:
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(f"# Changelog\n\n- {'release note ' * 20}\n", encoding="utf-8")
+
+        postprocess(f)
+
+        assert max(map(len, f.read_text(encoding="utf-8").splitlines())) <= 160
 
     def test_single_newline_file(self, tmp_path: Path) -> None:
         f = tmp_path / "CHANGELOG.md"
@@ -110,6 +119,21 @@ class TestPostprocess:
 
         assert f.read_text(encoding="utf-8") == original
         assert tuple(tmp_path.iterdir()) == (f,)
+
+    def test_preserves_original_if_markdown_formatting_fails(self, tmp_path: Path) -> None:
+        f = tmp_path / "CHANGELOG.md"
+        original = "# Changelog\n\n- Existing entry\n\n"
+        f.write_text(original, encoding="utf-8")
+        failure = subprocess.CalledProcessError(1, ["rumdl"], stderr="unfixable Markdown")
+
+        with (
+            patch("postprocess_changelog.run_safe_command", side_effect=failure),
+            pytest.raises(postprocess_changelog.MarkdownFormatError, match="unfixable Markdown"),
+        ):
+            postprocess(f)
+
+        assert f.read_text(encoding="utf-8") == original
+        assert tuple(sorted(tmp_path.iterdir(), key=lambda path: path.name.casefold())) == (f,)
 
     def test_main_reports_atomic_replace_failure_without_traceback(
         self,

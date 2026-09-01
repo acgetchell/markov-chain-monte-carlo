@@ -249,12 +249,12 @@ def test_audit_workflow_self_triggers_and_preserves_readable_failure_output() ->
 
 def test_release_performance_docs_record_the_prospective_asset_boundary() -> None:
     benchmarking = (REPO_ROOT / "docs" / "BENCHMARKING.md").read_text(encoding="utf-8")
-    performance = (REPO_ROOT / "docs" / "PERFORMANCE.md").read_text(encoding="utf-8")
+    legacy_report = (REPO_ROOT / "docs" / "archive" / "performance" / "v0.4.1-vs-v0.4.0.md").read_text(encoding="utf-8")
     releasing = (REPO_ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
 
-    assert "Legacy, non-reproducible report" in performance
-    assert "Repository-owned CSV measurements" in performance
-    assert "native Criterion sample archives are unavailable" in performance
+    assert "Legacy, non-reproducible report" in legacy_report
+    assert "Repository-owned CSV measurements" in legacy_report
+    assert "native Criterion sample archives are unavailable" in legacy_report
     assert "releases through `v0.4.1` have no Criterion baseline attachment" in benchmarking
     assert "`v0.4.2` release therefore creates the first durable" in benchmarking
     assert "`v0.4.3` creates the first complete historical pair" in benchmarking

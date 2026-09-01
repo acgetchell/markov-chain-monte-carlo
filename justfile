@@ -269,19 +269,31 @@ build:
 
 # Changelog generation (git-cliff + post-processing)
 [group('release')]
-changelog: _ensure-git-cliff python-sync
+changelog: _ensure-git-cliff _ensure-rumdl python-sync
     #!/usr/bin/env bash
     set -euo pipefail
-    GIT_CLIFF_OFFLINE=true git-cliff -o CHANGELOG.md
-    uv run --locked postprocess-changelog
+    changelog_path="CHANGELOG.md"
+    staging_file="$(mktemp "${changelog_path}.tmp.XXXXXX")"
+    trap 'rm -f "$staging_file"' EXIT
+    cp -p "$changelog_path" "$staging_file"
+    GIT_CLIFF_OFFLINE=true git-cliff -o "$staging_file"
+    uv run --locked postprocess-changelog "$staging_file"
+    mv -f "$staging_file" "$changelog_path"
+    trap - EXIT
 
 # Regenerate CHANGELOG.md for a release tag before the tag exists
 [group('release')]
-changelog-unreleased version: _ensure-git-cliff python-sync
+changelog-unreleased version: _ensure-git-cliff _ensure-rumdl python-sync
     #!/usr/bin/env bash
     set -euo pipefail
-    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ quote(version) }} -o CHANGELOG.md
-    uv run --locked postprocess-changelog
+    changelog_path="CHANGELOG.md"
+    staging_file="$(mktemp "${changelog_path}.tmp.XXXXXX")"
+    trap 'rm -f "$staging_file"' EXIT
+    cp -p "$changelog_path" "$staging_file"
+    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ quote(version) }} -o "$staging_file"
+    uv run --locked postprocess-changelog "$staging_file"
+    mv -f "$staging_file" "$changelog_path"
+    trap - EXIT
     uv run --locked update-release-version {{ quote(version) }} --sync-changelog-date
 
 # Non-mutating validation gate
