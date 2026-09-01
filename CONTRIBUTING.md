@@ -526,7 +526,8 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 3. Run `just performance-release`, review the retained evidence, and publish the README table and SVG with `just performance-readme`.
 4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
-6. Publish to crates.io, create the GitHub Release, verify the durable Criterion baseline attachment, and delete the merged release branch.
+6. Publish to crates.io, create a draft GitHub Release, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
+   durable attachment and delete the merged release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 

@@ -234,6 +234,10 @@ def test_release_workflow_uses_the_canonical_baseline_recipe() -> None:
     workflow = (REPO_ROOT / ".github" / "workflows" / "release-benchmarks.yml").read_text(encoding="utf-8")
 
     assert 'run: just bench-save-baseline "$RELEASE_TAG"' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "types:\n      - published" not in workflow
+    assert "must exist as a mutable draft" in workflow
+    assert 'gh release edit "$RELEASE_TAG" --draft=false' in workflow
     assert "--clobber" not in workflow
 
 
@@ -255,11 +259,11 @@ def test_release_performance_docs_record_the_prospective_asset_boundary() -> Non
     assert "Legacy, non-reproducible report" in legacy_report
     assert "Repository-owned CSV measurements" in legacy_report
     assert "native Criterion sample archives are unavailable" in legacy_report
-    assert "releases through `v0.4.1` have no Criterion baseline attachment" in benchmarking
-    assert "`v0.4.2` release therefore creates the first durable" in benchmarking
-    assert "`v0.4.3` creates the first complete historical pair" in benchmarking
-    assert "`v0.4.1` and earlier releases have no Criterion baseline attachment" in releasing
-    assert "`v0.4.3`-against-`v0.4.2` pair" in releasing
+    assert "releases through `v0.4.2` have no Criterion baseline attachment" in benchmarking
+    assert "`v0.4.3` release creates the first durable" in benchmarking
+    assert "`v0.4.4` creates the first complete historical pair" in benchmarking
+    assert "`v0.4.2` and earlier releases have no Criterion baseline attachment" in releasing
+    assert "`v0.4.4`-against-`v0.4.3` pair" in releasing
 
 
 def test_ci_runs_the_full_repository_gate_on_every_matrix_platform() -> None:

@@ -123,18 +123,21 @@ git --no-pager show --no-patch "$TAG"
 test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
 git push origin "$TAG"
 cargo publish --locked
-gh release create "$TAG" --title "$TAG" --notes-from-tag
+gh release create "$TAG" --title "$TAG" --notes-from-tag --draft --verify-tag
+gh workflow run release-benchmarks.yml -f release_tag="$TAG"
 ```
 
-Publishing to crates.io precedes creating the GitHub release. The GitHub release triggers `Release Benchmarks`, which measures the `stepping` suite and
-attaches `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`. Verify the workflow succeeds and the durable release attachment exists:
+Publishing to crates.io precedes creating the draft GitHub Release. Manually dispatch `Release Benchmarks` only after the draft exists. The workflow verifies
+that the tag names a mutable draft, measures the `stepping` suite, attaches `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`, and publishes the draft
+after the upload succeeds. Do not publish the draft separately while the workflow is running. Verify the workflow succeeds and the immutable release contains
+the durable attachment:
 
 ```bash
 gh release view "$TAG" --json assets --jq '.assets[].name'
 ```
 
-The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.1` and earlier releases have no Criterion baseline attachment.
-`v0.4.2` establishes the initial asset. After publishing `v0.4.3`, run `just performance-github-assets` and verify the `v0.4.3`-against-`v0.4.2` pair before
+The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.2` and earlier releases have no Criterion baseline attachment.
+`v0.4.3` establishes the initial asset. After publishing `v0.4.4`, run `just performance-github-assets` and verify the `v0.4.4`-against-`v0.4.3` pair before
 treating release-benchmark adoption as complete.
 
 After confirming publication and the durable baseline, delete the merged release branch locally and remotely:
