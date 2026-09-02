@@ -94,10 +94,11 @@ This is the preferred pre-PR regression check because both measurements run on t
 
 ## GitHub Release Assets
 
-The `Release Benchmarks` workflow runs when a GitHub Release is published. It saves the release tag as a Criterion baseline and attaches
-`markov-chain-monte-carlo-<tag>-criterion-baseline.tar.gz` to the release. The workflow also uploads a 30-day Actions artifact for diagnostics; only the
-GitHub Release attachment is the durable historical baseline. Each schema-2 archive records the release tag and commit, runner operating system and
-architecture, rustc version, Criterion version, and SHA-256 digest of `benches/stepping.rs` beside the measurement data.
+The manually dispatched `Release Benchmarks` workflow requires an existing draft GitHub Release. It saves the release tag as a Criterion baseline, attaches
+`markov-chain-monte-carlo-<tag>-criterion-baseline.tar.gz`, and publishes the draft only after the upload succeeds. This ordering is required for immutable
+releases. The workflow also uploads a 30-day Actions artifact for diagnostics; only the GitHub Release attachment is the durable historical baseline. Each
+schema-2 archive records the release tag and commit, runner operating system and architecture, rustc version, Criterion version, and SHA-256 digest of
+`benches/stepping.rs` beside the measurement data.
 
 Compare the latest two assets without local measurements:
 
@@ -115,17 +116,18 @@ The command writes an analysis-friendly CSV and structured provenance beside the
 assets because they retain the full measurement data needed for future tools; the CSV is the stable tabular interchange layer for analysis and report
 rendering.
 
-Releases published before the `Release Benchmarks` workflow was introduced are not backfilled. Asset-to-asset comparisons therefore become available after
-two releases have been published with the workflow. The asset comparison fails clearly when either archive or requested Criterion sample is absent. Archives
-are bounded by compressed size, entry count, and expanded-file size and are checked for traversal, link, and unsupported entry types before extraction.
+Releases published without a successful pre-publication `Release Benchmarks` run are not backfilled. Asset-to-asset comparisons therefore become available
+after two releases have been published by the workflow. The asset comparison fails clearly when either archive or requested Criterion sample is absent.
+Archives are bounded by compressed size, entry count, and expanded-file size and are checked for traversal, link, and unsupported entry types before
+extraction.
 
 Legacy schema-1 archives remain readable for compatibility, but do not record a benchmark-harness digest. Reports involving one of these assets state that
 workload identity is unavailable and require manual contract review. Schema-2 comparisons display both hash prefixes and warn when they differ.
 
-This rollout is prospective: releases through `v0.4.1` have no Criterion baseline attachment. The `v0.4.2` release therefore creates the first durable
-schema-2 asset, and `v0.4.3` creates the first complete historical pair, comparing `v0.4.3` against `v0.4.2`. That second asset is the point at which the
-end-to-end asset workflow can be considered adopted. Pre-1.0 API changes remain allowed: changed workloads should receive new benchmark names and appear as
-coverage changes rather than being forced into invalid comparisons.
+This rollout is prospective: releases through `v0.4.2` have no Criterion baseline attachment. The `v0.4.3` release creates the first durable schema-2 asset,
+and `v0.4.4` creates the first complete historical pair, comparing `v0.4.4` against `v0.4.3`. That second asset is the point at which the end-to-end asset
+workflow can be considered adopted. Pre-1.0 API changes remain allowed: changed workloads should receive new benchmark names and appear as coverage changes
+rather than being forced into invalid comparisons.
 
 GitHub-hosted runner hardware can vary between releases. Historical asset reports are useful release records, but a same-host local comparison is stronger
 evidence for attributing a change to the code.
