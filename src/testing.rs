@@ -270,6 +270,9 @@ impl DetailedBalanceReport {
 
     /// Return true when the absolute residual is within `tolerance`.
     ///
+    /// Returns `false` for a non-finite residual or a tolerance that is
+    /// negative, NaN, or infinite.
+    ///
     /// # Examples
     ///
     /// ```
@@ -291,6 +294,10 @@ impl DetailedBalanceReport {
     }
 
     /// Approximate normal z-score for the observed log residual.
+    ///
+    /// Returns `None` unless [`Self::log_balance_standard_error`] is finite
+    /// and strictly positive. A synthetic report's non-finite residual is
+    /// propagated through the division when a valid standard error is present.
     ///
     /// # Examples
     ///

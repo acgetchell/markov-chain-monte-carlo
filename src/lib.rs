@@ -79,7 +79,9 @@
 //! `*_with_thinning` variants to collect cloned states or measurements only
 //! every k-th completed step while still advancing the chain on every step.
 //! Parse raw positive intervals once with [`ThinningInterval::new`], then pass
-//! the proof-bearing interval to any thinned method.
+//! the proof-bearing interval to any thinned method. Thinning restarts at each
+//! call: the retained step numbers are relative to that call, not the chain's
+//! cumulative counters.
 //! For workflows that choose the next step budget from the updated state, use
 //! [`Sampler::run_chunk`], [`Sampler::run_mut_chunk`], or
 //! [`Sampler::run_delayed_chunk`].  They run the next chunk on the same RNG
@@ -159,6 +161,8 @@
 //! of ergodicity or convergence.  They are intended for tests, examples, and
 //! proposal-development checks over discrete or otherwise exactly comparable
 //! states.
+//!
+//! # Checkpoint serialization
 //!
 //! Enable the optional `serde` feature to serialize [`Chain<S>`] checkpoints
 //! when `S` implements serde's traits.  Restore checkpoint data with

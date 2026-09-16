@@ -801,9 +801,19 @@ mod tests {
         );
 
         let mut trace = Trace::new(["energy"]).unwrap();
+        trace
+            .push(TraceRecord::new(
+                ChainId::new(0),
+                1,
+                TraceStepOutcome::accepted(),
+                -1.0,
+                vec![2.0],
+            ))
+            .unwrap();
+        let before = trace.clone();
         let record = TraceRecord::new(
             ChainId::new(0),
-            1,
+            2,
             TraceStepOutcome::accepted(),
             0.0,
             vec![1.0, 2.0],
@@ -815,6 +825,7 @@ mod tests {
                 actual: 2
             }
         );
+        assert_eq!(trace, before);
     }
 
     #[test]
@@ -851,7 +862,26 @@ mod tests {
     #[test]
     fn trace_extend_rejects_mismatched_headers() {
         let mut trace = Trace::new(["energy"]).expect("valid observable name");
-        let other = Trace::new(["energy", "magnetization"]).expect("valid observable names");
+        trace
+            .push(TraceRecord::new(
+                ChainId::new(0),
+                1,
+                TraceStepOutcome::accepted(),
+                -1.0,
+                vec![2.0],
+            ))
+            .unwrap();
+        let before = trace.clone();
+        let mut other = Trace::new(["energy", "magnetization"]).expect("valid observable names");
+        other
+            .push(TraceRecord::new(
+                ChainId::new(1),
+                1,
+                TraceStepOutcome::no_proposal(),
+                -3.0,
+                vec![4.0, 5.0],
+            ))
+            .unwrap();
 
         assert_eq!(
             trace.extend(other).unwrap_err(),
@@ -860,6 +890,7 @@ mod tests {
                 actual: vec!["energy".to_owned(), "magnetization".to_owned()]
             }
         );
+        assert_eq!(trace, before);
     }
 
     #[test]

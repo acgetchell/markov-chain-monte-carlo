@@ -175,7 +175,32 @@ const fn thinned_capacity(steps: usize, thin_interval: ThinningInterval) -> usiz
 /// For the by-value proposal path (`P: Proposal<S>`), `Sampler` also implements
 /// [`Iterator`], yielding `Result<Step<()>, McmcError>` on each step.
 ///
-/// # Example
+/// # Run behavior
+///
+/// Runs stop at the first error and retain completed transitions and RNG
+/// consumption. An observation or accumulation error occurs after that step
+/// has completed; it does not undo the transition. Buffered methods discard
+/// the current call's collected samples on error. Streaming methods retain
+/// prior accumulator updates; handling a failed push is the accumulator's
+/// responsibility.
+///
+/// Thinning counts steps from the start of each call, independently of the
+/// chain's counters. Every thinned run retains steps `k`, `2k`, and so on for
+/// interval `k`; a partial interval does not carry over to the next call.
+///
+/// Streaming methods do not retain samples themselves. Memory use depends on
+/// the accumulator: [`crate::OnlineStats`] uses `O(1)` memory,
+/// [`crate::BinningAnalysis`] uses `O(log n)`, and [`Vec`] or [`SampleBuffer`]
+/// stores all `n` retained outputs.
+///
+/// # Checkpoint serialization
+///
+/// With the `serde` feature and `S: Serialize`, serializing a sampler produces
+/// a [`ChainCheckpoint`] containing only the state and counters. It excludes
+/// the target, proposal, and RNG. Deserialize a checkpoint, validate it with
+/// [`Chain::from_checkpoint`], then attach the components with [`Self::new`].
+///
+/// # Examples
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::by_value::*;
@@ -455,7 +480,10 @@ impl<S, T: ?Sized, P, R: ?Sized> Sampler<'_, S, T, P, R> {
         Ok(samples)
     }
 
-    /// Execute already-validated thinned stepping.
+    /// Execute thinned stepping with a fresh interval for this call.
+    ///
+    /// The countdown is independent of chain counters so counter resets and
+    /// saturation cannot change which samples are retained within a run.
     fn run_thinning_loop<E>(
         &mut self,
         steps: usize,
@@ -781,8 +809,9 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     /// Run by-value steps and collect cloned states every `thin_interval` steps.
     ///
     /// States are cloned after completed steps whose 1-based step number is
-    /// divisible by `thin_interval`. For example, `steps = 5` and
-    /// `thin_interval = 2` collects states after steps 2 and 4.
+    /// divisible by `thin_interval`, counting from the start of this call.
+    /// For example, `steps = 5` and `thin_interval = 2` collects states after
+    /// steps 2 and 4; the remaining step does not carry over to the next call.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::by_value::*;
@@ -808,6 +837,9 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     ///
     /// let states = sampler.run_with_thinning(5, thin_interval)?;
     /// assert_eq!(states.as_slice(), &[S(0), S(0)]);
+    /// // Thinning restarts, retaining overall steps 7 and 9 on the next call.
+    /// let next_states = sampler.run_with_thinning(5, thin_interval)?;
+    /// assert_eq!(next_states.as_slice(), &[S(1), S(1)]);
     /// # Ok::<(), McmcError>(())
     /// ```
     ///
@@ -815,6 +847,11 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     ///
     /// Returns [`McmcError`] on the first step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_with_thinning(
         &mut self,
         steps: usize,
@@ -899,6 +936,11 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     /// # Errors
     ///
     /// Returns [`McmcError`] on the first step that fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_observing<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -949,6 +991,11 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     ///
     /// Returns [`McmcError`] on the first step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -965,11 +1012,13 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
 
     /// Run by-value steps and stream observations into an accumulator.
     ///
-    /// This is the constant-memory counterpart to
+    /// This is the streaming counterpart to
     /// [`run_observing`](Self::run_observing).  The accumulator may be an
     /// [`OnlineStats`](crate::OnlineStats), [`BinningAnalysis`](crate::BinningAnalysis),
     /// [`Vec`], [`SampleBuffer`], or any other type implementing
     /// [`TryAccumulator<O::Output>`].
+    /// Memory use follows the accumulator's storage policy; see
+    /// [run behavior](Self#run-behavior).
     ///
     /// ```
     /// use core::convert::Infallible;
@@ -1025,7 +1074,7 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
 
     /// Run by-value steps and stream observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`run_observing_with_thinning`](Self::run_observing_with_thinning).
     ///
     /// ```
@@ -1169,6 +1218,11 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     /// # Errors
     ///
     /// Returns [`ObservedStepError`] on the first step or observation failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_observing<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -1227,6 +1281,11 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     /// Returns [`ObservedStepError`] on the first step or thinned observation
     /// failure. The [`ThinningInterval`] argument proves the divisor is
     /// nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -1307,7 +1366,7 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
 
     /// Run by-value steps and stream fallible observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`try_run_observing_with_thinning`](Self::try_run_observing_with_thinning).
     ///
     /// ```
@@ -1570,6 +1629,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     ///
     /// Returns [`McmcError`] on the first step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_mut_with_thinning(
         &mut self,
         steps: usize,
@@ -1662,6 +1726,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     /// # Errors
     ///
     /// Returns [`McmcError`] on the first step that fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_mut_observing<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -1718,6 +1787,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     ///
     /// Returns [`McmcError`] on the first step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_mut_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -1734,7 +1808,7 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
 
     /// Run in-place steps and stream observations into an accumulator.
     ///
-    /// This is the constant-memory counterpart to
+    /// This is the streaming counterpart to
     /// [`run_mut_observing`](Self::run_mut_observing).
     ///
     /// ```
@@ -1796,7 +1870,7 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
 
     /// Run in-place steps and stream observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`run_mut_observing_with_thinning`](Self::run_mut_observing_with_thinning).
     ///
     /// ```
@@ -1953,6 +2027,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     /// # Errors
     ///
     /// Returns [`ObservedStepError`] on the first step or observation failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_mut_observing<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -2017,6 +2096,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     /// Returns [`ObservedStepError`] on the first step or thinned observation
     /// failure. The [`ThinningInterval`] argument proves the divisor is
     /// nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_mut_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -2102,7 +2186,7 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
 
     /// Run in-place steps and stream fallible observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`try_run_mut_observing_with_thinning`](Self::try_run_mut_observing_with_thinning).
     ///
     /// ```
@@ -2678,6 +2762,11 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     ///
     /// Returns [`DelayedStepError`] on the first delayed step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_delayed_with_thinning(
         &mut self,
         steps: usize,
@@ -2805,6 +2894,11 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     /// # Errors
     ///
     /// Returns [`DelayedStepError`] on the first step that fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_delayed_observing<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -2860,6 +2954,11 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     ///
     /// Returns [`DelayedStepError`] on the first delayed step that fails. The
     /// [`ThinningInterval`] argument proves the divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn run_delayed_observing_with_thinning<O: Observable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -2879,7 +2978,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
 
     /// Run delayed-commit steps and stream observations into an accumulator.
     ///
-    /// This is the constant-memory counterpart to
+    /// This is the streaming counterpart to
     /// [`run_delayed_observing`](Self::run_delayed_observing).
     ///
     /// ```
@@ -2944,7 +3043,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
 
     /// Run delayed-commit steps and stream observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`run_delayed_observing_with_thinning`](Self::run_delayed_observing_with_thinning).
     ///
     /// ```
@@ -3109,6 +3208,11 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     /// # Errors
     ///
     /// Returns [`ObservedStepError`] on the first step or observation failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_delayed_observing<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -3172,6 +3276,11 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     /// Returns [`ObservedStepError`] on the first delayed step or thinned
     /// observation failure. The [`ThinningInterval`] argument proves the
     /// divisor is nonzero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if preallocating `steps / thin_interval.get()` outputs exceeds
+    /// [`SampleBuffer::with_capacity`]'s allocation limit.
     pub fn try_run_delayed_observing_with_thinning<O: TryObservable<S> + ?Sized>(
         &mut self,
         steps: usize,
@@ -3263,7 +3372,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
 
     /// Run delayed-commit steps and stream fallible observations every `thin_interval` steps.
     ///
-    /// This is the thinned, constant-memory counterpart to
+    /// This is the thinned streaming counterpart to
     /// [`try_run_delayed_observing_with_thinning`](Self::try_run_delayed_observing_with_thinning).
     ///
     /// ```

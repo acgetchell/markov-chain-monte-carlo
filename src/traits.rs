@@ -576,12 +576,12 @@ where
     }
 }
 
-/// Target distribution.
+/// Target distribution expressed as an unnormalized natural log weight.
 ///
-/// `log_prob` returns a value proportional to the natural logarithm of the
-/// target probability mass or density at `state`.  It may be an unnormalized
-/// log-density or negative energy/action; additive constants do not affect
-/// Metropolis-Hastings acceptance probabilities.
+/// [`log_prob`](Self::log_prob) returns the natural logarithm of the target
+/// probability mass or density at `state`, up to an additive constant. It may
+/// be an unnormalized log-density or negative energy/action; additive
+/// constants do not affect Metropolis-Hastings acceptance probabilities.
 ///
 /// This is not a logit or arbitrary score: differences between two returned
 /// values must be log probability ratios for the chain to target the intended
@@ -592,8 +592,32 @@ where
 /// and do not change later transition probabilities. Interior mutability is
 /// permitted only when callers synchronize changes between transitions; each
 /// transition re-scores its current state before evaluating acceptance.
+///
+/// # Examples
+///
+/// A standard normal target omits the constant normalization term:
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::{Chain, McmcError, Target};
+///
+/// struct Normal;
+/// impl Target<f64> for Normal {
+///     fn log_prob(&self, state: &f64) -> f64 {
+///         -0.5 * state * state
+///     }
+/// }
+///
+/// let chain = Chain::new(2.0, &Normal)?;
+/// assert_eq!(chain.log_prob(), -2.0);
+/// # Ok::<(), McmcError>(())
+/// ```
 pub trait Target<S> {
-    /// Compute log-probability (or negative energy/action).
+    /// Compute the state's unnormalized natural log-probability.
+    ///
+    /// Return a finite value or [`f64::NEG_INFINITY`] for zero target weight.
+    /// Chain constructors and stepping methods reject NaN and positive
+    /// infinity with [`crate::McmcError`]. Multiplying this log weight by an
+    /// arbitrary constant changes the sampled distribution.
     fn log_prob(&self, state: &S) -> f64;
 }
 
@@ -610,6 +634,27 @@ pub trait Target<S> {
 /// where rollback evidence lives, and which failure/telemetry capabilities are
 /// meaningful; normalizing them into one outcome would obscure those
 /// transition guarantees.
+///
+/// # Examples
+///
+/// A symmetric random walk needs no proposal-ratio override:
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::by_value::Proposal;
+/// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+///
+/// struct Walk;
+/// impl Proposal<f64> for Walk {
+///     fn propose<R: Rng + ?Sized>(&self, current: &f64, rng: &mut R) -> f64 {
+///         current + rng.random_range(-1.0..1.0)
+///     }
+/// }
+///
+/// let mut rng = StdRng::seed_from_u64(42);
+/// let proposed = Walk.propose(&0.0, &mut rng);
+/// assert!((-1.0..1.0).contains(&proposed));
+/// assert_eq!(Walk.log_q_ratio(&0.0, &proposed), 0.0);
+/// ```
 pub trait Proposal<S> {
     /// Propose a new state from the current one.
     fn propose<R: Rng + ?Sized>(&self, current: &S, rng: &mut R) -> S;
@@ -617,7 +662,9 @@ pub trait Proposal<S> {
     /// Log proposal ratio:
     /// log(q(current | proposed) / q(proposed | current))
     ///
-    /// Defaults to 0 for symmetric proposals.
+    /// Defaults to 0 for symmetric proposals. Return a finite value or
+    /// [`f64::NEG_INFINITY`] when the reverse move has zero probability.
+    /// Stepping rejects NaN and positive infinity with [`crate::McmcError`].
     fn log_q_ratio(&self, _current: &S, _proposed: &S) -> f64 {
         0.0
     }
@@ -645,7 +692,7 @@ impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &mut P {
 
 /// In-place proposal distribution with rollback.
 ///
-/// Unlike [`Proposal`], which clones the state for each proposal,
+/// Unlike [`Proposal`], which returns a proposed state by value,
 /// `ProposalMut` mutates the state in place and returns an undo token
 /// that can reverse the mutation on rejection.  This is the natural
 /// model for combinatorial state spaces (e.g., triangulations, graphs)
@@ -661,6 +708,11 @@ impl<S, P: Proposal<S> + ?Sized> Proposal<S> for &mut P {
 ///   exactly what is needed to reverse a move.
 /// * [`Info`](ProposalMut::Info) — user-facing metadata returned with the
 ///   completed step.
+///
+/// # Examples
+///
+/// See [`crate::Chain::step_mut`] for a complete proposal implementation and
+/// sampling step, including construction of the undo token and telemetry.
 pub trait ProposalMut<S> {
     /// Token that records how to reverse a proposed move.
     type Undo;
@@ -730,7 +782,10 @@ pub trait ProposalMut<S> {
     /// normal in-place path allocation-free while still allowing exact
     /// forward/reverse proposal accounting.
     ///
-    /// Defaults to 0 for symmetric proposals.
+    /// Defaults to 0 for symmetric proposals. The result is
+    /// `log(q(current | proposed) / q(proposed | current))` for the move
+    /// represented by `token`, with the same numerical contract as
+    /// [`Proposal::log_q_ratio`].
     fn log_q_ratio(&self, _state: &S, _token: &Self::Undo) -> f64 {
         0.0
     }
@@ -804,6 +859,11 @@ impl<S, P: ProposalMut<S> + ?Sized> ProposalMut<S> for &mut P {
 /// [`ProposalMut`]. Its plan is scored before mutation and its typed errors are
 /// stage-specific, so collapsing it into a normalized proposal outcome would
 /// weaken the accept-before-mutation contract.
+///
+/// # Examples
+///
+/// See [`crate::Chain::step_delayed`] for a complete planned-move example and
+/// [`Self::no_plan_info`] for recording a move family when no site is available.
 pub trait DelayedProposal<S> {
     /// Concrete move descriptor produced before the Metropolis-Hastings decision.
     type Plan;
@@ -945,7 +1005,9 @@ pub trait DelayedProposal<S> {
     /// weights cancel. [`DiscreteProposalRatio`] computes this common
     /// correction for weighted move families with uniformly sampled sites.
     ///
-    /// Defaults to 0 for symmetric proposals.
+    /// Defaults to 0 for symmetric proposals. Successful results have the
+    /// same numerical contract as [`Proposal::log_q_ratio`]; an `Ok` value
+    /// containing NaN or positive infinity is rejected by delayed stepping.
     ///
     /// # Errors
     ///
@@ -1061,6 +1123,18 @@ mod tests {
         // log_q_ratio intentionally not overridden — uses default
     }
 
+    /// Distinct non-default correction detects missing ratio forwarding.
+    struct AsymmetricProposal;
+    impl Proposal<Scalar> for AsymmetricProposal {
+        fn propose<R: Rng + ?Sized>(&self, current: &Scalar, _rng: &mut R) -> Scalar {
+            Scalar(current.0 + 1.0)
+        }
+
+        fn log_q_ratio(&self, current: &Scalar, proposed: &Scalar) -> f64 {
+            current.0 - proposed.0
+        }
+    }
+
     struct SymmetricMutProposal;
     impl ProposalMut<Scalar> for SymmetricMutProposal {
         type Undo = f64;
@@ -1108,12 +1182,16 @@ mod tests {
 
     #[test]
     fn proposal_ref_forwards() {
-        let proposal = SymmetricProposal;
+        let proposal = AsymmetricProposal;
         let shared = &proposal;
-        let proposed = shared.propose(&Scalar(2.0), &mut rng());
+        // UFCS selects the implementation for &P instead of autoderef to P.
+        let proposed = Proposal::propose(&shared, &Scalar(2.0), &mut rng());
 
-        assert_relative_eq!(proposed.0, -2.0);
-        assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
+        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(
+            Proposal::log_q_ratio(&shared, &Scalar(2.0), &proposed),
+            -1.0
+        );
     }
 
     #[test]
@@ -1133,14 +1211,15 @@ mod tests {
     #[test]
     fn mut_ref_mut_proposal_forwards() {
         let mut proposal = SymmetricMutProposal;
-        let shared = &mut proposal;
+        let mut shared = &mut proposal;
         let mut state = Scalar(2.0);
-        let token = shared.propose_mut(&mut state, &mut rng()).unwrap();
+        let token = ProposalMut::propose_mut(&mut shared, &mut state, &mut rng()).unwrap();
 
         assert_relative_eq!(state.0, -2.0);
-        assert_relative_eq!(shared.log_q_ratio(&state, &token), 0.0);
+        assert_relative_eq!(ProposalMut::info(&shared, &state, &token), -2.0);
+        assert_relative_eq!(ProposalMut::log_q_ratio(&shared, &state, &token), 0.0);
 
-        shared.undo(&mut state, token);
+        ProposalMut::undo(&mut shared, &mut state, token);
         assert_relative_eq!(state.0, 2.0);
     }
 
@@ -1153,12 +1232,15 @@ mod tests {
 
     #[test]
     fn mut_ref_proposal_forwards() {
-        let mut proposal = SymmetricProposal;
+        let mut proposal = AsymmetricProposal;
         let shared = &mut proposal;
-        let proposed = shared.propose(&Scalar(2.0), &mut rng());
+        let proposed = Proposal::propose(&shared, &Scalar(2.0), &mut rng());
 
-        assert_relative_eq!(proposed.0, -2.0);
-        assert_relative_eq!(shared.log_q_ratio(&Scalar(2.0), &proposed), 0.0);
+        assert_relative_eq!(proposed.0, 3.0);
+        assert_relative_eq!(
+            Proposal::log_q_ratio(&shared, &Scalar(2.0), &proposed),
+            -1.0
+        );
     }
 
     struct SymmetricDelayedProposal;
@@ -1232,7 +1314,8 @@ mod tests {
 
         assert_relative_eq!(
             ratio.log_q_ratio(),
-            3.0_f64.ln() - 4.0_f64.ln() - 1.0_f64.ln() + 4.0_f64.ln() + 6.0_f64.ln() - 2.0_f64.ln(),
+            // q_forward = (1/4)/6 = 1/24; q_reverse = (3/4)/2 = 3/8.
+            9.0_f64.ln(),
             epsilon = 1e-12
         );
     }
@@ -1403,22 +1486,25 @@ mod tests {
         }
 
         let mut proposal = SymmetricDelayedProposal;
-        let shared = &mut proposal;
+        let mut shared = &mut proposal;
         let state = Scalar(1.0);
-        let plan = shared.propose_plan(&state, &mut rng()).unwrap().unwrap();
+        let plan = DelayedProposal::propose_plan(&mut shared, &state, &mut rng())
+            .unwrap()
+            .unwrap();
 
         assert_relative_eq!(plan, -1.0);
         assert_relative_eq!(
-            shared
-                .proposed_log_prob(&state, &plan, &ZeroTarget)
-                .unwrap(),
+            DelayedProposal::proposed_log_prob(&shared, &state, &plan, &ZeroTarget).unwrap(),
             -1.0
         );
-        assert_relative_eq!(shared.log_q_ratio(&state, &plan).unwrap(), 0.0);
-        assert_relative_eq!(shared.info(&plan), -1.0);
+        assert_relative_eq!(
+            DelayedProposal::log_q_ratio(&shared, &state, &plan).unwrap(),
+            0.0
+        );
+        assert_relative_eq!(DelayedProposal::info(&shared, &plan), -1.0);
 
         let mut committed = Scalar(1.0);
-        shared.commit(&mut committed, plan, &mut rng()).unwrap();
+        DelayedProposal::commit(&mut shared, &mut committed, plan, &mut rng()).unwrap();
         assert_relative_eq!(committed.0, -1.0);
     }
 }

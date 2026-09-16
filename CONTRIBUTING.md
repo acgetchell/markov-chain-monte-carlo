@@ -166,9 +166,10 @@ just changelog      # Regenerate CHANGELOG.md from git history
 just clean           # Clean build artifacts
 ```
 
-`just update` advances Cargo dependency requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins,
-upgrades the Cargo-installed CLI tools managed by `just setup`, and reconciles their root justfile pins together with the active uv version. Review the
-resulting manifest, lockfile, and tool-pin changes before committing them.
+`just update` first checks that the active uv reports a stable version, before changing dependencies or installed tools. It advances Cargo dependency
+requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins, upgrades the managed Cargo CLI tools,
+and reconciles their root justfile pins together with the active uv version. `cargo-update` is an unpinned bootstrap helper installed by `just setup` when
+missing; it is outside the managed update set. Review the resulting manifest, lockfile, and tool-pin changes before committing them.
 
 **Workflow help:**
 
@@ -178,6 +179,11 @@ just help-workflows  # Detailed workflow guidance
 ```
 
 ### Typical Development Cycle
+
+For an optional local CodeRabbit review, use `just review [base]` for branch changes plus local edits (default base: `origin/main`), or
+`just review-uncommitted` for only staged, unstaged, and new files. CodeRabbit is separate from `just check` and `just ci`, requires its separately installed
+and authenticated CLI, and agents invoke it only when explicitly requested. See [local CodeRabbit review](docs/dev/rust.md#local-coderabbit-review) for scope
+and follow-up guidance. The default base must match the live remote; a stale ref stops review with fetch instructions.
 
 1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `doc/329-citation-notes`:
 

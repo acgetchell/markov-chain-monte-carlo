@@ -313,7 +313,8 @@ class TestCreateTag:
         else:
             assert create_git_tag.call_args.kwargs["input_data"] == section
         assert "Successfully created tag 'v1.0.0'" in rendered
-        assert "gh release create v1.0.0" in rendered
+        assert "gh release create v1.0.0 --title v1.0.0 --notes-from-tag --draft --verify-tag" in rendered
+        assert "gh workflow run release-benchmarks.yml -f release_tag=v1.0.0" in rendered
 
     def test_mismatched_package_version_fails_before_tag_lookup(
         self,
@@ -338,7 +339,8 @@ class TestCreateTag:
     @patch("tag_release._tag_exists", return_value=False)
     @patch("tag_release.find_changelog")
     @patch("tag_release.extract_changelog_section", return_value="### Added\n\n- Something new")
-    def test_next_step_sets_release_title(
+    @pytest.mark.parametrize("version", ["1.0.0", "1.0.0-rc.1", "1.0.0+build.42"])
+    def test_next_steps_preserve_draft_until_assets_are_ready(
         self,
         _mock_extract: MagicMock,
         mock_find: MagicMock,
@@ -346,12 +348,24 @@ class TestCreateTag:
         _mock_git_input: MagicMock,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
+        version: str,
     ) -> None:
         mock_find.return_value = tmp_path / "CHANGELOG.md"
+        (tmp_path / "Cargo.toml").write_text(f'[package]\nname = "fixture"\nversion = "{version}"\n', encoding="utf-8", newline="\n")
 
-        tag_release.create_tag("v1.0.0")
+        tag_release.create_tag(f"v{version}")
 
-        assert "gh release create v1.0.0 --title v1.0.0 --notes-from-tag" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        push = f"git push origin v{version}"
+        publish = "cargo publish --locked"
+        draft = f"gh release create v{version} --title v{version} --notes-from-tag --draft --verify-tag"
+        assert output.index(push) < output.index(publish) < output.index(draft)
+        if version == "1.0.0":
+            dispatch = "gh workflow run release-benchmarks.yml -f release_tag=v1.0.0"
+            assert output.index(draft) < output.index(dispatch)
+        else:
+            assert "Release Benchmarks accepts only stable vX.Y.Z tags" in output
+            assert "gh workflow run" not in output
 
     @patch("tag_release.run_git_command_with_input")
     @patch("tag_release._tag_exists", return_value=False)

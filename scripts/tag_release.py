@@ -257,6 +257,23 @@ def _print_status(message: str) -> None:
     print(message.encode(encoding, errors="backslashreplace").decode(encoding))
 
 
+def _print_next_steps(release: ReleaseVersion, *, force: bool) -> None:
+    """Keep release assets attachable until the benchmark workflow publishes."""
+    tag = release.tag
+    print()
+    print("Next steps:")
+    if force:
+        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag}{_RESET}")
+    else:
+        print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
+    print(f"  2. Publish to crates.io: {_BLUE}cargo publish --locked{_RESET}")
+    print(f"  3. Create draft GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag --draft --verify-tag{_RESET}")
+    if "-" in release.number or "+" in release.number:
+        print("  4. Release Benchmarks accepts only stable vX.Y.Z tags; keep this draft unpublished until its assets are ready.")
+    else:
+        print(f"  4. Attach benchmark assets and publish the draft: {_BLUE}gh workflow run release-benchmarks.yml -f release_tag={tag}{_RESET}")
+
+
 def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> None:
     """Create an annotated git tag with changelog content.
 
@@ -323,13 +340,7 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
 
     # Success
     _print_status(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")
-    print()
-    print("Next steps:")
-    if force:
-        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag}{_RESET}")
-    else:
-        print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
-    print(f"  2. Create GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag{_RESET}")
+    _print_next_steps(release, force=force)
     if is_truncated:
         print(f"\n{_YELLOW}Note: Tag annotation references CHANGELOG.md due to size (>125KB).{_RESET}")
 

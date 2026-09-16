@@ -26,15 +26,17 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  release-baseline:
+  validate-release:
+    # Draft releases require push access. Keep this token away from tagged code.
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    outputs:
-      release-asset: ${{ steps.package-baseline.outputs.asset }}
+    timeout-minutes: 5
 
     steps:
       - name: Validate draft GitHub Release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -44,18 +46,27 @@ jobs:
             exit 1
           fi
 
-          read -r release_draft release_immutable < <(
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-              --jq '[.draft, .immutable] | @tsv'
-          )
+          release_state="$(
+            gh release view "$RELEASE_TAG" --json isDraft,isImmutable \
+              --jq '[.isDraft, .isImmutable] | @tsv'
+          )"
+          read -r release_draft release_immutable <<< "$release_state"
           if [[ "$release_draft" != "true" || "$release_immutable" != "false" ]]; then
             echo "::error::Release $RELEASE_TAG must exist as a mutable draft" >&2
             exit 1
           fi
 
+  release-baseline:
+    needs: validate-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      release-asset: ${{ steps.package-baseline.outputs.asset }}
+
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: refs/tags/${{ inputs.release_tag }}
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -133,6 +144,7 @@ jobs:
           Path("target/criterion/.mcmc-release-metadata.json").write_text(
               json.dumps(metadata, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
+              newline="\n",
           )
           PY
 
@@ -174,16 +186,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          read -r release_draft release_immutable < <(
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-              --jq '[.draft, .immutable] | @tsv'
-          )
+          release_state="$(
+            gh release view "$RELEASE_TAG" --json isDraft,isImmutable \
+              --jq '[.isDraft, .isImmutable] | @tsv'
+          )"
+          read -r release_draft release_immutable <<< "$release_state"
           if [[ "$release_draft" != "true" || "$release_immutable" != "false" ]]; then
             echo "::error::Release $RELEASE_TAG is no longer a mutable draft" >&2
             exit 1
           fi
 
-          gh release upload "$RELEASE_TAG" "$RELEASE_ASSET"
+          asset_names="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          if grep -Fxq -- "$RELEASE_ASSET" <<< "$asset_names"; then
+            download_dir="$(mktemp -d)"
+            trap 'rm -rf "$download_dir"' EXIT
+            gh release download "$RELEASE_TAG" --pattern "$RELEASE_ASSET" --dir "$download_dir"
+            if ! cmp -s "$RELEASE_ASSET" "$download_dir/$RELEASE_ASSET"; then
+              echo "::error::Existing release asset differs from this run; leaving the draft unpublished" >&2
+              exit 1
+            fi
+          else
+            gh release upload "$RELEASE_TAG" "$RELEASE_ASSET"
+          fi
           gh release edit "$RELEASE_TAG" --draft=false
 
       - name: Release baseline summary

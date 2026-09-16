@@ -16,6 +16,10 @@ pub struct DelayedCommitLogProbMismatch {
 }
 
 impl DelayedCommitLogProbMismatch {
+    /// Preserve scores already validated by checked delayed stepping.
+    ///
+    /// Both arguments must exclude NaN and positive infinity; in particular,
+    /// excluding NaN preserves the reflexive equality promised by `Eq`.
     pub(crate) const fn new(scored: f64, committed: f64) -> Self {
         Self { scored, committed }
     }
@@ -42,6 +46,10 @@ impl PartialEq for DelayedCommitLogProbMismatch {
 impl Eq for DelayedCommitLogProbMismatch {}
 
 /// Errors that can occur during MCMC operations.
+///
+/// Target scores and log proposal ratios must be finite or negative infinity.
+/// Positive infinity is outside this crate's numerical contract, including
+/// when it comes from an integrable singularity in a probability density.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum McmcError {
@@ -82,35 +90,29 @@ pub enum McmcError {
     MissingRollbackToken,
     /// Target returned +∞ log-probability for the initial state.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteInitialLogProb,
     /// Target returned +∞ log-probability for a proposed state.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.  If accepted, the chain
-    /// would become permanently stuck.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteProposedLogProb,
     /// Proposal returned +∞ log q-ratio.
     ///
-    /// This indicates a degenerate proposal where the forward transition
-    /// probability is zero (yet a state was somehow proposed), almost
-    /// certainly a bug in the proposal implementation.
+    /// Check for numerical overflow or an inconsistent forward/reverse
+    /// proposal calculation, such as zero forward probability for a move
+    /// that was actually proposed.
     InfiniteLogQRatio,
     /// Target returned +∞ log-probability for a replacement state.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteReplacementLogProb,
     /// Target returned +∞ log-probability for a checkpoint state.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteCheckpointLogProb,
     /// Target returned +∞ log-probability for the current chain state.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteCurrentLogProb,
     /// Target returned +∞ log-probability after a checked delayed commit.
     ///
@@ -118,8 +120,7 @@ pub enum McmcError {
     /// [`crate::Sampler::step_delayed_checked`] after an accepted delayed
     /// proposal has been committed and re-scored.
     ///
-    /// This indicates infinite probability, which is invalid for any
-    /// proper (normalizable) distribution.
+    /// Positive-infinite target scores are unsupported; see [`McmcError`].
     InfiniteCommittedLogProb,
 }
 

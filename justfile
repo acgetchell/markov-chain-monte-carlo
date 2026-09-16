@@ -6,20 +6,19 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cargo_edit_version := "0.13.13"
-cargo_llvm_cov_version := "0.9.0"
-cargo_nextest_version := "0.9.143"
-cargo_update_version := "22.1.1"
+cargo_llvm_cov_version := "0.9.1"
+cargo_nextest_version := "0.9.144"
 clippy_sarif_version := "0.8.0"
-dprint_version := "0.57.0"
-git_cliff_version := "2.13.1"
+dprint_version := "0.57.4"
+git_cliff_version := "2.14.1"
 just_version := "1.58.0"
 python_version := "3.14"
-rumdl_version := "0.2.62"
+rumdl_version := "0.2.73"
 sarif_fmt_version := "0.8.0"
 taplo_version := "0.10.0"
-typos_version := "1.50.0"
-uv_version := "0.12.7"
-zizmor_version := "1.30.0"
+typos_version := "1.50.2"
+uv_version := "0.12.15"
+zizmor_version := "1.30.1"
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
 slow_notebooks := ""
@@ -56,15 +55,11 @@ _ensure-cargo-edit:
 _ensure-cargo-install-update:
     #!/usr/bin/env bash
     set -euo pipefail
-    installed_version=""
-    if command -v cargo-install-update >/dev/null; then
-        installed_version="$(cargo-install-update --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    fi
-    if [[ "$installed_version" != "{{ cargo_update_version }}" ]]; then
-        echo "❌ 'cargo-update' {{ cargo_update_version }} not found. Run 'just setup-tools' or install it with:"
-        echo "   cargo install --locked cargo-update --version {{ cargo_update_version }}"
+    command -v cargo-install-update >/dev/null || {
+        echo "❌ 'cargo-install-update' not found. Run 'just setup-tools' or install it with:"
+        echo "   cargo install --locked cargo-update"
         exit 1
-    fi
+    }
 
 _ensure-cargo-llvm-cov:
     #!/usr/bin/env bash
@@ -91,6 +86,14 @@ _ensure-cargo-nextest:
         echo "   cargo install --locked cargo-nextest --version {{ cargo_nextest_version }}"
         exit 1
     fi
+
+_ensure-coderabbit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v coderabbit >/dev/null || {
+        echo "CodeRabbit CLI is required for local review. Install it from https://docs.coderabbit.ai/cli and ensure coderabbit is on PATH." >&2
+        exit 1
+    }
 
 _ensure-dprint:
     #!/usr/bin/env bash
@@ -197,6 +200,10 @@ _ensure-uv-available:
     }
     uv --version >/dev/null
 
+_ensure-uv-stable: _ensure-uv-available
+    # Check the reconciler's contract without syncing dependencies or installing Python.
+    uv run --locked --no-sync --no-python-downloads python scripts/update_cargo_tool_pins.py --check-uv
+
 _ensure-zizmor:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -209,6 +216,30 @@ _ensure-zizmor:
         echo "   cargo install --locked zizmor --version {{ zizmor_version }}"
         exit 1
     fi
+
+_review scope base: _ensure-coderabbit
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=(review --agent --include-untracked -c AGENTS.md .coderabbit.yml)
+    case {{ quote(scope) }} in
+        branch)
+            base={{ quote(base) }}
+            if [[ "$base" == origin/main ]]; then
+                if ! remote_ref="$(git --no-pager ls-remote --exit-code origin refs/heads/main)"; then
+                    echo "Cannot verify origin/main against the remote; review was not started." >&2
+                    exit 1
+                fi
+                read -r remote_commit _ <<< "$remote_ref"
+                if ! local_commit="$(git --no-pager rev-parse --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null)" || [[ "$local_commit" != "$remote_commit" ]]; then
+                    echo "origin/main is missing or stale. Run 'git fetch origin', then retry 'just review'." >&2
+                    exit 1
+                fi
+            fi
+            args+=(--base "$base") ;;
+        uncommitted) args+=(--uncommitted) ;;
+        *) echo "Unsupported review scope: "{{ quote(scope) }} >&2; exit 2 ;;
+    esac
+    exec coderabbit "${args[@]}"
 
 # GitHub Actions workflow validation
 [group('validation')]
@@ -436,6 +467,10 @@ help-workflows:
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
     @echo "  just update-version <tag> # Prepare release metadata from one stable tag"
+    @echo ""
+    @echo "Local CodeRabbit review:"
+    @echo "  just review [base]      # Review the branch and local edits; base defaults to origin/main"
+    @echo "  just review-uncommitted # Review only local edits, including new files"
     @echo ""
     @echo "Quality groups:"
     @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
@@ -738,6 +773,14 @@ python-typecheck: python-sync
 release-check: python-sync
     uv run --locked release-check
 
+# Review committed and local changes against the PR base with CodeRabbit.
+[group('review')]
+review base="origin/main": (_review "branch" base)
+
+# Review staged, unstaged, and new files without committed branch changes.
+[group('review')]
+review-uncommitted: (_review "uncommitted" "")
+
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
 semgrep: _ensure-uv
@@ -826,9 +869,9 @@ setup-tools: _ensure-uv _ensure-jq
     echo ""
 
     echo "Ensuring cargo tools..."
-    cargo_update_version="{{ cargo_update_version }}"
-    if ! have cargo-install-update || [[ "$(cargo-install-update --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)" != "$cargo_update_version" ]]; then
-        cargo install --locked cargo-update --version "$cargo_update_version"
+    # cargo-update is an unpinned bootstrap helper, outside the managed tool set.
+    if ! have cargo-install-update; then
+        cargo install --locked cargo-update
     fi
     cargo_edit_version="{{ cargo_edit_version }}"
     if ! cargo upgrade --version >/dev/null 2>&1 || [[ "$(cargo upgrade --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$cargo_edit_version" ]]; then
@@ -1020,7 +1063,7 @@ toml-lint: _ensure-taplo
 
 # Update dependency requirements, locks, managed Cargo tools, and the active uv pin.
 [group('build and setup')]
-update: _ensure-cargo-install-update update-dependencies update-cargo-tools
+update: _ensure-cargo-install-update _ensure-uv-stable update-dependencies update-cargo-tools
     @echo "✅ Repository dependencies and tools updated."
 
 # Advance Cargo dependency declarations and lockfile entries.
@@ -1033,7 +1076,7 @@ update-cargo-dependencies: _ensure-cargo-edit
 # Update locally installed Cargo CLI tools and reconcile their pins plus the active uv version.
 [doc('Update managed Cargo CLI tools and reconcile all root justfile tool pins.')]
 [group('build and setup')]
-update-cargo-tools: _ensure-cargo-install-update _ensure-uv-available
+update-cargo-tools: _ensure-cargo-install-update _ensure-uv-stable
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -1041,7 +1084,6 @@ update-cargo-tools: _ensure-cargo-install-update _ensure-uv-available
         cargo-edit
         cargo-llvm-cov
         cargo-nextest
-        cargo-update
         dprint
         git-cliff
         just
@@ -1056,12 +1098,12 @@ update-cargo-tools: _ensure-cargo-install-update _ensure-uv-available
 # Advance Cargo and exact Python development requirements plus their lockfiles.
 [doc('Update Cargo and Python development requirements plus all Cargo/uv locked dependencies.')]
 [group('build and setup')]
-update-dependencies: _ensure-cargo-edit _ensure-uv-available update-cargo-dependencies update-python-dependencies
+update-dependencies: _ensure-cargo-edit _ensure-uv-stable update-cargo-dependencies update-python-dependencies
 
 # Resolve latest exact Python development tools, retain ranged requirements, and sync.
 [doc('Update exact dependency-groups.dev pins and uv.lock through uv.')]
 [group('build and setup')]
-update-python-dependencies: _ensure-uv-available
+update-python-dependencies: _ensure-uv-stable
     uv run --locked update-python-dev-pins
     uv lock --upgrade
     uv sync --locked --group dev

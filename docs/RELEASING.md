@@ -136,6 +136,9 @@ the durable attachment:
 gh release view "$TAG" --json assets --jq '.assets[].name'
 ```
 
+If upload succeeds but publication fails, rerun the failed publication job to reuse the saved Actions artifact. The workflow downloads any existing asset
+with the same name and requires an exact byte match before publishing. A different asset stops publication for investigation; it is never overwritten.
+
 The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.2` and earlier releases have no Criterion baseline attachment.
 `v0.4.3` establishes the initial asset. After publishing `v0.4.4`, run `just performance-github-assets` and verify the `v0.4.4`-against-`v0.4.3` pair before
 treating release-benchmark adoption as complete.
