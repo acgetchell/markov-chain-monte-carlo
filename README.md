@@ -116,7 +116,7 @@ Enable checkpoint serialization when needed:
 cargo add markov-chain-monte-carlo --features serde
 ```
 
-Rust 1.98.0 or newer is required.
+Rust 1.98.1 or newer is required.
 
 Minimal by-value Metropolis-Hastings sampler. This example demonstrates the transition mechanics; convergence assessment remains a separate analysis step.
 

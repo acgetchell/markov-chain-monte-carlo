@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.98.0 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
+This repository is a single Rust library crate using Rust 1.98.1 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
 
 ## Core Commands
 
@@ -106,9 +106,14 @@ Verify each finding against current code, fix still-valid issues, and run the af
 review data. CLI failures propagate: authentication, service, and allowance failures mean the review is unavailable, not clean. Report the review scope,
 completion status, valid fixes, and skipped findings with brief reasons.
 
-## Rust 1.98.0 Audit
+## Rust 1.98.1 Audit
 
-The MSRV and contributor toolchain use Rust 1.98.0. The audit below follows the final official
+The MSRV and contributor toolchain use Rust 1.98.1. This patch release fixes a Rust 1.98.0 miscompilation that could put a null function pointer in a
+trait-object vtable, causing undefined behavior. Rebuilding with the corrected compiler provides the fix; no source workaround is needed. The release
+adds no language or library features. See the official [Rust 1.98.1 announcement](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/) and
+[release notes](https://github.com/rust-lang/rust/releases/tag/1.98.1).
+
+The existing feature decisions below remain applicable and follow the official
 [Rust 1.98.0 release notes](https://doc.rust-lang.org/stable/releases.html#version-1980-2026-08-20) and
 [release announcement](https://blog.rust-lang.org/2026/08/20/Rust-1.98.0/).
 
