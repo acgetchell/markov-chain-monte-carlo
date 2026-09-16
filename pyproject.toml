@@ -51,7 +51,7 @@ dev = [
     "actionlint-py==1.7.12.24",
     "pytest>=9.1.1",
     "ruff>=0.16.1",
-    "semgrep==1.176.0",
+    "semgrep==1.176.1",
     "ty>=0.0.66",
 ]
 notebook = [ "markov-chain-monte-carlo-tooling[notebook]" ]
