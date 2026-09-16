@@ -35,7 +35,7 @@ This project is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The comm
 
 Before you begin, ensure you have:
 
-1. **Rust 1.98.0** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
+1. **Rust 1.98.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
 2. **Git** for version control
 3. **Just** (command runner): `cargo install just`
 4. **uv** (Python 3.14 tooling): install the repository-pinned version with
@@ -91,7 +91,7 @@ Before you begin, ensure you have:
 
 This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.toml). When you enter the project directory, `rustup` will automatically:
 
-- install the correct Rust version (1.98.0) if you don't have it
+- install the correct Rust version (1.98.1) if you don't have it
 - switch to the pinned version for this project
 - install required components (clippy, rustfmt, rust-docs, rust-std, rust-src, rust-analyzer)
 
@@ -222,7 +222,7 @@ and follow-up guidance. The default base must match the live remote; a stale ref
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.98.0 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.98.1 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
