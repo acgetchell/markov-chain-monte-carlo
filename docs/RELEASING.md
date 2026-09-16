@@ -118,6 +118,7 @@ Sync `main`, create an annotated tag from the generated release notes, and verif
 ```bash
 git checkout main
 git pull --ff-only
+just check
 just tag "$TAG"
 git --no-pager show --no-patch "$TAG"
 test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
