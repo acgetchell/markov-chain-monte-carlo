@@ -1,12 +1,17 @@
 """Regression tests for the public Just recipe surface."""
 
 import json
+import os
 import re
 import shutil
 import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+import pytest
+
+import update_cargo_tool_pins
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 JUSTFILE = REPO_ROOT / "justfile"
@@ -66,6 +71,98 @@ def test_bare_just_shows_curated_help() -> None:
     assert "Use 'just --list' for the complete grouped recipe reference." in result.stdout
 
 
+def _run_review_probe(tmp_path: Path, *recipe_args: str, **overrides: str) -> subprocess.CompletedProcess[str]:
+    """Exercise the real recipes with local stubs, never either remote service."""
+    executable = shutil.which("just")
+    assert executable is not None
+    stub = tmp_path / "coderabbit"
+    stub.write_text(
+        '#!/usr/bin/env bash\nprintf "%s\\0" "$@"\nexit "$REVIEW_STATUS"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    stub.chmod(0o755)
+    git_stub = tmp_path / "git"
+    git_stub.write_text(
+        '#!/usr/bin/env bash\ncase "$*" in\n'
+        '  "--no-pager ls-remote --exit-code origin refs/heads/main")\n'
+        '    printf "%s\\trefs/heads/main\\n" "$REMOTE_COMMIT"; exit "$REMOTE_STATUS" ;;\n'
+        '  "--no-pager rev-parse --verify refs/remotes/origin/main^{commit}")\n'
+        '    printf "%s\\n" "$LOCAL_COMMIT"; exit "$LOCAL_STATUS" ;;\n'
+        '  *) echo "Unexpected Git command: $*" >&2; exit 99 ;;\nesac\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    git_stub.chmod(0o755)
+    return subprocess.run(  # noqa: S603 - fixed Just recipes invoke local CLI stubs with no network effects.
+        [executable, *recipe_args],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+            "REVIEW_STATUS": "0",
+            "REMOTE_COMMIT": "a" * 40,
+            "LOCAL_COMMIT": "a" * 40,
+            "REMOTE_STATUS": "0",
+            "LOCAL_STATUS": "0",
+            **overrides,
+        },
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize(
+    ("recipe_args", "scope_args"),
+    [
+        (("review",), ["--base", "origin/main"]),
+        (("review", "main"), ["--base", "main"]),
+        (("review", "topic/it's; printf injected"), ["--base", "topic/it's; printf injected"]),
+        (("review-uncommitted",), ["--uncommitted"]),
+    ],
+)
+@pytest.mark.parametrize("review_status", [0, 23])
+def test_review_scope_and_failures_reach_the_cli(tmp_path: Path, recipe_args: tuple[str, ...], scope_args: list[str], review_status: int) -> None:
+    result = _run_review_probe(tmp_path, *recipe_args, REVIEW_STATUS=str(review_status))
+
+    assert result.returncode == review_status, result.stderr
+    assert result.stdout.split("\0") == ["review", "--agent", "--include-untracked", "-c", "AGENTS.md", ".coderabbit.yml", *scope_args, ""]
+
+
+@pytest.mark.parametrize("overrides", [{"LOCAL_COMMIT": "b" * 40}, {"LOCAL_STATUS": "1"}, {"REMOTE_STATUS": "1"}])
+def test_default_review_requires_a_verified_current_remote_base(tmp_path: Path, overrides: dict[str, str]) -> None:
+    result = _run_review_probe(tmp_path, "review", **overrides)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    if "REMOTE_STATUS" in overrides:
+        assert "Cannot verify origin/main" in result.stderr
+    else:
+        assert "git fetch origin" in result.stderr
+
+
+@pytest.mark.parametrize("recipe_args", [("review", "main"), ("review-uncommitted",)])
+def test_local_review_scopes_do_not_require_remote_access(tmp_path: Path, recipe_args: tuple[str, ...]) -> None:
+    result = _run_review_probe(tmp_path, *recipe_args, REMOTE_STATUS="1", LOCAL_STATUS="1")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("review\0--agent\0")
+
+
+def test_review_is_discoverable_and_separate_from_validation() -> None:
+    recipes = _recipes()
+    help_text = _run_just("help-workflows").stdout
+    for name in ("review", "review-uncommitted"):
+        assert recipes[name]["private"] is False
+        assert {"group": "review"} in recipes[name]["attributes"]
+        assert f"just {name}" in help_text
+    for name in ("check", "ci", "setup-tools", "update"):
+        result = _run_just("--dry-run", name)
+        assert "coderabbit" not in (result.stdout + result.stderr).lower()
+
+
 def test_public_recipes_have_one_group_and_a_description() -> None:
     for name, recipe in _recipes().items():
         if recipe["private"]:
@@ -110,7 +207,6 @@ def test_pinned_tool_guards_reference_their_justfile_versions() -> None:
         "_ensure-cargo-edit": "cargo_edit_version",
         "_ensure-cargo-llvm-cov": "cargo_llvm_cov_version",
         "_ensure-cargo-nextest": "cargo_nextest_version",
-        "_ensure-cargo-install-update": "cargo_update_version",
         "_ensure-dprint": "dprint_version",
         "_ensure-git-cliff": "git_cliff_version",
         "_ensure-rumdl": "rumdl_version",
@@ -195,11 +291,50 @@ def test_update_workflow_is_public_documented_and_discoverable() -> None:
 
 def test_update_workflow_composes_the_expected_phases() -> None:
     recipes = _recipes()
-    aggregate = {dependency["recipe"] for dependency in recipes["update"]["dependencies"]}
-    dependencies = {dependency["recipe"] for dependency in recipes["update-dependencies"]["dependencies"]}
+    aggregate = [dependency["recipe"] for dependency in recipes["update"]["dependencies"]]
+    dependencies = [dependency["recipe"] for dependency in recipes["update-dependencies"]["dependencies"]]
 
-    assert aggregate == {"_ensure-cargo-install-update", "update-cargo-tools", "update-dependencies"}
-    assert dependencies == {"_ensure-cargo-edit", "_ensure-uv-available", "update-cargo-dependencies", "update-python-dependencies"}
+    assert aggregate == ["_ensure-cargo-install-update", "_ensure-uv-stable", "update-dependencies", "update-cargo-tools"]
+    assert dependencies == ["_ensure-cargo-edit", "_ensure-uv-stable", "update-cargo-dependencies", "update-python-dependencies"]
+
+
+@pytest.mark.parametrize("recipe", ["update", "update-cargo-tools", "update-dependencies", "update-python-dependencies"])
+def test_update_preflights_stable_uv_before_mutations(recipe: str) -> None:
+    result = _run_just("--dry-run", recipe)
+    rendered = result.stdout + result.stderr
+    preflight = "uv run --locked --no-sync --no-python-downloads python scripts/update_cargo_tool_pins.py --check-uv"
+
+    assert rendered.count(preflight) == 1
+    assert rendered.index("uv --version") < rendered.index(preflight)
+    if recipe in {"update", "update-cargo-tools"}:
+        assert rendered.index(preflight) < rendered.index("cargo install-update --locked")
+    if recipe in {"update", "update-dependencies"}:
+        assert rendered.index(preflight) < rendered.index("cargo upgrade --incompatible allow")
+    if recipe in {"update", "update-dependencies", "update-python-dependencies"}:
+        assert rendered.index(preflight) < rendered.index("uv run --locked update-python-dev-pins")
+        assert rendered.index(preflight) < rendered.index("uv lock --upgrade")
+        assert rendered.index(preflight) < rendered.index("uv sync --locked --group dev")
+
+
+def test_cargo_update_is_an_unpinned_bootstrap_helper() -> None:
+    recipes = _recipes()
+    guard = json.dumps(recipes["_ensure-cargo-install-update"]["body"])
+    setup = json.dumps(recipes["setup-tools"]["body"])
+
+    assert "command -v cargo-install-update" in guard
+    assert "--version" not in guard
+    assert "if ! have cargo-install-update; then" in setup
+    assert "cargo install --locked cargo-update" in setup
+    assert "cargo_update_version" not in JUSTFILE.read_text(encoding="utf-8")
+
+    result = _run_just("--dry-run", "update-cargo-tools")
+    rendered = result.stdout + result.stderr
+    package_block = re.search(r"packages=\(\n(?P<packages>.*?)\n\)", rendered, re.DOTALL)
+    assert package_block is not None
+    packages = set(re.findall(r"^\s+([a-z0-9-]+)$", package_block.group("packages"), re.MULTILINE))
+    assert packages == set(update_cargo_tool_pins.PIN_TO_PACKAGE.values())
+    assert "cargo-update" not in packages
+    assert "cargo install-update --all" not in rendered
 
 
 def test_latest_vs_last_composes_measurement_and_report_steps() -> None:
@@ -234,6 +369,10 @@ def test_release_workflow_uses_the_canonical_baseline_recipe() -> None:
     workflow = (REPO_ROOT / ".github" / "workflows" / "release-benchmarks.yml").read_text(encoding="utf-8")
 
     assert 'run: just bench-save-baseline "$RELEASE_TAG"' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "types:\n      - published" not in workflow
+    assert "must exist as a mutable draft" in workflow
+    assert 'gh release edit "$RELEASE_TAG" --draft=false' in workflow
     assert "--clobber" not in workflow
 
 
@@ -255,11 +394,11 @@ def test_release_performance_docs_record_the_prospective_asset_boundary() -> Non
     assert "Legacy, non-reproducible report" in legacy_report
     assert "Repository-owned CSV measurements" in legacy_report
     assert "native Criterion sample archives are unavailable" in legacy_report
-    assert "releases through `v0.4.1` have no Criterion baseline attachment" in benchmarking
-    assert "`v0.4.2` release therefore creates the first durable" in benchmarking
-    assert "`v0.4.3` creates the first complete historical pair" in benchmarking
-    assert "`v0.4.1` and earlier releases have no Criterion baseline attachment" in releasing
-    assert "`v0.4.3`-against-`v0.4.2` pair" in releasing
+    assert "releases through `v0.4.2` have no Criterion baseline attachment" in benchmarking
+    assert "`v0.4.3` release creates the first durable" in benchmarking
+    assert "`v0.4.4` creates the first complete historical pair" in benchmarking
+    assert "`v0.4.2` and earlier releases have no Criterion baseline attachment" in releasing
+    assert "`v0.4.4`-against-`v0.4.3` pair" in releasing
 
 
 def test_ci_runs_the_full_repository_gate_on_every_matrix_platform() -> None:

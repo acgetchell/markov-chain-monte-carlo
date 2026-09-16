@@ -109,6 +109,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── test_justfile_discoverability.py
 │       ├── test_postprocess_changelog.py
 │       ├── test_publish_performance_readme.py
+│       ├── test_release_benchmarks.py
 │       ├── test_release_check.py
 │       ├── test_subprocess_utils.py
 │       ├── test_tag_release.py

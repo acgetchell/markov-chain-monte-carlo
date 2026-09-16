@@ -118,23 +118,34 @@ Sync `main`, create an annotated tag from the generated release notes, and verif
 ```bash
 git checkout main
 git pull --ff-only
+just check
 just tag "$TAG"
 git --no-pager show --no-patch "$TAG"
 test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
 git push origin "$TAG"
+gh release create "$TAG" --title "$TAG" --notes-from-tag --draft --verify-tag
 cargo publish --locked
-gh release create "$TAG" --title "$TAG" --notes-from-tag
+gh workflow run release-benchmarks.yml -f release_tag="$TAG"
 ```
 
-Publishing to crates.io precedes creating the GitHub release. The GitHub release triggers `Release Benchmarks`, which measures the `stepping` suite and
-attaches `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`. Verify the workflow succeeds and the durable release attachment exists:
+Use a normal tag push even after `just tag-force`; Git rejects a conflicting remote tag. If the push is rejected, stop. Intentional retagging requires a
+separately verified recovery procedure covering the existing remote tag object and target commit, the intended replacement, and the GitHub Release and
+crates.io publication state.
+
+Create the draft GitHub Release before publishing to crates.io. Keep the draft unpublished if crate publication fails. After successful crate publication,
+manually dispatch `Release Benchmarks`. The workflow verifies that the tag names a mutable draft, measures the `stepping` suite, attaches
+`markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`, and publishes the draft after the upload succeeds. Do not publish the draft separately while the
+workflow is running. Verify the workflow succeeds and the immutable release contains the durable attachment:
 
 ```bash
 gh release view "$TAG" --json assets --jq '.assets[].name'
 ```
 
-The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.1` and earlier releases have no Criterion baseline attachment.
-`v0.4.2` establishes the initial asset. After publishing `v0.4.3`, run `just performance-github-assets` and verify the `v0.4.3`-against-`v0.4.2` pair before
+If upload succeeds but publication fails, rerun the failed publication job to reuse the saved Actions artifact. The workflow downloads any existing asset
+with the same name and requires an exact byte match before publishing. A different asset stops publication for investigation; it is never overwritten.
+
+The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.2` and earlier releases have no Criterion baseline attachment.
+`v0.4.3` establishes the initial asset. After publishing `v0.4.4`, run `just performance-github-assets` and verify the `v0.4.4`-against-`v0.4.3` pair before
 treating release-benchmark adoption as complete.
 
 After confirming publication and the durable baseline, delete the merged release branch locally and remotely:

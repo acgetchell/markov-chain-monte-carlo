@@ -6,7 +6,7 @@ reference message when the changelog section is too large.
 
 Usage:
     tag-release v1.2.3          # create annotated tag from CHANGELOG.md
-    tag-release v1.2.3 --force  # recreate tag if it already exists
+    tag-release v1.2.3 --force  # recreate an existing local tag
 
 Ported from the delaunay project's changelog_utils.py (tag-creation subset).
 """
@@ -257,6 +257,22 @@ def _print_status(message: str) -> None:
     print(message.encode(encoding, errors="backslashreplace").decode(encoding))
 
 
+def _print_next_steps(release: ReleaseVersion, *, force: bool) -> None:
+    """Keep release assets attachable until the benchmark workflow publishes."""
+    tag = release.tag
+    print()
+    print("Next steps:")
+    print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
+    if force:
+        print("     If the push is rejected, stop: remote retagging requires a separately verified recovery procedure.")
+    print(f"  2. Create draft GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag --draft --verify-tag{_RESET}")
+    print(f"  3. Publish to crates.io: {_BLUE}cargo publish --locked{_RESET}")
+    if "-" in release.number or "+" in release.number:
+        print("  4. Release Benchmarks accepts only stable vX.Y.Z tags; keep this draft unpublished until its assets are ready.")
+    else:
+        print(f"  4. Attach benchmark assets and publish the draft: {_BLUE}gh workflow run release-benchmarks.yml -f release_tag={tag}{_RESET}")
+
+
 def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> None:
     """Create an annotated git tag with changelog content.
 
@@ -323,13 +339,7 @@ def create_tag(tag_version: str | ReleaseVersion, *, force: bool = False) -> Non
 
     # Success
     _print_status(f"{_GREEN}✓ Successfully created tag '{tag}'{_RESET}")
-    print()
-    print("Next steps:")
-    if force:
-        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag}{_RESET}")
-    else:
-        print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
-    print(f"  2. Create GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag{_RESET}")
+    _print_next_steps(release, force=force)
     if is_truncated:
         print(f"\n{_YELLOW}Note: Tag annotation references CHANGELOG.md due to size (>125KB).{_RESET}")
 
@@ -346,7 +356,7 @@ def parse_args(argv: list[str] | None = None) -> TagOptions:
         description="Create an annotated git tag from a CHANGELOG.md section.",
     )
     parser.add_argument("version", type=parse_release_version_argument, help="Tag version (e.g. v1.2.3)")
-    parser.add_argument("--force", action="store_true", help="Recreate tag if it already exists")
+    parser.add_argument("--force", action="store_true", help="Recreate the local tag if it already exists")
     namespace = parser.parse_args(argv)
     return TagOptions(version=namespace.version, force=namespace.force)
 

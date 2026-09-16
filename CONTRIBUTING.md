@@ -166,9 +166,10 @@ just changelog      # Regenerate CHANGELOG.md from git history
 just clean           # Clean build artifacts
 ```
 
-`just update` advances Cargo dependency requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins,
-upgrades the Cargo-installed CLI tools managed by `just setup`, and reconciles their root justfile pins together with the active uv version. Review the
-resulting manifest, lockfile, and tool-pin changes before committing them.
+`just update` first checks that the active uv reports a stable version, before changing dependencies or installed tools. It advances Cargo dependency
+requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins, upgrades the managed Cargo CLI tools,
+and reconciles their root justfile pins together with the active uv version. `cargo-update` is an unpinned bootstrap helper installed by `just setup` when
+missing; it is outside the managed update set. Review the resulting manifest, lockfile, and tool-pin changes before committing them.
 
 **Workflow help:**
 
@@ -178,6 +179,11 @@ just help-workflows  # Detailed workflow guidance
 ```
 
 ### Typical Development Cycle
+
+For an optional local CodeRabbit review, use `just review [base]` for branch changes plus local edits (default base: `origin/main`), or
+`just review-uncommitted` for only staged, unstaged, and new files. CodeRabbit is separate from `just check` and `just ci`, requires its separately installed
+and authenticated CLI, and agents invoke it only when explicitly requested. See [local CodeRabbit review](docs/dev/rust.md#local-coderabbit-review) for scope
+and follow-up guidance. The default base must match the live remote; a stale ref stops review with fetch instructions.
 
 1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `doc/329-citation-notes`:
 
@@ -526,7 +532,8 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 3. Run `just performance-release`, review the retained evidence, and publish the README table and SVG with `just performance-readme`.
 4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
-6. Publish to crates.io, create the GitHub Release, verify the durable Criterion baseline attachment, and delete the merged release branch.
+6. Publish to crates.io, create a draft GitHub Release, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
+   durable attachment and delete the merged release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 

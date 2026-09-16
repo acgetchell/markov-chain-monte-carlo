@@ -2,6 +2,7 @@
 
 use core::convert::Infallible;
 
+use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::{self, by_value, delayed, in_place, testing};
 use markov_chain_monte_carlo::{
     AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
@@ -163,21 +164,33 @@ fn dynamically_dispatched_targets_work_across_public_workflows() {
 
     let mut by_value =
         Sampler::from_state(0.0, target, Smoke, &mut rng).expect("flat target is valid");
-    let _ = by_value.step().expect("identity proposal is valid");
+    let step = by_value.step().expect("identity proposal is valid");
+    assert_eq!(step.outcome(), StepOutcome::Accepted);
+    assert_eq!(by_value.chain_ref().accepted(), 1);
 
     let mut chain = Chain::new(0.0, target).expect("flat target is valid");
     let mut in_place = Smoke;
-    let _ = chain
+    let step = chain
         .step_mut(target, &mut in_place, &mut rng)
         .expect("identity in-place proposal is valid");
+    assert_eq!(step.outcome(), StepOutcome::Accepted);
+    assert_eq!(chain.accepted(), 1);
 
     let mut delayed = Smoke;
-    let _ = chain
+    let step = chain
         .step_delayed_checked(target, &mut delayed, &mut rng)
         .expect("identity delayed proposal is valid");
+    assert_eq!(step.outcome(), StepOutcome::Accepted);
+    assert_eq!(chain.accepted(), 2);
 
     let config = DetailedBalanceConfig::new(1, 0.0, 1).expect("valid diagnostic config");
-    let _report = testing::verify_detailed_balance(&0.0, &0.0, target, &Smoke, &mut rng, config);
+    let report = testing::verify_detailed_balance(&0.0, &0.0, target, &Smoke, &mut rng, config)
+        .expect("identity proposals have balanced unit flow");
+    assert_eq!(report.forward_hits, 1);
+    assert_eq!(report.reverse_hits, 1);
+    assert_relative_eq!(report.forward_log_transition, 0.0);
+    assert_relative_eq!(report.reverse_log_transition, 0.0);
+    assert_relative_eq!(report.log_balance_residual, 0.0);
 }
 
 #[cfg(feature = "serde")]
@@ -185,16 +198,23 @@ fn dynamically_dispatched_targets_work_across_public_workflows() {
 fn sampler_serializes_as_canonical_checkpoint() -> Result<(), JsonError> {
     let target = Smoke;
     let mut rng = StdRng::seed_from_u64(4);
-    let sampler = Sampler::from_state(1.0, &target, Smoke, &mut rng)
+    let chain = Chain::from_checkpoint(ChainCheckpoint::new(1.0, 3, 7), &target)
         .expect("Smoke target always returns a finite log-probability");
+    let mut sampler = Sampler::new(chain, &target, Smoke, &mut rng)
+        .expect("Smoke target always returns a finite log-probability");
+    let _ = sampler.step().expect("identity proposal is valid");
 
     let checkpoint = to_value(&sampler)?;
 
-    assert_eq!(checkpoint["state"], json!(1.0));
-    assert_eq!(checkpoint["accepted"], json!(0));
-    assert_eq!(checkpoint["rejected"], json!(0));
-    assert!(checkpoint.get("target").is_none());
-    assert!(checkpoint.get("proposal").is_none());
-    assert!(checkpoint.get("rng").is_none());
+    assert_eq!(
+        checkpoint,
+        json!({"state": 1.0, "accepted": 4, "rejected": 7})
+    );
+    let checkpoint: ChainCheckpoint<f64> = serde_json::from_value(checkpoint)?;
+    let restored = Chain::from_checkpoint(checkpoint, &target)
+        .expect("serialized checkpoint retains a valid state");
+    assert_eq!(restored.state().to_bits(), 1.0_f64.to_bits());
+    assert_eq!(restored.accepted(), 4);
+    assert_eq!(restored.rejected(), 7);
     Ok(())
 }

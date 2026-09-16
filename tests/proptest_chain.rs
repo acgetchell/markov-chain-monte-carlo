@@ -1,7 +1,7 @@
 //! Property-based tests for [`Chain`] invariants.
 //!
-//! These tests verify mathematical properties of Metropolis–Hastings that must
-//! hold for *all* inputs, not just specific test cases.
+//! These tests exercise cache, transition, and continuation invariants over
+//! generated finite states and reproducible seeded proposal sequences.
 
 use core::convert::Infallible;
 
@@ -9,7 +9,7 @@ use approx::relative_eq;
 use markov_chain_monte_carlo::prelude::by_value::Proposal;
 use markov_chain_monte_carlo::prelude::delayed::DelayedProposal;
 use markov_chain_monte_carlo::prelude::in_place::ProposalMut;
-use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target};
+use markov_chain_monte_carlo::prelude::{Chain, Sampler, Target, ThinningInterval};
 use proptest::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
@@ -107,6 +107,58 @@ impl DelayedProposal<Scalar> for DelayedWalk {
 // ---------------------------------------------------------------------------
 
 proptest! {
+    /// Compare actual retained states with complete raw trajectories, so an
+    /// off-by-one sampling phase or duplicated output cannot pass by length alone.
+    #[test]
+    fn thinned_workflows_retain_the_expected_post_step_states(
+        initial in -10.0f64..10.0,
+        width in 0.1f64..5.0,
+        steps in 0usize..50,
+        interval in 1usize..10,
+        seed in any::<u64>(),
+    ) {
+        let proposal = CloneWalk { width };
+        let mut reference = Chain::new(Scalar(initial), &Normal).unwrap();
+        let mut reference_rng = StdRng::seed_from_u64(seed);
+        let mut trajectory = Vec::new();
+        for _ in 0..steps {
+            let _ = reference.step(&Normal, &proposal, &mut reference_rng).unwrap();
+            trajectory.push(*reference.state());
+        }
+        let expected: Vec<_> = trajectory
+            .chunks_exact(interval)
+            .map(|block| block[interval - 1])
+            .collect();
+        let thin = ThinningInterval::new(interval).unwrap();
+
+        let mut by_value_rng = StdRng::seed_from_u64(seed);
+        let mut by_value = Sampler::from_state(
+            Scalar(initial), &Normal, &proposal, &mut by_value_rng,
+        ).unwrap();
+        let states = by_value.run_with_thinning(steps, thin).unwrap();
+        prop_assert_eq!(states.as_slice(), expected.as_slice());
+        prop_assert_eq!(by_value.chain_ref().state(), reference.state());
+        prop_assert_eq!(by_value.chain_ref().total_steps(), steps);
+
+        let mut in_place_rng = StdRng::seed_from_u64(seed);
+        let mut in_place = Sampler::from_state(
+            Scalar(initial), &Normal, MutWalk { width }, &mut in_place_rng,
+        ).unwrap();
+        let states = in_place.run_mut_with_thinning(steps, thin).unwrap();
+        prop_assert_eq!(states.as_slice(), expected.as_slice());
+        prop_assert_eq!(in_place.chain_ref().state(), reference.state());
+        prop_assert_eq!(in_place.chain_ref().total_steps(), steps);
+
+        let mut delayed_rng = StdRng::seed_from_u64(seed);
+        let mut delayed = Sampler::from_state(
+            Scalar(initial), &Normal, DelayedWalk { width }, &mut delayed_rng,
+        ).unwrap();
+        let states = delayed.run_delayed_with_thinning(steps, thin).unwrap();
+        prop_assert_eq!(states.as_slice(), expected.as_slice());
+        prop_assert_eq!(delayed.chain_ref().state(), reference.state());
+        prop_assert_eq!(delayed.chain_ref().total_steps(), steps);
+    }
+
     /// After any number of steps, `chain.log_prob` must equal the target
     /// evaluated at the current state.  This catches bugs where `log_prob`
     /// is not updated on acceptance or is corrupted during rollback.
@@ -121,16 +173,14 @@ proptest! {
         let mut proposal = MutWalk { width };
         let mut rng = StdRng::seed_from_u64(seed);
 
-        for _ in 0..steps {
+        for step in 0..steps {
             let _ = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
+            let expected = Normal.log_prob(chain.state());
+            prop_assert_eq!(
+                chain.log_prob().to_bits(), expected.to_bits(),
+                "cache mismatch at step {} with seed {}", step, seed,
+            );
         }
-
-        let expected = Normal.log_prob(chain.state());
-        prop_assert!(
-            relative_eq!(chain.log_prob(), expected, epsilon = 1e-12),
-            "log_prob {:.15} != target {:.15} after {} steps",
-            chain.log_prob(), expected, steps,
-        );
     }
 
     /// Same property for the by-value `step`.
@@ -145,16 +195,14 @@ proptest! {
         let proposal = CloneWalk { width };
         let mut rng = StdRng::seed_from_u64(seed);
 
-        for _ in 0..steps {
+        for step in 0..steps {
             let _ = chain.step(&Normal, &proposal, &mut rng).unwrap();
+            let expected = Normal.log_prob(chain.state());
+            prop_assert_eq!(
+                chain.log_prob().to_bits(), expected.to_bits(),
+                "cache mismatch at step {} with seed {}", step, seed,
+            );
         }
-
-        let expected = Normal.log_prob(chain.state());
-        prop_assert!(
-            relative_eq!(chain.log_prob(), expected, epsilon = 1e-12),
-            "log_prob {:.15} != target {:.15} after {} steps",
-            chain.log_prob(), expected, steps,
-        );
     }
 
     /// `step` and `step_mut` must produce identical results when given the
@@ -176,13 +224,19 @@ proptest! {
         let mut chain_mut = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng_mut = StdRng::seed_from_u64(seed);
 
-        for _ in 0..steps {
-            let _ = chain_clone
+        for step in 0..steps {
+            let by_value_step = chain_clone
                 .step(&Normal, &clone_proposal, &mut rng_clone)
                 .unwrap();
-            let _ = chain_mut
+            let in_place_step = chain_mut
                 .step_mut(&Normal, &mut mut_proposal, &mut rng_mut)
                 .unwrap();
+            prop_assert_eq!(
+                by_value_step.outcome(), in_place_step.outcome(),
+                "outcomes diverged at step {} with seed {}", step, seed,
+            );
+            prop_assert_eq!(chain_clone.state(), chain_mut.state());
+            prop_assert_eq!(by_value_step.log_alpha(), in_place_step.log_alpha());
         }
 
         prop_assert_eq!(
@@ -216,13 +270,19 @@ proptest! {
         let mut chain_delayed = Chain::new(Scalar(initial), &Normal).unwrap();
         let mut rng_delayed = StdRng::seed_from_u64(seed);
 
-        for _ in 0..steps {
-            let _ = chain_clone
+        for step in 0..steps {
+            let by_value_step = chain_clone
                 .step(&Normal, &clone_proposal, &mut rng_clone)
                 .unwrap();
-            let _ = chain_delayed
+            let delayed_step = chain_delayed
                 .step_delayed(&Normal, &mut delayed_proposal, &mut rng_delayed)
                 .unwrap();
+            prop_assert_eq!(
+                by_value_step.outcome(), delayed_step.outcome(),
+                "outcomes diverged at step {} with seed {}", step, seed,
+            );
+            prop_assert_eq!(chain_clone.state(), chain_delayed.state());
+            prop_assert_eq!(by_value_step.log_alpha(), delayed_step.log_alpha());
         }
 
         prop_assert_eq!(
@@ -362,6 +422,9 @@ proptest! {
             one_shot.chain_ref().log_prob(),
             chunked.chain_ref().log_prob(),
         );
+        let _ = one_shot.into_chain();
+        let _ = chunked.into_chain();
+        prop_assert_eq!(one_shot_rng.random::<u64>(), chunked_rng.random::<u64>());
     }
 
     /// `Sampler::run_mut` must produce identical results to a raw `Chain`
@@ -449,6 +512,9 @@ proptest! {
             one_shot.chain_ref().log_prob(),
             chunked.chain_ref().log_prob(),
         );
+        let _ = one_shot.into_chain();
+        let _ = chunked.into_chain();
+        prop_assert_eq!(one_shot_rng.random::<u64>(), chunked_rng.random::<u64>());
     }
 
     /// Chunked delayed sampler runs must match one-shot delayed runs with the
@@ -507,6 +573,9 @@ proptest! {
             one_shot.chain_ref().log_prob(),
             chunked.chain_ref().log_prob(),
         );
+        let _ = one_shot.into_chain();
+        let _ = chunked.into_chain();
+        prop_assert_eq!(one_shot_rng.random::<u64>(), chunked_rng.random::<u64>());
     }
 }
 

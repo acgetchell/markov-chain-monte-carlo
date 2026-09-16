@@ -16,7 +16,6 @@ EXPECTED_PIN_TO_PACKAGE = {
     "cargo_edit_version": "cargo-edit",
     "cargo_llvm_cov_version": "cargo-llvm-cov",
     "cargo_nextest_version": "cargo-nextest",
-    "cargo_update_version": "cargo-update",
     "dprint_version": "dprint",
     "git_cliff_version": "git-cliff",
     "just_version": "just",
@@ -135,6 +134,89 @@ def test_update_pin_text_rejects_prerelease_managed_tool() -> None:
 def test_parse_tool_version_rejects_nonstable_or_embedded_versions(output: str) -> None:
     with pytest.raises(ValueError, match="expected exactly one uv version"):
         update_cargo_tool_pins.parse_tool_version(output, "uv")
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["", "uv unknown", "uv 1.2", "uv 1.2.3-rc.1", "uv 1.2.3+build.1", "uv 1.2.3.4", "uv release-1.2.3", "uv 1.2.3 2.0.0", "uv 1.2.3\nuv 1.2.3"],
+)
+def test_uv_preflight_and_reconciler_reject_invalid_versions_without_writing(
+    output: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    justfile = tmp_path / "justfile"
+    original = justfile_text().encode("utf-8")
+    justfile.write_bytes(original)
+
+    def uv_version(command: str, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == "uv"
+        assert args == ["--version"]
+        assert kwargs == {"timeout": 30}
+        return subprocess.CompletedProcess([command, *args], 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(update_cargo_tool_pins, "run_safe_command", uv_version)
+
+    assert update_cargo_tool_pins.main(["--check-uv", "--justfile", str(justfile)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "failed uv preflight (requires stable X.Y.Z): expected exactly one uv version" in captured.err
+    assert justfile.read_bytes() == original
+
+    with pytest.raises(ValueError, match="expected exactly one uv version"):
+        update_cargo_tool_pins.reconcile_pins(justfile, installed_output(), output)
+
+    assert justfile.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [justfile]
+
+
+@pytest.mark.parametrize("output", ["uv 99.0.0", "uv v99.0.0", "uv 99.0.0 (Homebrew 2026-09-04 aarch64-apple-darwin)\n"])
+def test_uv_preflight_accepts_stable_versions_without_reading_pins_or_cargo(
+    output: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing_justfile = tmp_path / "justfile"
+
+    def uv_version(command: str, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == "uv"
+        assert args == ["--version"]
+        assert kwargs == {"timeout": 30}
+        return subprocess.CompletedProcess([command, *args], 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(update_cargo_tool_pins, "run_safe_command", uv_version)
+
+    assert update_cargo_tool_pins.main(["--check-uv", "--justfile", str(missing_justfile)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    assert not missing_justfile.exists()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ExecutableNotFoundError("uv missing"),
+        OSError("uv unavailable"),
+        subprocess.CalledProcessError(2, ["uv", "--version"]),
+        subprocess.TimeoutExpired("uv", 30),
+    ],
+)
+def test_uv_preflight_reports_command_failure_without_traceback(
+    error: Exception,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def failed_uv(_command: str, _args: list[str], **_kwargs: object) -> Never:
+        raise error
+
+    monkeypatch.setattr(update_cargo_tool_pins, "run_safe_command", failed_uv)
+
+    assert update_cargo_tool_pins.main(["--check-uv"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"failed uv preflight (requires stable X.Y.Z): {error}\n"
 
 
 def test_main_reports_missing_cargo_without_traceback(

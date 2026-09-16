@@ -13,9 +13,10 @@ use std::vec;
 /// histories.  The observable is mutable so implementations can keep internal
 /// scratch space, counters, or online statistics state.
 ///
-/// For very long runs, prefer an observable that updates compact internal
-/// state, or call single-step observing methods directly, when retaining every
-/// measurement in a [`SampleBuffer`] would dominate memory use.
+/// For very long runs, use [`crate::Sampler::run_observing_into`] with a
+/// [`TryAccumulator`] such as [`crate::OnlineStats`] when retaining every
+/// measurement in a [`SampleBuffer`] would dominate memory use. Closures
+/// implementing `FnMut(&S) -> Output` can be used directly as observables.
 pub trait Observable<S> {
     /// Measurement value produced by this observable.
     type Output;
@@ -45,6 +46,8 @@ impl<S, O, F: FnMut(&S) -> O> Observable<S> for F {
 /// Use this when measurement itself can fail independently of the
 /// Metropolis-Hastings step, for example when a domain-specific observable
 /// validates invariants or delegates to a fallible analysis routine.
+/// Closures implementing `FnMut(&S) -> Result<Output, Error>` implement this
+/// trait automatically; see [`Self::try_observe`] for an example.
 pub trait TryObservable<S> {
     /// Measurement value produced by this observable.
     type Output;
@@ -234,6 +237,11 @@ impl<T> SampleBuffer<T> {
     /// let buffer = SampleBuffer::<usize>::with_capacity(128);
     /// assert_eq!(buffer.len(), 0);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested allocation exceeds [`isize::MAX`] bytes, as
+    /// documented by [`Vec::with_capacity`].
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             samples: Vec::with_capacity(capacity),
@@ -249,6 +257,10 @@ impl<T> SampleBuffer<T> {
     /// buffer.push(1.5);
     /// assert_eq!(buffer.as_slice(), &[1.5]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if growing the buffer would exceed [`Vec::push`]'s capacity limit.
     pub fn push(&mut self, sample: T) {
         self.samples.push(sample);
     }

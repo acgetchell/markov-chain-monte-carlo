@@ -107,7 +107,7 @@ pub struct Step<I> {
     info: Option<I>,
     /// Cached log-probability before the step.
     log_prob_before: f64,
-    /// Cached log-probability after the step, when it changed.
+    /// Cached log-probability after an accepted proposal.
     log_prob_after: Option<f64>,
     /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
     log_alpha: Option<f64>,
@@ -182,10 +182,10 @@ impl<I> Step<I> {
         self.log_prob_before
     }
 
-    /// Cached log-probability after the step, when it changed.
+    /// Cached log-probability after an accepted proposal.
     ///
     /// This is `Some` exactly when [`Self::outcome`] is
-    /// [`StepOutcome::Accepted`].
+    /// [`StepOutcome::Accepted`], even if the score equals the pre-step score.
     #[must_use]
     pub const fn log_prob_after(&self) -> Option<f64> {
         self.log_prob_after
@@ -342,6 +342,11 @@ pub type DelayedStep<I> = Step<I>;
 /// store the cached log-probability. Restore checkpoints with
 /// [`Chain::from_checkpoint`] so the cache is recomputed from the target that
 /// will be used for resumed sampling.
+///
+/// With the `serde` feature, this type implements `Serialize` and `Deserialize`
+/// when `S` supports the corresponding trait. It contains no target, proposal,
+/// or RNG state; persist those separately when reproducing a continued run.
+/// See the [checkpoint example](crate#checkpoint-serialization) for a serialization round trip.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
@@ -752,7 +757,18 @@ impl<S> Drop for StateSnapshotRollback<'_, S> {
     }
 }
 
-/// A single MCMC chain.
+/// A Markov chain's current state, cached target score, and transition counters.
+///
+/// Each step borrows a target, proposal, and RNG. Use [`crate::Sampler`] to
+/// keep those components attached across repeated steps. Choose [`Self::step`]
+/// for by-value proposals, [`Self::step_mut`] for in-place rollback, or
+/// [`Self::step_delayed`] for planning before mutation; each method includes
+/// a worked example.
+///
+/// With the `serde` feature and `S: Serialize`, serialization produces the
+/// same data as [`Self::checkpoint`]. Deserialize a [`ChainCheckpoint`] and
+/// call [`Self::from_checkpoint`] to validate its state against a target;
+/// `Chain` does not implement `Deserialize`.
 #[derive(Debug)]
 #[must_use]
 pub struct Chain<S> {
@@ -991,30 +1007,37 @@ impl<S> Chain<S> {
     ///
     /// Unlike [`step`](Self::step), this method avoids constructing a whole
     /// proposed state. The proposal mutates the state in place and returns an
-    /// undo token; on rejection (or NaN error) the state is rolled back
+    /// undo token; on rejection or a numerical error the state is rolled back
     /// automatically.
     ///
     /// Returns structured [`Step`] telemetry that distinguishes acceptance,
     /// Metropolis-Hastings rejection, and proposal absence while preserving
     /// proposal-specific metadata.
     ///
+    /// # Examples
+    ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::in_place::*;
     /// use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
     ///
-    /// # struct S(f64);
-    /// # struct T;
-    /// # impl Target<S> for T { fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 } }
-    /// # struct P;
-    /// # impl ProposalMut<S> for P {
-    /// #     type Undo = f64;
-    /// #     type Info = f64;
-    /// #     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, r: &mut R) -> Option<f64> {
-    /// #         let old = s.0; s.0 += r.random_range(-1.0..1.0); Some(old)
-    /// #     }
-    /// #     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
-    /// #     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
-    /// # }
+    /// struct S(f64);
+    /// struct T;
+    /// impl Target<S> for T {
+    ///     fn log_prob(&self, s: &S) -> f64 { -0.5 * s.0 * s.0 }
+    /// }
+    /// struct P;
+    /// impl ProposalMut<S> for P {
+    ///     type Undo = f64;
+    ///     type Info = f64;
+    ///     fn propose_mut<R: Rng + ?Sized>(&mut self, s: &mut S, r: &mut R) -> Option<f64> {
+    ///         let old = s.0;
+    ///         s.0 += r.random_range(-1.0..1.0);
+    ///         Some(old)
+    ///     }
+    ///     fn info(&self, s: &S, _: &f64) -> f64 { s.0 }
+    ///     fn undo(&mut self, s: &mut S, old: f64) { s.0 = old; }
+    /// }
+    ///
     /// let mut rng = StdRng::seed_from_u64(42);
     /// let mut chain = Chain::new(S(0.0), &T)?;
     /// let mut proposal = P;
@@ -1554,7 +1577,13 @@ impl<S> Chain<S> {
         ChainCheckpoint::new(self.state, self.accepted, self.rejected)
     }
 
-    /// Current log-probability of the chain state.
+    /// Cached log-probability of the chain state.
+    ///
+    /// This accessor does not evaluate a target. Stepping and attaching a
+    /// [`crate::Sampler`] re-score the current state, and successful
+    /// [`Self::replace_state`] calls refresh the cache. If the target changes
+    /// between transitions, this value still reflects the last evaluation
+    /// until one of those operations succeeds in re-scoring the state.
     ///
     /// ```
     /// use approx::assert_relative_eq;
@@ -3896,10 +3925,13 @@ mod tests {
 
     #[test]
     fn replace_state_updates_log_prob() {
-        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let checkpoint = ChainCheckpoint::new(Scalar(1.0), 3, 7);
+        let mut chain = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
         chain.replace_state(Scalar(2.0), &Normal).unwrap();
         assert_eq!(chain.state, Scalar(2.0));
         assert_relative_eq!(chain.log_prob(), -2.0, epsilon = 1e-12);
+        assert_eq!(chain.accepted(), 3);
+        assert_eq!(chain.rejected(), 7);
     }
 
     #[test]
@@ -3910,11 +3942,15 @@ mod tests {
                 f64::NAN
             }
         }
-        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let checkpoint = ChainCheckpoint::new(Scalar(1.0), 3, 7);
+        let mut chain = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &NanTarget);
         assert_matches!(result, Err(McmcError::NanReplacementLogProb));
         // State should be unchanged on error
         assert_eq!(chain.state, Scalar(1.0));
+        assert_eq!(chain.log_prob().to_bits(), (-0.5_f64).to_bits());
+        assert_eq!(chain.accepted(), 3);
+        assert_eq!(chain.rejected(), 7);
     }
 
     #[test]
@@ -3925,10 +3961,14 @@ mod tests {
                 f64::INFINITY
             }
         }
-        let mut chain = Chain::new(Scalar(1.0), &Normal).unwrap();
+        let checkpoint = ChainCheckpoint::new(Scalar(1.0), 3, 7);
+        let mut chain = Chain::from_checkpoint(checkpoint, &Normal).unwrap();
         let result = chain.replace_state(Scalar(0.0), &InfTarget);
         assert_matches!(result, Err(McmcError::InfiniteReplacementLogProb));
         assert_eq!(chain.state, Scalar(1.0));
+        assert_eq!(chain.log_prob().to_bits(), (-0.5_f64).to_bits());
+        assert_eq!(chain.accepted(), 3);
+        assert_eq!(chain.rejected(), 7);
     }
 
     #[test]

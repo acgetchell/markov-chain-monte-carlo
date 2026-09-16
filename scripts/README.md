@@ -43,8 +43,13 @@ just update
 
 `update-python-dev-pins` resolves exact entries in `dependency-groups.dev` as one compatible set, leaves ranged requirements unchanged, applies all exact
 pin changes in one uv transaction, and restores `pyproject.toml` and `uv.lock` if the mutation fails or changes unrelated manifest content.
-`update-tool-pins` reconciles the root justfile with the Cargo-installed tools managed by `just setup` and the active uv version. The aggregate recipe also
-updates Cargo requirements and lockfiles, upgrades those managed Cargo tools, refreshes the uv lock, and syncs the development environment.
+`update-tool-pins` reconciles the root justfile with the managed Cargo CLI tools and the active uv version. Its `--check-uv` mode validates the active stable
+uv version without reading Cargo packages or modifying pins. The dependency and tool update recipes run this preflight before changing dependencies or
+installed tools, without syncing the environment or downloading Python.
+
+The aggregate recipe updates Cargo requirements and lockfiles, upgrades the managed Cargo tools, refreshes the uv lock, and syncs the development
+environment. The unpinned `cargo-update` bootstrap helper is installed by `just setup` when missing and is outside the managed update set. Update uv through
+its owning package manager; the recipe records its active stable version.
 
 ## Release Metadata
 
@@ -113,6 +118,9 @@ just tag-force v0.3.0
 
 `tag-release` extracts the matching version section from `CHANGELOG.md`, validates the tag as `vX.Y.Z` SemVer, and creates an annotated git tag from that
 changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link to `CHANGELOG.md`.
+
+`just tag-force` replaces only the local tag. Follow the normal tag push and recovery guidance in the
+[release procedure](../docs/RELEASING.md#after-the-pr-merges).
 
 ## Tests
 

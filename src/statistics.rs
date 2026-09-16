@@ -353,9 +353,12 @@ impl OnlineStats {
         (self.count > 0).then_some(self.m2 / count_as_f64(self.count))
     }
 
-    /// Unbiased sample variance, using `n - 1` in the denominator.
+    /// Sample variance, using `n - 1` in the denominator.
     ///
     /// Returns `None` until at least two samples have been added.
+    /// This is an unbiased variance estimator for independent, identically
+    /// distributed samples with finite variance; it does not correct for MCMC
+    /// autocorrelation.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
@@ -385,9 +388,11 @@ impl OnlineStats {
         self.population_variance().map(f64::sqrt)
     }
 
-    /// Unbiased sample standard deviation.
+    /// Square root of the sample variance.
     ///
     /// Returns `None` until at least two samples have been added.
+    /// Taking the square root does not preserve the unbiasedness of the
+    /// variance estimator, even for independent samples.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
@@ -492,9 +497,10 @@ impl BinningEstimate {
         self.mean
     }
 
-    /// Unbiased variance of the completed block means.
+    /// Sample variance of the completed block means, using `block_count - 1`.
     ///
     /// Returns `None` until at least two completed blocks exist at this level.
+    /// Residual correlation between blocks can still bias this estimate.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};
@@ -1052,22 +1058,27 @@ mod tests {
 
     #[test]
     fn online_stats_try_push_rejects_invalid_samples_atomically() {
-        let mut stats = OnlineStats::new();
-        stats.try_push(1.0).unwrap();
+        let mut stats = OnlineStats::try_from_iter([1.0, 3.0]).unwrap();
+        let before = stats;
 
         assert_eq!(stats.try_push(f64::NAN), Err(StatisticsError::NanSample));
+        assert_eq!(stats, before);
         assert_eq!(
             stats.try_push(f64::NEG_INFINITY),
             Err(StatisticsError::InfiniteSample)
         );
-        assert_eq!(stats.count(), 1);
-        assert_eq!(stats.mean(), Some(1.0));
+        assert_eq!(stats, before);
+        stats.try_push(5.0).unwrap();
+        assert_eq!(stats.count(), 3);
+        assert_eq!(stats.mean(), Some(3.0));
+        assert_eq!(stats.sample_variance(), Some(4.0));
     }
 
     #[test]
     fn online_stats_try_push_rejects_nonfinite_accumulator_atomically() {
         let mut stats = OnlineStats::new();
         stats.try_push(f64::MAX).unwrap();
+        let before = stats;
 
         assert_eq!(
             stats.try_push(-f64::MAX),
@@ -1075,12 +1086,17 @@ mod tests {
         );
         assert_eq!(stats.count(), 1);
         assert_eq!(stats.mean(), Some(f64::MAX));
+        assert_eq!(stats, before);
+        stats.try_push(f64::MAX).unwrap();
+        assert_eq!(stats.count(), 2);
+        assert_eq!(stats.sample_variance(), Some(0.0));
     }
 
     #[test]
     fn online_stats_try_push_rejects_infinite_variance_accumulator_atomically() {
         let mut stats = OnlineStats::new();
         stats.try_push(f64::MAX).unwrap();
+        let before = stats;
 
         assert_eq!(
             stats.try_push(0.0),
@@ -1089,6 +1105,7 @@ mod tests {
         assert_eq!(stats.count(), 1);
         assert_eq!(stats.mean(), Some(f64::MAX));
         assert_eq!(stats.sample_variance(), None);
+        assert_eq!(stats, before);
     }
 
     #[test]
@@ -1219,28 +1236,49 @@ mod tests {
 
     #[test]
     fn binning_analysis_try_push_rejects_invalid_samples_atomically() {
-        let mut bins = BinningAnalysis::new();
-        bins.try_push(1.0).unwrap();
+        // Three samples leave a pending block at each occupied level, so a
+        // rejected sample must preserve both completed and pending statistics.
+        let mut bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0]).unwrap();
+        let before = bins.clone();
 
         assert_eq!(bins.try_push(f64::NAN), Err(StatisticsError::NanSample));
+        assert_eq!(bins, before);
         assert_eq!(
             bins.try_push(f64::INFINITY),
             Err(StatisticsError::InfiniteSample)
         );
-        assert_eq!(bins.count(), 1);
-        assert_eq!(bins.mean(), Some(1.0));
+        assert_eq!(bins, before);
+        bins.try_push(4.0).unwrap();
+        let estimates: Vec<_> = bins.estimates().collect();
+        assert_eq!(bins.count(), 4);
+        assert_eq!(bins.mean(), Some(2.5));
+        assert_eq!(estimates.len(), 3);
+        assert_eq!(estimates[1].block_count(), 2);
+        assert_eq!(estimates[1].sample_variance(), Some(2.0));
+        assert_eq!(estimates[2].block_size(), 4);
+        assert_eq!(estimates[2].block_count(), 1);
+        assert_eq!(estimates[2].mean().to_bits(), 2.5_f64.to_bits());
     }
 
     #[test]
     fn binning_analysis_try_push_rejects_nonfinite_accumulator_atomically() {
         let mut bins = BinningAnalysis::new();
         bins.try_push(f64::MAX).unwrap();
+        let before = bins.clone();
 
         assert_eq!(bins.try_push(-f64::MAX), Err(StatisticsError::InfiniteMean));
         assert_eq!(bins.count(), 1);
         assert_eq!(bins.mean(), Some(f64::MAX));
         assert_eq!(bins.estimates().next().unwrap().block_count(), 1);
         assert!(bins.staged_levels.is_empty());
+        assert_eq!(bins, before);
+        bins.try_push(f64::MAX).unwrap();
+        assert_eq!(bins.count(), 2);
+        assert_eq!(bins.mean(), Some(f64::MAX));
+        assert_eq!(
+            bins.estimates().next().unwrap().sample_variance(),
+            Some(0.0)
+        );
     }
 
     #[test]

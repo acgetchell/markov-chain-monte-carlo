@@ -1,5 +1,6 @@
 //! Property tests for public validator constructors.
 
+use approx::relative_eq;
 use markov_chain_monte_carlo::prelude::testing::{
     DetailedBalanceConfig, DetailedBalanceError, DiscreteProposalEndpoint, DiscreteProposalRatio,
     DiscreteProposalRatioError,
@@ -8,6 +9,37 @@ use markov_chain_monte_carlo::prelude::{BinningAnalysis, OnlineStats, Statistics
 use proptest::prelude::*;
 
 proptest! {
+    /// Generate supported inputs directly so every case exercises the ratio,
+    /// using ordinary probabilities as an oracle independent of its log sum.
+    #[test]
+    fn discrete_proposal_ratio_matches_normalized_transition_probabilities(
+        forward_weight in 1u16..=100,
+        forward_other_weight in 0u16..=100,
+        forward_sites in 1u16..=1000,
+        reverse_weight in 1u16..=100,
+        reverse_other_weight in 0u16..=100,
+        reverse_sites in 1u16..=1000,
+    ) {
+        let forward_sum = f64::from(forward_weight + forward_other_weight);
+        let reverse_sum = f64::from(reverse_weight + reverse_other_weight);
+        let ratio = DiscreteProposalRatio::from_endpoints(
+            DiscreteProposalEndpoint::new(
+                f64::from(forward_weight), forward_sum, usize::from(forward_sites),
+            ),
+            DiscreteProposalEndpoint::new(
+                f64::from(reverse_weight), reverse_sum, usize::from(reverse_sites),
+            ),
+        ).map_err(|error| TestCaseError::fail(format!("valid endpoints rejected: {error:?}")))?;
+
+        let forward_probability = f64::from(forward_weight) / forward_sum / f64::from(forward_sites);
+        let reverse_probability = f64::from(reverse_weight) / reverse_sum / f64::from(reverse_sites);
+        let expected = (reverse_probability / forward_probability).ln();
+        prop_assert!(
+            relative_eq!(ratio.log_q_ratio(), expected, epsilon = 1e-12),
+            "log ratio {} differs from direct-probability oracle {}", ratio.log_q_ratio(), expected,
+        );
+    }
+
     #[test]
     fn discrete_proposal_ratio_accepts_only_valid_constructor_inputs(
         forward_weight in any::<f64>(),
