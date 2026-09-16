@@ -6,7 +6,7 @@ reference message when the changelog section is too large.
 
 Usage:
     tag-release v1.2.3          # create annotated tag from CHANGELOG.md
-    tag-release v1.2.3 --force  # recreate tag if it already exists
+    tag-release v1.2.3 --force  # recreate an existing local tag
 
 Ported from the delaunay project's changelog_utils.py (tag-creation subset).
 """
@@ -262,12 +262,11 @@ def _print_next_steps(release: ReleaseVersion, *, force: bool) -> None:
     tag = release.tag
     print()
     print("Next steps:")
+    print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
     if force:
-        print(f"  1. Force-push the tag: {_BLUE}git push --force origin {tag}{_RESET}")
-    else:
-        print(f"  1. Push the tag: {_BLUE}git push origin {tag}{_RESET}")
-    print(f"  2. Publish to crates.io: {_BLUE}cargo publish --locked{_RESET}")
-    print(f"  3. Create draft GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag --draft --verify-tag{_RESET}")
+        print("     If the push is rejected, stop: remote retagging requires a separately verified recovery procedure.")
+    print(f"  2. Create draft GitHub release: {_BLUE}gh release create {tag} --title {tag} --notes-from-tag --draft --verify-tag{_RESET}")
+    print(f"  3. Publish to crates.io: {_BLUE}cargo publish --locked{_RESET}")
     if "-" in release.number or "+" in release.number:
         print("  4. Release Benchmarks accepts only stable vX.Y.Z tags; keep this draft unpublished until its assets are ready.")
     else:
@@ -357,7 +356,7 @@ def parse_args(argv: list[str] | None = None) -> TagOptions:
         description="Create an annotated git tag from a CHANGELOG.md section.",
     )
     parser.add_argument("version", type=parse_release_version_argument, help="Tag version (e.g. v1.2.3)")
-    parser.add_argument("--force", action="store_true", help="Recreate tag if it already exists")
+    parser.add_argument("--force", action="store_true", help="Recreate the local tag if it already exists")
     namespace = parser.parse_args(argv)
     return TagOptions(version=namespace.version, force=namespace.force)
 

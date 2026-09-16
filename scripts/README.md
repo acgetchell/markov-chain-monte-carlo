@@ -119,6 +119,9 @@ just tag-force v0.3.0
 `tag-release` extracts the matching version section from `CHANGELOG.md`, validates the tag as `vX.Y.Z` SemVer, and creates an annotated git tag from that
 changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link to `CHANGELOG.md`.
 
+`just tag-force` replaces only the local tag. Follow the normal tag push and recovery guidance in the
+[release procedure](../docs/RELEASING.md#after-the-pr-merges).
+
 ## Tests
 
 ```bash

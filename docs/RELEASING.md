@@ -123,15 +123,19 @@ just tag "$TAG"
 git --no-pager show --no-patch "$TAG"
 test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
 git push origin "$TAG"
-cargo publish --locked
 gh release create "$TAG" --title "$TAG" --notes-from-tag --draft --verify-tag
+cargo publish --locked
 gh workflow run release-benchmarks.yml -f release_tag="$TAG"
 ```
 
-Publishing to crates.io precedes creating the draft GitHub Release. Manually dispatch `Release Benchmarks` only after the draft exists. The workflow verifies
-that the tag names a mutable draft, measures the `stepping` suite, attaches `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`, and publishes the draft
-after the upload succeeds. Do not publish the draft separately while the workflow is running. Verify the workflow succeeds and the immutable release contains
-the durable attachment:
+Use a normal tag push even after `just tag-force`; Git rejects a conflicting remote tag. If the push is rejected, stop. Intentional retagging requires a
+separately verified recovery procedure covering the existing remote tag object and target commit, the intended replacement, and the GitHub Release and
+crates.io publication state.
+
+Create the draft GitHub Release before publishing to crates.io. Keep the draft unpublished if crate publication fails. After successful crate publication,
+manually dispatch `Release Benchmarks`. The workflow verifies that the tag names a mutable draft, measures the `stepping` suite, attaches
+`markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`, and publishes the draft after the upload succeeds. Do not publish the draft separately while the
+workflow is running. Verify the workflow succeeds and the immutable release contains the durable attachment:
 
 ```bash
 gh release view "$TAG" --json assets --jq '.assets[].name'

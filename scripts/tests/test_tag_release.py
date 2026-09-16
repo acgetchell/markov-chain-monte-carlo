@@ -359,12 +359,13 @@ class TestCreateTag:
         push = f"git push origin v{version}"
         publish = "cargo publish --locked"
         draft = f"gh release create v{version} --title v{version} --notes-from-tag --draft --verify-tag"
-        assert output.index(push) < output.index(publish) < output.index(draft)
+        assert output.index(push) < output.index(draft) < output.index(publish)
         if version == "1.0.0":
             dispatch = "gh workflow run release-benchmarks.yml -f release_tag=v1.0.0"
-            assert output.index(draft) < output.index(dispatch)
+            assert output.index(publish) < output.index(dispatch)
         else:
             assert "Release Benchmarks accepts only stable vX.Y.Z tags" in output
+            assert "keep this draft unpublished until its assets are ready" in output
             assert "gh workflow run" not in output
 
     @patch("tag_release.run_git_command_with_input")
@@ -445,6 +446,7 @@ class TestCreateTag:
         _mock_exists: MagicMock,
         mock_git_input: MagicMock,
         tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         changelog = tmp_path / "CHANGELOG.md"
         changelog.write_text(_SAMPLE_CHANGELOG, encoding="utf-8")
@@ -456,6 +458,10 @@ class TestCreateTag:
             ["tag", "--force", "--annotate", "v1.0.0", "-F", "-", "--cleanup=verbatim"],
             input_data="### Fixed\n\n- Bug fix",
         )
+        output = capsys.readouterr().out
+        assert "git push origin v1.0.0" in output
+        assert "git push --force" not in output
+        assert "separately verified recovery procedure" in output
 
     @patch("tag_release.run_git_command_with_input")
     @patch("tag_release._tag_exists", return_value=True)
