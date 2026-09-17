@@ -254,11 +254,12 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.
-- `cliff.toml` configures offline `git-cliff` changelog generation from squash commit bodies, annotated tag notes, and filtered dependency commits.
+- `pyproject.toml` pins the shared changelog package and configures owner/repository links and the local Markdown formatter.
+  See [the pilot comparison](shared-changelog-pilot.md) for command contracts and the known upstream date issue.
 - `dprint.json` configures YAML formatting through dprint Pretty YAML with the repository's 160-column non-Rust line length.
 - `pyproject.toml` pins Python-based development tools and configures Ruff's 160-column line length.
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.
-- `scripts/` contains changelog post-processing and release-tag helpers.
+- `scripts/` contains consumer release-tag helpers; changelog processing and release-note parsing live in `research-repo-tools`.
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.

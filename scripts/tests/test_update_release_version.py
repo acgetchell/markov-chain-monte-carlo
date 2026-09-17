@@ -106,20 +106,6 @@ def test_missing_github_cli_fails_before_discovery_and_writes(tmp_path: Path, mo
     assert _snapshot(tmp_path) == original
 
 
-def test_changelog_generation_sync_uses_prepared_date_without_github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_project(tmp_path)
-    updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-08-30")
-    changelog = tmp_path / "CHANGELOG.md"
-    changelog.write_text("## [1.2.4] - 2026-08-31\n\nGenerated notes.\n\n" + changelog.read_text(), encoding="utf-8")
-    monkeypatch.setattr(updater, "infer_previous_release", lambda *_args: pytest.fail("offline date sync queried GitHub"))
-    assert updater.main(["v1.2.4", "--repo-root", str(tmp_path), "--sync-changelog-date"]) == 0
-    assert changelog.read_text().startswith("## [1.2.4] - 2026-08-30\n\nGenerated notes.")
-    assert release_check.find_release_metadata_mismatches(tmp_path) == []
-    original = _snapshot(tmp_path)
-    updater.sync_changelog_date(tmp_path, "v1.2.4")
-    assert _snapshot(tmp_path) == original
-
-
 @pytest.mark.parametrize("heading", ["## [1.2.4] - 2026-99-99", "## [1.2.4] - 2026-08-30\n\n## [1.2.4] - 2026-08-31"])
 def test_malformed_or_duplicate_target_heading_preserves_all_files(tmp_path: Path, heading: str) -> None:
     _write_project(tmp_path)

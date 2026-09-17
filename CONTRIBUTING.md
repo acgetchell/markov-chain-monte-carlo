@@ -133,8 +133,9 @@ At a high level:
 - `examples/` contains complete runnable workflows.
 - `tests/` and `benches/` contain integration validation and Criterion benchmarks.
 - `docs/` contains topic guides such as scientific scope, proposal validation, roadmap, release, and Rust tooling notes.
-- `scripts/` contains Python helpers for changelog and release workflows.
-- Root configuration files (`justfile`, `Cargo.toml`, `rust-toolchain.toml`, `semgrep.yaml`, `dprint.json`, `cliff.toml`, `typos.toml`) define automation, build
+- `scripts/` contains consumer-specific Python helpers. Changelog processing belongs to the pinned `research-repo-tools` package.
+- See the [shared changelog pilot](docs/dev/shared-changelog-pilot.md) for migration status, ownership, and package upgrades.
+- Root configuration files (`justfile`, `Cargo.toml`, `rust-toolchain.toml`, `semgrep.yaml`, `dprint.json`, `typos.toml`) define automation, build
   metadata, validation, formatting, and release behavior.
 
 This file (`CONTRIBUTING.md`) covers contributor workflow and tooling. [`docs/code_organization.md`](docs/code_organization.md) covers the narrower
@@ -528,7 +529,7 @@ For full tool citation metadata, see the [AI-assisted development tools](REFEREN
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
-2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG"`.
+2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG" "$DATE"` (set `DATE` to the prepared citation date).
 3. Run `just performance-release`, review the retained evidence, and publish the README table and SVG with `just performance-readme`.
 4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.

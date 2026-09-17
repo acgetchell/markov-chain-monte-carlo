@@ -34,7 +34,6 @@ notebook = [
 archive-performance = "archive_performance:main"
 bench-compare = "bench_compare:main"
 check-notebooks = "check_notebooks:main"
-postprocess-changelog = "postprocess_changelog:main"
 publish-performance-readme = "publish_performance_readme:main"
 release-check = "release_check:main"
 tag-release = "tag_release:main"
@@ -44,10 +43,11 @@ update-tool-pins = "update_cargo_tool_pins:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
-py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "postprocess_changelog", "publish_performance_readme", "release_check", "subprocess_utils", "tag_release", "update_cargo_tool_pins", "update_python_dev_pins", "update_release_version" ]
+py-modules = [ "archive_performance", "bench_compare", "check_notebooks", "publish_performance_readme", "release_check", "subprocess_utils", "tag_release", "update_cargo_tool_pins", "update_python_dev_pins", "update_release_version" ]
 
 [dependency-groups]
 dev = [
+    { include-group = "tooling" },
     "actionlint-py==1.7.12.24",
     "pytest>=9.1.1",
     "ruff>=0.16.1",
@@ -55,6 +55,13 @@ dev = [
     "ty>=0.0.66",
 ]
 notebook = [ "markov-chain-monte-carlo-tooling[notebook]" ]
+
+tooling = [ "research-repo-tools==0.1.0" ]
+
+[tool.research-repo-tools.changelog]
+owner = "acgetchell"
+repository = "markov-chain-monte-carlo"
+formatter = "rumdl.toml"
 
 [tool.ruff]
 line-length = 160
@@ -99,7 +106,6 @@ known-first-party = [
     "archive_performance",
     "bench_compare",
     "check_notebooks",
-    "postprocess_changelog",
     "publish_performance_readme",
     "release_check",
     "subprocess_utils",
