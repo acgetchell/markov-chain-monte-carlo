@@ -150,40 +150,6 @@ class TestFindChangelog:
             find_changelog(tmp_path)
 
 
-class TestExtractChangelogSection:
-    def test_extracts_section(self, tmp_path: Path) -> None:
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(_SAMPLE_CHANGELOG, encoding="utf-8")
-
-        section = extract_changelog_section(changelog, "0.2.0")
-        assert "OnlineStats" in section
-        assert "Bump version" in section
-        # Should not include content from 0.1.3
-        assert "Minor doc typo" not in section
-
-    def test_extracts_older_section(self, tmp_path: Path) -> None:
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(_SAMPLE_CHANGELOG, encoding="utf-8")
-
-        section = extract_changelog_section(changelog, "0.1.3")
-        assert "Minor doc typo" in section
-        assert "OnlineStats" not in section
-
-    def test_raises_for_missing_version(self, tmp_path: Path) -> None:
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(_SAMPLE_CHANGELOG, encoding="utf-8")
-
-        with pytest.raises(LookupError, match="No changelog section found"):
-            extract_changelog_section(changelog, "9.9.9")
-
-    def test_raises_for_empty_section(self, tmp_path: Path) -> None:
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# Changelog\n\n## [1.0.0] - 2025-01-01\n\n## [0.9.0] - 2024-12-01\n", encoding="utf-8")
-
-        with pytest.raises(LookupError, match="empty"):
-            extract_changelog_section(changelog, "1.0.0")
-
-
 # ---------------------------------------------------------------------------
 # GitHub anchor generation
 # ---------------------------------------------------------------------------

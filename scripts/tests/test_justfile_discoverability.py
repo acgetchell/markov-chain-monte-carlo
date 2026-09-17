@@ -269,7 +269,8 @@ def test_release_commands_separate_preparation_measurement_and_publication() -> 
     assert "publish-performance-readme" in commands
     assert "cargo bench" not in commands
     assert "--infer-release" not in commands
-    assert "--sync-changelog-date" in json.dumps(recipes["changelog-unreleased"]["body"])
+    assert "research-repo-tools changelog generate" in json.dumps(recipes["changelog-release"]["body"])
+    assert "--date" in json.dumps(recipes["changelog-release"]["body"])
 
 
 def test_release_performance_recipes_are_discoverable_in_help() -> None:
