@@ -1,17 +1,15 @@
-# Shared changelog pilot (#157)
+# Shared changelog adoption (#157)
 
-The pilot adopts published `research-repo-tools==0.1.0` for changelog generation,
-normalization, archiving, and release-note extraction. The migration remains open
-pending fixes for the upstream failures and policy changes below. Local validation of the
-consumer integration does not mean those package failures are resolved.
+The repository adopts published `research-repo-tools==0.1.1` for changelog
+generation, normalization, archiving, and release-note extraction. This release
+resolves the four upstream gaps identified during the 0.1.0 pilot.
 
 ## Ownership and commands
 
 The `tooling` dependency group pins the package; `dev` includes that group.
-`uv.lock` resolves the package from PyPI. Existing `just setup`, `python-sync`,
-and CI use that locked environment without a sibling checkout or local wheel.
-The local development-pin updater retains included tooling constraints and does
-not automatically upgrade the pilot package.
+`uv.lock` resolves it from PyPI. Local setup and CI use the locked environment
+without a sibling checkout or local wheel. The local development-pin updater
+retains included tooling constraints and does not automatically upgrade this pin.
 
 | Command | Shared operation |
 | --- | --- |
@@ -20,114 +18,106 @@ not automatically upgrade the pilot package.
 | `just changelog-release TAG DATE` | Generate a prospective release with an explicit ISO date |
 | `just changelog-unreleased TAG DATE` | Alias for `changelog-release` |
 | `just changelog-archive` | Archive existing notes without regenerating history |
-| `just release-notes TAG` | Extract notes and referenced links from root or archive |
+| `just changelog-check` | Strictly validate the root changelog and every archive |
+| `just release-notes TAG` | Extract notes and required links from root or archive |
 
-Preview accepts shared generation arguments, for example
-`just changelog-preview --tag v0.5.0 --date 2026-09-17`.
-
+Preview accepts generation arguments, for example
+`just changelog-preview --tag v0.5.0 --date 2026-09-19`.
 Generation uses the packaged git-cliff template, configured owner/repository
-links, and this repository's `rumdl.toml`. Archives use
-`docs/archives/changelog/MAJOR.MINOR.md`; generation keeps Unreleased and the newest
-minor series at the root. Add generated archive files to the checkout inventory
-when publishing them. This pilot leaves the checked-in changelog unchanged.
+links, and the repository's `rumdl.toml`. Unreleased and the newest minor series
+remain at the root. Older series are retained in
+`docs/archives/changelog/MAJOR.MINOR.md`. These files are generated, not hand-edited.
 
-Removed ownership: `cliff.toml`, `scripts/postprocess_changelog.py`, its package
-entry point, and its complete test suite. The local tag helper delegates note
-extraction to the supported shared CLI; its duplicated section parser and parser
-tests are removed. The unused post-generation date-sync helper and its dedicated
-test are also removed; prospective generation receives its date explicitly. The package's internal Python parsers are not imported.
+`changelog-check` is part of `just check` and `just ci`. Successful extraction
+does not establish that the entire history is valid; the strict check does.
 
-Consumer tests cover the exact pin, included-group constraints, recipe wiring,
-and tag-wrapper extraction from root/archive files with reference links. Common
-parser, formatting, and transaction regressions belong in the shared package.
-The history trial below is recorded evidence, not an extra full-history CI job.
+Removed local ownership includes `cliff.toml`, the changelog postprocessor and
+its package entry point/test suite, the release-note section parser and its
+parser tests, and the post-generation date-sync helper and its dedicated test.
+The remaining tag helper calls the supported shared CLI rather than importing
+internal package parsers. Consumer tests cover the pin, included-group
+constraints, recipe wiring, and root/archive note extraction with reference
+links. Common algorithm and parser regressions remain upstream.
 
-Benchmark evidence, scientific notebooks, local release metadata, tagging policy,
-and dependency/tool setup still have local owners and tests. Remaining maintenance
-migration belongs to [#160](https://github.com/acgetchell/markov-chain-monte-carlo/issues/160).
-Python validation cannot be removed while those local scripts remain.
+Repository-specific benchmark evidence, scientific notebooks, release metadata,
+tagging policy, and dependency/tool setup still have local owners and tests.
+Remaining supported maintenance migration belongs to
+[#160](https://github.com/acgetchell/markov-chain-monte-carlo/issues/160).
+Generic notebook infrastructure is separate future work; scientific content
+stays here.
 
-## Recorded consumer comparison
-
-Tested on macOS on 2026-09-17 with Python 3.14.7, git-cliff 2.14.1, rumdl 0.2.73,
-and MCMC history at `3d822a39d6233212ce91058c47b5abee0fe83707`. Version 0.1.0
-installed directly from PyPI into a disposable uv environment. No editable shared
-checkout or locally built wheel was used.
-
-- The original checkout passes the shared read-only release check at 0.4.2.
-- Dry-run generation succeeds, leaving the source changelog and archive paths
-  untouched. It adds Unreleased, complete breaking-change summaries, merged-PR
-  summaries, and dependency groups previously filtered by the local template.
-- A first actual generation in a disposable consumer succeeds. The root retains
-  the 0.4 series; older releases are archived. Shared extraction finds 0.4.2,
-  0.3.0, 0.2.1, 0.2.0, and 0.1.0 after rotation.
-- Prospective generation with an explicit 2026-09-17 date succeeds in a fresh
-  disposable consumer. Invalid-date failure preserves all generated Markdown
-  files. The repeated-generation conflict also leaves their bytes unchanged.
-- The package adopts common heading normalization, complete SemVer tag matching,
-  and code-aware rendering rather than the old template's blanket angle-bracket
-  escaping and repository-specific dependency filters. Detailed parser edge-case
-  regressions remain owned upstream.
-
-### Known failures
-
-1. [research-repo-tools#11](https://github.com/acgetchell/research-repo-tools/issues/11):
-   generation changes the existing 0.4.2 date from 2026-08-31 to 2026-09-01.
-   Both local and shared release checks reject that candidate against the
-   unchanged citation date. Using `--tag v0.4.2 --date 2026-08-31` instead fails
-   with a duplicate heading; those arguments are intended for prospective tags.
-   The old MCMC git-cliff configuration also produces September 1 on ordinary
-   regeneration: this is not established as a newly introduced regression. The
-   old prospective workflow separately synchronized its heading to the citation.
-2. [research-repo-tools#12](https://github.com/acgetchell/research-repo-tools/issues/12):
-   repeating generation against the same history and generated archives fails
-   with `conflicting retained release 0.2.0`. A first successful generation is
-   insufficient evidence that routine regeneration works.
-
-Do not erase retained archives or rewrite published citation metadata to bypass
-these failures. They are acceptance gaps for completing #157, not reasons to
-restore duplicated consumer implementations.
-
-## Agreed common policies
-
-The maintainer selected these policies for the shared package:
+## Common policies and resolved pilot gaps
 
 - Include all dependency updates, including CI/tooling, as concise entries in a
-  distinct Dependencies section. Accept the shared inclusion policy; do not
-  restore the local package-name allowlist.
-- Preserve authored squash-entry structure and wording. Embedded conventional
-  headings remain under their parent; do not promote them into additional change
-  entries or infer semantic equivalence to remove differently worded content.
-  Track the implementation and upstream regressions in
-  [research-repo-tools#13](https://github.com/acgetchell/research-repo-tools/issues/13).
-- Extract a valid requested release despite unrelated document problems when its
-  boundaries and required links remain unambiguous. Reject duplicate target
-  versions, ambiguous boundaries, and conflicting required links. Keep strict
-  whole-document validation separate from extraction. Track this change in
-  [research-repo-tools#14](https://github.com/acgetchell/research-repo-tools/issues/14).
+  distinct Dependencies section. The former package-name allowlist is removed.
+- Preserve authored squash-entry structure and wording; embedded conventional
+  headings remain within their parent rather than becoming additional entries.
+  Do not infer semantic equivalence to discard differently worded content.
+  This implements [upstream #13](https://github.com/acgetchell/research-repo-tools/issues/13).
+- Extract an unambiguous requested release despite unrelated document problems.
+  Reject duplicate target versions, ambiguous boundaries, and conflicting required
+  links; keep full-document validation separate.
+  This implements [upstream #14](https://github.com/acgetchell/research-repo-tools/issues/14).
+- Retain declared historical release dates.
+  [Upstream #11](https://github.com/acgetchell/research-repo-tools/issues/11)
+  fixes the observed 0.4.2 August 31/September 1 mismatch. Ordinary generation
+  under the old local template also exhibited this mismatch; it was not solely
+  introduced by shared tooling.
+- Repeated generation through the configured formatter preserves retained archives
+  without false conflicts. [Upstream #12](https://github.com/acgetchell/research-repo-tools/issues/12)
+  resolves the 0.2.0 retained-release conflict found in 0.1.0.
 
-Version 0.1.0 does not yet implement the latter two policies. Keep their fixes in
-the shared package and adopt a published release; do not add local parser or
-normalizer workarounds. Code/link preservation, full breaking descriptions, and
-complete SemVer matching remain accepted improvements.
+Full breaking descriptions, PR summaries, complete SemVer matching, and literal
+Rust code/link preservation are accepted improvements. Historical formatting and
+dependency inclusion can differ from the old local renderer; those differences
+do not justify duplicating shared policy here.
 
-## Upgrade and completion
+## Recorded 0.1.1 consumer comparison
 
-The consumer migration passed `just check` and `just ci` on macOS on 2026-09-17,
-including 444 Python tests, 274 Rust tests, 188 doctests, notebook execution,
-benchmark compilation, and example validation. These gates validate the retained
-checkout and integration; the two generation failures above remain unresolved.
-Zizmor ran in its default offline mode. Native Linux and Windows runs were not
-performed in this local trial.
+Tested on macOS on 2026-09-19 with Python 3.14.7, git-cliff 2.14.1, rumdl 0.2.73,
+and MCMC history at `6d5bf0e`. Installed the exact 0.1.1 release directly from
+PyPI in a disposable uv environment before updating the repository pin.
+The host had uv 0.12.16, so validation used an isolated installation of the
+repository-pinned uv 0.12.15 without changing the host or repository tool pin.
 
-After an upstream release includes the fixes and agreed policy changes:
+- Shared read-only release checking passes at 0.4.2 before regeneration.
+- Generation preserves the declared `2026-08-31` date for 0.4.2, keeps the 0.4
+  series at the root, and creates archives for 0.1, 0.2, and 0.3.
+- Two actual generations produce identical SHA-256 hashes for the root and every
+  archive. Strict changelog and local release checks pass after generation.
+- Prospective preview emits `0.5.0 - 2026-09-19` with an explicit date. Preview,
+  invalid-date rejection, and a missing formatter configuration leave every
+  existing root/archive hash unchanged.
+- A disposable authored-content fixture retains nested `fix:`/`feat:` details,
+  literal `Chain<S>`, a Rust code fence, and the required API reference link.
+- Requested-release extraction succeeds alongside unrelated misordered history;
+  the independent strict check rejects that same document.
+- Extraction rejects a duplicate requested version across root and archive, and
+  all seven historical MCMC releases can be extracted after regeneration.
+- Notes for a fixture release are identical before and after archiving. Consumer
+  integration tests also cover required reference links in both locations.
 
-1. Install its exact published version in a disposable uv environment and repeat
-   preview, generation, repeated generation, prospective-date, and archive-note
-   comparisons using this history. Verify failure cases preserve artifacts.
-2. Change the `tooling` pin in `pyproject.toml` and the matching consumer assertion,
-   run `uv lock` and `uv sync --locked`, and review package changes.
-3. Run focused consumer tests, `just check`, and `just ci`. Record the actual
-   platform; local macOS results do not establish native Windows or Linux results.
-4. Regenerate and review root/archive content, run release validation, update the
-   checkout inventory, and close #157 only when its acceptance criteria pass.
+The 0.1.0 comparison found the now-resolved date and regeneration failures; its
+successful consumer gates were never evidence that those generation paths worked.
+
+## Completion validation
+
+On 2026-09-19, the focused consumer/recipe checks passed (43 tests), followed by
+successful `just check` and `just ci` runs on macOS with the pinned uv. The full
+gate includes 444 Python tests, Rust nextest tests, 188 doctests, notebook
+execution, benchmark compilation, and example validation. Zizmor ran in its
+default offline mode. Native Linux and Windows CI remain checks for the pushed
+PR; they were not run locally. No unresolved shared-package gap was found in the
+completion comparison. The changes are ready for the maintainer's commit/push
+and PR review; #157 can close when the adoption is merged.
+
+## Upgrading the shared package
+
+1. Install the candidate exact published version in a disposable uv environment.
+2. Repeat preview, generation, repeated generation, prospective-date, failure
+   preservation, and root/archive extraction comparisons.
+3. Update the `tooling` pin and matching consumer assertion, then run `uv lock`
+   and `uv sync --locked`. Review package policy changes and generated history.
+4. Run focused consumer checks, `just check`, and `just ci`; record the actual
+   platform. Local macOS results do not establish native Windows or Linux results.
+5. Update the checkout inventory whenever generation adds or removes archives.

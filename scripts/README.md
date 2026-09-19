@@ -88,30 +88,29 @@ that installable extra for `uv`-managed development workflows.
 
 ## Changelog
 
-The published `research-repo-tools==0.1.0` package owns generation, normalization,
+The published `research-repo-tools==0.1.1` package owns generation, normalization,
 archiving, and release-note parsing. Its exact pin lives in the `tooling` dependency
 group included by `dev`; `uv.lock` resolves it from PyPI for local setup and CI.
 
 ```bash
 just changelog-preview
+just changelog-check
 just changelog
 just changelog-unreleased "$TAG" "$DATE"
 just changelog-archive
 just release-notes "$TAG"
 ```
 
-`changelog-release TAG DATE` and its `changelog-unreleased` alias require an explicit
-ISO date matching the prepared citation. Generation uses the packaged git-cliff
-template with this repository's owner/name and validates candidates with
-`rumdl.toml`. It keeps Unreleased and the newest minor series at the root and
-rotates older series into `docs/archives/changelog/MAJOR.MINOR.md`. Preview publishes
-nothing. Release notes work from either location and include referenced links.
+`changelog-release TAG DATE` and its `changelog-unreleased` alias require an explicit ISO date matching the prepared citation. Generation uses the packaged
+git-cliff template with this repository's owner/name and validates candidates with `rumdl.toml`. It keeps Unreleased and the newest minor series at the root and
+rotates older series into `docs/archives/changelog/MAJOR.MINOR.md`. Preview publishes nothing. `changelog-check` validates the root and all archives
+independently of note extraction. Release notes work from either location and include referenced links.
 
 Common parser/formatter regressions belong upstream. This repository keeps only
 consumer integration coverage in `test_shared_changelog.py`; it no longer ships a
 changelog postprocessor or a copy of the git-cliff template. See the
 [pilot comparison](../docs/dev/shared-changelog-pilot.md) for intentional policy
-changes, the known release-date failure, and the upgrade procedure.
+changes, resolved upstream issues, and the upgrade procedure.
 
 ## Release Tags
 

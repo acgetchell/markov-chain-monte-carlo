@@ -308,6 +308,11 @@ changelog: _ensure-git-cliff _ensure-rumdl python-sync
 changelog-archive: python-sync
     uv run --locked --group dev research-repo-tools changelog archive
 
+# Strictly validate the root changelog and every archive
+[group('release')]
+changelog-check: python-sync
+    uv run --locked --group dev research-repo-tools changelog check
+
 # Preview generated history without publishing root or archive files
 [group('release')]
 [positional-arguments]
@@ -333,7 +338,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -346,7 +351,7 @@ check-rust: fmt-check clippy
 # Run the flat union of GitHub-equivalent validators and tests, including the
 # same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.

@@ -15,10 +15,10 @@ def test_tooling_pin_survives_development_pin_resolution() -> None:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     groups = tomllib.loads(text)["dependency-groups"]
     assert {"include-group": "tooling"} in groups["dev"]
-    assert groups["tooling"] == ["research-repo-tools==0.1.0"]
+    assert groups["tooling"] == ["research-repo-tools==0.1.1"]
     _, pins = parse_project(text)
     assert all(pin.name != "research-repo-tools" for pin in pins)
-    assert "research-repo-tools==0.1.0" in _resolution_requirements(text, pins).splitlines()
+    assert "research-repo-tools==0.1.1" in _resolution_requirements(text, pins).splitlines()
 
 
 @pytest.mark.parametrize("archived", [False, True])

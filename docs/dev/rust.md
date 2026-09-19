@@ -255,7 +255,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.
 - `pyproject.toml` pins the shared changelog package and configures owner/repository links and the local Markdown formatter.
-  See [the pilot comparison](shared-changelog-pilot.md) for command contracts and the known upstream date issue.
+  See [the pilot comparison](shared-changelog-pilot.md) for command contracts and the completed consumer comparison.
 - `dprint.json` configures YAML formatting through dprint Pretty YAML with the repository's 160-column non-Rust line length.
 - `pyproject.toml` pins Python-based development tools and configures Ruff's 160-column line length.
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.

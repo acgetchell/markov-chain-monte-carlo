@@ -70,10 +70,12 @@ update `DATE` to match.
 
 Review `CHANGELOG.md` and `docs/archives/changelog/`; never hand-edit generated
 content. Fix source commit messages or the shared package and regenerate.
-The [pilot comparison](dev/shared-changelog-pilot.md) records an unresolved date
-mismatch in version 0.1.0: ordinary regeneration of 0.4.2 changes its declared
-date and fails release validation. Preview and review before publishing files;
-do not change citation metadata merely to make that mismatch pass.
+Run `just changelog-check` to validate the complete root/archive history and
+`just release-check` to verify metadata consistency. Both are included in the
+normal validation gates. Release-note extraction validates the requested release
+and its required links; it is not a substitute for whole-history validation.
+The [pilot comparison](dev/shared-changelog-pilot.md) records the behavior verified
+with the pinned shared package, including preserved dates and repeatable archives.
 
 ### Retained performance evidence and publication
 

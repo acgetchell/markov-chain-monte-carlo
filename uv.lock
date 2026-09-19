@@ -850,13 +850,13 @@ provides-extras = ["notebook"]
 dev = [
     { name = "actionlint-py", specifier = "==1.7.12.24" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "research-repo-tools", specifier = "==0.1.0" },
+    { name = "research-repo-tools", specifier = "==0.1.1" },
     { name = "ruff", specifier = ">=0.16.1" },
     { name = "semgrep", specifier = "==1.177.0" },
     { name = "ty", specifier = ">=0.0.66" },
 ]
 notebook = [{ name = "markov-chain-monte-carlo-tooling", extras = ["notebook"] }]
-tooling = [{ name = "research-repo-tools", specifier = "==0.1.0" }]
+tooling = [{ name = "research-repo-tools", specifier = "==0.1.1" }]
 
 [[package]]
 name = "matplotlib"
@@ -1647,16 +1647,16 @@ wheels = [
 
 [[package]]
 name = "research-repo-tools"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "rust-just" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/ec/65c2217fce7190ab5cc1a0f3ec8b797b90496733e5fc1a01c50774bbb776/research_repo_tools-0.1.0.tar.gz", hash = "sha256:ba76fbd7dab1290e3c938ece95a8d4e8fa8c9ac508685e8ded761fd7182a81d1", size = 223197, upload-time = "2026-09-17T02:11:14.807Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/bd/856daf0b14c262c3ce6e5985d6254e64ad5098c5af4f70d6220bf8edeb63/research_repo_tools-0.1.1.tar.gz", hash = "sha256:44ddc14c14b880b3f5cae3fb02f5bff2efbc083ff65989437c012ae0ad3d94fd", size = 237215, upload-time = "2026-09-19T03:28:17.749Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/70/e6c61b510dcf4974f0e11486182d772b5f1bca84fef77abecdd6b186f10d/research_repo_tools-0.1.0-py3-none-any.whl", hash = "sha256:333d2ea3720d6b6302165dbef7f7d08e7ed57de7e624562f5a45c9ab7cc249c7", size = 98562, upload-time = "2026-09-17T02:11:13.438Z" },
+    { url = "https://files.pythonhosted.org/packages/33/78/7dd5935adc43fe9f7bc1b13e94eba6b4b30fd9b627824e29231a37daa3ee/research_repo_tools-0.1.1-py3-none-any.whl", hash = "sha256:4be47ff218ab6cf78f6f1864325ced410097171a321cfbce8bd80221431618c8", size = 99844, upload-time = "2026-09-19T03:28:16.502Z" },
 ]
 
 [[package]]

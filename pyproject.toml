@@ -56,7 +56,7 @@ dev = [
 ]
 notebook = [ "markov-chain-monte-carlo-tooling[notebook]" ]
 
-tooling = [ "research-repo-tools==0.1.0" ]
+tooling = [ "research-repo-tools==0.1.1" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
