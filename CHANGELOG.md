@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Merged Pull Requests
 
+- Complete shared changelog adoption with v0.1.1 [#162](https://github.com/acgetchell/markov-chain-monte-carlo/pull/162)
 - Raise the Rust baseline to 1.98.1 [#161](https://github.com/acgetchell/markov-chain-monte-carlo/pull/161)
 - Bump the dependencies group with 4 updates [#159](https://github.com/acgetchell/markov-chain-monte-carlo/pull/159)
 - Bump the github-actions group with 5 updates [#158](https://github.com/acgetchell/markov-chain-monte-carlo/pull/158)
@@ -60,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove duplicated changelog processing, date synchronization, and their dedicated tests.
   - Preserve included tooling constraints during dependency updates and skip deleted files in Semgrep.
   - Document migration policies, upstream gaps, and the package upgrade path.
+- Complete shared changelog adoption with v0.1.1 [#162](https://github.com/acgetchell/markov-chain-monte-carlo/pull/162)
+  [`54cbed4`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/54cbed4ae6716f9b9269762fa29a36bbc88d100f)
+
+  - Pin research-repo-tools 0.1.1 with upstream date, archive, and content-preservation fixes.
+  - Regenerate changelog history and archive the 0.1–0.3 series while retaining published release dates.
+  - Add strict root and archive validation to the repository checks and CI workflow.
+  - Document the adopted policies, resolved pilot gaps, and shared-package upgrade procedure.
 
 ## [0.4.2] - 2026-08-31
 
