@@ -301,31 +301,30 @@ build:
 # Changelog generation (git-cliff + post-processing)
 [group('release')]
 changelog: _ensure-git-cliff _ensure-rumdl python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    changelog_path="CHANGELOG.md"
-    staging_file="$(mktemp "${changelog_path}.tmp.XXXXXX")"
-    trap 'rm -f "$staging_file"' EXIT
-    cp -p "$changelog_path" "$staging_file"
-    GIT_CLIFF_OFFLINE=true git-cliff -o "$staging_file"
-    uv run --locked postprocess-changelog "$staging_file"
-    mv -f "$staging_file" "$changelog_path"
-    trap - EXIT
+    uv run --locked --group dev research-repo-tools changelog generate
 
-# Regenerate CHANGELOG.md for a release tag before the tag exists
+# Rotate completed minor series without regenerating history
 [group('release')]
-changelog-unreleased version: _ensure-git-cliff _ensure-rumdl python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    changelog_path="CHANGELOG.md"
-    staging_file="$(mktemp "${changelog_path}.tmp.XXXXXX")"
-    trap 'rm -f "$staging_file"' EXIT
-    cp -p "$changelog_path" "$staging_file"
-    GIT_CLIFF_OFFLINE=true git-cliff --tag {{ quote(version) }} -o "$staging_file"
-    uv run --locked postprocess-changelog "$staging_file"
-    mv -f "$staging_file" "$changelog_path"
-    trap - EXIT
-    uv run --locked update-release-version {{ quote(version) }} --sync-changelog-date
+changelog-archive: python-sync
+    uv run --locked --group dev research-repo-tools changelog archive
+
+# Strictly validate the root changelog and every archive
+[group('release')]
+changelog-check: python-sync
+    uv run --locked --group dev research-repo-tools changelog check
+
+# Preview generated history without publishing root or archive files
+[group('release')]
+[positional-arguments]
+changelog-preview *args: _ensure-git-cliff _ensure-rumdl python-sync
+    uv run --locked --group dev research-repo-tools changelog generate --dry-run "$@"
+
+# Generate a prospective release with an explicit ISO date
+[group('release')]
+changelog-release tag date: _ensure-git-cliff _ensure-rumdl python-sync
+    uv run --locked --group dev research-repo-tools changelog generate --tag {{ quote(tag) }} --date {{ quote(date) }}
+
+alias changelog-unreleased := changelog-release
 
 # Non-mutating validation gate
 [group('workflows')]
@@ -339,7 +338,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -352,7 +351,7 @@ check-rust: fmt-check clippy
 # Run the flat union of GitHub-equivalent validators and tests, including the
 # same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -454,7 +453,7 @@ fmt-check:
 help-workflows:
     @echo "Common Just workflows:"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
-    @echo "  just changelog-unreleased <tag> # Generate notes using the prepared release date"
+    @echo "  just changelog-unreleased <tag> <date> # Generate notes with an explicit ISO date"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
     @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
@@ -773,6 +772,11 @@ python-typecheck: python-sync
 release-check: python-sync
     uv run --locked release-check
 
+# Extract release notes from the root changelog or its archives
+[group('release')]
+release-notes tag: python-sync
+    uv run --locked --group dev research-repo-tools changelog notes {{ quote(tag) }}
+
 # Review committed and local changes against the PR base with CodeRabbit.
 [group('review')]
 review base="origin/main": (_review "branch" base)
@@ -788,6 +792,7 @@ semgrep: _ensure-uv
     set -euo pipefail
     files=()
     while IFS= read -r -d '' file; do
+        [[ -f "$file" ]] || continue
         case "$file" in
             tests/semgrep/*) continue ;;
         esac

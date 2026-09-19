@@ -61,6 +61,24 @@ def _python_floor(project: dict[str, object]) -> str:
     return cast("str", python_match.group("version"))
 
 
+def _group_requirements(groups: dict[str, object], name: str, active: frozenset[str] = frozenset()) -> list[str]:
+    """Expand included constraints without treating their pins as direct dev tools."""
+    if name in active:
+        raise ValueError(f"dependency-group cycle at {name}")
+    entries = groups.get(name)
+    if not isinstance(entries, list):
+        raise TypeError(f"dependency-groups.{name} must be an array")
+    result: list[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            result.append(entry)
+        elif isinstance(entry, dict) and set(entry) == {"include-group"} and isinstance(entry["include-group"], str):
+            result.extend(_group_requirements(groups, entry["include-group"], active | {name}))
+        else:
+            raise TypeError(f"dependency-groups.{name} entries must be strings or include-group tables")
+    return result
+
+
 def _dev_pins(groups: dict[str, object]) -> list[DevPin]:
     """Return exact simple pins while leaving every other dev requirement alone."""
     dev = groups.get("dev")
@@ -68,9 +86,12 @@ def _dev_pins(groups: dict[str, object]) -> list[DevPin]:
         msg = "dependency-groups.dev must be an array"
         raise TypeError(msg)
 
+    _group_requirements(groups, "dev")
     pins: list[DevPin] = []
     normalized_names: set[str] = set()
     for raw_requirement in dev:
+        if isinstance(raw_requirement, dict):
+            continue
         if not isinstance(raw_requirement, str):
             msg = "dependency-groups.dev entries must be strings"
             raise TypeError(msg)
@@ -151,6 +172,9 @@ def _resolution_requirements(text: str, pins: list[DevPin]) -> str:
         raise TypeError(msg)
     managed = {canonicalize_name(pin.name): pin for pin in pins}
     for raw_requirement in dev:
+        if isinstance(raw_requirement, dict):
+            requirements.extend(_group_requirements(groups, raw_requirement["include-group"]))
+            continue
         if not isinstance(raw_requirement, str):
             msg = "dependency-groups.dev entries must be strings"
             raise TypeError(msg)

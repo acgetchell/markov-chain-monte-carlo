@@ -56,14 +56,14 @@ its owning package manager; the recipe records its active stable version.
 ```bash
 TAG=vX.Y.Z
 just update-version "$TAG"
-just changelog-unreleased "$TAG"
+just changelog-unreleased "$TAG" "$DATE"
 just release-check
 ```
 
-`update-release-version` infers the previous stable published GitHub release, prepares versions, UTC dates, and active documentation references, validates
-them, and replaces them transactionally. It preserves dependency versions, the concept DOI, and existing performance artifact links. Same-tag reruns on the
-same UTC day leave contents unchanged; another UTC day updates citation and existing target changelog dates. The changelog recipe uses its offline
-`--sync-changelog-date` mode after generation. No benchmark measurement or dependency upgrade is part of metadata preparation.
+`update-release-version` infers the previous stable published GitHub release, prepares versions, UTC dates, and active documentation references, validates them,
+and replaces them transactionally. It preserves dependency versions, the concept DOI, and existing performance artifact links. Same-tag reruns on the same UTC
+day leave contents unchanged; another UTC day updates citation and existing target changelog dates. Set `$DATE` to the prepared `CITATION.cff` date and pass it
+explicitly to changelog generation. No benchmark measurement or dependency upgrade is part of metadata preparation.
 
 `release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
 `CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation. It also checks that the citation
@@ -88,26 +88,29 @@ that installable extra for `uv`-managed development workflows.
 
 ## Changelog
 
+The published `research-repo-tools==0.1.1` package owns generation, normalization,
+archiving, and release-note parsing. Its exact pin lives in the `tooling` dependency
+group included by `dev`; `uv.lock` resolves it from PyPI for local setup and CI.
+
 ```bash
+just changelog-preview
+just changelog-check
 just changelog
-just changelog-unreleased "$TAG"
+just changelog-unreleased "$TAG" "$DATE"
+just changelog-archive
+just release-notes "$TAG"
 ```
 
-For unreleased notes, first prepare `$TAG` using the [Release Metadata](#release-metadata) sequence above. The tag must match the prepared Cargo and citation
-versions before generating the changelog.
+`changelog-release TAG DATE` and its `changelog-unreleased` alias require an explicit ISO date matching the prepared citation. Generation uses the packaged
+git-cliff template with this repository's owner/name and validates candidates with `rumdl.toml`. It keeps Unreleased and the newest minor series at the root and
+rotates older series into `docs/archives/changelog/MAJOR.MINOR.md`. Preview publishes nothing. `changelog-check` validates the root and all archives
+independently of note extraction. Release notes work from either location and include referenced links.
 
-`just changelog` runs `git-cliff -o CHANGELOG.md` in offline mode and then `postprocess-changelog` to trim trailing blank lines and apply the Markdown rules in
-`rumdl.toml`, including prose wrapping at 160 characters. The postprocessor validates the complete result before atomically replacing the changelog. Both
-recipes verify the pinned rumdl version before generation. Git history rendering is configured in `cliff.toml` at the repository root.
-
-Changelog entries are generated from local git metadata:
-
-- unreleased sections use squash commit bodies when available
-- tagged historical releases use annotated tag notes when those notes contain release bullets
-- release-prep commits and CI/action dependency churn are filtered out
-
-Put user-facing release-note bullets in squash commit bodies or annotated tag messages. Do not hand-edit generated changelog content; details that appear only
-in old manual changelog edits cannot be recovered by the generator later.
+Common parser/formatter regressions belong upstream. This repository keeps only
+consumer integration coverage in `test_shared_changelog.py`; it no longer ships a
+changelog postprocessor or a copy of the git-cliff template. See the
+[pilot comparison](../docs/dev/shared-changelog-pilot.md) for intentional policy
+changes, resolved upstream issues, and the upgrade procedure.
 
 ## Release Tags
 
@@ -116,8 +119,9 @@ just tag v0.3.0
 just tag-force v0.3.0
 ```
 
-`tag-release` extracts the matching version section from `CHANGELOG.md`, validates the tag as `vX.Y.Z` SemVer, and creates an annotated git tag from that
-changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link to `CHANGELOG.md`.
+`tag-release` invokes the shared CLI to extract the matching version section from the root changelog or an archive, validates the tag as `vX.Y.Z` SemVer, and
+creates an annotated git tag from that changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link to
+`CHANGELOG.md`.
 
 `just tag-force` replaces only the local tag. Follow the normal tag push and recovery guidance in the
 [release procedure](../docs/RELEASING.md#after-the-pr-merges).

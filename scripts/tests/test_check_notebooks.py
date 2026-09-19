@@ -26,7 +26,6 @@ CONSOLE_SCRIPTS = {
     "archive-performance": "archive_performance",
     "bench-compare": "bench_compare",
     "check-notebooks": "check_notebooks",
-    "postprocess-changelog": "postprocess_changelog",
     "publish-performance-readme": "publish_performance_readme",
     "release-check": "release_check",
     "tag-release": "tag_release",

@@ -24,6 +24,7 @@ from subprocess_utils import (
     ExecutableNotFoundError,
     run_git_command,
     run_git_command_with_input,
+    run_safe_command,
 )
 
 # GitHub's maximum size for git tag annotations (bytes)
@@ -133,41 +134,14 @@ def extract_changelog_section(changelog: Path, version: str) -> str:
     Raises:
         LookupError: If the version section is not found or empty.
     """
-    content = changelog.read_text(encoding="utf-8")
-    header_re = _version_header_re(version)
-
-    lines = content.split("\n")
-    section: list[str] = []
-    collecting = False
-
-    for line in lines:
-        if re.match(r"^##\s", line):
-            if collecting:
-                break
-            if header_re.match(line):
-                collecting = True
-                continue
-        elif collecting:
-            section.append(line)
-
-    if not collecting:
-        msg = f"No changelog section found for version {version}. Expected a heading like: ## [{version}] - YYYY-MM-DD"
-        raise LookupError(msg)
-
-    # Trim leading/trailing blank lines (O(n) index scan + slice)
-    start = 0
-    while start < len(section) and not section[start].strip():
-        start += 1
-    end = len(section)
-    while end > start and not section[end - 1].strip():
-        end -= 1
-    section = section[start:end]
-
-    body = "\n".join(section)
-    if not body.strip():
-        msg = f"Changelog section for version {version} is empty."
-        raise LookupError(msg)
-    return body
+    try:
+        result = run_safe_command(
+            sys.executable,
+            ["-m", "research_repo_tools", "--root", str(changelog.resolve().parent), "changelog", "notes", f"v{version}"],
+        )
+    except subprocess.CalledProcessError as error:
+        raise LookupError((error.stderr or "Release-note extraction failed").strip()) from error
+    return result.stdout.rstrip("\n")
 
 
 # ---------------------------------------------------------------------------

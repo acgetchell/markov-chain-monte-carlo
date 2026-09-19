@@ -95,34 +95,13 @@ def _replace_version_match(match: re.Match[str], value: str, allowed: frozenset[
     return match.group(0)[: start - match.start()] + value + match.group(0)[end - match.start() :]
 
 
-def _changelog_with_date(path: Path, version: str, release_date: str, *, required: bool = False) -> str:
+def _changelog_with_date(path: Path, version: str, release_date: str) -> str:
     original = _read_text(path)
     heading = _changelog_date_reference(path, version)
     if heading is None:
-        if required:
-            msg = f"CHANGELOG.md has no release heading for {version}"
-            raise ValueError(msg)
         return original
     pattern = re.compile(rf"^##\s+\[?v?{re.escape(version)}\]?\s+-\s+(?P<value>\d{{4}}-\d{{2}}-\d{{2}})\s*$")
     return _replace_scalar(original, heading.line, pattern, release_date, allowed=frozenset({heading.value}))
-
-
-def sync_changelog_date(root: Path, tag: str) -> None:
-    """Align a newly generated heading with the prepared UTC citation date, offline."""
-    root = root.resolve()
-    version = parse_release_tag(tag).removeprefix("v")
-    citation = root / "CITATION.cff"
-    changelog = root / "CHANGELOG.md"
-    for path in (citation, changelog, root / "Cargo.toml"):
-        if path.is_symlink() or not path.resolve().is_relative_to(root):
-            msg = f"release metadata must not be a symbolic link outside the repository: {path}"
-            raise ValueError(msg)
-    if _read_cargo_package_info(root / "Cargo.toml").version != version or _citation_reference(citation).version != version:
-        msg = "package and citation versions must match the target; run just update-version first"
-        raise ValueError(msg)
-    prepared = _changelog_with_date(changelog, version, _citation_date_reference(citation).value, required=True)
-    if prepared != _read_text(changelog):
-        _publish_texts(((changelog, prepared),))
 
 
 def _prepare_updates(root: Path, tag: str, previous: str, release_date: str) -> dict[Path, str]:
@@ -212,13 +191,9 @@ def main(argv: list[str] | None = None) -> int:
     """Prepare a release without dependency upgrades, changelog generation, or measurements."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tag", help="Target stable release tag in vX.Y.Z form")
-    parser.add_argument("--sync-changelog-date", action="store_true", help="Only align a generated changelog heading with CITATION.cff, without GitHub access")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
     try:
-        if args.sync_changelog_date:
-            sync_changelog_date(args.repo_root, args.tag)
-            return 0
         summary = update_release_version(args.repo_root, args.tag)
     except subprocess.CalledProcessError as error:
         print(f"Release preparation failed: {error.stderr or error.stdout or error}", file=sys.stderr)

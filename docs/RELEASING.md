@@ -28,7 +28,7 @@ rejected before resolving or mutating pins. Review and validate all dependency, 
 ## Preparation sequence
 
 After the prerequisite changes are merged, start with a clean working tree. The commands below update `main` to the reviewed changes and create the release
-branch before preparing metadata. The only manually supplied release value is `TAG`:
+branch before preparing metadata. Supply `TAG`, then copy the prepared citation date into `DATE`:
 
 ```bash
 TAG=vX.Y.Z
@@ -36,7 +36,9 @@ git checkout main
 git pull --ff-only
 git checkout -b "release/$TAG"
 just update-version "$TAG"
-just changelog-unreleased "$TAG"
+# Set DATE to the date-released value now recorded in CITATION.cff.
+DATE=YYYY-MM-DD
+just changelog-unreleased "$TAG" "$DATE"
 just performance-release
 just performance-readme
 just ci
@@ -59,14 +61,21 @@ benchmarks, or redirect existing performance artifact links to a tag whose artif
 
 ### Generated changelog
 
-`just changelog-unreleased "$TAG"` generates notes from local Git history without creating a tag, applies Markdown hygiene, and synchronizes the new heading
-with the prepared citation date. This date synchronization is offline, so crossing UTC midnight during generation does not split the citation and changelog
-dates. The postprocessor applies rumdl's configured fixes, including prose wrapping at 160 characters, before atomically publishing the changelog. To
-intentionally move the release date, rerun `just update-version "$TAG"`.
+Set `DATE` explicitly to the ISO date in the prepared `CITATION.cff`.
+`just changelog-unreleased "$TAG" "$DATE"` generates prospective notes without
+creating a tag or changing release metadata. The shared package normalizes and
+archives completed minor series and validates Markdown before publishing.
+To intentionally move the release date, rerun `just update-version "$TAG"` and
+update `DATE` to match.
 
-Review `CHANGELOG.md`; never hand-edit generated content. Fix source commit messages, `cliff.toml`, or the post-processing helper and regenerate. Squash commit
-bodies supply unreleased details; annotated tag notes supply older release details. Put release-note-worthy bullets in squash commit bodies because GitHub
-PR descriptions and old manual edits are not recoverable from local history. Keep patch-release notes focused on the changes intended for that patch.
+Review `CHANGELOG.md` and `docs/archives/changelog/`; never hand-edit generated
+content. Fix source commit messages or the shared package and regenerate.
+Run `just changelog-check` to validate the complete root/archive history and
+`just release-check` to verify metadata consistency. Both are included in the
+normal validation gates. Release-note extraction validates the requested release
+and its required links; it is not a substitute for whole-history validation.
+The [pilot comparison](dev/shared-changelog-pilot.md) records the behavior verified
+with the pinned shared package, including preserved dates and repeatable archives.
 
 ### Retained performance evidence and publication
 
