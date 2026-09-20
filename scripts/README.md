@@ -41,15 +41,17 @@ The benchmark command contracts and interpretation limits live in [`docs/BENCHMA
 just update
 ```
 
-`update-python-dev-pins` resolves exact entries in `dependency-groups.dev` as one compatible set, leaves ranged requirements unchanged, applies all exact
-pin changes in one uv transaction, and restores `pyproject.toml` and `uv.lock` if the mutation fails or changes unrelated manifest content.
-`update-tool-pins` reconciles the root justfile with the managed Cargo CLI tools and the active uv version. Its `--check-uv` mode validates the active stable
-uv version without reading Cargo packages or modifying pins. The dependency and tool update recipes run this preflight before changing dependencies or
-installed tools, without syncing the environment or downloading Python.
+`just update` upgrades uv through its supported installation owner and reconciles the exact project pin, upgrades declared Cargo tools, runs shared setup, and
+updates Cargo and Python dependencies. The included shared tooling pin is retained. Just is supplied by the pinned shared package; it is no longer upgraded
+through Cargo.
 
-The aggregate recipe updates Cargo requirements and lockfiles, upgrades the managed Cargo tools, refreshes the uv lock, and syncs the development
-environment. The unpinned `cargo-update` bootstrap helper is installed by `just setup` when missing and is outside the managed update set. Update uv through
-its owning package manager; the recipe records its active stable version.
+Cargo tool versions live in `tool.research-repo-tools.toolchain.cargo`. The shared updater installs exact locked candidates in isolated directories, verifies
+them, and only then publishes their TOML pins. Failed candidates leave prior declarations usable. The two unsupported SARIF helpers remain pinned in CI pending
+[upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25).
+
+`research-repo-tools deps update-python` resolves direct exact dev pins as one compatible set, preserving ranged requirements and included tooling constraints.
+Its recipe preflights stable uv, refreshes the full Python lock, and synchronizes dev with managed tools. Use `just update-dependencies`, `just update-tools`,
+or the individual Cargo/Python recipes for narrower work. See [the migration record](../docs/dev/shared-maintenance-migration.md).
 
 ## Release Metadata
 
@@ -60,10 +62,15 @@ just changelog-unreleased "$TAG" "$DATE"
 just release-check
 ```
 
-`update-release-version` infers the previous stable published GitHub release, prepares versions, UTC dates, and active documentation references, validates them,
-and replaces them transactionally. It preserves dependency versions, the concept DOI, and existing performance artifact links. Same-tag reruns on the same UTC
+`update-release-version` infers the previous stable published GitHub release and runs shared release preparation in a temporary tree. It then applies MCMC's
+performance-command and README-link policies, validates the fixed concept DOI, and replaces the complete result transactionally. It preserves dependency
+versions and existing performance artifact links. Same-tag reruns on the same UTC
 day leave contents unchanged; another UTC day updates citation and existing target changelog dates. Set `$DATE` to the prepared `CITATION.cff` date and pass it
 explicitly to changelog generation. No benchmark measurement or dependency upgrade is part of metadata preparation.
+
+For an offline preview, run `uv run --locked update-release-version vX.Y.Z --previous-release vA.B.C --date YYYY-MM-DD --dry-run`.
+The same validation runs for previews and actual updates. `release-check` combines the shared final-release check with required MCMC publication surfaces,
+performance commands, release-pinned README links, and the fixed concept DOI.
 
 `release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
 `CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation. It also checks that the citation
@@ -78,17 +85,21 @@ just notebook-check-slow
 just notebook-clear-outputs-all
 ```
 
-`just notebook-lint` validates notebook JSON and stable cell IDs, rejects outputs and execution counts, compiles each code cell with cell-aware diagnostics,
-and checks extracted code with Ruff and Ty. `just notebook-check` generates required example artifacts and executes only the fast notebook set headlessly.
-Executed notebooks and runtime caches are written under `target/notebooks/`, leaving source notebooks unchanged. `just notebook-check-slow` adds only the
-explicitly configured heavier notebook set; `just notebook-clear-outputs-all` intentionally clears source outputs and counts in place.
+`just notebook-lint` uses the shared native notebook checks for structure, stable cell IDs, output hygiene, Ruff rules/formatting, and ty types.
+`just notebook-check` generates the Ising trace and executes only the fast notebook set in fresh headless kernels. Source notebooks are unchanged; executed
+copies and provenance reports mirror root-relative paths under `target/notebooks/`. Temporary runtime state is private to each run.
 
-Installed consumers can enable notebook execution with `markov-chain-monte-carlo-tooling[notebook]`. The repository's `notebook` dependency group mirrors
-that installable extra for `uv`-managed development workflows.
+The scientific notebook content, fast/slow selection, input preparation, and tracked figure promotion remain in MCMC. `just notebook-check-slow` adds explicitly
+configured heavier notebooks; `just notebook-clear-outputs-all` deliberately clears source outputs and execution metadata. `just notebook-sync` registers the
+kernel inside the locked project environment.
+
+The installable `markov-chain-monte-carlo-tooling[notebook]` extra supplies the shared notebook extra plus MCMC's plotting/data dependencies. The repository's
+notebook group selects it. The former `check-notebooks` entry point is replaced by `research-repo-tools notebooks`; use the Just recipes for repository
+selection and input preparation.
 
 ## Changelog
 
-The published `research-repo-tools==0.1.1` package owns generation, normalization,
+The published `research-repo-tools==0.1.2` package owns generation, normalization,
 archiving, and release-note parsing. Its exact pin lives in the `tooling` dependency
 group included by `dev`; `uv.lock` resolves it from PyPI for local setup and CI.
 
@@ -119,9 +130,10 @@ just tag v0.3.0
 just tag-force v0.3.0
 ```
 
-`tag-release` invokes the shared CLI to extract the matching version section from the root changelog or an archive, validates the tag as `vX.Y.Z` SemVer, and
-creates an annotated git tag from that changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link to
-`CHANGELOG.md`.
+`just tag` directly invokes the shared CLI to extract the matching version section from the root changelog or an archive, validates the tag as `vX.Y.Z` SemVer,
+and creates an annotated git tag from that changelog content. If the section exceeds GitHub's tag annotation limit, the tag message falls back to a short link
+to the source changelog, including its archive path. The tag must match the package version and the heading date must match `CITATION.cff`. The configured
+`declared` date policy permits tagging an already prepared release on a later day.
 
 `just tag-force` replaces only the local tag. Follow the normal tag push and recovery guidance in the
 [release procedure](../docs/RELEASING.md#after-the-pr-merges).

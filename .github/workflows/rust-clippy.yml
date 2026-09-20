@@ -29,13 +29,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          cache: true # toolchain/components are specified in rust-toolchain.toml
-
-      - name: Set up just
-        uses: $/.github/actions/setup-just
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
 
       - name: Export tool versions
         id: tool_versions
@@ -79,7 +74,7 @@ jobs:
 
       - name: Run clippy with SARIF output
         run: |
-          cargo clippy \
+          uv run --locked --group dev research-repo-tools toolchain run -- cargo clippy --locked \
             --workspace \
             --all-targets \
             --all-features \

@@ -10,6 +10,7 @@ components = [
     "rust-std", # Standard library
     "rust-src", # Source code (helpful for IDEs)
     "rust-analyzer", # Language server for IDE support
+    "llvm-tools-preview", # Coverage instrumentation
 ]
 
 # Target the platforms you support

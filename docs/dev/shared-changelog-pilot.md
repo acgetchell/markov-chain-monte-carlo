@@ -1,8 +1,9 @@
 # Shared changelog adoption (#157)
 
-The repository adopts published `research-repo-tools==0.1.1` for changelog
-generation, normalization, archiving, and release-note extraction. This release
-resolves the four upstream gaps identified during the 0.1.0 pilot.
+This record describes the original `research-repo-tools==0.1.1` changelog adoption,
+which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.1.2;
+the [maintenance migration](shared-maintenance-migration.md) covers its broader
+setup, release, review, and notebook ownership and consumer verification.
 
 ## Ownership and commands
 
@@ -34,17 +35,16 @@ does not establish that the entire history is valid; the strict check does.
 Removed local ownership includes `cliff.toml`, the changelog postprocessor and
 its package entry point/test suite, the release-note section parser and its
 parser tests, and the post-generation date-sync helper and its dedicated test.
-The remaining tag helper calls the supported shared CLI rather than importing
+The tag recipes call the supported shared CLI rather than importing
 internal package parsers. Consumer tests cover the pin, included-group
 constraints, recipe wiring, and root/archive note extraction with reference
 links. Common algorithm and parser regressions remain upstream.
 
-Repository-specific benchmark evidence, scientific notebooks, release metadata,
-tagging policy, and dependency/tool setup still have local owners and tests.
-Remaining supported maintenance migration belongs to
-[#160](https://github.com/acgetchell/markov-chain-monte-carlo/issues/160).
-Generic notebook infrastructure is separate future work; scientific content
-stays here.
+Repository-specific benchmark evidence, scientific notebook content, and release
+policies retain local owners and tests. Shared maintenance and notebook
+infrastructure are covered by
+[#160](https://github.com/acgetchell/markov-chain-monte-carlo/issues/160) and the
+[v0.1.2 migration record](shared-maintenance-migration.md).
 
 ## Common policies and resolved pilot gaps
 

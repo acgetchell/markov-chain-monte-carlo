@@ -98,6 +98,11 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
+Both recipes invoke the published `research-repo-tools==0.1.2` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
+whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
+Consumer tests use local process stubs; no live review is part of migration validation.
+
 Install the [CodeRabbit CLI](https://docs.coderabbit.ai/cli) separately and authenticate with `coderabbit auth login` before the first review. It is an
 external prerequisite, outside `just setup-tools` and `just update`. The recipes use `--agent` for structured findings; their flags were verified against
 CLI 0.7.7 with `coderabbit review --help`.
@@ -127,30 +132,21 @@ The existing feature decisions below remain applicable and follow the official
 
 ## Setup
 
-Run `just setup` or `just setup-tools` to install repository-managed tools and verify system prerequisites:
+Follow [contributor setup](../../CONTRIBUTING.md#development-environment-setup) for the initial uv-only bootstrap. Thereafter, `just setup` (or compatibility
+alias `just setup-tools`) delegates to the pinned shared installer. `just tools-check` checks existing installations without synchronization or Python
+downloads.
 
-- `actionlint`
-- `cargo-edit`
-- `cargo-llvm-cov`
-- `cargo-nextest`
-- `cargo-update` (unpinned bootstrap helper; installed when missing)
-- `dprint`
-- `git-cliff`
-- `jq` (system-provided; use a package manager or the [official installation instructions](https://jqlang.github.io/jq/download/))
-- `rumdl`
-- `taplo`
-- `typos`
-- `uv`
-- `zizmor`
+The authoritative declarations are `[tool.uv].required-version`, `.python-version`, `rust-toolchain.toml`, and `[tool.research-repo-tools.toolchain.cargo]`.
+Shared setup installs isolated Rust/Cargo tools, managed Python, and user-level Just, configures shell PATH, and synchronizes the locked dev environment. Git,
+Bash/sh, the native compiler/linker, jq, and uv remain system prerequisites; authenticated gh is needed for release operations.
 
-The setup recipe verifies `uv` and `jq` before managed installation work begins, then uses Cargo for Rust tools and the canonical `uv sync --locked` for the
-project-managed Python 3.14 environment. Semgrep, Ruff, Ty, actionlint, and the support-script tests are pinned in `pyproject.toml` and invoked through the
-`uv_version` release pinned in the root [`justfile`](../../justfile).
+`just update` composes the shared uv owner upgrade, managed Cargo upgrades, setup, and Cargo/Python dependency updates. The uv startup bypasses stale project
+configuration so an externally upgraded supported uv can reconcile its pin. Unsupported uv owners receive manual guidance. Cargo upgrades publish verified exact
+TOML pins and retain previous managed versions on failure. `cargo-update` and the legacy Just pin reconciler are no longer used. Python-only updates retain the
+stable-uv preflight, refresh the complete lock, and synchronize dev. Shared package and Just upgrades remain deliberate package-pin changes.
 
-Run `just update` when intentionally refreshing repository dependencies and managed tooling. It validates the active uv version before changing dependencies
-or installed tools, updates Cargo requirements and lockfile entries, advances exact Python development-tool pins without changing ranged requirements,
-upgrades the managed Cargo CLI set, and then reconciles justfile pins with the installed versions and active uv release. The `cargo-update` bootstrap helper
-is outside that managed set and has no repository version pin. Update uv through its owning package manager; this recipe records the active stable version.
+The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
+[upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25), the remaining SARIF converter catalog gap.
 
 ## Line Length
 
@@ -166,7 +162,7 @@ remains on the narrower `rustfmt` `max_width = 100` setting because wide Rust si
 - Broad all-feature release-profile unit and integration tests: `just test-rust-ci`
 - Broad Rust runnable tests plus doctests: `just test-rust`
 - Python tooling tests: `just test-python`
-- Single runnable test by name filter: `cargo nextest run chain_samples_near_mode`
+- Single runnable test by name filter: `uv run --locked --group dev research-repo-tools toolchain run -- cargo nextest run chain_samples_near_mode`
 - Examples: `just examples` builds all examples once, then runs the compiled binaries.
 - Property-based Rust tests live in integration files named `tests/proptest_*.rs`; keep `src` unit tests deterministic unless a private helper requires a
   local test.
@@ -177,17 +173,17 @@ required.
 
 ## Notebooks
 
-`just notebook-lint` validates every source notebook without execution: JSON shape and stable unique cell IDs, empty outputs and execution counts, cell-aware
-Python compilation, and extracted-code Ruff format/check plus Ty. `just notebook-check` then generates the Ising example artifact and executes the fast
-notebook set headlessly with `MPLBACKEND=Agg`.
+`just notebook-lint` selects tracked and non-ignored source notebooks and invokes shared structure, cell-ID, output, Ruff, formatting, and ty checks. The native
+checkers read original notebooks and preserve cross-cell references. `just notebook-check` generates the Ising input and executes only the configured fast set
+in fresh project kernels; slow notebooks remain explicitly selected in `slow_notebooks`.
 
-`just notebook-ising-figure` runs that validated workflow and promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. The notebook
-keeps plot labels and PNG metadata valid for an explicitly supplied `MCMC_TRACE_PATH`; set `MCMC_NOTEBOOK_OUTPUT_DIR` when external or read-only trace storage
-requires a separate writable figure directory. The README caption records the fixed parameters used for the tracked default figure.
+`just notebook-sync` synchronizes the locked dev/notebook groups and registers the project-local kernel. Shared execution writes
+`target/notebooks/notebooks/ising_trace_analysis.ipynb` and a sibling `.report.json` with source/lock hashes, interpreter/package versions, and execution
+status. Temporary Jupyter and Matplotlib state is private to each run. Source notebooks stay unchanged.
 
-Executed notebooks, IPython state, and Matplotlib caches are written below `target/notebooks/`; source notebooks remain unchanged. Heavier notebooks must be
-listed explicitly in the `slow_notebooks` justfile variable and run only through `just notebook-check-slow`. Use `just notebook-clear-outputs-all` for
-intentional in-place cleanup before committing.
+`just notebook-ising-figure` promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. MCMC retains its input validation, acceptance
+statistics, plot content, and explicit `MCMC_TRACE_PATH`, `MCMC_REPO_ROOT`, and `MCMC_NOTEBOOK_OUTPUT_DIR` semantics. Use `just notebook-clear-outputs-all` for
+deliberate source cleanup.
 
 ## Benchmarks
 
@@ -224,8 +220,7 @@ unmatched rows explicitly.
 ## Coverage
 
 Coverage uses `cargo llvm-cov` with all crate features enabled.
-`just setup` and the Codecov workflow install `llvm-tools-preview`, which provides the LLVM coverage tools used by `cargo-llvm-cov`. It stays out of
-`rust-toolchain.toml` because normal build, lint, doc, and test workflows do not need it.
+`rust-toolchain.toml` declares `llvm-tools-preview`; shared setup installs it locally and in the Codecov workflow.
 
 - Local HTML report: `just coverage`
 - CI Cobertura XML: `just coverage-ci`
@@ -250,7 +245,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
 - `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
-- PR-running workflows cache Cargo-installed CI, coverage, and SARIF helper tools through `taiki-e/cache-cargo-install-action`.
+- `.github/actions/setup-toolchain` caches the declared managed toolchain by OS, architecture, and declarations; only SARIF converters retain
+  `taiki-e/cache-cargo-install-action`.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.
@@ -259,7 +255,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `dprint.json` configures YAML formatting through dprint Pretty YAML with the repository's 160-column non-Rust line length.
 - `pyproject.toml` pins Python-based development tools and configures Ruff's 160-column line length.
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.
-- `scripts/` contains consumer release-tag helpers; changelog processing and release-note parsing live in `research-repo-tools`.
+- `scripts/` contains consumer release policies and benchmark helpers; shared maintenance and notebook execution live in `research-repo-tools`.
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.

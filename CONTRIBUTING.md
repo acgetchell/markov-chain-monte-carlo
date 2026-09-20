@@ -35,11 +35,13 @@ This project is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The comm
 
 Before you begin, ensure you have:
 
-1. **Rust 1.98.1** (pinned via [`rust-toolchain.toml`](rust-toolchain.toml) — automatically handled by rustup)
-2. **Git** for version control
-3. **Just** (command runner): `cargo install just`
-4. **uv** (Python 3.14 tooling): install the repository-pinned version with
-   `curl -LsSf "https://astral.sh/uv/$(just --evaluate uv_version)/install.sh" | sh` (see [astral.sh/uv][uv])
+1. **Git, Bash, and POSIX sh**, plus a native compiler/linker (Xcode Command Line Tools on macOS, a C/C++ toolchain on Linux, or Visual Studio C++ Build Tools
+   on Windows).
+2. **uv**, at the exact version declared in `[tool.uv].required-version` in [pyproject.toml](pyproject.toml). Install it through its owning package manager or
+   the [official installer][uv].
+3. **jq**, installed through your system package manager.
+
+Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.exe`, on PATH.
 
 ### Quick Start
 
@@ -54,7 +56,7 @@ Before you begin, ensure you have:
    [Development Environment Setup](#development-environment-setup) for what gets installed or checked):
 
    ```bash
-   just setup
+   uv run --locked --managed-python --only-group tooling research-repo-tools setup
    ```
 
 3. **Run tests**:
@@ -87,40 +89,30 @@ Before you begin, ensure you have:
 
 ## Development Environment Setup
 
-### Automatic Toolchain Management
+### Declarations and installation
 
-This project pins its Rust toolchain via [`rust-toolchain.toml`](rust-toolchain.toml). When you enter the project directory, `rustup` will automatically:
+The published `research-repo-tools==0.1.2` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
+shell PATH. Open a new terminal if setup reports a PATH change.
 
-- install the correct Rust version (1.98.1) if you don't have it
-- switch to the pinned version for this project
-- install required components (clippy, rustfmt, rust-docs, rust-std, rust-src, rust-analyzer)
+| Declaration | Authority |
+| --- | --- |
+| uv | `[tool.uv].required-version` in `pyproject.toml` |
+| Python | `.python-version` |
+| Rust and components, including coverage tools | `rust-toolchain.toml` |
+| Cargo tools | `[tool.research-repo-tools.toolchain.cargo]` in `pyproject.toml` |
+| Python tools and shared package | Dependency groups and `uv.lock` |
 
-**No manual toolchain setup is needed** — just have `rustup` installed ([rustup.rs][rustup]).
+After initial setup, run `just setup` again when declarations change, or `just tools-check` for a read-only inventory. Setup does not upgrade declared versions.
+Managed Rust/Cargo installations live under `~/.cache/research-repo-tools`; set an absolute `RESEARCH_REPO_TOOLS_HOME` to choose another location. Prefer a
+short path on Windows. Normal recipes select the checked tool paths through `toolchain run`.
 
-### External Tools
+Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated
+[GitHub CLI](https://cli.github.com/). CodeRabbit has separate opt-in installation and authentication.
 
-Install Git, Bash, `rustup`/Cargo with a native compiler/linker, the pinned [just](https://github.com/casey/just) and `uv`, and `jq` before running setup.
-The expected tool versions live in the root justfile. Release discovery and publication additionally require an authenticated
-[GitHub CLI](https://cli.github.com/); setup does not install `gh`.
-
-`just setup` installs repository-managed tools and verifies the system prerequisites the project relies on:
-
-- [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions workflow linter, installed through `actionlint-py` in the uv dev environment
-- [cargo-edit](https://github.com/killercup/cargo-edit) — Cargo dependency requirement updates
-- [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) — coverage reports
-- [cargo-nextest](https://nexte.st/) — Rust unit and integration test runner
-- [cargo-update](https://github.com/nabijaczleweli/cargo-update) — installed Cargo tool updates
-- [dprint](https://dprint.dev/) — YAML formatter
-- [git-cliff](https://git-cliff.org/) — changelog generation
-- [jq](https://jqlang.github.io/jq/download/) — system-provided JSON validator; install it with your package manager or the official instructions
-- [rumdl](https://rumdl.dev/) — Markdown formatter / linter
-- [taplo](https://taplo.tamasfe.dev/) — TOML formatter / linter
-- [typos](https://github.com/crate-ci/typos) — spell checker
-- [uv](https://docs.astral.sh/uv/) — Python package and tool runner (used for `semgrep`, `ruff`, `ty`, and the changelog/tagging Python helpers in `scripts/`)
-- [zizmor](https://github.com/zizmorcore/zizmor) — GitHub Actions security analyzer
-
-The recipe checks `uv` and `jq` before managed installation work begins. If either system prerequisite is unavailable or the pinned `uv` version does not
-match, it exits with installation guidance; Cargo and uv then install or synchronize the repository-managed tools.
+CI uses the same declarations through `.github/actions/setup-toolchain`, with OS/architecture-specific caches. Only the two SARIF converters retain their
+existing pinned CI installers pending [upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25). See
+[the migration record](docs/dev/shared-maintenance-migration.md) for ownership and validation.
 
 ## Project Structure
 
@@ -167,10 +159,13 @@ just changelog      # Regenerate CHANGELOG.md from git history
 just clean           # Clean build artifacts
 ```
 
-`just update` first checks that the active uv reports a stable version, before changing dependencies or installed tools. It advances Cargo dependency
-requirements and lockfile entries, resolves the latest compatible versions for exact Python development-tool pins, upgrades the managed Cargo CLI tools,
-and reconciles their root justfile pins together with the active uv version. `cargo-update` is an unpinned bootstrap helper installed by `just setup` when
-missing; it is outside the managed update set. Review the resulting manifest, lockfile, and tool-pin changes before committing them.
+`just update` first upgrades uv through its installation owner (supported standalone or Homebrew installations) and reconciles its exact pin. It then upgrades
+declared Cargo tools, runs setup, and updates Cargo and Python dependencies. Candidate Cargo pins are published only after every new tool installs and verifies
+successfully. Just and the shared package retain their explicit package pins. Unsupported uv installation owners receive manual update guidance.
+
+Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates retain
+ranged and included tooling requirements, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations before committing.
+Upgrading user-level uv also affects other checkouts with exact uv pins.
 
 **Workflow help:**
 
@@ -416,8 +411,7 @@ Performance guidelines:
 
 Coverage:
 
-`just setup` and the Codecov workflow install `llvm-tools-preview` because `cargo-llvm-cov` needs the LLVM coverage tools. The pinned toolchain keeps
-that coverage-only component out of the default `rustup` install path.
+The declared `llvm-tools-preview` component supplies coverage tools through shared setup locally and in Codecov CI.
 
 ```bash
 just coverage        # local HTML report (target/llvm-cov/html/index.html)
@@ -564,6 +558,5 @@ cited from [`docs/scientific_basis.md`](docs/scientific_basis.md) and [`REFERENC
 Thank you for contributing!
 
 [mcmc-lib]: https://github.com/acgetchell/markov-chain-monte-carlo
-[rustup]: https://rustup.rs/
 [Just]: https://github.com/casey/just
 [uv]: https://docs.astral.sh/uv/
