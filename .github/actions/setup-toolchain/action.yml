@@ -11,17 +11,6 @@ runs:
         enable-cache: true
         cache-python: true
 
-    - name: Select managed cache
-      shell: bash
-      env:
-        MANAGED_HOME: ${{ runner.temp }}/rrt
-      # runner.temp is runner-owned; reject line breaks before exporting one value.
-      run: | # zizmor: ignore[github-env]
-        case "$MANAGED_HOME" in
-          *$'\n'*|*$'\r'*) exit 1 ;;
-        esac
-        printf 'RESEARCH_REPO_TOOLS_HOME=%s\n' "$MANAGED_HOME" >> "$GITHUB_ENV"
-
     - name: Cache declared Rust and Cargo tools
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -31,19 +20,26 @@ runs:
 
     - name: Set up declared tools and development environment
       shell: bash
+      env:
+        RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
       run: uv run --locked --managed-python --only-group tooling research-repo-tools setup
 
     - name: Expose checked tools to workflow actions
       shell: bash
+      env:
+        RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
       run: |
         uv run --locked --group dev research-repo-tools toolchain run -- python - <<'PY'
         import os
         from pathlib import Path
 
+        names = ("RESEARCH_REPO_TOOLS_HOME", "PATH", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL", "RUSTUP_NO_UPDATE_CHECK")
+        lines = []
+        for name in names:
+            value = os.environ[name]
+            if "\n" in value or "\r" in value:
+                raise ValueError(f"Invalid environment value for {name}")
+            lines.append(f"{name}={value}\n")
         with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8", newline="\n") as stream:
-            for name in ("PATH", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL", "RUSTUP_NO_UPDATE_CHECK"):
-                value = os.environ[name]
-                if "\n" in value or "\r" in value:
-                    raise ValueError(f"Invalid environment value for {name}")
-                print(f"{name}={value}", file=stream)
+            stream.writelines(lines)
         PY

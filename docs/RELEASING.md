@@ -53,7 +53,8 @@ installation and release-command examples, and non-artifact README links. Depend
 before replacing files and restores earlier contents if publication fails.
 
 Common metadata preparation runs through the pinned shared package in a temporary tree; MCMC adds its DOI, performance-command, and README-link policies
-before publishing the complete candidate. For an offline preview including those policies, use
+before publishing the complete candidate. For an offline preview including those policies, first set `PREVIOUS_TAG` to the preceding published stable release
+tag in `vX.Y.Z` form. Then use
 `uv run --locked update-release-version "$TAG" --previous-release "$PREVIOUS_TAG" --date "$DATE" --dry-run`.
 See the [migration record](dev/shared-maintenance-migration.md) for shared v0.1.2 ownership and the retained SARIF helper follow-up.
 

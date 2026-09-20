@@ -457,3 +457,52 @@ def test_workflows_share_authoritative_setup_declarations() -> None:
         assert "uses: $/.github/actions/setup-toolchain" in workflow
         assert "setup-rust-toolchain@" not in workflow
         assert "setup-python@" not in workflow
+
+
+@pytest.mark.parametrize(
+    ("invalid_name", "invalid_value"),
+    [
+        (None, None),
+        ("RESEARCH_REPO_TOOLS_HOME", "/fixture/cache\nINJECTED=true"),
+        ("RESEARCH_REPO_TOOLS_HOME", "/fixture/cache\rINJECTED=true"),
+        ("PATH", "/bin\r\nINJECTED=true"),
+        ("RUSTUP_NO_UPDATE_CHECK", "1\nINJECTED=true"),
+        ("RUSTUP_NO_UPDATE_CHECK", None),
+    ],
+)
+def test_setup_environment_export_validates_before_writing(tmp_path: Path, invalid_name: str | None, invalid_value: str | None) -> None:
+    setup = (REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
+    script = textwrap.dedent(setup.split("<<'PY'\n", 1)[1].rsplit("\n        PY", 1)[0])
+    values = {
+        "RESEARCH_REPO_TOOLS_HOME": str(tmp_path / "managed cache=one"),
+        "PATH": r"C:\Tools\bin;C:\Program Files\Python",
+        "CARGO_HOME": str(tmp_path / "cargo"),
+        "RUSTUP_HOME": str(tmp_path / "rustup"),
+        "RUSTUP_TOOLCHAIN": "1.98.1",
+        "RUSTUP_AUTO_INSTALL": "0",
+        "RUSTUP_NO_UPDATE_CHECK": "1",
+    }
+    destination = tmp_path / "github_env.txt"
+    original = b"EXISTING=keep\r\n"
+    destination.write_bytes(original)
+    environment = {**os.environ, **values, "GITHUB_ENV": str(destination)}
+    if invalid_name is not None:
+        if invalid_value is None:
+            environment.pop(invalid_name)
+        else:
+            environment[invalid_name] = invalid_value
+    result = subprocess.run(  # noqa: S603 - executes the repository-owned exporter with controlled fixture values.
+        [sys.executable, "-I", "-c", script],
+        env=environment,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if invalid_name is None:
+        assert result.returncode == 0, result.stderr
+        expected = "".join(f"{name}={value}\n" for name, value in values.items()).encode("utf-8")
+        assert destination.read_bytes() == original + expected
+    else:
+        assert result.returncode != 0
+        assert invalid_name in result.stderr
+        assert destination.read_bytes() == original
