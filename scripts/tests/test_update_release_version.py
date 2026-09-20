@@ -55,8 +55,8 @@ def test_prepares_all_metadata_without_upgrading_dependencies_or_rewriting_evide
     assert "just performance-release v1.2.4 v1.2.3" in guide.read_text()
     assert "Historical v1.0.0 remains unchanged." in guide.read_text()
     assert (tmp_path / "CHANGELOG.md").read_bytes() == previous_changelog
-    assert [m.reference.kind for m in release_check.find_version_mismatches(tmp_path)] == [release_check.ReferenceKind.CHANGELOG]
-    assert release_check.find_release_metadata_mismatches(tmp_path) == []
+    assert release_check.consumer_problems(tmp_path) == []
+    assert release_check.main([str(tmp_path)]) == 1  # Final validation still requires the prospective changelog.
     snapshot = _snapshot(tmp_path)
     assert updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-08-30").changed_paths == ()
     assert _snapshot(tmp_path) == snapshot
@@ -76,6 +76,25 @@ def test_utc_midnight_updates_citation_and_existing_changelog_dates_together(tmp
     assert {path.name for path in result.changed_paths} == {"CITATION.cff", "CHANGELOG.md"}
     assert "date-released: 2026-08-31" in (tmp_path / "CITATION.cff").read_text()
     assert "## [1.2.3] - 2026-08-31" in (tmp_path / "CHANGELOG.md").read_text()
+
+
+def test_preview_runs_shared_and_consumer_validation_without_writes(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    original = _snapshot(tmp_path)
+    preview = updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-09-19", dry_run=True)
+    assert _snapshot(tmp_path) == original
+    applied = updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-09-19")
+    assert preview == applied
+
+
+def test_shared_synchronization_cannot_silently_repair_a_wrong_consumer_doi(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_bytes(readme.read_bytes().replace(b"10.5281/zenodo.20033111", b"10.5281/zenodo.12345"))
+    original = _snapshot(tmp_path)
+    with pytest.raises(ValueError, match="concept DOI"):
+        updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3")
+    assert _snapshot(tmp_path) == original
 
 
 def test_discovery_excludes_drafts_prereleases_and_handles_published_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

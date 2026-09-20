@@ -27,32 +27,8 @@ jobs:
           fetch-depth: 0 # Needed for Codecov diff analysis
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          cache: true # toolchain/components are specified in rust-toolchain.toml
-
-      - name: Install LLVM coverage tools
-        run: rustup component add llvm-tools-preview
-
-      - name: Set up just
-        uses: $/.github/actions/setup-just
-
-      - name: Resolve cargo-llvm-cov version
-        id: cargo_llvm_cov_version
-        shell: bash
-        run: |
-          version="$(just --evaluate cargo_llvm_cov_version)"
-          if [[ -z "$version" ]]; then
-            echo "::error::Could not resolve cargo_llvm_cov_version from justfile"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
-        with:
-          tool: cargo-llvm-cov@${{ steps.cargo_llvm_cov_version.outputs.version }}
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
 
       - name: Run coverage
         run: |

@@ -98,6 +98,10 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
+- Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
+  `.python-version`, Rust in `rust-toolchain.toml`, and supported Cargo tools in `[tool.research-repo-tools.toolchain.cargo]`. Run managed tools through the
+  Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The two unsupported SARIF converters retain
+  their CI installation pending upstream #25. See [the migration record](docs/dev/shared-maintenance-migration.md).
 - Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
   `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
 - Treat hashes, patches, serialized artifacts, and byte-sensitive fixtures as exact bytes. Use `read_bytes()`/`write_bytes()` with deliberate encoding;

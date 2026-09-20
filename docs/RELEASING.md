@@ -6,10 +6,10 @@ be merged; keep the release PR focused on metadata, generated notes, retained be
 
 ## Prerequisites
 
-Start from an up-to-date `main` and install the prerequisites described in [CONTRIBUTING.md](../CONTRIBUTING.md): Git, Bash, `rustup`/Cargo and a native build
-toolchain, the pinned `just` and `uv`, and `jq`. Run `just setup` to install managed tools, Rust components, and the locked Python environment. Setup checks
-`uv` and `jq` before managed installations; it does not install these system prerequisites. Install and authenticate GitHub CLI (`gh auth login`) for stable
-release discovery and publication. Network access is required for dependency refreshes, GitHub discovery, and uncached benchmark builds.
+Start from an up-to-date `main` and follow [contributor setup](../CONTRIBUTING.md#development-environment-setup). Shared setup installs the declared managed
+tools and locked environment; Git, Bash/sh, a native build toolchain, uv, and jq remain system prerequisites. Install and authenticate GitHub CLI
+(`gh auth login`) for stable release discovery and publication. Network access is required for dependency refreshes, GitHub discovery, and uncached benchmark
+builds.
 
 ### Dependency and tool refresh
 
@@ -19,11 +19,11 @@ Run the dependency and tool refresh as a separate maintenance change before rele
 just update
 ```
 
-`just update` updates Cargo requirements and lockfiles, resolves exact `dependency-groups.dev` pins as one compatible set, upgrades the managed Cargo tools,
-reconciles their pins and the active uv pin, and syncs Python. The Python resolver retains project and other development constraints, including constraints
-on the same distribution as an exact pin. Ranged, compound, wildcard, marked, runtime, and build requirements are not rewritten. Symlinked `uv.lock` is
-rejected before resolving or mutating pins. Review and validate all dependency, lockfile, and tool-pin changes, then merge them into `main` before creating
-`release/$TAG`. Do not carry unreviewed dependency changes into the release branch.
+`just update` upgrades uv through its installation owner, reconciles its pin, upgrades declared Cargo tools, and runs setup. It then updates Cargo requirements
+and lockfiles, resolves exact `dependency-groups.dev` pins as one compatible set, refreshes the full Python lock, and syncs dev. The Python resolver retains
+project and other development constraints, including constraints on the same distribution as an exact pin. Ranged, compound, wildcard, marked, runtime, and
+build requirements are not rewritten. Symlinked `uv.lock` is rejected before resolving or mutating pins. Review and validate all dependency, lockfile, and
+tool-pin changes, then merge them into `main` before creating `release/$TAG`. Do not carry unreviewed dependency changes into the release branch.
 
 ## Preparation sequence
 
@@ -42,7 +42,7 @@ just changelog-unreleased "$TAG" "$DATE"
 just performance-release
 just performance-readme
 just ci
-cargo publish --locked --allow-dirty --dry-run
+uv run --locked --group dev research-repo-tools toolchain run -- cargo publish --locked --allow-dirty --dry-run
 ```
 
 ### Release metadata
@@ -51,6 +51,12 @@ cargo publish --locked --allow-dirty --dry-run
 published stable release. It prepares the root versions in `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and `uv.lock`, citation version/date, active
 installation and release-command examples, and non-artifact README links. Dependency lock entries are preserved. It validates the complete proposed metadata
 before replacing files and restores earlier contents if publication fails.
+
+Common metadata preparation runs through the pinned shared package in a temporary tree; MCMC adds its DOI, performance-command, and README-link policies
+before publishing the complete candidate. For an offline preview including those policies, first set `PREVIOUS_TAG` to the preceding published stable release
+tag in `vX.Y.Z` form. Then use
+`uv run --locked update-release-version "$TAG" --previous-release "$PREVIOUS_TAG" --date "$DATE" --dry-run`.
+See the [migration record](dev/shared-maintenance-migration.md) for shared v0.1.2 ownership and the retained SARIF helper follow-up.
 
 The stable Zenodo concept DOI stays `10.5281/zenodo.20033111` across releases. Keep it in `CITATION.cff`, the README badge target, and `REFERENCES.md`; do not
 substitute a version DOI or add version-specific citation identifiers. The updater validates these existing DOI references rather than changing them.
