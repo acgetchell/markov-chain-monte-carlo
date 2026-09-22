@@ -143,11 +143,11 @@ just performance-release
 The command reads the current tag from `Cargo.toml`. If that version is not published, it compares the patched working tree against the latest stable release;
 if it is already published, the repair path measures that exact release tag against the preceding stable release. It first writes
 `target/bench-reports/release-performance.csv` and `target/bench-reports/release-performance.provenance.json`, reloads and validates both files, and only then
-renders and promotes `docs/PERFORMANCE.md`. Promotion atomically copies that validated CSV/provenance pair to
+renders and promotes `docs/PERFORMANCE.md`. Promotion transactionally publishes that validated CSV/provenance pair to
 `docs/archive/performance/<current>-vs-<baseline>.{csv,provenance.json}` and links both tracked files from the curated report. It archives the previous report
-under `docs/archive/performance/<current>-vs-<baseline>.md` and refreshes the archive index. Existing archived Markdown is never overwritten.
-Once a pair has archived Markdown, its CSV and provenance are immutable as well: a repair must reproduce them byte for byte or use a newly versioned full
-evidence triplet. The active pair may be remeasured during release preparation, with its report and evidence replaced together atomically.
+under `docs/archive/performance/<current>-vs-<baseline>.md` and refreshes the archive index. Existing archived Markdown is never overwritten. Once a pair has
+archived Markdown, its CSV and provenance are immutable as well: a repair must reproduce them byte for byte or use a newly versioned full evidence triplet. The
+active pair may be remeasured during release preparation, with its report and evidence replaced together in a rollback-capable transaction.
 
 For an explicit repair path:
 
@@ -169,11 +169,12 @@ transaction, so a partial write cannot leave the curated report pointing at miss
 README publication reads the same tracked CSV/JSON schema and validates the current release pair before rendering. It checks each tracked destination for
 repository containment, then publishes the marked README section and SVG together with rollback on failure. Missing CSV or JSON directs the maintainer to
 `just performance-release` before changing the README; a digest mismatch reports an integrity error. The plot shows point-estimate time ratios, not mixing,
-convergence, effective sample size, or statistical significance. Keep local release tags current: README publication checks an existing tag with read-only
-Git commands and requires its report, CSV, JSON, and SVG to match exactly. Repaired or same-version evidence that differs must stay local or be published as
-part of a newly prepared release. New-release working-tree evidence may target its future tag; commit all linked artifacts before creating it. Same-version
-comparisons retain their working-tree label. With unchanged evidence and the locked rendering environment, both publication commands produce unchanged
-contents; rerunning measurements can produce different observations.
+convergence, effective sample size, or statistical significance. Keep local release tags current: README publication checks an existing tag with read-only Git
+commands and requires its report, CSV, JSON, and SVG to match stored blob bytes exactly, including line endings. Git filters cannot establish equality.
+`.gitattributes` disables text conversion for retained reports and evidence so checkout preserves those bytes on Windows as well. Repaired or same-version
+evidence that differs must stay local or be published as part of a newly prepared release. New-release working-tree evidence may target its future tag; commit
+all linked artifacts before creating it. Same-version comparisons retain their working-tree label. With unchanged evidence and the locked rendering environment,
+both publication commands produce unchanged contents; rerunning measurements can produce different observations.
 
 The [archived v0.4.1 report](archive/performance/v0.4.1-vs-v0.4.0.md) predates tracked compact evidence and remains labeled legacy and non-reproducible. Its
 CSV measurements, JSON provenance with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable.

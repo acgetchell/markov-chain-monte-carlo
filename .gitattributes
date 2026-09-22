@@ -1,0 +1,3 @@
+# Retained measurements and tagged reports are exact bytes on every platform.
+docs/PERFORMANCE.md -text
+docs/archive/performance/** -text

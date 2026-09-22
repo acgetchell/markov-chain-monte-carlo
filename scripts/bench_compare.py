@@ -7,63 +7,22 @@ saved baseline and writes a compact, reviewable report.
 """
 
 import argparse
-import json
-import math
-import stat
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
-from subprocess_utils import ExecutableNotFoundError, run_git_command
+from research_repo_tools.criterion import Comparison, Estimate, Sample, collect_sample as shared_collect_sample, compare_samples
+from research_repo_tools.files import replace_many
+from research_repo_tools.process import ExecutableNotFoundError, format_exception_diagnostics, run_command
+
+run_git_command = partial(run_command, "git")
 
 type Statistic = Literal["mean", "median"]
 
 _MAX_FACTOR_PRECISION = 16
-DEFAULT_OUTPUT_MODE = 0o644
-
-
-@dataclass(frozen=True, slots=True)
-class Estimate:
-    """One validated Criterion estimate in nanoseconds."""
-
-    point_ns: float
-    lower_ns: float | None
-    upper_ns: float | None
-
-    def __post_init__(self) -> None:
-        """Reject incomplete, non-positive, or non-finite timings."""
-        values = (self.point_ns, self.lower_ns, self.upper_ns)
-        if any(value is not None and (not math.isfinite(value) or value <= 0) for value in values):
-            msg = f"Criterion timings must be finite and positive: {values!r}"
-            raise ValueError(msg)
-        if (self.lower_ns is None) != (self.upper_ns is None):
-            msg = "Criterion confidence intervals require both bounds"
-            raise ValueError(msg)
-        if self.lower_ns is not None and self.upper_ns is not None and self.lower_ns > self.upper_ns:
-            msg = "Criterion confidence interval lower bound exceeds upper bound"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class Comparison:
-    """A current estimate paired with its saved baseline."""
-
-    benchmark: str
-    baseline: Estimate
-    current: Estimate
-
-    @property
-    def percent_reduction(self) -> float:
-        """Return time reduction versus baseline; positive is faster."""
-        return ((self.baseline.point_ns - self.current.point_ns) / self.baseline.point_ns) * 100.0
-
-    @property
-    def speedup(self) -> float:
-        """Return baseline/current; values above one are faster."""
-        return self.baseline.point_ns / self.current.point_ns
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,81 +47,24 @@ class ReportSettings:
     measurement_context: tuple[str, ...] = ()
 
 
-def _numeric_field(data: dict[str, object], field: str, path: Path) -> float:
-    value = data.get(field)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        msg = f"{field!r} in {path} must be numeric"
-        raise TypeError(msg)
-    number = float(value)
-    if not math.isfinite(number) or number <= 0:
-        msg = f"{field!r} in {path} must be finite and positive"
-        raise ValueError(msg)
-    return number
-
-
-def read_estimate(path: Path, statistic: Statistic = "median") -> Estimate:
-    """Read one Criterion estimate file with contextual validation errors."""
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        msg = f"malformed Criterion JSON in {path}: {error}"
-        raise ValueError(msg) from error
-    if not isinstance(document, dict):
-        msg = f"Criterion estimate in {path} must be a JSON object"
-        raise TypeError(msg)
-    raw_statistic = document.get(statistic)
-    if not isinstance(raw_statistic, dict):
-        msg = f"Criterion statistic {statistic!r} is missing from {path}"
-        raise KeyError(msg)
-    statistic_data = {str(key): value for key, value in raw_statistic.items()}
-    point = _numeric_field(statistic_data, "point_estimate", path)
-    raw_interval = statistic_data.get("confidence_interval")
-    if raw_interval is None:
-        return Estimate(point, None, None)
-    if not isinstance(raw_interval, dict):
-        msg = f"Criterion confidence interval in {path} must be an object"
-        raise TypeError(msg)
-    interval = {str(key): value for key, value in raw_interval.items()}
-    return Estimate(
-        point,
-        _numeric_field(interval, "lower_bound", path),
-        _numeric_field(interval, "upper_bound", path),
-    )
-
-
 def collect_sample(criterion_dir: Path, sample: str, statistic: Statistic = "median") -> dict[str, Estimate]:
-    """Collect all estimates whose immediate sample directory matches *sample*."""
-    results: dict[str, Estimate] = {}
-    if not criterion_dir.is_dir():
-        return results
-    for path in sorted(criterion_dir.rglob("estimates.json")):
-        if path.parent.name != sample:
-            continue
-        relative_benchmark = path.parent.parent.relative_to(criterion_dir)
-        benchmark = "/".join(relative_benchmark.parts)
-        if benchmark in results:
-            msg = f"duplicate Criterion result for {benchmark!r} in sample {sample!r}"
-            raise ValueError(msg)
-        results[benchmark] = read_estimate(path, statistic)
-    return results
+    """Read the MCMC wall-time harness through the shared nanosecond parser."""
+    sample_data = shared_collect_sample(criterion_dir, sample, statistic=statistic, unit="ns")
+    # The retained CSV schema records bounds but has no confidence-level column.
+    return {name: Estimate(estimate.point, estimate.lower, estimate.upper) for name, estimate in sample_data.estimates}
 
 
-def collect_comparisons(
-    criterion_dir: Path,
-    baseline_name: str,
-    statistic: Statistic = "median",
-) -> ComparisonSet:
-    """Pair the ``new`` sample with *baseline_name* across all benchmarks."""
-    current = collect_sample(criterion_dir, "new", statistic)
-    baseline = collect_sample(criterion_dir, baseline_name, statistic)
-    shared = sorted(current.keys() & baseline.keys())
+def comparison_from_samples(current: dict[str, Estimate], baseline: dict[str, Estimate]) -> ComparisonSet:
+    """Adapt shared complete inventories to the retained MCMC CSV/report schema."""
+    comparison = compare_samples(Sample(tuple(baseline.items())), Sample(tuple(current.items())))
     return ComparisonSet(
-        comparisons=tuple(Comparison(name, baseline[name], current[name]) for name in shared),
-        missing_baseline=tuple(sorted(current.keys() - baseline.keys())),
-        missing_current=tuple(sorted(baseline.keys() - current.keys())),
-        current_sample=tuple(sorted(current.items())),
-        baseline_sample=tuple(sorted(baseline.items())),
+        comparison.comparisons, comparison.missing_baseline, comparison.missing_current, comparison.current.estimates, comparison.baseline.estimates
     )
+
+
+def collect_comparisons(criterion_dir: Path, baseline_name: str, statistic: Statistic = "median") -> ComparisonSet:
+    """Pair MCMC's current and saved wall-time samples."""
+    return comparison_from_samples(collect_sample(criterion_dir, "new", statistic), collect_sample(criterion_dir, baseline_name, statistic))
 
 
 def _format_duration(nanoseconds: float) -> str:
@@ -176,10 +78,10 @@ def _format_duration(nanoseconds: float) -> str:
 
 
 def _format_estimate(estimate: Estimate) -> str:
-    point = _format_duration(estimate.point_ns)
-    if estimate.lower_ns is None or estimate.upper_ns is None:
+    point = _format_duration(estimate.point)
+    if estimate.lower is None or estimate.upper is None:
         return point
-    return f"{point} ({_format_duration(estimate.lower_ns)} - {_format_duration(estimate.upper_ns)})"
+    return f"{point} ({_format_duration(estimate.lower)} - {_format_duration(estimate.upper)})"
 
 
 def _format_relative_performance(comparison: Comparison) -> str:
@@ -262,12 +164,12 @@ def render_report(
     if comparison_set.missing_baseline or comparison_set.missing_current:
         lines.extend(["", "## Coverage Notes", ""])
         if comparison_set.missing_baseline:
-            lines.append("Current-only rows without a saved baseline:")
+            lines.extend(["Current-only rows without a saved baseline:", ""])
             lines.extend(f"- {_markdown_code_span(name)}" for name in comparison_set.missing_baseline)
         if comparison_set.missing_current:
             if comparison_set.missing_baseline:
                 lines.append("")
-            lines.append("Baseline-only rows without a current sample:")
+            lines.extend(["Baseline-only rows without a current sample:", ""])
             lines.extend(f"- {_markdown_code_span(name)}" for name in comparison_set.missing_current)
 
     lines.extend(
@@ -296,32 +198,8 @@ def render_report(
 
 
 def _write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        output_mode = stat.S_IMODE(path.stat().st_mode)
-    except FileNotFoundError:
-        output_mode = DEFAULT_OUTPUT_MODE
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            newline="",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(text)
-        if temporary is None:
-            msg = f"failed to create a temporary output for {path}"
-            raise RuntimeError(msg)
-        temporary.chmod(output_mode)
-        temporary.replace(path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
+    """Publish UTF-8 report bytes through the shared transaction."""
+    replace_many({path: text.encode("utf-8")})
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -356,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     statistic: Statistic = args.stat
 
     try:
+        if output.resolve().is_relative_to(criterion_dir.resolve()):
+            msg = "benchmark report output must be outside the Criterion input tree"
+            raise ValueError(msg)
         comparison_set = collect_comparisons(criterion_dir, baseline_name, statistic)
     except (OSError, KeyError, TypeError, ValueError) as error:
         print(f"Invalid Criterion data: {error}", file=sys.stderr)
@@ -380,8 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     report = render_report(comparison_set, settings)
     try:
         _write_text(output, report)
-    except (OSError, RuntimeError) as error:
-        print(f"Could not write benchmark report: {error}", file=sys.stderr)
+    except (OSError, RuntimeError, ValueError, ExceptionGroup) as error:
+        print(f"Could not write benchmark report: {format_exception_diagnostics(error)}", file=sys.stderr)
         return 2
     print(f"Wrote {output}")
     return 0

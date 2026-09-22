@@ -55,10 +55,10 @@ rules:
     languages:
       - python
     severity: WARNING
-    message: "Send Git stdin through subprocess_utils.run_git_command_with_input so Windows cannot translate the input bytes."
+    message: "Send Git stdin as bytes through research_repo_tools.process.run_git_bytes."
     metadata:
       category: correctness
-      rationale: "The shared Git-input helper preserves exact encoded input; the generic text wrappers do not make that guarantee."
+      rationale: "The public byte API makes the Git input contract explicit and prevents implicit text conversion."
     paths:
       include:
         - "/scripts/**/*.py"
@@ -68,6 +68,8 @@ rules:
         - "/tests/semgrep/scripts/tests/**"
     patterns:
       - pattern-either:
+          - pattern: run_command("git", ..., input=$INPUT, ...)
+          - pattern: research_repo_tools.process.run_command("git", ..., input=$INPUT, ...)
           - pattern: run_git_command(..., input=$INPUT, ...)
           - pattern: subprocess_utils.run_git_command(..., input=$INPUT, ...)
           - pattern: run_safe_command("git", ..., input=$INPUT, ...)

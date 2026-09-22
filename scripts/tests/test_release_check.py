@@ -1,13 +1,9 @@
 """Tests for release metadata and version synchronization checks."""
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-import release_check
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from research_repo_tools.cli import main
 
 _VERSION = "1.2.3"
 _DOI = "10.5281/zenodo.20033111"
@@ -51,29 +47,28 @@ def _write_project(
         "README.md": readme_text,
         "REFERENCES.md": f"- DOI: <https://doi.org/{_DOI}>\n",
     }
+    configuration = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    release_policy = configuration.split("[tool.research-repo-tools.release]", 1)[1].split("[tool.research-repo-tools.toolchain.cargo]", 1)[0]
+    files["pyproject.toml"] += "\n[tool.research-repo-tools.release]" + release_policy.replace("count = 30", "count = 1")
+    files["docs/BENCHMARKING.md"] = f"just performance-release v{_VERSION} v1.2.2\n"
     for filename, content in files.items():
-        (root / filename).write_text(content, encoding="utf-8")
+        destination = root / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content, encoding="utf-8", newline="\n")
 
 
 @pytest.mark.parametrize(
     ("name", "old", "new"),
     [
-        ("Cargo.lock", 'version = "1.2.3"', 'version = "1.2.2"'),
-        ("pyproject.toml", 'version = "1.2.3"', 'version = "1.2.2"'),
-        ("uv.lock", 'version = "1.2.3"', 'version = "1.2.2"'),
-        ("CITATION.cff", "version: 1.2.3", "version: 1.2.2"),
-        ("CITATION.cff", "date-released: 2026-08-04", "date-released: 2026-08-03"),
         ("CHANGELOG.md", "## [1.2.3]", "## [1.2.2]"),
-        ("README.md", 'markov-chain-monte-carlo = "1.2.3"', 'markov-chain-monte-carlo = "1.2.2"'),
-        ("README.md", "monte-carlo@1.2.3", "monte-carlo@1.2.2"),
         ("README.md", "/blob/v1.2.3/", "/blob/v1.2.2/"),
     ],
 )
-def test_combined_checker_rejects_stale_metadata(tmp_path: Path, name: str, old: str, new: str) -> None:
+def test_configured_checker_requires_final_changelog_and_current_source_links(tmp_path: Path, name: str, old: str, new: str) -> None:
     _write_project(tmp_path)
     path = tmp_path / name
     path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8", newline="\n")
-    assert release_check.main([str(tmp_path)]) == 1
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
@@ -81,29 +76,28 @@ def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
     for name in ("CITATION.cff", "README.md", "REFERENCES.md"):
         path = tmp_path / name
         path.write_text(path.read_text(encoding="utf-8").replace(_DOI, "10.5281/zenodo.12345"), encoding="utf-8", newline="\n")
-    assert release_check.main([str(tmp_path)]) == 1
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-@pytest.mark.parametrize("name", ["Cargo.lock", "uv.lock", "CITATION.cff", "REFERENCES.md"])
-def test_required_consumer_surface_cannot_disappear(tmp_path: Path, name: str) -> None:
+def test_required_references_surface_cannot_disappear(tmp_path: Path) -> None:
     _write_project(tmp_path)
-    (tmp_path / name).unlink()
-    assert release_check.main([str(tmp_path)]) == 1
+    (tmp_path / "REFERENCES.md").unlink()
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 @pytest.mark.parametrize("name", ["README.md", "REFERENCES.md"])
 def test_required_doi_reference_cannot_disappear(tmp_path: Path, name: str) -> None:
     _write_project(tmp_path)
     (tmp_path / name).write_text("# No DOI reference\n", encoding="utf-8", newline="\n")
-    assert release_check.main([str(tmp_path)]) == 1
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 def test_active_performance_commands_track_current_release(tmp_path: Path) -> None:
     _write_project(tmp_path)
     docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "guide.md").write_text("just performance-release v1.2.2 v1.2.1\n", encoding="utf-8", newline="\n")
-    assert release_check.main([str(tmp_path)]) == 1
+    docs.mkdir(exist_ok=True)
+    (docs / "BENCHMARKING.md").write_text("just performance-release v1.2.2 v1.2.1\n", encoding="utf-8", newline="\n")
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 def test_historical_evidence_and_changelog_archives_are_preserved(tmp_path: Path) -> None:
@@ -122,10 +116,4 @@ def test_historical_evidence_and_changelog_archives_are_preserved(tmp_path: Path
         encoding="utf-8",
         newline="\n",
     )
-    assert release_check.main([str(tmp_path)]) == 0
-
-
-def test_main_reports_success(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write_project(tmp_path)
-    assert release_check.main([str(tmp_path)]) == 0
-    assert "Release metadata is synchronized at 1.2.3" in capsys.readouterr().out
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 0

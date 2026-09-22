@@ -17,17 +17,24 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import tomllib
 from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
-from bench_compare import Comparison, ComparisonSet, Estimate, ReportSettings, _write_text, collect_comparisons, render_report
-from subprocess_utils import ExecutableNotFoundError, run_git_command, run_git_command_with_input, run_safe_command
+from research_repo_tools.archives import ArchiveLimits, extract_archive
+from research_repo_tools.evidence import Provenance, compare_provenance, deterministic_json, sha256, verify_sha256
+from research_repo_tools.files import replace_many
+from research_repo_tools.process import ExecutableNotFoundError, format_exception_diagnostics, resolve_executable, run_command, run_git_bytes
+from research_repo_tools.releases import PublishedRelease, published_releases
+
+from bench_compare import ComparisonSet, Estimate, ReportSettings, _write_text, collect_comparisons, comparison_from_samples, render_report
+
+run_git_command = partial(run_command, "git")
+run_safe_command = run_command
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -84,14 +91,6 @@ class ReportId:
 
 
 @dataclass(frozen=True, slots=True)
-class PublishedRelease:
-    """Stable GitHub Release metadata used for pair inference."""
-
-    tag: str
-    published_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
 class ReleaseMetadata:
     """Validated measurement metadata stored beside release Criterion data."""
 
@@ -139,6 +138,7 @@ class ComparisonArtifact:
     comparison_set: ComparisonSet
     settings: ReportSettings
     measurement: MeasurementProvenance
+    retained: tuple[bytes, bytes] | None = field(default=None, compare=False, repr=False)
 
 
 def normalize_tag(tag: str) -> str:
@@ -179,83 +179,9 @@ def parse_report_id(text: str) -> ReportId:
     return ReportId(normalize_tag(version.group("version")), normalize_tag(baseline.group("baseline")))
 
 
-def _parse_publication_time(value: object, index: int) -> datetime:
-    if not isinstance(value, str) or not value:
-        msg = f"GitHub release entry {index} has invalid publishedAt metadata"
-        raise TypeError(msg)
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError as error:
-        msg = f"GitHub release entry {index} has invalid publishedAt metadata"
-        raise ValueError(msg) from error
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        msg = f"GitHub release entry {index} publishedAt must include a UTC offset"
-        raise ValueError(msg)
-    return parsed.astimezone(UTC)
-
-
-def stable_published_releases(document: object) -> tuple[PublishedRelease, ...]:
-    """Validate, filter, and newest-first sort GitHub Release metadata."""
-    if not isinstance(document, list):
-        msg = "GitHub release metadata must be a JSON array"
-        raise TypeError(msg)
-    releases: list[PublishedRelease] = []
-    seen_tags: set[str] = set()
-    for index, raw_release in enumerate(document):
-        if not isinstance(raw_release, dict):
-            msg = f"GitHub release entry {index} must be an object"
-            raise TypeError(msg)
-        draft = raw_release.get("isDraft")
-        prerelease = raw_release.get("isPrerelease")
-        if not isinstance(draft, bool) or not isinstance(prerelease, bool):
-            msg = f"GitHub release entry {index} must contain boolean draft and prerelease flags"
-            raise TypeError(msg)
-        if draft or prerelease:
-            continue
-        raw_tag = raw_release.get("tagName")
-        if not isinstance(raw_tag, str) or _TAG_RE.fullmatch(raw_tag) is None:
-            continue
-        normalized_tag = normalize_tag(raw_tag)
-        if normalized_tag in seen_tags:
-            msg = f"GitHub release metadata contains duplicate tag {normalized_tag}"
-            raise ValueError(msg)
-        seen_tags.add(normalized_tag)
-        releases.append(
-            PublishedRelease(
-                tag=normalized_tag,
-                published_at=_parse_publication_time(raw_release.get("publishedAt"), index),
-            )
-        )
-    releases.sort(key=lambda release: release.published_at, reverse=True)
-    return tuple(releases)
-
-
 def _published_releases(repo_root: Path) -> tuple[PublishedRelease, ...]:
-    result = run_safe_command(
-        "gh",
-        [
-            "release",
-            "list",
-            "--repo",
-            _REPOSITORY,
-            "--limit",
-            "100",
-            "--json",
-            "tagName,isDraft,isPrerelease,publishedAt",
-        ],
-        cwd=repo_root,
-        timeout=_COMMAND_TIMEOUT_SECONDS,
-    )
-    try:
-        document = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        msg = f"GitHub release metadata is not valid JSON: {error}"
-        raise ValueError(msg) from error
-    releases = stable_published_releases(document)
-    if not releases:
-        msg = "no published stable SemVer GitHub Releases were found"
-        raise RuntimeError(msg)
-    return releases
+    """Preserve MCMC's publication-time selection over shared release discovery."""
+    return tuple(sorted(published_releases(repo_root), key=lambda release: release.published_at, reverse=True))
 
 
 def current_package_tag(repo_root: Path) -> str:
@@ -345,34 +271,11 @@ def _archive_index(archive_dir: Path, *, additional_reports: tuple[str, ...] = (
 
 
 def _publish_texts(outputs: tuple[tuple[Path, str], ...]) -> None:
-    """Publish a set of text files, restoring every prior target on failure."""
-    paths = tuple(path for path, _text in outputs)
-    if len(paths) != len(set(paths)):
+    """Adapt retained UTF-8 serializers to the shared byte transaction."""
+    if len({path for path, _ in outputs}) != len(outputs):
         msg = "transactional publication requires unique output paths"
         raise ValueError(msg)
-
-    previous = {path: path.read_bytes().decode("utf-8") if path.exists() else None for path in paths}
-    completed: list[Path] = []
-    try:
-        for path, text in outputs:
-            _write_text(path, text)
-            completed.append(path)
-    except BaseException as error:
-        rollback_failures: list[str] = []
-        for path in reversed(completed):
-            try:
-                previous_text = previous[path]
-                if previous_text is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    _write_text(path, previous_text)
-            except (OSError, RuntimeError) as rollback_error:
-                rollback_failures.append(f"{path}: {rollback_error}")
-        if rollback_failures:
-            details = "; ".join(rollback_failures)
-            msg = f"publication failed and rollback was incomplete: {details}"
-            raise RuntimeError(msg) from error
-        raise
+    replace_many({path: text.encode("utf-8") for path, text in outputs})
 
 
 def _sample_mapping(sample: tuple[tuple[str, Estimate], ...], label: str) -> dict[str, Estimate]:
@@ -391,23 +294,11 @@ def _sample_mapping(sample: tuple[tuple[str, Estimate], ...], label: str) -> dic
     return dict(sample)
 
 
-def _comparison_set_from_samples(current: dict[str, Estimate], baseline: dict[str, Estimate]) -> ComparisonSet:
-    """Construct the canonical comparison and coverage view of two samples."""
-    shared = sorted(current.keys() & baseline.keys())
-    return ComparisonSet(
-        comparisons=tuple(Comparison(name, baseline[name], current[name]) for name in shared),
-        missing_baseline=tuple(sorted(current.keys() - baseline.keys())),
-        missing_current=tuple(sorted(baseline.keys() - current.keys())),
-        current_sample=tuple(sorted(current.items())),
-        baseline_sample=tuple(sorted(baseline.items())),
-    )
-
-
 def _validated_comparison_set(comparison_set: ComparisonSet) -> ComparisonSet:
     """Reject internally inconsistent derived coverage fields."""
     current = _sample_mapping(comparison_set.current_sample, "current")
     baseline = _sample_mapping(comparison_set.baseline_sample, "baseline")
-    canonical = _comparison_set_from_samples(current, baseline)
+    canonical = comparison_from_samples(current, baseline)
     if comparison_set != canonical:
         msg = "comparison rows or coverage notes do not match the stored current and baseline samples"
         raise ValueError(msg)
@@ -442,12 +333,12 @@ def serialize_comparison_csv(comparison_set: ComparisonSet) -> str:
                 _BENCHMARK_SCOPE,
                 benchmark,
                 coverage,
-                _format_float(None if baseline_estimate is None else baseline_estimate.point_ns),
-                _format_float(None if baseline_estimate is None else baseline_estimate.lower_ns),
-                _format_float(None if baseline_estimate is None else baseline_estimate.upper_ns),
-                _format_float(None if current_estimate is None else current_estimate.point_ns),
-                _format_float(None if current_estimate is None else current_estimate.lower_ns),
-                _format_float(None if current_estimate is None else current_estimate.upper_ns),
+                _format_float(None if baseline_estimate is None else baseline_estimate.point),
+                _format_float(None if baseline_estimate is None else baseline_estimate.lower),
+                _format_float(None if baseline_estimate is None else baseline_estimate.upper),
+                _format_float(None if current_estimate is None else current_estimate.point),
+                _format_float(None if current_estimate is None else current_estimate.lower),
+                _format_float(None if current_estimate is None else current_estimate.upper),
             )
         )
     return output.getvalue()
@@ -523,7 +414,7 @@ def parse_comparison_csv(text: str) -> ComparisonSet:
             current[benchmark] = current_estimate
         if baseline_estimate is not None:
             baseline[benchmark] = baseline_estimate
-    return _comparison_set_from_samples(current, baseline)
+    return comparison_from_samples(current, baseline)
 
 
 def _sample_provenance_document(sample: SampleProvenance) -> dict[str, object]:
@@ -544,7 +435,7 @@ def _sample_provenance_document(sample: SampleProvenance) -> dict[str, object]:
 
 def serialize_provenance(artifact: ComparisonArtifact) -> str:
     """Serialize report settings and measurement provenance deterministically."""
-    csv_sha256 = hashlib.sha256(serialize_comparison_csv(artifact.comparison_set).encode("utf-8")).hexdigest()
+    csv_sha256 = sha256(serialize_comparison_csv(artifact.comparison_set).encode("utf-8"))
     document = {
         "csv_sha256": csv_sha256,
         "csv_schema": _CSV_SCHEMA,
@@ -567,7 +458,7 @@ def serialize_provenance(artifact: ComparisonArtifact) -> str:
         },
         "schema": _PROVENANCE_SCHEMA,
     }
-    return json.dumps(document, indent=2, sort_keys=True) + "\n"
+    return deterministic_json(document).decode("utf-8")
 
 
 def _object_field(document: dict[str, object], field: str, context: str) -> dict[str, object]:
@@ -799,16 +690,17 @@ def provenance_path(csv_path: Path) -> Path:
 
 
 def _artifact_from_text(csv_text: str, provenance_text: str) -> ComparisonArtifact:
-    comparison_set = parse_comparison_csv(csv_text)
     pair, settings, measurement, expected_csv_sha256 = parse_provenance(provenance_text)
-    actual_csv_sha256 = hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
-    if actual_csv_sha256 != expected_csv_sha256:
+    try:
+        verify_sha256(csv_text.encode("utf-8"), expected_csv_sha256)
+    except ValueError as error:
         msg = "comparison CSV does not match its provenance SHA-256 digest"
-        raise ValueError(msg)
+        raise ValueError(msg) from error
+    comparison_set = parse_comparison_csv(csv_text)
     if not comparison_set.comparisons:
         msg = f"comparison artifact has no comparable rows for {pair.current_tag} vs {pair.baseline_tag}"
         raise ValueError(msg)
-    return ComparisonArtifact(pair, comparison_set, settings, measurement)
+    return ComparisonArtifact(pair, comparison_set, settings, measurement, (csv_text.encode("utf-8"), provenance_text.encode("utf-8")))
 
 
 def load_comparison_artifact(csv_path: Path) -> ComparisonArtifact:
@@ -818,13 +710,23 @@ def load_comparison_artifact(csv_path: Path) -> ComparisonArtifact:
         if not path.is_file():
             msg = f"retained release evidence is missing: {path}; run just performance-release before publication"
             raise FileNotFoundError(msg)
-    return _artifact_from_text(csv_path.read_text(encoding="utf-8"), sidecar.read_text(encoding="utf-8"))
+    return _artifact_from_text(csv_path.read_bytes().decode("utf-8"), sidecar.read_bytes().decode("utf-8"))
+
+
+def _artifact_texts(artifact: ComparisonArtifact) -> tuple[str, str]:
+    """Preserve loaded legacy evidence bytes; serialize only newly measured artifacts."""
+    if artifact.retained is not None:
+        texts = artifact.retained[0].decode("utf-8"), artifact.retained[1].decode("utf-8")
+        if _artifact_from_text(*texts) != artifact:
+            msg = "retained evidence no longer describes the comparison artifact"
+            raise ValueError(msg)
+        return texts
+    return serialize_comparison_csv(artifact.comparison_set), serialize_provenance(artifact)
 
 
 def save_comparison_artifact(artifact: ComparisonArtifact, csv_path: Path) -> ComparisonArtifact:
     """Transactionally save, reload, and validate a comparison artifact pair."""
-    csv_text = serialize_comparison_csv(artifact.comparison_set)
-    provenance_text = serialize_provenance(artifact)
+    csv_text, provenance_text = _artifact_texts(artifact)
     parsed = _artifact_from_text(csv_text, provenance_text)
     if parsed != artifact:
         msg = "comparison artifact changed during serialization"
@@ -862,15 +764,14 @@ def _append_release_evidence(outputs: list[tuple[Path, str]], path: Path, text: 
     if not path.exists() or not immutable:
         outputs.append((path, text))
         return
-    if path.read_text(encoding="utf-8") != text:
+    if path.read_bytes() != text.encode("utf-8"):
         msg = f"refusing to replace immutable release benchmark evidence: {path}"
         raise ValueError(msg)
 
 
 def promote_report(*, artifact: ComparisonArtifact, current_path: Path, archive_dir: Path) -> None:
-    """Promote a report and its durable evidence atomically, archiving the previous report."""
-    csv_text = serialize_comparison_csv(artifact.comparison_set)
-    provenance_text = serialize_provenance(artifact)
+    """Publish a report and its evidence with rollback, archiving the previous report."""
+    csv_text, provenance_text = _artifact_texts(artifact)
     if _artifact_from_text(csv_text, provenance_text) != artifact:
         msg = "comparison artifact changed during promotion serialization"
         raise ValueError(msg)
@@ -882,7 +783,7 @@ def promote_report(*, artifact: ComparisonArtifact, current_path: Path, archive_
     outputs: list[tuple[Path, str]] = []
     additional_reports: list[str] = []
     if current_path.exists():
-        previous_text = current_path.read_text(encoding="utf-8")
+        previous_text = current_path.read_bytes().decode("utf-8")
         previous_id = parse_report_id(previous_text)
         if previous_id != source_id:
             archive_path = archive_dir / previous_id.archive_name
@@ -935,25 +836,9 @@ def temporary_worktree(repo_root: Path, parent: Path, name: str, reference: str)
 
 def apply_current_tree(repo_root: Path, worktree: Path) -> None:
     """Apply tracked and untracked current-tree content to an isolated worktree."""
-    # A text stdout pipe would normalize CRLF patch content or reject non-UTF-8 bytes.
-    with tempfile.TemporaryFile(mode="w+b") as patch_file:
-        run_git_command(
-            ["--no-pager", "diff", "--binary", "HEAD"],
-            cwd=repo_root,
-            timeout=_COMMAND_TIMEOUT_SECONDS,
-            capture_output=False,
-            stdout=patch_file,
-            stderr=subprocess.PIPE,
-        )
-        patch_file.seek(0)
-        patch = patch_file.read()
+    patch = run_git_bytes(["--no-pager", "diff", "--binary", "HEAD"], cwd=repo_root, timeout=_COMMAND_TIMEOUT_SECONDS).stdout
     if patch:
-        run_git_command_with_input(
-            ["apply", "--binary", "--whitespace=nowarn"],
-            patch,
-            cwd=worktree,
-            timeout=_COMMAND_TIMEOUT_SECONDS,
-        )
+        run_git_bytes(["apply", "--binary", "--whitespace=nowarn"], input=patch, cwd=worktree, timeout=_COMMAND_TIMEOUT_SECONDS)
     untracked = run_git_command(
         ["ls-files", "--others", "--exclude-standard", "-z", "--"],
         cwd=repo_root,
@@ -995,12 +880,12 @@ def _run_stepping_benchmark(checkout: Path, *, save_baseline: str | None = None)
     command = ["bench", "--locked", "--bench", "stepping"]
     if save_baseline is not None:
         command.extend(["--", "--save-baseline", save_baseline])
-    run_safe_command(
-        "cargo",
-        command,
+    # The public captured runners do not provide live inherited output.
+    subprocess.run(  # noqa: S603 - resolved Cargo executable and fixed benchmark arguments.
+        [str(resolve_executable("cargo", cwd=checkout)), *command],
         cwd=checkout,
         timeout=_BENCHMARK_TIMEOUT_SECONDS,
-        capture_output=False,
+        check=True,
     )
 
 
@@ -1080,7 +965,7 @@ def _release_metadata(criterion_dir: Path, expected_tag: str) -> ReleaseMetadata
 
 
 def _file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return sha256(path.read_bytes())
 
 
 def _source_digest(checkout: Path) -> str:
@@ -1199,6 +1084,13 @@ def _local_measurement_provenance(
     )
 
 
+def _matching_harnesses(current: SampleProvenance | ReleaseMetadata, baseline: SampleProvenance | ReleaseMetadata) -> bool:
+    """Keep MCMC's eligibility/prose decision separate from shared identity comparison."""
+    current_source = Provenance(current.commit, harness_sha256=current.benchmark_harness_sha256)
+    baseline_source = Provenance(baseline.commit, harness_sha256=baseline.benchmark_harness_sha256)
+    return compare_provenance(baseline_source, current_source, fields=("harness_sha256",)).compatible
+
+
 def _local_measurement_context(measurement: MeasurementProvenance) -> tuple[str, ...]:
     """Render concise human context from structured local provenance."""
     source = "current `HEAD` with tracked and untracked working-tree changes applied" if measurement.working_tree_applied else "exact current release tag"
@@ -1212,7 +1104,7 @@ def _local_measurement_context(measurement: MeasurementProvenance) -> tuple[str,
         (f"Baseline commit: `{measurement.baseline.commit}`; rustc: `{measurement.baseline.rustc}`; Criterion: `{measurement.baseline.criterion_version}`."),
         f"Benchmark harness SHA-256 prefixes: current `{current_harness[:12]}`; baseline `{baseline_harness[:12]}`.",
     ]
-    if current_harness != baseline_harness:
+    if not _matching_harnesses(measurement.current, measurement.baseline):
         context.append("Benchmark harness hashes differ; verify that every shared name retains the same workload contract.")
     return tuple(context)
 
@@ -1236,7 +1128,7 @@ def _asset_measurement_context(current: ReleaseMetadata, baseline: ReleaseMetada
         context.append("Benchmark harness identity is unavailable for at least one legacy release asset; verify shared workload contracts manually.")
     else:
         context.append(f"Benchmark harness SHA-256 prefixes: current `{current_harness[:12]}`; baseline `{baseline_harness[:12]}`.")
-        if current_harness != baseline_harness:
+        if not _matching_harnesses(current, baseline):
             context.append("Benchmark harness hashes differ; verify that every shared name retains the same workload contract.")
     return tuple(context)
 
@@ -1355,57 +1247,17 @@ def generate_local_artifact(
                 )
 
 
-def generate_local_report(
-    repo_root: Path,
-    pair: ReportId,
-    *,
-    current_reference: str,
-    apply_working_tree: bool,
-) -> str:
-    """Compatibility wrapper that renders a newly generated local artifact."""
-    artifact = generate_local_artifact(
-        repo_root,
-        pair,
-        current_reference=current_reference,
-        apply_working_tree=apply_working_tree,
-    )
-    return render_report(artifact.comparison_set, artifact.settings)
-
-
 def safe_extract_tar(archive: Path, destination: Path) -> None:
-    """Extract a regular-file Criterion archive without traversal or links."""
-    archive_size = archive.stat().st_size
-    if archive_size > _MAX_RELEASE_ARCHIVE_SIZE_BYTES:
-        msg = f"release benchmark archive is too large: {archive_size} bytes"
-        raise ValueError(msg)
-
-    root = destination.resolve()
-    with tarfile.open(archive, "r:gz") as tar:
-        members: list[tarfile.TarInfo] = []
-        content_size = 0
-        for member_count, member in enumerate(tar, start=1):
-            if member_count > _MAX_RELEASE_ARCHIVE_MEMBER_COUNT:
-                msg = "release benchmark archive contains too many entries"
-                raise ValueError(msg)
-            target = (destination / member.name).resolve()
-            if not target.is_relative_to(root):
-                msg = f"release benchmark archive contains a path outside its root: {member.name}"
-                raise ValueError(msg)
-            if member.issym() or member.islnk() or not (member.isdir() or member.isfile()):
-                msg = f"release benchmark archive contains an unsupported entry: {member.name}"
-                raise ValueError(msg)
-            if member.isfile():
-                if member.size < 0:
-                    msg = f"release benchmark archive contains a negative file size: {member.name}"
-                    raise ValueError(msg)
-                content_size += member.size
-                if content_size > _MAX_RELEASE_ARCHIVE_CONTENT_BYTES:
-                    msg = "release benchmark archive expands beyond the allowed size"
-                    raise ValueError(msg)
-            members.append(member)
-
-        destination.mkdir(parents=True, exist_ok=True)
-        tar.extractall(destination, members=members, filter="data")
+    """Apply MCMC asset limits using shared preflight and staged extraction."""
+    extract_archive(
+        archive,
+        destination,
+        limits=ArchiveLimits(
+            archive_bytes=_MAX_RELEASE_ARCHIVE_SIZE_BYTES,
+            members=_MAX_RELEASE_ARCHIVE_MEMBER_COUNT,
+            content_bytes=_MAX_RELEASE_ARCHIVE_CONTENT_BYTES,
+        ),
+    )
 
 
 def _download_release_asset(repo_root: Path, tag: str, destination: Path) -> Path:
@@ -1466,12 +1318,6 @@ def generate_github_asset_artifact(repo_root: Path, pair: ReportId) -> Compariso
         )
 
 
-def generate_github_asset_report(repo_root: Path, pair: ReportId) -> str:
-    """Compatibility wrapper that renders a newly generated asset artifact."""
-    artifact = generate_github_asset_artifact(repo_root, pair)
-    return render_report(artifact.comparison_set, artifact.settings)
-
-
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate and curate release performance reports.")
     parser.add_argument("current_tag", nargs="?")
@@ -1523,17 +1369,6 @@ def _validate_mode_combination(mode: ResolutionMode, *, github_assets: bool, pro
     if not github_assets and mode == "published-latest":
         msg = "--published-latest is reserved for --github-assets comparisons"
         raise ValueError(msg)
-
-
-def _format_command_failure(error: subprocess.CalledProcessError) -> str:
-    """Preserve command output needed to diagnose a failed release workflow."""
-    command = " ".join(str(part) for part in error.cmd) if isinstance(error.cmd, list | tuple) else str(error.cmd)
-    parts = [f"command failed with exit {error.returncode}: {command}"]
-    if error.stdout:
-        parts.append(f"stdout:\n{str(error.stdout).strip()}")
-    if error.stderr:
-        parts.append(f"stderr:\n{str(error.stderr).strip()}")
-    return "\n".join(parts)
 
 
 def _format_os_error(error: OSError) -> str:
@@ -1636,10 +1471,10 @@ def main(argv: list[str] | None = None) -> int:
             _write_text(output, report)
             print(f"Wrote {output}")
     except subprocess.CalledProcessError as error:
-        print(f"Performance workflow failed: {_format_command_failure(error)}", file=sys.stderr)
+        print(f"Performance workflow failed: {format_exception_diagnostics(error)}", file=sys.stderr)
         return 2
     except subprocess.TimeoutExpired as error:
-        print(f"Performance workflow timed out after {error.timeout} seconds: {error.cmd}", file=sys.stderr)
+        print(f"Performance workflow failed: {format_exception_diagnostics(error)}", file=sys.stderr)
         return 2
     except OSError as error:
         print(f"Performance workflow failed: {_format_os_error(error)}", file=sys.stderr)
@@ -1649,8 +1484,9 @@ def main(argv: list[str] | None = None) -> int:
         RuntimeError,
         TypeError,
         ValueError,
+        ExceptionGroup,
     ) as error:
-        print(f"Performance workflow failed: {error}", file=sys.stderr)
+        print(f"Performance workflow failed: {format_exception_diagnostics(error)}", file=sys.stderr)
         return 2
     return 0
 

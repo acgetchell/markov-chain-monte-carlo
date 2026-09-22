@@ -72,71 +72,26 @@ def test_bare_just_shows_curated_help() -> None:
     assert "Use 'just --list' for the complete grouped recipe reference." in result.stdout
 
 
-def _run_review_probe(tmp_path: Path, *recipe_args: str, **overrides: str) -> subprocess.CompletedProcess[str]:
-    """Run real recipes and the installed CLI with local process-boundary stubs."""
+def _run_review_probe(tmp_path: Path, *recipe_args: str, status: int) -> subprocess.CompletedProcess[str]:
+    """Test recipe quoting and exit propagation without running the shared CLI."""
     executable = shutil.which("just")
     assert executable is not None
-    probe = tmp_path / "review_probe.py"
-    probe.write_text(
-        textwrap.dedent(
-            """
-            import json
-            import os
-            import subprocess
-            import sys
-            from unittest.mock import patch
-
-            from research_repo_tools.cli import main
-
-            assert sys.argv[1:6] == ["run", "--locked", "--group", "dev", "research-repo-tools"]
-
-            def run(args, **kwargs):
-                if args[0] == "git":
-                    assert "--no-pager" in args
-                    remote = "ls-remote" in args
-                    key = "REMOTE" if remote else "LOCAL"
-                    status = int(os.environ[key + "_STATUS"])
-                    if status:
-                        raise subprocess.CalledProcessError(status, args)
-                    output = os.environ[key + "_COMMIT"]
-                    if remote:
-                        output += "\\trefs/heads/main"
-                    return subprocess.CompletedProcess(args, 0, output + "\\n")
-                assert args[0] == "coderabbit", args
-                assert kwargs["capture_output"] is False
-                assert kwargs["timeout"] is None
-                print(json.dumps(args[1:]))
-                return subprocess.CompletedProcess(args, int(os.environ["REVIEW_STATUS"]))
-
-            with patch("research_repo_tools.process.shutil.which", side_effect=lambda name: name):
-                with patch("research_repo_tools.process.subprocess.run", side_effect=run):
-                    raise SystemExit(main(sys.argv[6:]))
-            """
-        ),
-        encoding="utf-8",
-        newline="\n",
-    )
     stub = tmp_path / "uv"
     stub.write_text(
-        '#!/usr/bin/env bash\nexec "$REVIEW_PYTHON" "$REVIEW_PROBE" "$@"\n',
+        '#!/usr/bin/env bash\nexec "$REVIEW_PYTHON" -c \'import json, os, sys; '
+        'print(json.dumps(sys.argv[1:])); sys.exit(int(os.environ["REVIEW_STATUS"]))\' "$@"\n',
         encoding="utf-8",
         newline="\n",
     )
     stub.chmod(0o755)
-    return subprocess.run(  # noqa: S603 - local stubs cannot contact Git or CodeRabbit.
+    return subprocess.run(  # noqa: S603 - the recipe reaches only this local argument-recording stub.
         [executable, *recipe_args],
         cwd=REPO_ROOT,
         env={
             **os.environ,
             "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
             "REVIEW_PYTHON": sys.executable,
-            "REVIEW_PROBE": str(probe),
-            "REVIEW_STATUS": "0",
-            "REMOTE_COMMIT": "a" * 40,
-            "LOCAL_COMMIT": "a" * 40,
-            "REMOTE_STATUS": "0",
-            "LOCAL_STATUS": "0",
-            **overrides,
+            "REVIEW_STATUS": str(status),
         },
         check=False,
         capture_output=True,
@@ -146,48 +101,20 @@ def _run_review_probe(tmp_path: Path, *recipe_args: str, **overrides: str) -> su
 
 
 @pytest.mark.parametrize(
-    ("recipe_args", "scope_args"),
+    ("recipe_args", "cli_args"),
     [
-        (("review",), ["--base=origin/main"]),
-        (("review", "main"), ["--base=main"]),
-        (("review", "topic/it's;printf-injected"), ["--base=topic/it's;printf-injected"]),
-        (("review-uncommitted",), ["--uncommitted"]),
+        (("review",), ["review", "branch", "--base=origin/main"]),
+        (("review", "main"), ["review", "branch", "--base=main"]),
+        (("review", "topic/it's;printf-injected"), ["review", "branch", "--base=topic/it's;printf-injected"]),
+        (("review-uncommitted",), ["review", "uncommitted"]),
     ],
 )
 @pytest.mark.parametrize("review_status", [0, 23])
-def test_review_scope_and_failures_reach_the_cli(tmp_path: Path, recipe_args: tuple[str, ...], scope_args: list[str], review_status: int) -> None:
-    result = _run_review_probe(tmp_path, *recipe_args, REVIEW_STATUS=str(review_status))
+def test_review_recipe_forwards_arguments_and_failures(tmp_path: Path, recipe_args: tuple[str, ...], cli_args: list[str], review_status: int) -> None:
+    result = _run_review_probe(tmp_path, *recipe_args, status=review_status)
 
     assert result.returncode == review_status, result.stderr
-    assert json.loads(result.stdout) == [
-        "review",
-        "--agent",
-        "--include-untracked",
-        *scope_args,
-        "--config",
-        str(REPO_ROOT / "AGENTS.md"),
-        str(REPO_ROOT / ".coderabbit.yml"),
-    ]
-
-
-@pytest.mark.parametrize("overrides", [{"LOCAL_COMMIT": "b" * 40}, {"LOCAL_STATUS": "1"}, {"REMOTE_STATUS": "1"}])
-def test_default_review_requires_a_verified_current_remote_base(tmp_path: Path, overrides: dict[str, str]) -> None:
-    result = _run_review_probe(tmp_path, "review", **overrides)
-
-    assert result.returncode == 1
-    assert result.stdout == ""
-    if "REMOTE_STATUS" in overrides:
-        assert "Cannot verify origin/main" in result.stderr
-    else:
-        assert "git fetch origin" in result.stderr
-
-
-@pytest.mark.parametrize("recipe_args", [("review", "main"), ("review-uncommitted",)])
-def test_local_review_scopes_do_not_require_remote_access(tmp_path: Path, recipe_args: tuple[str, ...]) -> None:
-    result = _run_review_probe(tmp_path, *recipe_args, REMOTE_STATUS="1")
-
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)[:2] == ["review", "--agent"]
+    assert json.loads(result.stdout) == ["run", "--locked", "--group", "dev", "research-repo-tools", *cli_args]
 
 
 def test_review_is_discoverable_and_separate_from_validation() -> None:
@@ -234,10 +161,7 @@ def test_workflow_tool_version_lookups_resolve_from_just() -> None:
     workflow_text = "\n".join(path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")))
     version_names = sorted(set(WORKFLOW_VERSION_LOOKUP.findall(workflow_text)))
 
-    assert version_names
-    for name in version_names:
-        result = _run_just("--evaluate", name)
-        assert result.stdout.strip(), name
+    assert version_names == []  # All Cargo tools now use the shared catalog.
 
 
 def test_managed_tool_declarations_replace_legacy_guards() -> None:
@@ -248,9 +172,11 @@ def test_managed_tool_declarations_replace_legacy_guards() -> None:
         "cargo-edit",
         "cargo-llvm-cov",
         "cargo-nextest",
+        "clippy-sarif",
         "dprint",
         "git-cliff",
         "rumdl",
+        "sarif-fmt",
         "taplo-cli",
         "typos-cli",
         "zizmor",
@@ -317,6 +243,7 @@ def test_release_commands_separate_preparation_measurement_and_publication() -> 
     assert "--infer-release" not in commands
     assert "research-repo-tools changelog generate" in json.dumps(recipes["changelog-release"]["body"])
     assert "--date" in json.dumps(recipes["changelog-release"]["body"])
+    assert "research-repo-tools release check --final-release" in _run_just("--dry-run", "release-check").stderr
 
 
 def test_release_performance_recipes_are_discoverable_in_help() -> None:

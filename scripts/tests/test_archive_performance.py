@@ -1,6 +1,5 @@
 import errno
 import hashlib
-import io
 import json
 import os
 import re
@@ -11,13 +10,12 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
 
 import pytest
+from research_repo_tools.process import run_command_bytes
 
 import archive_performance
 import bench_compare
-from subprocess_utils import run_safe_command
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -352,7 +350,8 @@ def test_run_stepping_benchmark_streams_cargo_and_criterion_output(
         calls.append((command, args, kwargs))
         return subprocess.CompletedProcess([command, *args], 0, stdout=None, stderr=None)
 
-    monkeypatch.setattr(archive_performance, "run_safe_command", fake_run)
+    monkeypatch.setattr(archive_performance, "resolve_executable", lambda command, **_kwargs: Path(command))
+    monkeypatch.setattr(archive_performance.subprocess, "run", lambda command, **kwargs: fake_run(command[0], command[1:], **kwargs))
 
     archive_performance._run_stepping_benchmark(tmp_path, save_baseline="v0.4.0")
 
@@ -363,47 +362,10 @@ def test_run_stepping_benchmark_streams_cargo_and_criterion_output(
             {
                 "cwd": tmp_path,
                 "timeout": archive_performance._BENCHMARK_TIMEOUT_SECONDS,
-                "capture_output": False,
+                "check": True,
             },
         )
     ]
-
-
-def test_print_phase_flushes_immediately() -> None:
-    with patch("builtins.print") as mocked_print:
-        archive_performance._print_phase("Benchmarking baseline v0.4.0")
-
-    mocked_print.assert_called_once_with("==> Benchmarking baseline v0.4.0", flush=True)
-
-
-def test_stable_published_releases_filters_and_sorts() -> None:
-    document = [
-        {"tagName": "v0.3.0", "isDraft": False, "isPrerelease": False, "publishedAt": "2026-05-01T00:00:00Z"},
-        {"tagName": "v0.5.0-rc.1", "isDraft": False, "isPrerelease": True, "publishedAt": "2026-07-01T00:00:00Z"},
-        {"tagName": "v0.4.0", "isDraft": False, "isPrerelease": False, "publishedAt": "2026-06-01T00:00:00+00:00"},
-        {"tagName": "nightly", "isDraft": False, "isPrerelease": False, "publishedAt": "2026-08-01T00:00:00Z"},
-    ]
-
-    releases = archive_performance.stable_published_releases(document)
-
-    assert [release.tag for release in releases] == ["v0.4.0", "v0.3.0"]
-
-
-def test_stable_published_releases_rejects_non_boolean_flags() -> None:
-    document = [{"tagName": "v0.4.0", "isDraft": "false", "isPrerelease": False, "publishedAt": "2026-06-01T00:00:00Z"}]
-
-    with pytest.raises(TypeError, match="boolean"):
-        archive_performance.stable_published_releases(document)
-
-
-def test_stable_published_releases_rejects_duplicate_tags() -> None:
-    document = [
-        {"tagName": "v0.4.0", "isDraft": False, "isPrerelease": False, "publishedAt": "2026-06-01T00:00:00Z"},
-        {"tagName": "v0.4.0", "isDraft": False, "isPrerelease": False, "publishedAt": "2026-06-02T00:00:00Z"},
-    ]
-
-    with pytest.raises(ValueError, match="duplicate"):
-        archive_performance.stable_published_releases(document)
 
 
 def test_infer_release_uses_latest_for_an_unpublished_package() -> None:
@@ -601,15 +563,15 @@ def test_save_comparison_artifact_rolls_back_csv_and_provenance_together(
     sidecar = archive_performance.provenance_path(csv_path)
     csv_path.write_text("old csv\n", encoding="utf-8")
     sidecar.write_text("old provenance\n", encoding="utf-8")
-    real_write = archive_performance._write_text
+    real_write = Path.replace
 
-    def fail_sidecar(path: Path, text: str) -> None:
+    def fail_sidecar(source: Path, path: Path) -> Path:
         if path == sidecar:
             msg = "injected provenance failure"
             raise OSError(msg)
-        real_write(path, text)
+        return real_write(source, path)
 
-    monkeypatch.setattr(archive_performance, "_write_text", fail_sidecar)
+    monkeypatch.setattr(Path, "replace", fail_sidecar)
 
     with pytest.raises(OSError, match="injected provenance failure"):
         archive_performance.save_comparison_artifact(_comparison_artifact(), csv_path)
@@ -924,18 +886,18 @@ def test_promote_report_rolls_back_every_output_if_index_write_fails(
     index.write_text(old_index, encoding="utf-8")
     archive = archive_dir / "v0.4.0-vs-v0.3.0.md"
     artifact = _comparison_artifact()
-    real_write = archive_performance._write_text
+    real_write = Path.replace
     failed = False
 
-    def fail_index_once(path: Path, text: str) -> None:
+    def fail_index_once(source: Path, path: Path) -> Path:
         nonlocal failed
         if path == index and not failed:
             failed = True
             msg = "injected index write failure"
             raise OSError(msg)
-        real_write(path, text)
+        return real_write(source, path)
 
-    monkeypatch.setattr(archive_performance, "_write_text", fail_index_once)
+    monkeypatch.setattr(Path, "replace", fail_index_once)
 
     with pytest.raises(OSError, match="injected index write failure"):
         archive_performance.promote_report(
@@ -950,7 +912,7 @@ def test_promote_report_rolls_back_every_output_if_index_write_fails(
     assert not (archive_dir / "v0.5.0-vs-v0.4.0.csv").exists()
     assert not (archive_dir / "v0.5.0-vs-v0.4.0.provenance.json").exists()
 
-    monkeypatch.setattr(archive_performance, "_write_text", real_write)
+    monkeypatch.setattr(Path, "replace", real_write)
     archive_performance.promote_report(
         artifact=artifact,
         current_path=current,
@@ -1125,17 +1087,18 @@ def test_apply_current_tree_applies_tracked_changes_and_copies_untracked_files(
 
     def fake_git(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         git_calls.append(args)
-        if "diff" in args:
-            kwargs["stdout"].write(b"tracked patch\n")
-            return subprocess.CompletedProcess(args, 0)
         return subprocess.CompletedProcess(args, 0, stdout=f"{relative_name}\0")
 
-    def fake_git_with_input(args: list[str], input_text: bytes, *, cwd: Path, **_kwargs: object) -> object:
-        applied.append((args, input_text, cwd))
+    def fake_git_with_input(args: list[str], *, cwd: Path, **kwargs: object) -> object:
+        if "diff" in args:
+            return subprocess.CompletedProcess(args, 0, stdout=b"tracked patch\n")
+        payload = kwargs["input"]
+        assert isinstance(payload, bytes)
+        applied.append((args, payload, cwd))
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(archive_performance, "run_git_command", fake_git)
-    monkeypatch.setattr(archive_performance, "run_git_command_with_input", fake_git_with_input)
+    monkeypatch.setattr(archive_performance, "run_git_bytes", fake_git_with_input)
 
     archive_performance.apply_current_tree(repo_root, worktree)
 
@@ -1155,16 +1118,18 @@ def test_apply_current_tree_preserves_patch_output_bytes(
     applied: list[str | bytes] = []
 
     def emit_git_output(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "diff" in args:
-            return run_safe_command(sys.executable, ["-c", f"import sys; sys.stdout.buffer.write({patch_bytes!r})"], **kwargs)
         return subprocess.CompletedProcess(args, 0, stdout="")
 
-    def capture_patch(args: list[str], input_data: str | bytes, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        applied.append(input_data)
-        return subprocess.CompletedProcess(args, 0, stdout="")
+    def capture_patch(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        if "diff" in args:
+            return run_command_bytes(sys.executable, ["-c", f"import sys; sys.stdout.buffer.write({patch_bytes!r})"], **kwargs)
+        payload = kwargs["input"]
+        assert isinstance(payload, bytes)
+        applied.append(payload)
+        return subprocess.CompletedProcess(args, 0, stdout=b"")
 
     monkeypatch.setattr(archive_performance, "run_git_command", emit_git_output)
-    monkeypatch.setattr(archive_performance, "run_git_command_with_input", capture_patch)
+    monkeypatch.setattr(archive_performance, "run_git_bytes", capture_patch)
 
     archive_performance.apply_current_tree(tmp_path, tmp_path)
 
@@ -1189,6 +1154,7 @@ def test_apply_current_tree_rejects_untracked_symlinks(
         return subprocess.CompletedProcess(args, 0, stdout=stdout)
 
     monkeypatch.setattr(archive_performance, "run_git_command", fake_git)
+    monkeypatch.setattr(archive_performance, "run_git_bytes", lambda *args, **_kwargs: subprocess.CompletedProcess(args, 0, stdout=b""))
 
     with pytest.raises(ValueError, match="must be a regular file"):
         archive_performance.apply_current_tree(repo_root, worktree)
@@ -1291,7 +1257,8 @@ def test_generate_github_asset_report_renames_current_sample_and_renders_release
 
     monkeypatch.setattr(archive_performance, "_download_release_asset", fake_download)
 
-    report = archive_performance.generate_github_asset_report(tmp_path, pair)
+    artifact = archive_performance.generate_github_asset_artifact(tmp_path, pair)
+    report = bench_compare.render_report(artifact.comparison_set, artifact.settings)
 
     assert "**markov-chain-monte-carlo** v0.5.0 · `aaaaaaa`" in report
     assert "Comparison against baseline **v0.4.0**:" in report
@@ -1375,101 +1342,45 @@ def test_release_metadata_rejects_a_mismatched_tag(tmp_path: Path) -> None:
         archive_performance._release_metadata(tmp_path, "v0.5.0")
 
 
-def test_safe_extract_tar_rejects_path_traversal(tmp_path: Path) -> None:
-    archive = tmp_path / "unsafe.tar.gz"
-    destination = tmp_path / "extract"
-    payload = b"unsafe"
-    with tarfile.open(archive, "w:gz") as tar:
-        valid = tarfile.TarInfo("criterion/valid.txt")
-        valid.size = len(payload)
-        tar.addfile(valid, io.BytesIO(payload))
-        member = tarfile.TarInfo("../outside.txt")
-        member.size = len(payload)
-        tar.addfile(member, io.BytesIO(payload))
-
-    with pytest.raises(ValueError, match="outside its root"):
-        archive_performance.safe_extract_tar(archive, destination)
-
-    assert not (tmp_path / "outside.txt").exists()
-    assert not destination.exists()
+def test_retained_release_artifacts_reproduce_exactly() -> None:
+    """The shared model must not change the published MCMC evidence or report."""
+    csv_path = REPO_ROOT / "docs/archive/performance/v0.4.2-vs-v0.4.1.csv"
+    artifact = archive_performance.load_comparison_artifact(csv_path)
+    csv_text, provenance_text = archive_performance._artifact_texts(artifact)
+    assert csv_text.encode("utf-8") == csv_path.read_bytes()
+    assert provenance_text.encode("utf-8") == archive_performance.provenance_path(csv_path).read_bytes()
+    report = REPO_ROOT / "docs/PERFORMANCE.md"
+    assert archive_performance._curated_report_text(artifact, report, csv_path.parent).encode("utf-8") == report.read_bytes()
 
 
-def test_safe_extract_tar_rejects_links(tmp_path: Path) -> None:
-    archive = tmp_path / "unsafe-link.tar.gz"
-    destination = tmp_path / "extract"
-    payload = b"safe"
-    with tarfile.open(archive, "w:gz") as tar:
-        valid = tarfile.TarInfo("criterion/valid.txt")
-        valid.size = len(payload)
-        tar.addfile(valid, io.BytesIO(payload))
-        member = tarfile.TarInfo("criterion/link")
-        member.type = tarfile.SYMTYPE
-        member.linkname = "../../outside.txt"
-        tar.addfile(member)
-
-    with pytest.raises(ValueError, match="unsupported entry"):
-        archive_performance.safe_extract_tar(archive, destination)
-
-    assert not destination.exists()
-
-
-def test_safe_extract_tar_rejects_oversized_archive_before_creating_destination(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    archive = tmp_path / "large.tar.gz"
-    with tarfile.open(archive, "w:gz"):
-        pass
-    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_SIZE_BYTES", 0)
-    destination = tmp_path / "extract"
-
-    with pytest.raises(ValueError, match="archive is too large"):
-        archive_performance.safe_extract_tar(archive, destination)
-
-    assert not destination.exists()
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_loaded_legacy_evidence_keeps_original_bytes_on_save_and_promotion(tmp_path: Path, newline: str) -> None:
+    artifact = _comparison_artifact()
+    csv_text = archive_performance.serialize_comparison_csv(artifact.comparison_set).replace("\n", newline)
+    payload = csv_text.encode("utf-8")
+    provenance = json.loads(archive_performance.serialize_provenance(artifact))
+    provenance["schema"] = "mcmc-performance-provenance/v1"
+    for sample in ("current", "baseline"):
+        del provenance["measurement"][sample]["cpu_model"]
+    provenance["csv_sha256"] = hashlib.sha256(payload).hexdigest()
+    manifest = (json.dumps(provenance, indent=4) + "\n").replace("\n", newline).encode("utf-8")
+    original = tmp_path / "original.csv"
+    original.write_bytes(payload)
+    archive_performance.provenance_path(original).write_bytes(manifest)
+    loaded = archive_performance.load_comparison_artifact(original)
+    saved = tmp_path / "saved.csv"
+    archive_performance.save_comparison_artifact(loaded, saved)
+    assert saved.read_bytes() == payload
+    assert archive_performance.provenance_path(saved).read_bytes() == manifest
+    archive = tmp_path / "archive"
+    archive_performance.promote_report(artifact=loaded, current_path=tmp_path / "PERFORMANCE.md", archive_dir=archive)
+    assert (archive / f"{loaded.pair.evidence_stem}.csv").read_bytes() == payload
+    assert (archive / f"{loaded.pair.evidence_stem}.provenance.json").read_bytes() == manifest
 
 
-def test_safe_extract_tar_rejects_too_many_members(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    archive = tmp_path / "many.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.addfile(tarfile.TarInfo("criterion"))
-        tar.addfile(tarfile.TarInfo("criterion/extra"))
-    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_MEMBER_COUNT", 1)
-    destination = tmp_path / "extract"
-
-    with pytest.raises(ValueError, match="too many entries"):
-        archive_performance.safe_extract_tar(archive, destination)
-
-    assert not destination.exists()
-
-
-def test_safe_extract_tar_rejects_excessive_expanded_content(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    archive = tmp_path / "expanded.tar.gz"
-    payload = b"123456"
-    with tarfile.open(archive, "w:gz") as tar:
-        member = tarfile.TarInfo("criterion/data.txt")
-        member.size = len(payload)
-        tar.addfile(member, io.BytesIO(payload))
-    monkeypatch.setattr(archive_performance, "_MAX_RELEASE_ARCHIVE_CONTENT_BYTES", 5)
-    destination = tmp_path / "extract"
-
-    with pytest.raises(ValueError, match="expands beyond"):
-        archive_performance.safe_extract_tar(archive, destination)
-
-    assert not destination.exists()
-
-
-def test_command_failure_preserves_stdout_and_stderr() -> None:
-    error = subprocess.CalledProcessError(7, ["cargo", "bench"], output="partial output\n", stderr="compiler failed\n")
-
-    message = archive_performance._format_command_failure(error)
-
-    assert "exit 7: cargo bench" in message
-    assert "partial output" in message
-    assert "compiler failed" in message
+def test_release_pair_discovery_preserves_publication_chronology(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    newest_version = archive_performance.PublishedRelease("v0.6.0", now - timedelta(days=1))
+    latest_published = archive_performance.PublishedRelease("v0.5.1", now)
+    monkeypatch.setattr(archive_performance, "published_releases", lambda _root: (newest_version, latest_published))
+    assert archive_performance._published_releases(tmp_path) == (latest_published, newest_version)

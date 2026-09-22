@@ -5,8 +5,6 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-clippy_sarif_version := "0.8.0"
-sarif_fmt_version := "0.8.0"
 _run := "uv run --locked --group dev research-repo-tools toolchain run --"
 
 example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
@@ -591,7 +589,7 @@ python-typecheck: python-sync
 # Validate synchronized release metadata and active version references.
 [group('release')]
 release-check: python-sync
-    uv run --locked --group dev release-check
+    uv run --locked --group dev research-repo-tools release check --final-release
 
 # Extract release notes from the root changelog or its archives
 [group('release')]

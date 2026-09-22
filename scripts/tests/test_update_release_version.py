@@ -1,12 +1,10 @@
 """Release preparation preserves metadata, evidence, and prior files on failure."""
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from research_repo_tools.cli import main
 
-import archive_performance
-import release_check
 import update_release_version as updater
 
 from .test_release_check import _write_project
@@ -38,13 +36,15 @@ def test_prepares_all_metadata_without_upgrading_dependencies_or_rewriting_evide
         "[plot](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v1.2.3/docs/archive/performance/v1.2.3-vs-v1.2.2.svg)\n",
         encoding="utf-8",
     )
-    (tmp_path / "docs").mkdir()
-    guide = tmp_path / "docs" / "guide.md"
+    config = tmp_path / "pyproject.toml"
+    config.write_bytes(config.read_bytes().replace(b"count = 1", b"count = 2"))
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    guide = tmp_path / "docs" / "BENCHMARKING.md"
     guide.write_text("just performance-release v1.2.3 v1.2.2\nHistorical v1.0.0 remains unchanged.\n", encoding="utf-8")
     previous_changelog = (tmp_path / "CHANGELOG.md").read_bytes()
     result = updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-08-30")
-    assert result.previous_tag == "v1.2.3"
-    assert result.release_date == "2026-08-30"
+    assert result.context.previous_tag == "v1.2.3"
+    assert result.context.release_date == "2026-08-30"
     assert 'version = "9.8.7"' in cargo_lock.read_text()
     assert 'name = "markov-chain-monte-carlo"\nversion = "1.2.4"' in cargo_lock.read_text()
     assert 'version = "1.2.4"' in (tmp_path / "uv.lock").read_text()
@@ -55,27 +55,10 @@ def test_prepares_all_metadata_without_upgrading_dependencies_or_rewriting_evide
     assert "just performance-release v1.2.4 v1.2.3" in guide.read_text()
     assert "Historical v1.0.0 remains unchanged." in guide.read_text()
     assert (tmp_path / "CHANGELOG.md").read_bytes() == previous_changelog
-    assert release_check.consumer_problems(tmp_path) == []
-    assert release_check.main([str(tmp_path)]) == 1  # Final validation still requires the prospective changelog.
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1  # Final validation still requires the prospective changelog.
     snapshot = _snapshot(tmp_path)
     assert updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3", release_date="2026-08-30").changed_paths == ()
     assert _snapshot(tmp_path) == snapshot
-
-
-def test_utc_midnight_updates_citation_and_existing_changelog_dates_together(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_project(tmp_path)
-
-    class Clock:
-        @staticmethod
-        def now(timezone: object) -> datetime:
-            assert timezone is UTC
-            return datetime(2026, 8, 31, tzinfo=UTC)
-
-    monkeypatch.setattr(updater, "datetime", Clock)
-    result = updater.update_release_version(tmp_path, "v1.2.3", previous_tag="v1.2.2")
-    assert {path.name for path in result.changed_paths} == {"CITATION.cff", "CHANGELOG.md"}
-    assert "date-released: 2026-08-31" in (tmp_path / "CITATION.cff").read_text()
-    assert "## [1.2.3] - 2026-08-31" in (tmp_path / "CHANGELOG.md").read_text()
 
 
 def test_preview_runs_shared_and_consumer_validation_without_writes(tmp_path: Path) -> None:
@@ -92,93 +75,6 @@ def test_shared_synchronization_cannot_silently_repair_a_wrong_consumer_doi(tmp_
     readme = tmp_path / "README.md"
     readme.write_bytes(readme.read_bytes().replace(b"10.5281/zenodo.20033111", b"10.5281/zenodo.12345"))
     original = _snapshot(tmp_path)
-    with pytest.raises(ValueError, match="concept DOI"):
-        updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3")
-    assert _snapshot(tmp_path) == original
-
-
-def test_discovery_excludes_drafts_prereleases_and_handles_published_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    document = [
-        {"tagName": tag, "isDraft": draft, "isPrerelease": prerelease, "publishedAt": "2026-08-01T00:00:00Z"}
-        for tag, draft, prerelease in [("v1.2.3", False, False), ("v1.2.4", False, False), ("v2.0.0", True, False), ("v2.1.0", False, True)]
-    ]
-    monkeypatch.setattr(updater, "get_safe_executable", lambda command: command)
-    monkeypatch.setattr(updater, "_published_releases", lambda _root: archive_performance.stable_published_releases(document))
-    assert updater.infer_previous_release(tmp_path, "v1.2.4") == "v1.2.3"
-    with pytest.raises(ValueError, match="older than"):
-        updater.infer_previous_release(tmp_path, "v1.2.2")
-
-
-def test_missing_github_cli_fails_before_discovery_and_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    _write_project(tmp_path)
-    original = _snapshot(tmp_path)
-
-    def missing_gh(command: str) -> str:
-        assert command == "gh"
-        msg = "gh is required"
-        raise updater.ExecutableNotFoundError(msg)
-
-    monkeypatch.setattr(updater, "get_safe_executable", missing_gh)
-    monkeypatch.setattr(updater, "_published_releases", lambda _root: pytest.fail("discovery ran without gh"))
-    assert updater.main(["v1.2.4", "--repo-root", str(tmp_path)]) == 1
-    assert "gh is required" in capsys.readouterr().err
-    assert _snapshot(tmp_path) == original
-
-
-@pytest.mark.parametrize("heading", ["## [1.2.4] - 2026-99-99", "## [1.2.4] - 2026-08-30\n\n## [1.2.4] - 2026-08-31"])
-def test_malformed_or_duplicate_target_heading_preserves_all_files(tmp_path: Path, heading: str) -> None:
-    _write_project(tmp_path)
-    changelog = tmp_path / "CHANGELOG.md"
-    changelog.write_text(heading + "\n\n" + changelog.read_text(), encoding="utf-8")
-    original = _snapshot(tmp_path)
-    with pytest.raises(ValueError, match=r"date|heading"):
-        updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3")
-    assert _snapshot(tmp_path) == original
-
-
-def test_validation_failure_precedes_repository_replacement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_project(tmp_path, citation_doi="10.5281/zenodo.123456")
-    original = _snapshot(tmp_path)
-    monkeypatch.setattr(updater, "_publish_texts", lambda _outputs: pytest.fail("invalid metadata reached publication"))
     with pytest.raises(ValueError, match="failed validation"):
         updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3")
     assert _snapshot(tmp_path) == original
-
-
-def test_mid_transaction_failure_restores_original_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_project(tmp_path)
-    for path in tmp_path.iterdir():
-        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
-    original = _snapshot(tmp_path)
-    write = archive_performance._write_text
-    writes = 0
-
-    def fail_once(path: Path, text: str) -> None:
-        nonlocal writes
-        writes += 1
-        if writes == 3:
-            msg = "simulated replacement failure"
-            raise OSError(msg)
-        write(path, text)
-
-    monkeypatch.setattr(archive_performance, "_write_text", fail_once)
-    with pytest.raises(OSError, match="simulated replacement"):
-        updater.update_release_version(tmp_path, "v1.2.4", previous_tag="v1.2.3")
-    assert _snapshot(tmp_path) == original
-
-
-def test_symlinked_lock_rejected_before_github_or_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_project(tmp_path)
-    lock = tmp_path / "uv.lock"
-    target = tmp_path / "saved.lock"
-    lock.rename(target)
-    try:
-        lock.symlink_to(target)
-    except OSError:
-        pytest.skip("symlink creation is unavailable on this runner")
-    original = target.read_bytes()
-    monkeypatch.setattr(updater, "infer_previous_release", lambda *_args: pytest.fail("discovery preceded symlink rejection"))
-    with pytest.raises(ValueError, match="symbolic link"):
-        updater.update_release_version(tmp_path, "v1.2.4")
-    assert lock.is_symlink()
-    assert target.read_bytes() == original

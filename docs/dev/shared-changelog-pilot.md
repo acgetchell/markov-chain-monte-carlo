@@ -1,7 +1,7 @@
 # Shared changelog adoption (#157)
 
 This record describes the original `research-repo-tools==0.1.1` changelog adoption,
-which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.1.2;
+which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.1.3;
 the [maintenance migration](shared-maintenance-migration.md) covers its broader
 setup, release, review, and notebook ownership and consumer verification.
 
@@ -44,7 +44,7 @@ Repository-specific benchmark evidence, scientific notebook content, and release
 policies retain local owners and tests. Shared maintenance and notebook
 infrastructure are covered by
 [#160](https://github.com/acgetchell/markov-chain-monte-carlo/issues/160) and the
-[v0.1.2 migration record](shared-maintenance-migration.md).
+[maintenance migration record](shared-maintenance-migration.md).
 
 ## Common policies and resolved pilot gaps
 

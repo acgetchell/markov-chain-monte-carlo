@@ -238,3 +238,11 @@ def byte_writes_and_reads_are_exempt(path: Path, descriptor: int) -> None:
     io.open(path, "r", encoding="utf-8")
     # ok: mcmc.python.text-writes-explicit-policy
     path.read_text(encoding="utf-8")
+
+def public_shared_git_transport(payload: bytes) -> None:
+    from research_repo_tools.process import run_command, run_git_bytes
+
+    # ruleid: mcmc.python.git-stdin-use-shared-helper
+    run_command("git", ["hash-object", "--stdin"], input="text")
+    # ok: mcmc.python.git-stdin-use-shared-helper
+    run_git_bytes(["--no-pager", "hash-object", "--stdin"], input=payload)
