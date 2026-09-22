@@ -1,31 +1,28 @@
 """Retained-data README publication validates before writing and preserves prior output."""
 
-import hashlib
 import re
-import shutil
 from dataclasses import replace
+from pathlib import Path
 from subprocess import CompletedProcess
-from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 import pytest
+from research_repo_tools import process
 
 import archive_performance
 import publish_performance_readme as publisher
 
 from .test_archive_performance import REPO_ROOT, _comparison_artifact
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 @pytest.fixture(autouse=True)
 def _unpublished_tag(monkeypatch: pytest.MonkeyPatch) -> None:
-    def git(args: list[str], **_kwargs: object) -> CompletedProcess[str]:
+    def git(command: str, args: list[str], **_kwargs: object) -> CompletedProcess[str]:
+        assert command == "git"
         assert args == ["--no-pager", "show-ref", "--verify", "--quiet", "refs/tags/v0.5.0"]
         return CompletedProcess(args, 1, "", "")
 
-    monkeypatch.setattr(publisher, "run_git_command", git)
+    monkeypatch.setattr(publisher, "run_command", git)
 
 
 def _prepare(
@@ -73,7 +70,7 @@ def test_publication_is_deterministic_uses_retained_data_and_never_measures(tmp_
     monkeypatch.setattr(archive_performance, "run_safe_command", lambda *_args, **_kwargs: pytest.fail("publication ran an external tool"))
     monkeypatch.setattr(archive_performance, "generate_local_artifact", lambda *_args, **_kwargs: pytest.fail("publication measured benchmarks"))
     changed = publisher.publish_readme(tmp_path)
-    assert changed == (svg, tmp_path / "README.md")
+    assert changed == (tmp_path / "README.md", svg)
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "80.00 ns" in readme
     assert "100.00 ns" in readme
@@ -106,50 +103,48 @@ def test_publication_uses_manifest_repository_for_all_links(tmp_path: Path, monk
 
 
 def _existing_tag(monkeypatch: pytest.MonkeyPatch, root: Path, assets: dict[str, bytes]) -> None:
-    """Model the immutable tag's Git blob IDs independently of the working files."""
-    commit = "a" * 64
+    """Exercise the shared tag verifier against independently retained blob bytes."""
+    commit = "a" * 40
 
-    def blob_id(contents: bytes) -> str:
-        return hashlib.sha256(f"blob {len(contents)}\0".encode() + contents).hexdigest()
-
-    def git(args: list[str], *, cwd: Path, **_kwargs: object) -> CompletedProcess[str]:
+    def git(command: str, args: list[str], *, cwd: Path, **_kwargs: object) -> CompletedProcess[bytes]:
+        assert command == "git"
         assert cwd == root
-        if args == ["--no-pager", "show-ref", "--verify", "--quiet", "refs/tags/v0.5.0"]:
-            return CompletedProcess(args, 0, "", "")
-        if args == ["--no-pager", "rev-parse", "--verify", "refs/tags/v0.5.0^{commit}"]:
-            return CompletedProcess(args, 0, commit + "\n", "")
-        assert args[:3] == ["--no-pager", "rev-parse", "--verify"]
-        assert args[3].startswith(commit + ":")
-        stored = assets.get(args[3].split(":", 1)[1])
-        return CompletedProcess(args, 128 if stored is None else 0, "" if stored is None else blob_id(stored) + "\n", "")
+        assert args[:2] == ["--no-pager", "--no-replace-objects"]
+        selected = args[2:]
+        output = b""
+        status = 0
+        if selected == ["rev-parse", "--show-prefix"] or selected[0] == "check-ref-format":
+            pass
+        elif selected[0] == "rev-parse":
+            output = (commit + "\n").encode("ascii")
+        elif selected[0] == "ls-tree":
+            name = selected[-1].removeprefix(":(literal)")
+            output = b"100644 blob " + b"b" * 40 if name in assets else b""
+        elif selected[:2] == ["cat-file", "blob"]:
+            name = selected[2].split(":", 1)[1]
+            output = assets.get(name, b"")
+            status = int(name not in assets)
+        else:
+            pytest.fail(f"unexpected Git command: {args}")
+        return CompletedProcess(args, status, output, b"")
 
-    def git_input(args: list[str], contents: str, *, cwd: Path, **_kwargs: object) -> CompletedProcess[str]:
-        assert cwd == root
-        assert args[:2] == ["--no-pager", "hash-object"]
-        assert args[2].startswith("--path=")
-        assert args[3:] == ["--stdin"]
-        return CompletedProcess(args, 0, blob_id(contents.encode("utf-8")) + "\n", "")
-
-    monkeypatch.setattr(publisher, "run_git_command", git)
-    monkeypatch.setattr(publisher, "run_git_command_with_input", git_input)
+    monkeypatch.setattr(process, "run_command_bytes", git)
+    monkeypatch.setattr(publisher, "run_command", lambda _command, args, **_kwargs: CompletedProcess(args, 0, "", ""))
 
 
-def test_tag_verification_honors_git_checkout_line_endings(monkeypatch: pytest.MonkeyPatch) -> None:
-    if shutil.which("git") is None:
-        pytest.skip("git is required to verify checkout line-ending conversion")
-    git_input = publisher.run_git_command_with_input
-    expected = git_input(["--no-pager", "hash-object", "--stdin"], "line\n", cwd=REPO_ROOT).stdout
-
-    def git(args: list[str], **_kwargs: object) -> CompletedProcess[str]:
-        output = "a" * 40 + "\n" if args[-1].endswith("^{commit}") else expected
-        return CompletedProcess(args, 0, output, "")
-
-    def autocrlf_input(args: list[str], contents: str, *, cwd: Path, **_kwargs: object) -> CompletedProcess[str]:
-        return git_input(["--no-pager", "-c", "core.autocrlf=true", *args[1:]], contents, cwd=cwd)
-
-    monkeypatch.setattr(publisher, "run_git_command", git)
-    monkeypatch.setattr(publisher, "run_git_command_with_input", autocrlf_input)
-    publisher._validate_publication_tag(REPO_ROOT, _comparison_artifact(), ((REPO_ROOT / "docs/PERFORMANCE.md", "line\r\n"),))
+def test_tag_verification_rejects_changed_line_endings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence, svg = _prepare(tmp_path, published=True)
+    monkeypatch.setattr(publisher, "_svg", lambda _artifact: "<svg/>\n")
+    report = tmp_path / "docs/PERFORMANCE.md"
+    assets = {path.relative_to(tmp_path).as_posix(): path.read_bytes() for path in (report, evidence, evidence.with_suffix(".provenance.json"))}
+    assets[svg.relative_to(tmp_path).as_posix()] = b"<svg/>\n"
+    assets["docs/PERFORMANCE.md"] = assets["docs/PERFORMANCE.md"].replace(b"\n", b"\r\n")
+    _existing_tag(monkeypatch, tmp_path, assets)
+    original = (tmp_path / "README.md").read_bytes()
+    with pytest.raises(ValueError, match="exact publication artifact"):
+        publisher.publish_readme(tmp_path)
+    assert (tmp_path / "README.md").read_bytes() == original
+    assert not svg.exists()
 
 
 @pytest.mark.parametrize("same_version", [False, True])
@@ -163,7 +158,7 @@ def test_existing_tag_requires_and_reuses_exact_artifacts(tmp_path: Path, monkey
     assets[svg.relative_to(tmp_path).as_posix()] = b"<svg/>\n"
     _existing_tag(monkeypatch, tmp_path, assets)
 
-    assert publisher.publish_readme(tmp_path) == (svg, tmp_path / "README.md")
+    assert publisher.publish_readme(tmp_path) == (tmp_path / "README.md", svg)
     assert publisher.publish_readme(tmp_path) == ()
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "v0.5.0/docs/archive/performance/" in readme
@@ -187,7 +182,7 @@ def test_existing_tag_missing_or_changed_assets_prevent_all_writes(tmp_path: Pat
     original = (tmp_path / "README.md").read_bytes()
     svg.write_bytes(b"previous plot")
 
-    with pytest.raises(ValueError, match="does not contain the exact publication artifact") as raised:
+    with pytest.raises(ValueError, match=r"does not contain (?:the exact|a regular) publication artifact") as raised:
         publisher.publish_readme(tmp_path)
     assert selected in str(raised.value)
     assert (tmp_path / "README.md").read_bytes() == original
@@ -207,7 +202,7 @@ def test_existing_release_evidence_requires_its_local_tag(tmp_path: Path, same_v
 def test_git_failure_is_reported_without_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     _evidence, svg = _prepare(tmp_path)
     original = (tmp_path / "README.md").read_bytes()
-    monkeypatch.setattr(publisher, "run_git_command", lambda args, **_kwargs: CompletedProcess(args, 128, "", "not a repository"))
+    monkeypatch.setattr(publisher, "run_command", lambda _command, args, **_kwargs: CompletedProcess(args, 128, "", "not a repository"))
     assert publisher.main(["--repo-root", str(tmp_path)]) == 1
     assert "README publication failed" in capsys.readouterr().err
     assert (tmp_path / "README.md").read_bytes() == original
@@ -243,20 +238,20 @@ def test_tampered_evidence_retains_distinct_digest_error(tmp_path: Path) -> None
     assert not svg.exists()
 
 
-def test_failed_readme_replacement_restores_existing_svg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_svg_replacement_restores_readme_and_existing_svg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _evidence, svg = _prepare(tmp_path)
     svg.write_text("previous plot", encoding="utf-8")
     readme = tmp_path / "README.md"
     original = readme.read_bytes()
-    write = archive_performance._write_text
+    write = Path.replace
 
-    def fail_readme(path: Path, text: str) -> None:
-        if path == readme:
+    def fail_svg(source: Path, path: Path) -> Path:
+        if path == svg:
             msg = "simulated README replacement failure"
             raise OSError(msg)
-        write(path, text)
+        return write(source, path)
 
-    monkeypatch.setattr(archive_performance, "_write_text", fail_readme)
+    monkeypatch.setattr(Path, "replace", fail_svg)
     with pytest.raises(OSError, match="replacement failure"):
         publisher.publish_readme(tmp_path)
     assert readme.read_bytes() == original
@@ -283,7 +278,7 @@ def test_tracked_publication_paths_cannot_escape_repository(tmp_path: Path, dest
         link.symlink_to(target, target_is_directory=destination == "archive")
     except OSError:
         pytest.skip("symlink creation is unavailable on this runner")
-    with pytest.raises(ValueError, match="inside the repository"):
+    with pytest.raises(ValueError, match="must not contain a symlink"):
         publisher.publish_readme(root)
     assert link.is_symlink()
     if target.is_file():
@@ -292,20 +287,10 @@ def test_tracked_publication_paths_cannot_escape_repository(tmp_path: Path, dest
 
 def test_stale_release_evidence_is_not_published_under_a_new_tag(tmp_path: Path) -> None:
     _evidence, svg = _prepare(tmp_path)
-    (tmp_path / "Cargo.toml").write_text('[package]\nversion = "0.6.0"\n', encoding="utf-8")
+    manifest = tmp_path / "Cargo.toml"
+    manifest.write_bytes(manifest.read_bytes().replace(b"0.5.0", b"0.6.0"))
     with pytest.raises(ValueError, match="current package version"):
         publisher.publish_readme(tmp_path)
-    assert not svg.exists()
-
-
-@pytest.mark.parametrize("markers", ["No markers", publisher.BEGIN + publisher.END + publisher.END, publisher.END + publisher.BEGIN])
-def test_invalid_readme_boundaries_leave_publication_untouched(tmp_path: Path, markers: str) -> None:
-    _evidence, svg = _prepare(tmp_path)
-    readme = tmp_path / "README.md"
-    readme.write_text(markers, encoding="utf-8")
-    with pytest.raises(ValueError, match="marker pair"):
-        publisher.publish_readme(tmp_path)
-    assert readme.read_text(encoding="utf-8") == markers
     assert not svg.exists()
 
 
@@ -317,4 +302,25 @@ def test_report_cannot_publish_evidence_from_another_release_pair(tmp_path: Path
     with pytest.raises(ValueError, match="release pair does not match"):
         publisher.publish_readme(tmp_path)
     assert (tmp_path / "README.md").read_bytes() == original
+    assert not svg.exists()
+
+
+def test_retained_svg_reproduces_exactly() -> None:
+    evidence = REPO_ROOT / "docs/archive/performance/v0.4.2-vs-v0.4.1.csv"
+    artifact = archive_performance.load_comparison_artifact(evidence)
+    assert publisher._svg(artifact).encode("utf-8") == evidence.with_suffix(".svg").read_bytes()
+
+
+def test_evidence_changed_during_rendering_cannot_be_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence, svg = _prepare(tmp_path)
+    original_readme = (tmp_path / "README.md").read_bytes()
+
+    def change_evidence(_artifact: object) -> str:
+        evidence.write_bytes(evidence.read_bytes() + b"changed")
+        return "<svg/>\n"
+
+    monkeypatch.setattr(publisher, "_svg", change_evidence)
+    with pytest.raises(ValueError, match="retained publication input changed"):
+        publisher.publish_readme(tmp_path)
+    assert (tmp_path / "README.md").read_bytes() == original_readme
     assert not svg.exists()

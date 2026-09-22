@@ -46,8 +46,8 @@ updates Cargo and Python dependencies. The included shared tooling pin is retain
 through Cargo.
 
 Cargo tool versions live in `tool.research-repo-tools.toolchain.cargo`. The shared updater installs exact locked candidates in isolated directories, verifies
-them, and only then publishes their TOML pins. Failed candidates leave prior declarations usable. The two unsupported SARIF helpers remain pinned in CI pending
-[upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25).
+them, and only then publishes their TOML pins. Failed candidates leave prior declarations usable. Both SARIF converters now use this catalog and the shared
+setup/cache; CI no longer installs them separately.
 
 `research-repo-tools deps update-python` resolves direct exact dev pins as one compatible set, preserving ranged requirements and included tooling constraints.
 Its recipe preflights stable uv, refreshes the full Python lock, and synchronizes dev with managed tools. Use `just update-dependencies`, `just update-tools`,
@@ -62,17 +62,18 @@ just changelog-unreleased "$TAG" "$DATE"
 just release-check
 ```
 
-`update-release-version` infers the previous stable published GitHub release and runs shared release preparation in a temporary tree. It then applies MCMC's
-performance-command and README-link policies, validates the fixed concept DOI, and replaces the complete result transactionally. It preserves dependency
+`update-release-version` delegates discovery, candidate validation, and publication to the public shared release-plan API. Required files, fixed DOI assertions,
+and active README/benchmark references are declared in `pyproject.toml`. A small adapter advances documented performance-command baselines without making the
+offline release checker query GitHub. The shared publisher applies the exact validated bytes transactionally. It preserves dependency
 versions and existing performance artifact links. Same-tag reruns on the same UTC
 day leave contents unchanged; another UTC day updates citation and existing target changelog dates. Set `$DATE` to the prepared `CITATION.cff` date and pass it
 explicitly to changelog generation. No benchmark measurement or dependency upgrade is part of metadata preparation.
 
-For an offline preview, run `uv run --locked update-release-version vX.Y.Z --previous-release vA.B.C --date YYYY-MM-DD --dry-run`.
-The same validation runs for previews and actual updates. `release-check` combines the shared final-release check with required MCMC publication surfaces,
+For an offline preview, run `uv run --locked update-release-version vX.Y.Z --previous-release vA.B.C --date YYYY-MM-DD --dry-run`. The same validation runs for
+previews and actual updates. `just release-check` invokes `research-repo-tools release check --final-release` directly with required MCMC publication surfaces,
 performance commands, release-pinned README links, and the fixed concept DOI.
 
-`release-check` treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
+The shared checker treats `Cargo.toml` as the release-version source of truth and verifies the Rust and Python lockfiles, Python project metadata,
 `CITATION.cff`, the latest generated changelog release, and intentional current-version references in active documentation. It also checks that the citation
 release date matches the changelog and that the stable concept DOI agrees across citation metadata, the README badge, and `REFERENCES.md`.
 
@@ -99,7 +100,7 @@ selection and input preparation.
 
 ## Changelog
 
-The published `research-repo-tools==0.1.2` package owns generation, normalization,
+The published `research-repo-tools==0.1.3` package owns generation, normalization,
 archiving, and release-note parsing. Its exact pin lives in the `tooling` dependency
 group included by `dev`; `uv.lock` resolves it from PyPI for local setup and CI.
 
@@ -117,9 +118,9 @@ git-cliff template with this repository's owner/name and validates candidates wi
 rotates older series into `docs/archives/changelog/MAJOR.MINOR.md`. Preview publishes nothing. `changelog-check` validates the root and all archives
 independently of note extraction. Release notes work from either location and include referenced links.
 
-Common parser/formatter regressions belong upstream. This repository keeps only
-consumer integration coverage in `test_shared_changelog.py`; it no longer ships a
-changelog postprocessor or a copy of the git-cliff template. See the
+Common parser/formatter, note extraction, and tag regressions belong upstream.
+This repository checks its package pin and command wiring; it ships no changelog
+postprocessor, copied git-cliff template, or shared changelog test suite. See the
 [pilot comparison](../docs/dev/shared-changelog-pilot.md) for intentional policy
 changes, resolved upstream issues, and the upgrade procedure.
 

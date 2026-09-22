@@ -6,8 +6,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from email.parser import Parser
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -17,9 +19,20 @@ CONSOLE_SCRIPTS = {
     "archive-performance": "archive_performance",
     "bench-compare": "bench_compare",
     "publish-performance-readme": "publish_performance_readme",
-    "release-check": "release_check",
     "update-release-version": "update_release_version",
 }
+
+
+def test_published_tooling_pin_is_locked_and_included_in_dev() -> None:
+    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    groups = tomllib.loads(text)["dependency-groups"]
+    assert {"include-group": "tooling"} in groups["dev"]
+    assert groups["tooling"] == ["research-repo-tools==0.1.3"]
+    assert version("research-repo-tools") == "0.1.3"
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    package = next(package for package in lock["package"] if package["name"] == "research-repo-tools")
+    assert package["version"] == "0.1.3"
+    assert package["source"] == {"registry": "https://pypi.org/simple"}
 
 
 @pytest.fixture(scope="session")
@@ -63,6 +76,7 @@ class TestBuiltToolingPackage:
             parser.read_string(archive.read(entry_points_name).decode("utf-8"))
 
         requirements = metadata.get_all("Requires-Dist") or []
+        assert "research-repo-tools==0.1.3" in requirements
         assert metadata.get_all("Provides-Extra") == ["notebook"]
         assert "# Tooling Scripts" in metadata.get_payload()
         for dependency in ("research-repo-tools[notebooks]", "matplotlib", "polars"):

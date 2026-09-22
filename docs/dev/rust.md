@@ -98,7 +98,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.1.2` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.1.3` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 Consumer tests use local process stubs; no live review is part of migration validation.
@@ -146,7 +146,7 @@ TOML pins and retain previous managed versions on failure. `cargo-update` and th
 stable-uv preflight, refresh the complete lock, and synchronize dev. Shared package and Just upgrades remain deliberate package-pin changes.
 
 The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
-[upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25), the remaining SARIF converter catalog gap.
+the adoption of the public utility, release, performance, and publication APIs in #164.
 
 ## Line Length
 
@@ -245,8 +245,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
 - `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
-- `.github/actions/setup-toolchain` caches the declared managed toolchain by OS, architecture, and declarations; only SARIF converters retain
-  `taiki-e/cache-cargo-install-action`.
+- `.github/actions/setup-toolchain` caches all declared managed tools, including both SARIF converters, by OS, architecture, and declarations.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.

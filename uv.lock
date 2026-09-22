@@ -811,7 +811,7 @@ name = "markov-chain-monte-carlo-tooling"
 version = "0.4.2"
 source = { editable = "." }
 dependencies = [
-    { name = "packaging" },
+    { name = "research-repo-tools" },
 ]
 
 [package.optional-dependencies]
@@ -840,9 +840,9 @@ tooling = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", marker = "extra == 'notebook'", specifier = ">=3.11.1" },
-    { name = "packaging", specifier = ">=26.2" },
     { name = "polars", marker = "extra == 'notebook'", specifier = ">=1.43.2" },
-    { name = "research-repo-tools", extras = ["notebooks"], marker = "extra == 'notebook'", specifier = "==0.1.2" },
+    { name = "research-repo-tools", specifier = "==0.1.3" },
+    { name = "research-repo-tools", extras = ["notebooks"], marker = "extra == 'notebook'", specifier = "==0.1.3" },
 ]
 provides-extras = ["notebook"]
 
@@ -850,13 +850,13 @@ provides-extras = ["notebook"]
 dev = [
     { name = "actionlint-py", specifier = "==1.7.12.24" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "research-repo-tools", specifier = "==0.1.2" },
+    { name = "research-repo-tools", specifier = "==0.1.3" },
     { name = "ruff", specifier = ">=0.16.8" },
     { name = "semgrep", specifier = "==1.177.0" },
     { name = "ty", specifier = ">=0.0.82" },
 ]
 notebook = [{ name = "markov-chain-monte-carlo-tooling", extras = ["notebook"] }]
-tooling = [{ name = "research-repo-tools", specifier = "==0.1.2" }]
+tooling = [{ name = "research-repo-tools", specifier = "==0.1.3" }]
 
 [[package]]
 name = "matplotlib"
@@ -1647,16 +1647,16 @@ wheels = [
 
 [[package]]
 name = "research-repo-tools"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "rust-just" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/68/d493095831bb28b416d97eb31be0e14e98f7480bd6056f7e3979d485ae05/research_repo_tools-0.1.2.tar.gz", hash = "sha256:c6922ec61be70de3ee7d0cb1c5d4b91b305ce8718401e4272f2c000d5bdbb39f", size = 296378, upload-time = "2026-09-20T07:02:17.132Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/50/eab19bc5d3d3b9fc0b07f81d5b1e0c9507d9ad3f2511d90b5e345086b27c/research_repo_tools-0.1.3.tar.gz", hash = "sha256:c1e00f5a442021be86a7e7a3958e1003a4c09dbbac15b7b33e928c03ed4720f6", size = 392979, upload-time = "2026-09-22T00:46:48.82Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/33/f80bc414814c9ccfb321e99d7c504e320bc451ee221907007727fde21713/research_repo_tools-0.1.2-py3-none-any.whl", hash = "sha256:799e6f9b77f9e13a9f9719fd2a474c5ad442447eb5822789daad9bbc5ab419c8", size = 113633, upload-time = "2026-09-20T07:02:15.615Z" },
+    { url = "https://files.pythonhosted.org/packages/06/49/cbb61c0e6edb97dfab68f93e85be6c57bcf348429c9b5040cbea30f8b97a/research_repo_tools-0.1.3-py3-none-any.whl", hash = "sha256:8219a37576cfd5fc18dc94629484be1a35f172457b03e8339b89ccb5e7f2ef45", size = 150518, upload-time = "2026-09-22T00:46:47.424Z" },
 ]
 
 [package.optional-dependencies]

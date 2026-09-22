@@ -88,7 +88,7 @@ def test_explicit_trace_preserves_source_and_writes_only_selected_figure(tmp_pat
     assert report["status"] == "passed"
     assert report["source_sha256"] == hashlib.sha256(before).hexdigest()
     assert report["lock_sha256"] == hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest()
-    assert report["packages"]["research-repo-tools"] == "0.1.2"
+    assert report["packages"]["research-repo-tools"] == "0.1.3"
     executed = json.loads(artifact.read_bytes())
     assert [cell["id"] for cell in executed["cells"]] == [cell["id"] for cell in json.loads(before)["cells"]]
     assert all(cell["execution_count"] is not None for cell in executed["cells"] if cell["cell_type"] == "code")

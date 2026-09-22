@@ -100,13 +100,13 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version`, Rust in `rust-toolchain.toml`, and supported Cargo tools in `[tool.research-repo-tools.toolchain.cargo]`. Run managed tools through the
-  Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The two unsupported SARIF converters retain
-  their CI installation pending upstream #25. See [the migration record](docs/dev/shared-maintenance-migration.md).
+  Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The SARIF converters use the same shared Cargo
+  catalog. See [the migration record](docs/dev/shared-maintenance-migration.md).
 - Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
   `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
 - Treat hashes, patches, serialized artifacts, and byte-sensitive fixtures as exact bytes. Use `read_bytes()`/`write_bytes()` with deliberate encoding;
   do not let text I/O silently normalize or translate their line endings.
-- Route Git stdin through `subprocess_utils.run_git_command_with_input`. Its subprocess boundary must use explicit binary mode; Git owns any configured
+- Route Git stdin through the public `research_repo_tools.process.run_git_bytes` API. Pass exact bytes; Git owns any configured
   clean filters. Ordinary text-mode tool invocations remain allowed when exact input bytes are not part of their contract.
 - Production text file writers must pass explicit non-`None` `encoding` and `newline` keyword arguments. Use UTF-8 and `newline="\n"` for generated LF
   text, or `newline=""` to preserve supplied line endings. This includes temporary files; Git checkout settings do not control Python text I/O.

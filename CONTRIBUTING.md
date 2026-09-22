@@ -91,7 +91,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.2` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+The published `research-repo-tools==0.1.3` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -110,8 +110,7 @@ short path on Windows. Normal recipes select the checked tool paths through `too
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated
 [GitHub CLI](https://cli.github.com/). CodeRabbit has separate opt-in installation and authentication.
 
-CI uses the same declarations through `.github/actions/setup-toolchain`, with OS/architecture-specific caches. Only the two SARIF converters retain their
-existing pinned CI installers pending [upstream #25](https://github.com/acgetchell/research-repo-tools/issues/25). See
+CI uses the same declarations through `.github/actions/setup-toolchain`, with OS/architecture-specific caches, including both SARIF converters. See
 [the migration record](docs/dev/shared-maintenance-migration.md) for ownership and validation.
 
 ## Project Structure
