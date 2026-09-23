@@ -91,7 +91,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.5` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+The published `research-repo-tools==0.1.6` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 

@@ -14,9 +14,9 @@ dev = [
     "semgrep==1.177.0",
     "ty>=0.0.82",
 ]
-notebook = [ "research-repo-tools[notebooks]==0.1.5", "matplotlib>=3.11.1", "polars>=1.43.2" ]
+notebook = [ "research-repo-tools[notebooks]==0.1.6", "matplotlib>=3.11.1", "polars>=1.43.2" ]
 
-tooling = [ "research-repo-tools==0.1.5" ]
+tooling = [ "research-repo-tools==0.1.6" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -64,6 +64,9 @@ sarif-fmt = "0.8.0"
 taplo-cli = "0.10.0"
 typos-cli = "1.50.2"
 zizmor = "1.30.1"
+
+[tool.research-repo-tools.zizmor]
+persona = "regular"
 
 [tool.research-repo-tools.notebooks]
 group = "notebook"
@@ -133,7 +136,8 @@ target-version = "py314"
 src = [ "tests/tooling" ]
 
 [tool.ruff.lint]
-select = [ "E", "F", "W", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF" ]
+select = [ "E", "F", "W", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TC", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF" ]
+extend-select = [ "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204", "ANN205", "ANN206" ]
 fixable = [ "ALL" ]
 unfixable = [  ]
 ignore = [
@@ -150,6 +154,19 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
+"tests/semgrep/tests/tooling/python_exceptions.py" = [
+    "ANN201", # Deliberately missing return annotation
+    "BLE001", # Broad-exception negative fixtures
+    "ERA001", # Semgrep ruleid/ok annotations are harness metadata
+    "INP001", # Scanner input, not an importable package
+    "S110", # Deliberate except/pass fixtures
+    "SIM105", # Preserve explicit exception handlers for Semgrep
+    "T201", # Visible exception handling in a negative fixture
+    "TRY002", # Deliberate raw Exception
+]
+
+[tool.ruff.lint.flake8-type-checking]
+strict = true
 
 [tool.ruff.lint.isort]
 force-single-line = false

@@ -1,6 +1,6 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.1.5` registry distribution.
+MCMC pins the published `research-repo-tools==0.1.6` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the local extraction planned in #166
@@ -109,15 +109,45 @@ final-changelog enforcement, and review argument/failure matrices. Local tests d
 repeat those suites; representative integrations exercise MCMC's actual configuration
 and content. Native notebook linting remains part of the regular validation gate.
 The scientific benchmark lifecycle and notebook tests were retained, not traded for
-a smaller count. Issue #153's remaining annotation policy concerns consumer tests
-and deliberate negative fixtures, rather than an installable support package.
+a smaller count.
 
-Local macOS arm64 validation on 2026-09-23 passed `just check` and `just ci`,
+## Audit and Python policy adoption (#150 and #153)
+
+The v0.1.6 update consumes the shared zizmor command and complete Python selection.
+The local and SARIF recipes verify the existing zizmor 1.30.1 Cargo pin and explicit
+regular persona. Shared token discovery and reported offline fallback serve local
+contributors; the SARIF workflow requires online audits, fails on findings through
+plain output, and generates SARIF separately even after findings. Fork and Dependabot
+runs retain the audit gate but skip privileged upload. This replaces zizmor-action,
+so an action-specific scanner-input rule is no longer needed.
+
+`python-check` is the direct CI dependency for both consumer and fixture linting.
+It applies the complete configured Ruff policy and Ty to every selected `.py` and
+`.pyi`; notebook discovery covers every source `.ipynb`. Missing annotations,
+annotation-only imports and quoted annotations are governed by ANN, strict TC and UP.
+The existing tests and scientific notebook satisfy this policy. The deliberate
+exception fixture has exact per-file rule exceptions, including only ANN201 from
+the typing rules. CodeRabbit excludes Semgrep fixtures and disables its duplicate
+docstring-percentage check. Local Ruff, Ty and Semgrep still validate those fixtures.
+
+Three consumer checks protect this wiring and policy. Generic authentication,
+discovery and failure matrices remain upstream. Both registry-only release writer
+steps also use v0.1.6 with a resolution cutoff after its PyPI publication.
+
+For the v0.1.5 extraction, local macOS arm64 validation on 2026-09-23 passed `just check` and `just ci`,
 including 274 Rust nextest tests, 188 doctests, notebook execution,
 example validation and benchmark compilation. After test deduplication, `just check`
 and all 28 retained Python tests passed again. The real offline release dry-run
 for the next Cargo version proposed only Cargo metadata, citation and README changes;
 it left the dependency-only Python environment and historical artifacts unchanged.
+
+The v0.1.6 adoption also passed both gates on macOS arm64 on 2026-09-23, including
+31 Python tests, 274 Rust nextest tests, 188 doctests, notebook execution, examples
+and benchmark compilation. Authenticated online, explicit offline and unauthenticated
+fallback scans reported no findings; the online SARIF command produced a valid
+2.1.0 report from zizmor 1.30.1. The registry-only release command resolved under
+its new cutoff. Workflow wiring is covered locally; hosted SARIF upload and the
+native Linux/Windows runs still require GitHub Actions evidence.
 
 Run `just check` and `just ci`. The full gate remains configured for native Linux,
 macOS and Windows. A local macOS arm64 pass does not prove native Linux or Windows

@@ -29,13 +29,15 @@ def catches_specific_exception() -> None:
 
 
 def raises_raw_exception() -> None:
+    message = "too broad"
     # ruleid: mcmc.python.no-raw-exception-in-tests
-    raise Exception("too broad")
+    raise Exception(message)
 
 
 def raises_specific_exception() -> None:
+    message = "specific failure"
     # ok: mcmc.python.no-raw-exception-in-tests
-    raise RuntimeError("specific failure")
+    raise RuntimeError(message)
 
 
 def adhoc_mock_stdout() -> None:

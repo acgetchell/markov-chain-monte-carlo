@@ -835,7 +835,7 @@ tooling = [
 dev = [
     { name = "actionlint-py", specifier = "==1.7.12.25" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "research-repo-tools", specifier = "==0.1.5" },
+    { name = "research-repo-tools", specifier = "==0.1.6" },
     { name = "ruff", specifier = ">=0.16.8" },
     { name = "semgrep", specifier = "==1.177.0" },
     { name = "ty", specifier = ">=0.0.82" },
@@ -843,9 +843,9 @@ dev = [
 notebook = [
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "polars", specifier = ">=1.43.2" },
-    { name = "research-repo-tools", extras = ["notebooks"], specifier = "==0.1.5" },
+    { name = "research-repo-tools", extras = ["notebooks"], specifier = "==0.1.6" },
 ]
-tooling = [{ name = "research-repo-tools", specifier = "==0.1.5" }]
+tooling = [{ name = "research-repo-tools", specifier = "==0.1.6" }]
 
 [[package]]
 name = "matplotlib"
@@ -1636,16 +1636,16 @@ wheels = [
 
 [[package]]
 name = "research-repo-tools"
-version = "0.1.5"
+version = "0.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "rust-just" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/7a/eec0a83464aeb7b0d781d623ef97a7d83ccd741112a94e58ef4292b9fdef/research_repo_tools-0.1.5.tar.gz", hash = "sha256:9a1d9d23311b43ec53587644ea8cf743c4b5f36b70e358febb8fd4c13fd2a8f3", size = 459791, upload-time = "2026-09-23T08:52:40.402Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/c9/c144983395daa50484dcf3db771c396d0d0d0e0cb9032803956922da2587/research_repo_tools-0.1.6.tar.gz", hash = "sha256:638b55b6856c5c84f77e0963ff9e8977aaf5c51b089caf0cb8f9faf6b00f6cd0", size = 477536, upload-time = "2026-09-23T20:15:15.066Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/8c/f28a1247fde866583fcb6666faee9d7b5a9a11e2be0c22f8680fcac3cdb4/research_repo_tools-0.1.5-py3-none-any.whl", hash = "sha256:90080e4174b1ab643d1450af1529f4620cd00b02b74812d0b4e30577a8109d47", size = 191031, upload-time = "2026-09-23T08:52:38.483Z" },
+    { url = "https://files.pythonhosted.org/packages/82/ad/c4f48efe7b374f56ec5166aeb960270bbb5a3d4ee41350e4ca6ee6d8a07b/research_repo_tools-0.1.6-py3-none-any.whl", hash = "sha256:bd9506d2ca902bd1b6f9ff9296c361af5ee681db1892d89235af36a6f027b5df", size = 201887, upload-time = "2026-09-23T20:15:13.554Z" },
 ]
 
 [package.optional-dependencies]

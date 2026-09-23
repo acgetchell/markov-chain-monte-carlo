@@ -21,6 +21,7 @@ jobs:
   analyze:
     name: GitHub Actions Security Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -32,7 +33,29 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run zizmor
-        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
+
+      - name: Fail on workflow findings
+        id: audit
+        env:
+          ZIZMOR_GITHUB_TOKEN: ${{ github.token }}
+        run: just zizmor --require-online
+
+      - name: Produce SARIF even when the finding gate fails
+        id: sarif
+        if: ${{ !cancelled() && steps.audit.outcome != 'skipped' }}
+        env:
+          ZIZMOR_GITHUB_TOKEN: ${{ github.token }}
+        run: just zizmor --require-online --format sarif > "$RUNNER_TEMP/zizmor.sarif"
+
+      - name: Upload security findings
+        if: >-
+          !cancelled() && steps.sarif.outcome == 'success' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+          github.actor != 'dependabot[bot]'
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
-          inputs: .github
+          sarif_file: ${{ runner.temp }}/zizmor.sarif
+          category: zizmor
+          wait-for-processing: true

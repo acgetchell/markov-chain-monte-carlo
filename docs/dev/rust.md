@@ -33,12 +33,12 @@ just examples         # Run all examples
 
 - `just fmt-check` - Rust formatting check
 - `just clippy` - Clippy with `pedantic`, `nursery`, and `cargo` warnings
-- `just python-check` - Ruff formatting/linting and Ty type checking for Python tooling
+- `just python-check` - full configured Ruff formatting/linting and Ty checks for all Python files, including Semgrep fixtures
 - `just notebook-lint` - notebook JSON, output hygiene, cell compilation, Ruff, and Ty checks
 - `just validate-json` - JSON syntax validation
 - `just yaml-check` - YAML formatting check through dprint Pretty YAML
 - `just action-lint` - GitHub Actions validation through `actionlint`
-- `just zizmor` - GitHub Actions security analysis through `zizmor`
+- `just zizmor` - pinned GitHub Actions security analysis through shared authentication and audit policy
 - `just justfile-fmt-check` - Justfile formatting check
 - `just toml-fmt-check` - TOML formatting check through Taplo
 - `just toml-lint` - TOML validation through Taplo
@@ -81,6 +81,28 @@ The named subsets remain available for focused timing or platform work, but `jus
 The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
 comprehensive validation gate.
 
+### Python typing policy
+
+`just python-check` uses shared discovery for every tracked or non-ignored `.py` and `.pyi`, including `tests/tooling/` and Semgrep fixtures. Formatting,
+Ruff and Ty use their complete repository configuration without a narrowed lint selector or forced path exclusions. `python-check` is a direct dependency
+of `just ci` and the tooling part of `just check`, so fixture validation cannot be omitted by a separate aggregate recipe.
+
+Ruff requires parameter and return annotations (ANN001/002/003/201/202/204/205/206), strict `TC` import handling, and `UP` modernization including UP037.
+Use precise bare annotations with Python 3.14's native deferred evaluation; put imports used only for annotations under `if TYPE_CHECKING`.
+Do not add future annotations solely for lint compliance. The exception Semgrep fixture retains exact per-file rule exceptions for deliberate violations.
+Source notebooks use the same configured policy through `just notebook-lint`.
+
+### GitHub Actions security audits
+
+`just zizmor` delegates to the pinned shared CLI, verifies the declared zizmor 1.30.1 scanner, and uses the explicit regular persona in `pyproject.toml`.
+Authentication is discovered from `ZIZMOR_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, in that order, without printing credentials.
+When none is available, the command reports that online audits were skipped and runs offline. Use `just zizmor --offline` for an intentional offline scan
+or `just zizmor --require-online` to fail when authentication is unavailable. Scanner/authentication failures never trigger a silent offline retry.
+
+The SARIF workflow invokes `just zizmor --require-online` with the workflow token, then generates SARIF through the same recipe even when findings fail
+the first step. SARIF generation alone does not fail on findings. Upload requires successful report generation and skips fork PRs and Dependabot;
+those runs still execute the audit gate. Online zizmor audits own remote action SHA/version-comment resolution.
+
 ## Local CodeRabbit Review
 
 CodeRabbit review is opt-in and separate from `just check` and `just ci`. Agents run it only when the maintainer explicitly requests CodeRabbit review;
@@ -98,10 +120,13 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.1.5` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.1.6` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 Consumer tests use local process stubs; no live review is part of migration validation.
+
+CodeRabbit's general review excludes deliberate Semgrep fixtures and disables the docstring-percentage pre-merge check. Repository-owned Ruff, Ty and
+Semgrep fixture validation remain blocking in the canonical local and CI gates.
 
 Install the [CodeRabbit CLI](https://docs.coderabbit.ai/cli) separately and authenticate with `coderabbit auth login` before the first review. It is an
 external prerequisite, outside `just setup-tools` and `just update`. The recipes use `--agent` for structured findings; their flags were verified against
@@ -259,7 +284,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.
-- `ty.toml` restricts Ty type checking to Python tooling.
+- `ty.toml` configures Python 3.14 type checking without restricting discovered Python surfaces.
 - `semgrep.yaml` contains repository-owned Rust and Python policy rules.
 
 Keep these checks focused. Avoid broad community rule packs unless they prove low-noise for this crate.
