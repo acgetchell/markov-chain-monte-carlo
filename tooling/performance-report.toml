@@ -1,0 +1,5 @@
+schema = 1
+current = "docs/performance/v1/current.md"
+archive = "docs/performance/v1"
+title = "MCMC benchmark timings"
+prose-file = "tooling/performance-interpretation.md"

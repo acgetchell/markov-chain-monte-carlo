@@ -91,7 +91,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.3` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+The published `research-repo-tools==0.1.5` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -124,7 +124,8 @@ At a high level:
 - `examples/` contains complete runnable workflows.
 - `tests/` and `benches/` contain integration validation and Criterion benchmarks.
 - `docs/` contains topic guides such as scientific scope, proposal validation, roadmap, release, and Rust tooling notes.
-- `scripts/` contains consumer-specific Python helpers. Changelog processing belongs to the pinned `research-repo-tools` package.
+- `tooling/` contains declarative workload, release-evidence, and example policies. Shared tooling owns reusable execution and publication.
+- `tests/tooling/` contains consumer integration and scientific checks. Python dependencies use a non-package uv project; there are no local console scripts.
 - See the [shared changelog pilot](docs/dev/shared-changelog-pilot.md) for migration status, ownership, and package upgrades.
 - Root configuration files (`justfile`, `Cargo.toml`, `rust-toolchain.toml`, `semgrep.yaml`, `dprint.json`, `typos.toml`) define automation, build
   metadata, validation, formatting, and release behavior.
@@ -282,7 +283,7 @@ requiring `expect()` reasons, forbidding unwrap-default-on-non-finite, and rejec
   just test-integration
   ```
 
-- **Python tooling tests** — `pytest` over the `scripts/` helpers:
+- **Python consumer tests** — `pytest` over `tests/tooling/`:
 
   ```bash
   just test-python
@@ -395,10 +396,10 @@ just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to save validated CSV/JSON evidence
-and update the curated report, `just performance-doc` to reproduce it, `just performance-readme` to publish its table and plot without remeasuring,
-and `just performance-github-assets` for comparisons
-that consume durable release artifacts without local measurements. See
+Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to save shared JSON evidence and CSV
+exports under `docs/performance/v1/` and update the shared report, `just performance-doc` to reproduce it, and `just performance-readme` to publish the reviewed
+selection in `tooling/performance-readme.toml` without remeasuring. Historical artifacts stay unchanged; converted legacy evidence cannot authorize a new README
+publication. Use `just performance-github-assets` for comparisons that consume durable release artifacts without local measurements. See
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
 Performance guidelines:
@@ -523,7 +524,8 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
 2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG" "$DATE"` (set `DATE` to the prepared citation date).
-3. Run `just performance-release`, review the retained evidence, and publish the README table and SVG with `just performance-readme`.
+3. Run `just performance-release`, review the retained evidence, update the explicit selection and provenance pins in `tooling/performance-readme.toml`,
+   then preview and publish the README table and SVG with `just performance-readme --preview` and `just performance-readme`.
 4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
 6. Publish to crates.io, create a draft GitHub Release, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the

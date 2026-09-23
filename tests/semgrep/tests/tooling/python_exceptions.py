@@ -70,11 +70,11 @@ def typed_completed_process() -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
 
 
-# ruleid: mcmc.python.no-untyped-defs-in-scripts
+# ruleid: mcmc.python.no-untyped-defs-in-tests
 def missing_return_annotation():
     return None
 
 
-# ok: mcmc.python.no-untyped-defs-in-scripts
+# ok: mcmc.python.no-untyped-defs-in-tests
 def explicit_return_annotation() -> None:
     return None

@@ -1,6 +1,5 @@
 """Consumer notebook policies exercised through the pinned shared public CLI."""
 
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -83,19 +82,3 @@ def test_explicit_trace_preserves_source_and_writes_only_selected_figure(tmp_pat
     assert (figure_root / "ising_energy_trace.png").is_file()
     assert not (trace_path.parent / "notebooks/ising_energy_trace.png").exists()
     assert not (root / "target/notebooks/ising_energy_trace.png").exists()
-    artifact = root / "target/notebooks/notebooks/ising_trace_analysis.ipynb"
-    report = json.loads(artifact.with_suffix(".report.json").read_bytes())
-    assert report["status"] == "passed"
-    assert report["source_sha256"] == hashlib.sha256(before).hexdigest()
-    assert report["lock_sha256"] == hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest()
-    assert report["packages"]["research-repo-tools"] == "0.1.3"
-    executed = json.loads(artifact.read_bytes())
-    assert [cell["id"] for cell in executed["cells"]] == [cell["id"] for cell in json.loads(before)["cells"]]
-    assert all(cell["execution_count"] is not None for cell in executed["cells"] if cell["cell_type"] == "code")
-
-
-def test_native_notebook_lint_preserves_source() -> None:
-    before = ISING_NOTEBOOK.read_bytes()
-
-    assert main(["--root", str(REPO_ROOT), "notebooks", "lint", str(ISING_NOTEBOOK)]) == 0
-    assert ISING_NOTEBOOK.read_bytes() == before

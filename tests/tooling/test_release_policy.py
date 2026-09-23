@@ -37,8 +37,8 @@ def _write_project(
     files = {
         "Cargo.toml": _CARGO_TOML,
         "Cargo.lock": f'version = 4\n\n[[package]]\nname = "markov-chain-monte-carlo"\nversion = "{metadata_version}"\n',
-        "pyproject.toml": f'[project]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\n',
-        "uv.lock": (f'version = 1\n\n[[package]]\nname = "markov-chain-monte-carlo-tooling"\nversion = "{metadata_version}"\nsource = {{ editable = "." }}\n'),
+        "pyproject.toml": '[project]\nname = "markov-chain-monte-carlo-environment"\nversion = "0.0.0"\n[tool.uv]\npackage = false\n',
+        "uv.lock": 'version = 1\n\n[[package]]\nname = "markov-chain-monte-carlo-environment"\nversion = "0.0.0"\nsource = { virtual = "." }\n',
         "CITATION.cff": (f"cff-version: 1.2.0\nversion: {metadata_version}\ndoi: {citation_doi}\ndate-released: {citation_date}\n"),
         "CHANGELOG.md": (
             f"# Changelog\n\n## [{_VERSION}] - {_RELEASE_DATE}\n\n- Release\n\n"
@@ -57,17 +57,10 @@ def _write_project(
         destination.write_text(content, encoding="utf-8", newline="\n")
 
 
-@pytest.mark.parametrize(
-    ("name", "old", "new"),
-    [
-        ("CHANGELOG.md", "## [1.2.3]", "## [1.2.2]"),
-        ("README.md", "/blob/v1.2.3/", "/blob/v1.2.2/"),
-    ],
-)
-def test_configured_checker_requires_final_changelog_and_current_source_links(tmp_path: Path, name: str, old: str, new: str) -> None:
+def test_configured_checker_requires_current_source_links(tmp_path: Path) -> None:
     _write_project(tmp_path)
-    path = tmp_path / name
-    path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8", newline="\n")
+    path = tmp_path / "README.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("/blob/v1.2.3/", "/blob/v1.2.2/"), encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
@@ -92,17 +85,9 @@ def test_required_doi_reference_cannot_disappear(tmp_path: Path, name: str) -> N
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-def test_active_performance_commands_track_current_release(tmp_path: Path) -> None:
-    _write_project(tmp_path)
-    docs = tmp_path / "docs"
-    docs.mkdir(exist_ok=True)
-    (docs / "BENCHMARKING.md").write_text("just performance-release v1.2.2 v1.2.1\n", encoding="utf-8", newline="\n")
-    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
-
-
 def test_historical_evidence_and_changelog_archives_are_preserved(tmp_path: Path) -> None:
     _write_project(tmp_path)
-    for folder in ("docs/archive/performance", "docs/archives/changelog", "tests/fixtures"):
+    for folder in ("docs/archive/performance", "docs/performance/v1", "docs/archives/changelog", "tests/fixtures"):
         directory = tmp_path / folder
         directory.mkdir(parents=True)
         (directory / "old.md").write_text(

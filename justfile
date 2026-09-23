@@ -7,7 +7,6 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 _run := "uv run --locked --group dev research-repo-tools toolchain run --"
 
-example_names := "detailed_balance normal_1d ising_1d iterator_sampling delayed_chunked_telemetry additive_target_bias"
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
 slow_notebooks := ""
 
@@ -22,60 +21,20 @@ _build-examples:
     {{ _run }} cargo build --locked --examples
 
 # System prerequisites remain outside the shared managed toolchain.
-_ensure-gh:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v gh >/dev/null || {
-        echo "❌ 'gh' not found. Install GitHub CLI: https://cli.github.com/" >&2
-        exit 1
-    }
-
 _ensure-jq:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v jq >/dev/null || {
-        echo "❌ 'jq' not found. Install it with your system package manager or follow:"
-        echo "   https://jqlang.github.io/jq/download/"
-        exit 1
-    }
+    uv run --locked --only-group tooling research-repo-tools validation require jq
 
 _ensure-uv-stable:
     uv run --no-config --no-sync --no-python-downloads research-repo-tools deps check-uv
 
 _notebook-all mode:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    notebooks=()
-    while IFS= read -r -d '' file; do
-        [[ -f "$file" ]] || continue
-        case "$file" in
-            */.ipynb_checkpoints/*) continue ;;
-        esac
-        notebooks+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- 'notebooks/*.ipynb')
-    if [ "${#notebooks[@]}" -gt 0 ]; then
-        uv run --locked --group dev --group notebook research-repo-tools notebooks {{ quote(mode) }} "${notebooks[@]}"
-    else
-        echo "No notebooks found."
-    fi
+    uv run --locked --group dev --group notebook research-repo-tools files run --include 'notebooks/*.ipynb' --exclude '*/.ipynb_checkpoints/*' -- research-repo-tools notebooks {{ quote(mode) }}
 
 # GitHub Actions workflow validation
 [group('validation')]
 action-lint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        # actionlint 1.7.12 predates $/ syntax; ignore only this valid self-repository reference.
-        # Remove when https://github.com/rhysd/actionlint/issues/711 is released.
-        printf '%s\0' "${files[@]}" | xargs -0 uv run --locked --group dev actionlint \
-            -ignore '^specifying action "\$/\.github/actions/setup-toolchain" in invalid format because ref is missing\.'
-    else
-        echo "No workflow files found to lint."
-    fi
+    # actionlint 1.7.12 predates $/ syntax; remove this exception when issue #711 is released.
+    uv run --locked --group dev research-repo-tools files run --include '.github/workflows/*.yml' --include '.github/workflows/*.yaml' -- actionlint -ignore '^specifying action "\$/\.github/actions/setup-toolchain" in invalid format because ref is missing\.'
 
 # Run the Criterion benchmark suite.
 [group('benchmarks and performance')]
@@ -85,7 +44,7 @@ bench:
 # Render existing Criterion measurements against an explicit saved baseline.
 [group('benchmarks and performance')]
 bench-compare baseline="last": python-sync
-    uv run --locked --group dev bench-compare {{ quote(baseline) }}
+    uv run --locked --group dev research-repo-tools performance compare target/criterion target/criterion --baseline-sample {{ quote(baseline) }} --format markdown --output target/bench-reports/performance.md
 
 # Compile benchmark harnesses without running Criterion measurements.
 [group('benchmarks and performance')]
@@ -98,8 +57,7 @@ bench-latest: bench
 
 # Run latest measurements and compare them with a saved Criterion baseline.
 [group('benchmarks and performance')]
-bench-latest-vs-last baseline="last": bench-latest python-sync
-    uv run --locked --group dev bench-compare {{ quote(baseline) }}
+bench-latest-vs-last baseline="last": bench-latest (bench-compare baseline)
 
 # Save the complete MCMC release-signal set under a Criterion baseline name.
 [group('benchmarks and performance')]
@@ -156,7 +114,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check performance-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -169,7 +127,7 @@ check-rust: fmt-check clippy
 # Run the flat union of GitHub-equivalent validators and tests, including the
 # same all-target Clippy scope uploaded by the SARIF workflow.
 [group('workflows')]
-ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -241,15 +199,7 @@ example name:
 # Build and run every Rust example.
 [group('tests and coverage')]
 examples: _build-examples
-    #!/usr/bin/env bash
-    set -euo pipefail
-    suffix=""
-    if [[ "${OS:-}" == "Windows_NT" ]]; then
-        suffix=".exe"
-    fi
-    for example in {{ example_names }}; do
-        "target/debug/examples/${example}${suffix}"
-    done
+    {{ _run }} research-repo-tools validation run tooling/examples.toml
 
 # Fix (mutating): apply formatters
 [group('workflows')]
@@ -315,7 +265,7 @@ help-workflows:
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
     @echo "  just example <name> # Run one example, e.g. just example ising_1d"
     @echo "  just examples       # Run all examples"
-    @echo "  just performance-doc # Rebuild the curated report from retained measurements"
+    @echo "  just performance-doc # Rebuild the shared report from retained measurements"
     @echo "  just performance-github-assets # Compare durable GitHub Release assets"
     @echo "  just performance-local # Compare the current tree with the latest stable release"
     @echo "  just performance-readme # Publish the README table and SVG from retained evidence"
@@ -355,38 +305,12 @@ lint-docs: markdown-check spell-check
 # Check Markdown formatting and lint rules.
 [group('validation')]
 markdown-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        case "$file" in
-            CHANGELOG.md) continue ;;
-        esac
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.md')
-    if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 -n100 {{ _run }} rumdl check
-    else
-        echo "No Markdown files found to check."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.md' --exclude CHANGELOG.md --exclude 'docs/performance/**' -- rumdl check
 
 # Apply Markdown formatting and lint fixes.
 [group('validation')]
 markdown-fix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        case "$file" in
-            CHANGELOG.md) continue ;;
-        esac
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.md')
-    if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 -n100 {{ _run }} rumdl check --fix
-    else
-        echo "No Markdown files found to format."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.md' --exclude CHANGELOG.md --exclude 'docs/performance/**' --exclude 'docs/PERFORMANCE.md' --exclude 'docs/archive/performance/**' -- rumdl check --fix
 
 # Alias for the canonical Markdown check.
 [group('validation')]
@@ -441,136 +365,69 @@ notebook-lint: (_notebook-all 'lint')
 notebook-sync:
     uv run --locked --managed-python --only-group tooling research-repo-tools notebooks sync
 
-# Rebuild and promote the curated report from tracked or explicitly saved release measurements.
+# Forward explicit shared performance operations.
 [group('benchmarks and performance')]
-performance-doc measurements_path="": python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    measurements_path={{ quote(measurements_path) }}
-    if [[ -n "$measurements_path" ]]; then
-        {{ _run }} archive-performance --rerender "$measurements_path" --promote
-    else
-        {{ _run }} archive-performance --rerender --promote
-    fi
+[positional-arguments]
+performance +args:
+    {{ _run }} research-repo-tools performance "$@"
+
+# Measure a clean tagged checkout and package its shared release baseline.
+[group('benchmarks and performance')]
+performance-baseline tag:
+    {{ _run }} research-repo-tools performance baseline tooling/benchmark.toml {{ quote(tag) }} {{ quote("markov-chain-monte-carlo-" + tag + "-criterion-baseline.tar.gz") }}
+
+# Check that the shared report and retained evidence reproduce without writes.
+[group('validation')]
+performance-check:
+    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
+
+# Rebuild and promote the shared report from retained or explicitly saved evidence.
+[group('benchmarks and performance')]
+[positional-arguments]
+performance-doc *args: python-sync
+    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml "$@"
 
 # Compare stored GitHub Release benchmark assets without local benchmark runs.
 [group('benchmarks and performance')]
-performance-github-assets current_tag="" baseline_tag="": python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    current_tag={{ quote(current_tag) }}
-    baseline_tag={{ quote(baseline_tag) }}
-    if [[ -n "$current_tag" || -n "$baseline_tag" ]]; then
-        if [[ -z "$current_tag" || -z "$baseline_tag" ]]; then
-            echo "current_tag and baseline_tag must be provided together" >&2
-            exit 2
-        fi
-        {{ _run }} archive-performance "$current_tag" "$baseline_tag" --github-assets --measurements-output target/bench-reports/github-assets-performance.csv --output target/bench-reports/github-assets-performance.md
-    else
-        {{ _run }} archive-performance --published-latest --github-assets --measurements-output target/bench-reports/github-assets-performance.csv --output target/bench-reports/github-assets-performance.md
-    fi
+[positional-arguments]
+performance-github-assets *tags: python-sync
+    uv run --locked --group dev research-repo-tools performance assets "$@" --order published --repository acgetchell/markov-chain-monte-carlo --asset-template 'markov-chain-monte-carlo-{tag}-criterion-baseline.tar.gz' --legacy-configuration tooling/legacy-baseline.toml --payload target/bench-reports/github-assets.comparison.json --manifest target/bench-reports/github-assets.evidence.json --report target/bench-reports/github-assets.md
 
 # Compare the current tree with the latest stable published release locally.
 [group('benchmarks and performance')]
 performance-local: python-sync
-    {{ _run }} archive-performance --current-vs-latest --measurements-output target/bench-reports/performance.csv --output target/bench-reports/performance.md
+    {{ _run }} research-repo-tools performance measure tooling/benchmark.toml --mode current-vs-latest --order published --allow-git-mutations --payload target/bench-reports/local.comparison.json --manifest target/bench-reports/local.evidence.json --report target/bench-reports/local.md
 
 # Publish the README table, SVG, and pinned links from validated retained release evidence.
 [group('benchmarks and performance')]
-performance-readme: python-sync
-    uv run --locked --group dev publish-performance-readme
+[positional-arguments]
+performance-readme *args: python-sync
+    uv run --locked --group dev research-repo-tools performance publish tooling/performance-readme.toml "$@"
 
 # Generate a release-to-release report, promote it, and archive the previous report.
 [group('benchmarks and performance')]
-performance-release current_tag="" baseline_tag="": python-sync
-    #!/usr/bin/env bash
-    set -euo pipefail
-    current_tag={{ quote(current_tag) }}
-    baseline_tag={{ quote(baseline_tag) }}
-    if [[ -n "$current_tag" || -n "$baseline_tag" ]]; then
-        if [[ -z "$current_tag" || -z "$baseline_tag" ]]; then
-            echo "current_tag and baseline_tag must be provided together" >&2
-            exit 2
-        fi
-        {{ _run }} archive-performance "$current_tag" "$baseline_tag" --measurements-output target/bench-reports/release-performance.csv --promote
-    else
-        {{ _run }} archive-performance --infer-release --measurements-output target/bench-reports/release-performance.csv --promote
-    fi
+[positional-arguments]
+performance-release *tags: python-sync
+    {{ _run }} research-repo-tools performance measure tooling/benchmark.toml "$@" --order published --allow-git-mutations --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
+    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
-publish-check: _ensure-jq
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "🔍 Validating crates.io metadata..."
-    errors=0
-
-    # Keywords: max 5, each ≤20 chars, ASCII alphanumeric/hyphen only
-    keywords=$({{ _run }} cargo metadata --no-deps --format-version=1 2>/dev/null \
-        | jq -r '.packages[0].keywords[]')
-    count=0
-    while IFS= read -r kw; do
-        [[ -z "$kw" ]] && continue
-        count=$((count + 1))
-        if (( ${#kw} > 20 )); then
-            echo "  ❌ keyword '${kw}' exceeds 20-char limit (${#kw} chars)"
-            errors=1
-        fi
-        if ! [[ "$kw" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "  ❌ keyword '${kw}' contains invalid characters"
-            errors=1
-        fi
-    done <<< "$keywords"
-    if (( count > 5 )); then
-        echo "  ❌ too many keywords ($count > 5)"
-        errors=1
-    fi
-    echo "  ✓ keywords ($count): $keywords"
-
-    # Categories: max 5
-    cat_count=$({{ _run }} cargo metadata --no-deps --format-version=1 2>/dev/null \
-        | jq '.packages[0].categories | length')
-    if (( cat_count > 5 )); then
-        echo "  ❌ too many categories ($cat_count > 5)"
-        errors=1
-    fi
-    echo "  ✓ categories ($cat_count)"
-
-    # Description: required, ≤1000 chars
-    desc=$({{ _run }} cargo metadata --no-deps --format-version=1 2>/dev/null \
-        | jq -r '.packages[0].description // ""')
-    if [[ -z "$desc" ]]; then
-        echo "  ❌ description is missing"
-        errors=1
-    elif (( ${#desc} > 1000 )); then
-        echo "  ❌ description exceeds 1000-char limit (${#desc} chars)"
-        errors=1
-    fi
-    echo "  ✓ description (${#desc} chars)"
-
-    if (( errors )); then
-        echo ""
-        echo "❌ Metadata validation failed. Fix Cargo.toml before publishing."
-        exit 1
-    fi
-
-    echo ""
-    echo "📦 Running cargo publish --dry-run..."
+publish-check:
+    {{ _run }} research-repo-tools validation cargo-metadata
     {{ _run }} cargo publish --locked --allow-dirty --dry-run
-    echo ""
-    echo "✅ Publish check passed!"
 
-# Check Python support scripts with Ruff and Ty.
+# Check Python consumer tests with Ruff and Ty.
 [group('validation')]
 python-check: python-typecheck
-    uv run --locked --group dev ruff format --check scripts/
-    uv run --locked --group dev ruff check scripts/
+    uv run --locked --group dev ruff format --check tests/tooling/
+    uv run --locked --group dev ruff check tests/tooling/
 
-# Apply Ruff fixes and formatting to Python support scripts.
+# Apply Ruff fixes and formatting to Python consumer tests.
 [group('validation')]
 python-fix: python-sync
-    uv run --locked --group dev ruff check scripts/ --fix
-    uv run --locked --group dev ruff format scripts/
+    uv run --locked --group dev ruff check tests/tooling/ --fix
+    uv run --locked --group dev ruff format tests/tooling/
 
 # Alias for the canonical Python check.
 [group('validation')]
@@ -581,10 +438,10 @@ python-lint: python-check
 python-sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
-# Type-check Python support scripts with Ty.
+# Type-check Python consumer tests with Ty.
 [group('validation')]
 python-typecheck: python-sync
-    uv run --locked --group dev ty check scripts/
+    uv run --locked --group dev ty check tests/tooling/
 
 # Validate synchronized release metadata and active version references.
 [group('release')]
@@ -609,21 +466,7 @@ review-uncommitted:
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
 semgrep:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        [[ -f "$file" ]] || continue
-        case "$file" in
-            tests/semgrep/*) continue ;;
-        esac
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z --)
-    if [ "${#files[@]}" -gt 0 ]; then
-        uv run --locked --group dev semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml "${files[@]}"
-    else
-        echo "No tracked or untracked repository files found to scan."
-    fi
+    uv run --locked --group dev research-repo-tools files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
 
 # Validate repository-owned Semgrep rules against annotated fixtures.
 [group('validation')]
@@ -677,7 +520,7 @@ test-integration:
 [group('tests and coverage')]
 test-lib: test-unit
 
-# Run Python support-script tests.
+# Run Python consumer integration tests.
 [group('tests and coverage')]
 test-python: python-sync
     uv run --locked --group dev pytest -q
@@ -704,47 +547,17 @@ toml-fix: toml-fmt
 # Format tracked TOML files.
 [group('validation')]
 toml-fmt:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        {{ _run }} taplo fmt "${files[@]}"
-    else
-        echo "No TOML files found to format."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.toml' -- taplo fmt
 
 # Check tracked TOML formatting without modifying files.
 [group('validation')]
 toml-fmt-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        {{ _run }} taplo fmt --check "${files[@]}"
-    else
-        echo "No TOML files found to check."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.toml' -- taplo fmt --check
 
 # Lint tracked TOML files.
 [group('validation')]
 toml-lint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.toml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        {{ _run }} taplo lint "${files[@]}"
-    else
-        echo "No TOML files found to lint."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.toml' -- taplo lint
 
 # Inspect declared tools without installing or synchronizing anything.
 [group('build and setup')]
@@ -791,107 +604,35 @@ update-uv:
 
 # Prepare versions, dates, and active references from a stable tag without upgrading dependencies.
 [group('release')]
-update-version tag: _ensure-gh python-sync
-    uv run --locked --group dev update-release-version {{ quote(tag) }}
+[positional-arguments]
+update-version tag *args: python-sync
+    uv run --locked --group dev research-repo-tools release update "$@"
 
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
 validate-examples: _build-examples validate-ising-example
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    example_binary() {
-        local example="$1"
-        local suffix=""
-        if [[ "${OS:-}" == "Windows_NT" ]]; then
-            suffix=".exe"
-        fi
-        printf 'target/debug/examples/%s%s' "$example" "$suffix"
-    }
-
-    validate_example() {
-        local example="$1"
-        shift
-        local output
-        output=$("$(example_binary "$example")")
-        echo "$output"
-        for marker in "$@"; do
-            echo "$output" | grep -q "$marker" || { echo "❌ ${example}: Missing marker '${marker}'"; exit 1; }
-        done
-        echo "✅ ${example} validated"
-    }
-
-    validate_example detailed_balance "Detailed balance checks passed" "by-value residual"
-    validate_example normal_1d "Sample mean" "Acceptance rate"
-    validate_example iterator_sampling "Sample mean" "Acceptance rate"
-    validate_example delayed_chunked_telemetry "Per-step telemetry" "Delayed chunked telemetry complete"
-    validate_example additive_target_bias "AdditiveTarget bias example" "observed P(true)"
+    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]
 validate-ising-example: _build-examples
-    #!/usr/bin/env bash
-    set -euo pipefail
-    suffix=""
-    if [[ "$(uname -s)" == *MINGW* || "$(uname -s)" == *MSYS* || "$(uname -s)" == *CYGWIN* ]]; then
-        suffix=".exe"
-    fi
-    binary="target/debug/examples/ising_1d${suffix}"
-    output=$("$binary")
-    printf '%s\n' "$output"
-    for marker in "<m>" "acceptance rate"; do
-        if ! grep -Fq "$marker" <<< "$output"; then
-            echo "Example ising_1d missing expected marker: $marker" >&2
-            exit 1
-        fi
-    done
-    echo "✅ ising_1d validated"
+    {{ _run }} research-repo-tools validation run tooling/examples.toml ising_1d
 
 # Validate tracked JSON files.
 [group('validation')]
 validate-json: _ensure-jq
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.json')
-    if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 -n1 jq empty
-    else
-        echo "No JSON files found to validate."
-    fi
+    uv run --locked --group dev research-repo-tools files run --include '*.json' --batch-size 1 -- jq empty
 
 # YAML formatting check
 [group('validation')]
 yaml-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.yml' '*.yaml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 {{ _run }} dprint check
-    else
-        echo "No YAML files found to check."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.yml' --include '*.yaml' -- dprint check
 
 # YAML formatting
 [group('validation')]
 yaml-fix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    files=()
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-    done < <(git ls-files -co --exclude-standard -z -- '*.yml' '*.yaml')
-    if [ "${#files[@]}" -gt 0 ]; then
-        printf '%s\0' "${files[@]}" | xargs -0 {{ _run }} dprint fmt
-    else
-        echo "No YAML files found to format."
-    fi
+    {{ _run }} research-repo-tools files run --include '*.yml' --include '*.yaml' -- dprint fmt
 
 # Alias for the canonical YAML check.
 [group('validation')]

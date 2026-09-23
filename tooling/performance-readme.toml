@@ -1,0 +1,49 @@
+# Select the independently reviewed release pair and revisions before publication.
+# Historical converted evidence cannot satisfy prepare's shared source fingerprints.
+# Use tag-policy = "existing" for tagged measurements; exact blob checks still apply.
+schema = 1
+document = "README.md"
+payload = "docs/performance/v1/v0.4.2-vs-v0.4.1.comparison.json"
+manifest = "docs/performance/v1/v0.4.2-vs-v0.4.1.evidence.json"
+begin = "<!-- PERFORMANCE:BEGIN -->"
+end = "<!-- PERFORMANCE:END -->"
+unit = "ns"
+svg = "docs/performance/v1/v0.4.2-vs-v0.4.1.svg"
+repository = "acgetchell/markov-chain-monte-carlo"
+tag-policy = "prepare"
+current-sources = [ "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "src/**/*.rs", "benches/stepping.rs" ]
+current-harness = [ "benches/stepping.rs" ]
+prose-file = "tooling/performance-interpretation.md"
+rows = [
+    { benchmark = "chain_step_by_value", label = "By-value step" },
+    { benchmark = "chain_step_mut_accept", label = "In-place accepted step" },
+    { benchmark = "chain_step_mut_reject_rollback", label = "In-place rollback step" },
+]
+links = [
+    { label = "Report and measurement context", path = "docs/performance/v1/current.md" },
+    { label = "Comparison evidence", path = "docs/performance/v1/v0.4.2-vs-v0.4.1.comparison.json" },
+    { label = "Provenance", path = "docs/performance/v1/v0.4.2-vs-v0.4.1.evidence.json" },
+]
+
+[provenance.baseline]
+revision = "b0d93a1b386aaec7222866fef24feeef6cf13475"
+release = "v0.4.1"
+
+[provenance.current]
+revision = "ef21cc6430329cefa64497f7eed1ffa8e669bea3"
+release = "v0.4.2"
+
+[[references]]
+path = "Cargo.toml"
+pattern = '^version = "(?P<value>[^"]+)"\r?$'
+source = "version"
+
+[[references]]
+path = "docs/performance/v1/current.md"
+pattern = '^<!-- research-repo-tools/performance-report/v1 current=(?P<value>v[0-9]+\.[0-9]+\.[0-9]+) baseline='
+source = "tag"
+
+[[references]]
+path = "docs/performance/v1/current.md"
+pattern = '^<!-- research-repo-tools/performance-report/v1 current=v[0-9]+\.[0-9]+\.[0-9]+ baseline=(?P<value>v[0-9]+\.[0-9]+\.[0-9]+) -->'
+source = "previous-tag"

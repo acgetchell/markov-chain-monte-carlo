@@ -98,12 +98,16 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
+- Use the exact published `research-repo-tools==0.1.5` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+  belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
+- Preserve historical performance bytes under `docs/PERFORMANCE.md` and `docs/archive/performance/`. Shared reports and evidence use `docs/performance/v1/`.
+  Update the independently reviewed selection in `tooling/performance-readme.toml` before publishing new README evidence.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version`, Rust in `rust-toolchain.toml`, and supported Cargo tools in `[tool.research-repo-tools.toolchain.cargo]`. Run managed tools through the
   Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The SARIF converters use the same shared Cargo
   catalog. See [the migration record](docs/dev/shared-maintenance-migration.md).
-- Keep support scripts and tests portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using native
-  `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
+- Keep consumer tests and notebook code portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using
+  native `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
 - Treat hashes, patches, serialized artifacts, and byte-sensitive fixtures as exact bytes. Use `read_bytes()`/`write_bytes()` with deliberate encoding;
   do not let text I/O silently normalize or translate their line endings.
 - Route Git stdin through the public `research_repo_tools.process.run_git_bytes` API. Pass exact bytes; Git owns any configured
@@ -173,7 +177,8 @@ At a glance:
 - `examples/` — complete runnable workflows.
 - `tests/` and `benches/` — integration validation and Criterion benchmarks.
 - `docs/` — topic guides.
-- `scripts/` — changelog and release helpers.
+- `tooling/` — declarative shared-tool configuration and scientific performance prose.
+- `tests/tooling/` — focused consumer integration and scientific policy checks; no local Python package or support scripts.
 
 ## Documentation map
 
@@ -184,8 +189,8 @@ The repository's docs have overlapping topics but distinct roles. When in doubt,
 - **`CONTRIBUTING.md`** — human contributor workflow: prerequisites, `just setup` managed tools and system checks, high-level repository layout, test
   categories, code style, performance/benchmarking, PR checklist, release process. Mirrors the human-facing parts of this file.
 - **`docs/code_organization.md`** — full tracked checkout tree, detailed file/module map, and "where does new code go?" guidance for `src/*.rs`, examples,
-  tests, benches, docs, and scripts. Consult when adding a new function/type/trait and unsure which file owns it, and update it whenever tracked files move,
-  appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
+  tests, benches, docs, and tooling configuration. Consult when adding a new function/type/trait and unsure which file owns it, and update it whenever tracked
+  files move, appear, or disappear. Does **not** repeat contributor workflow or tooling procedures.
 - **`README.md`** — public GitHub/crates.io landing page. It is also included verbatim at the top of docs.rs through
   `#![cfg_attr(any(doc, doctest), doc = include_str!("../README.md"))]` in `src/lib.rs`, so keep it concise, user-facing, and suitable for rustdoc rendering.
 - **`docs/reviewer_guide.md`** — short reading path for scientific and engineering reviewers: what to read first, what the crate claims, what it does not
