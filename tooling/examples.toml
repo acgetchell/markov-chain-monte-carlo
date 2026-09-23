@@ -1,0 +1,31 @@
+schema = 1
+
+[[checks]]
+name = "detailed_balance"
+command = [ "target/debug/examples/detailed_balance" ]
+expect = [ "Detailed balance checks passed", "by-value residual" ]
+
+[[checks]]
+name = "normal_1d"
+command = [ "target/debug/examples/normal_1d" ]
+expect = [ "Sample mean", "Acceptance rate" ]
+
+[[checks]]
+name = "ising_1d"
+command = [ "target/debug/examples/ising_1d" ]
+expect = [ "<m>", "acceptance rate" ]
+
+[[checks]]
+name = "iterator_sampling"
+command = [ "target/debug/examples/iterator_sampling" ]
+expect = [ "Sample mean", "Acceptance rate" ]
+
+[[checks]]
+name = "delayed_chunked_telemetry"
+command = [ "target/debug/examples/delayed_chunked_telemetry" ]
+expect = [ "Per-step telemetry", "Delayed chunked telemetry complete" ]
+
+[[checks]]
+name = "additive_target_bias"
+command = [ "target/debug/examples/additive_target_bias" ]
+expect = [ "AdditiveTarget bias example", "observed P(true)" ]

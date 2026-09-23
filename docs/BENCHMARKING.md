@@ -1,26 +1,33 @@
 # Benchmarking
 
-The Criterion suite protects stable, public MCMC workflows and separates three jobs: quick local regression checks, release-to-release evidence, and broader
-profiling. Benchmark results are empirical and machine-dependent; they are not correctness tests or universal performance guarantees.
+The fixed-seed Criterion suite measures public MCMC transition and observation overhead.
+Timings are empirical and host-dependent. Scientific workload contracts remain here;
+the pinned shared package owns execution, evidence, release assets, and publication.
 
 ## Command Guide
 
-| Command | Purpose | Output |
-|:--------|:--------|:-------|
-| `just bench-latest` | Run the fixed-seed release-signal suite on the current tree | `target/criterion/` |
-| `just bench-latest-vs-last` | Measure the current tree and compare it with the saved `last` baseline | `target/bench-reports/performance.md` |
-| `just bench-compare [baseline]` | Render existing measurements against `last` or an explicit saved baseline | `target/bench-reports/performance.md` |
-| `just bench-save-baseline <tag>` | Measure and save a named local Criterion baseline | `target/criterion/**/<tag>/` |
-| `just bench-save-last` | Save the conventional local `last` baseline | `target/criterion/**/last/` |
-| `just performance-local` | Compare the current working tree with the latest stable published release in isolated worktrees | `target/bench-reports/performance.{csv,provenance.json,md}` |
-| `just performance-github-assets` | Compare the two latest durable GitHub Release benchmark assets without running Cargo | `target/bench-reports/github-assets-performance.{csv,provenance.json,md}` |
-| `just performance-release` | Persist, validate, and promote the release comparison and its evidence; archive the previous curated report | `target/bench-reports/release-performance.{csv,provenance.json}`, `docs/PERFORMANCE.md`, and `docs/archive/performance/` |
-| `just performance-doc` | Rebuild and promote the curated report and tracked evidence solely from saved release measurements | `docs/PERFORMANCE.md` and `docs/archive/performance/` |
-| `just performance-readme` | Publish the README table, SVG, and tag-pinned links from validated retained release evidence | Marked README section and `docs/archive/performance/<current>-vs-<baseline>.svg` |
-| `just bench` | Run the full current Criterion harness for profiling or exploration | `target/criterion/` |
+| Command | Purpose |
+| --- | --- |
+| `just bench-latest` | Measure the stepping suite into `target/criterion/` |
+| `just bench-save-last` | Save the conventional local baseline |
+| `just bench-save-baseline NAME` | Save an explicitly named local baseline |
+| `just bench-compare [NAME]` | Compare saved samples; default baseline is `last` |
+| `just bench-latest-vs-last [NAME]` | Measure, then compare the saved baseline |
+| `just performance-local` | Measure the working tree against the latest published stable release |
+| `just performance-release [CURRENT BASELINE]` | Measure a release pair and promote shared evidence |
+| `just performance-github-assets [CURRENT BASELINE]` | Compare authenticated release assets without measuring |
+| `just performance-doc [--check or --preview]` | Rerender the current shared report offline |
+| `just performance-readme [--check or --preview]` | Publish the explicitly configured README selection |
+| `just performance-baseline TAG` | Measure a clean tagged checkout and package a shared release asset |
+| `just performance OPERATION ...` | Forward an explicit operation to the shared performance CLI |
+| `just bench` | Run the complete stepping harness |
 
-`just bench-compare <baseline>`, `just performance-github-assets <current-tag> <baseline-tag>`, and
-`just performance-release <current-tag> <baseline-tag>` accept explicit baselines or release pairs. Both tags must be supplied together.
+Saved comparison Markdown is written to `target/bench-reports/performance.md`.
+Local and asset comparisons write `local` and `github-assets` files with
+`.comparison.json`, `.evidence.json`, and `.md` suffixes in that directory.
+Release measurements write the `release` JSON pair before promotion.
+Both explicit release tags must be supplied together. Selection uses publication
+chronology, excluding drafts and prereleases.
 
 ## Release-Signal Workloads
 
@@ -54,163 +61,132 @@ materially. The Python regression tests protect the two current lifecycle patter
 The local report displays both benchmark-harness hash prefixes. Different hashes are an audit signal, not automatic proof that a comparison is invalid:
 source may need to change to follow a compatible API. When hashes differ, review every shared name against this contract before accepting the report.
 
-## Local Saved Baselines
-
-Use a saved baseline for iteration on one machine:
+## Saved Samples and Local Measurement
 
 ```bash
 just bench-save-last
-
-# Make a change, then rerun the release signal and render the comparison.
+# Make a change, then measure and compare.
 just bench-latest-vs-last
-```
-
-For a named checkpoint:
-
-```bash
-just bench-save-baseline before-observer-change
-just bench-latest
-just bench-compare before-observer-change
-```
-
-Criterion baselines below `target/` are local scratch data. Do not commit them or treat measurements from different machines as a controlled comparison.
-
-## Current Tree Versus a Published Release
-
-```bash
+just bench-compare last
 just performance-local
 ```
 
-This command resolves the latest stable published GitHub Release, creates detached temporary worktrees for that tag and the current `HEAD`, applies the current
-tracked diff and untracked files to the current worktree, and runs `stepping` in both. Each revision uses its own checked-in benchmark harness; the report
-compares benchmark names present in both revisions and lists current-only or baseline-only rows as coverage notes. Temporary worktrees are removed after the
-CSV and JSON provenance are saved, reloaded, validated, and rendered to `target/bench-reports/performance.md`.
+Saved Criterion samples are local scratch data. Shared comparison keeps both complete
+inventories and reports current-only and baseline-only rows. It uses median nanoseconds;
+ratios are baseline/current and positive percentage reduction means lower current time.
 
-Before 1.0, public APIs and benchmark harnesses may change in any release. A stable benchmark name means the workload remains intentionally comparable;
-renamed, added, or removed workflows appear as coverage notes rather than forced comparisons. Coverage gaps are expected evidence of surface evolution, not
-performance regressions. If a workload's meaning changes materially, give it a new benchmark name instead of comparing unlike operations.
+`tooling/benchmark.toml` declares the stepping command, source/harness inventories,
+tool probes, and compatibility fields. Local pairs require matching known OS,
+architecture, and CPU identities. Different harnesses require review of shared names
+against the workload contracts above. Unknown CPU identity fails this configured local
+compatibility check; do not invent a value to make it pass.
 
-This is the preferred pre-PR regression check because both measurements run on the same host while keeping build products and source trees isolated.
+Measurement explicitly permits temporary Git worktree creation/removal. The shared
+runner captures exact binary patches and nonignored untracked files, rejects stale
+inputs, executes with live output, and compares separate Criterion roots. Tags must
+already exist locally; it never fetches. Commands execute trusted benchmark code.
+An assistant subject to this repository's prohibition on Git mutations must leave
+live worktree measurement to the maintainer.
 
-## GitHub Release Assets
+## Shared Reports and Historical Evidence
 
-The manually dispatched `Release Benchmarks` workflow requires an existing draft GitHub Release. It saves the release tag as a Criterion baseline, attaches
-`markov-chain-monte-carlo-<tag>-criterion-baseline.tar.gz`, and publishes the draft only after the upload succeeds. This ordering is required for immutable
-releases. The workflow also uploads a 30-day Actions artifact for diagnostics; only the GitHub Release attachment is the durable historical baseline. Each
-schema-2 archive records the release tag and commit, runner operating system and architecture, rustc version, Criterion version, and SHA-256 digest of
-`benches/stepping.rs` beside the measurement data.
+New reports use `docs/performance/v1/current.md`; retained pairs and the generated
+archive index live beside it. Evidence uses `research-repo-tools/criterion-comparison/v1`
+inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative;
+shared CSV exports preserve points, bounds, confidence levels when known, units, and
+coverage. Source/harness inventories use the shared versioned fingerprint framing.
 
-Compare the latest two assets without local measurements:
-
-```bash
-just performance-github-assets
-```
-
-Repair or regenerate a particular historical comparison with:
-
-```bash
-just performance-github-assets v0.6.0 v0.5.0
-```
-
-The command writes an analysis-friendly CSV and structured provenance beside the Markdown report. The native Criterion archives remain the durable release
-assets because they retain the full measurement data needed for future tools; the CSV is the stable tabular interchange layer for analysis and report
-rendering.
-
-Releases published without a successful pre-publication `Release Benchmarks` run are not backfilled. Asset-to-asset comparisons therefore become available
-after two releases have been published by the workflow. The asset comparison fails clearly when either archive or requested Criterion sample is absent.
-Archives are bounded by compressed size, entry count, and expanded-file size and are checked for traversal, link, and unsupported entry types before
-extraction.
-
-Legacy schema-1 archives remain readable for compatibility, but do not record a benchmark-harness digest. Reports involving one of these assets state that
-workload identity is unavailable and require manual contract review. Schema-2 comparisons display both hash prefixes and warn when they differ.
-
-This rollout is prospective: releases through `v0.4.2` have no Criterion baseline attachment. The `v0.4.3` release creates the first durable schema-2 asset,
-and `v0.4.4` creates the first complete historical pair, comparing `v0.4.4` against `v0.4.3`. That second asset is the point at which the end-to-end asset
-workflow can be considered adopted. Pre-1.0 API changes remain allowed: changed workloads should receive new benchmark names and appear as coverage changes
-rather than being forced into invalid comparisons.
-
-GitHub-hosted runner hardware can vary between releases. Historical asset reports are useful release records, but a same-host local comparison is stronger
-evidence for attributing a change to the code.
-
-## Curated Release Report
-
-During release preparation, after the package version is final:
+`docs/PERFORMANCE.md`, `docs/archive/performance/`, and the existing README performance
+section retain their historical bytes. The v0.4.2 CSV and provenance have verified
+shared companions under the new path. Conversion records the original payload,
+manifest, and configuration hashes; old source digests stay opaque under `legacy.*`.
+They are never relabeled as newly captured shared fingerprints. No legacy writer or
+renderer remains. The v0.4.1 report predates retained evidence and remains a historical
+report without fabricated companions.
 
 ```bash
-just performance-release
-```
-
-The command reads the current tag from `Cargo.toml`. If that version is not published, it compares the patched working tree against the latest stable release;
-if it is already published, the repair path measures that exact release tag against the preceding stable release. It first writes
-`target/bench-reports/release-performance.csv` and `target/bench-reports/release-performance.provenance.json`, reloads and validates both files, and only then
-renders and promotes `docs/PERFORMANCE.md`. Promotion transactionally publishes that validated CSV/provenance pair to
-`docs/archive/performance/<current>-vs-<baseline>.{csv,provenance.json}` and links both tracked files from the curated report. It archives the previous report
-under `docs/archive/performance/<current>-vs-<baseline>.md` and refreshes the archive index. Existing archived Markdown is never overwritten. Once a pair has
-archived Markdown, its CSV and provenance are immutable as well: a repair must reproduce them byte for byte or use a newly versioned full evidence triplet. The
-active pair may be remeasured during release preparation, with its report and evidence replaced together in a rollback-capable transaction.
-
-For an explicit repair path:
-
-```bash
-just performance-release v0.4.2 v0.4.1
-```
-
-After a successful measurement, rerender the report without GitHub access, Git worktrees, or Cargo:
-
-```bash
+just performance-doc --check
 just performance-doc
+```
+
+Rerendering reads retained evidence and configured prose without GitHub, Cargo, or
+measurement. Promotion archives the previous shared report, rebases its evidence
+links, refreshes the index, and publishes all outputs in one recoverable transaction.
+Archived pairs are immutable; active evidence may change during release preparation.
+Generated shared reports are checked by reproduction, not rewritten by formatters.
+
+To promote explicitly saved shared evidence:
+
+```bash
+just performance-doc --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
+```
+
+The bounded `tooling/legacy-csv.toml` conversion exists only to reproduce the verified
+v0.4.2 transition. Retire it and its conversion test once all consumers use shared
+companions without conversion. Historical originals stay immutable after retirement.
+
+## Release Preparation and README Publication
+
+`just performance-release` reads the current Cargo version. An unpublished newer
+version uses working files against the latest published release. A published version
+uses its tag against its predecessor. Explicit pairs measure their exact tags.
+Same-label development comparisons cannot be promoted.
+
+Before `just performance-readme`, edit `tooling/performance-readme.toml` to select the
+reviewed evidence paths, pair-specific SVG and links, both independently verified
+revisions/releases, and workload rows. Review the full report, host/toolchain metadata,
+and coverage before choosing a README subset. This explicit selection replaces local
+discovery and publisher code.
+
+For a future release, keep `tag-policy = "prepare"`. It requires newer working-tree
+evidence, matching source/harness fingerprints, and the configured inventories.
+For tagged measurements, select `tag-policy = "existing"`. Existing tags must contain
+the exact retained, referenced, linked, and generated bytes; filters and newline
+conversion cannot establish equality. Both modes recheck inputs before publication.
+
+```bash
+just performance-readme --preview
 just performance-readme
 ```
 
-Rerendering reads only the release CSV and its adjacent provenance file. It rejects reordered or malformed rows, mismatched release metadata, changed report
-settings, and any CSV whose SHA-256 digest no longer matches the sidecar. Promotion publishes the Markdown and tracked evidence pair in one rollback-safe
-transaction, so a partial write cannot leave the curated report pointing at missing evidence.
+The checked-in selection records the historical pair as an audit reference and
+deliberately refuses to publish converted legacy data as a freshly measured release.
+The old README and SVG remain valid unchanged. A new measurement and reviewed selection
+are required to publish the next README table and SVG. Keep linked artifacts in the
+release commit before creating its tag. The publisher validates the Cargo version
+and both shared-report identities and updates the marked section and SVG together.
 
-README publication reads the same tracked CSV/JSON schema and validates the current release pair before rendering. It checks each tracked destination for
-repository containment, then publishes the marked README section and SVG together with rollback on failure. Missing CSV or JSON directs the maintainer to
-`just performance-release` before changing the README; a digest mismatch reports an integrity error. The plot shows point-estimate time ratios, not mixing,
-convergence, effective sample size, or statistical significance. Keep local release tags current: README publication checks an existing tag with read-only Git
-commands and requires its report, CSV, JSON, and SVG to match stored blob bytes exactly, including line endings. Git filters cannot establish equality.
-`.gitattributes` disables text conversion for retained reports and evidence so checkout preserves those bytes on Windows as well. Repaired or same-version
-evidence that differs must stay local or be published as part of a newly prepared release. New-release working-tree evidence may target its future tag; commit
-all linked artifacts before creating it. Same-version comparisons retain their working-tree label. With unchanged evidence and the locked rendering environment,
-both publication commands produce unchanged contents; rerunning measurements can produce different observations.
+## GitHub Release Assets
 
-The [archived v0.4.1 report](archive/performance/v0.4.1-vs-v0.4.0.md) predates tracked compact evidence and remains labeled legacy and non-reproducible. Its
-CSV measurements, JSON provenance with exact commands and source-input hashes, concrete CPU model, and native Criterion sample archives are unavailable.
-Do not manufacture a replacement from an unrelated dirty tree; an explicit generated CSV path is only for repairing evidence from the original controlled
-measurement. The current curated report has a tracked CSV/JSON pair, so a fresh checkout can rerender it with `just performance-doc` without new measurements.
+The manually dispatched `Release Benchmarks` workflow requires a mutable stable
+draft. A read-only job measures a clean tagged checkout and packages
+`markov-chain-monte-carlo-TAG-criterion-baseline.tar.gz`. Separate jobs install the exact
+registry package for draft validation and attachment/publication; they never check out
+benchmark code. The benchmark job has no write credentials.
 
-Review the report's release pair, comparable-row coverage, environment, harness hashes, and lifecycle contracts before committing it. The Markdown report
-records Criterion medians and marginal confidence intervals plus the source commits, toolchains, Criterion versions, and host platform, architecture, and
-concrete CPU model available for the selected mode. The displayed marginal intervals are not a paired statistical-significance claim.
+Shared archives contain the complete selected Criterion sample and provenance in
+`sample.json` and `provenance.json`. They are compact retained estimates, not raw
+Criterion time-series archives. Preserve local raw Criterion output separately when
+needed for independent reanalysis. An identical attachment retry succeeds; different
+bytes fail without overwrite. Publication follows attachment verification and a fresh
+draft-state check. The Actions artifact lasts 30 days; the release asset is durable.
 
-## Saved Comparison Schema
+`just performance-github-assets` downloads via authenticated GitHub CLI and checks
+provider hashes when available, plus bounded extraction. Historical assets without
+digests rely on GitHub HTTPS and repository access for authenticity. The read-only
+`tooling/legacy-baseline.toml` supports old schema-1/2 archives without relabeling their
+unknown provenance. Retire it when all selected release pairs have shared assets.
 
-The versioned CSV stores one deterministic row per benchmark name. Each row is classified as `comparable`, `current_only`, or `baseline_only` and retains the
-point estimate and available confidence bounds for both samples. Missing-sample fields are blank by construction. This compact dataset is directly usable by
-standard CSV tooling; Parquet would add conversion and dependency overhead without helping these small release-signal tables.
+Releases through v0.4.2 have no baseline attachment. The first release containing this
+workflow creates the first shared baseline; its successor enables the first complete
+asset pair. Verify that pair before claiming live asset adoption. No backfill runs
+implicitly. Runner hardware varies, so asset comparisons require manual compatibility
+review; the CLI does not certify them as controlled same-host measurements.
 
-The adjacent JSON records the release pair, report settings, exact benchmark commands, commits, host operating system, architecture and CPU model,
-Rust/Criterion versions, and SHA-256 hashes for `Cargo.lock` and `benches/stepping.rs`. A combined source digest covers `Cargo.toml`, `Cargo.lock`,
-`rust-toolchain.toml`, `benches/stepping.rs`, and every Rust source file. The sidecar also binds itself to the CSV by digest. Provenance schema v2 requires a
-nullable `cpu_model` field for every sample; legacy v1 sidecars remain readable and migrate to an unavailable CPU model in memory. The local producer detects
-the CPU model once and records the same value for both same-host samples when available, or JSON null for both when detection is unavailable. Local samples
-must also agree on operating system and architecture. GitHub-asset comparisons propagate the benchmark-harness hash when their native Criterion archive
-uses metadata schema 2 and require CPU-model, local-command, Cargo-lock, and combined-source hashes to remain null.
-
-Files below `target/bench-reports/` are ignored local release work products. Keep the CSV and JSON with any external research record that cites the local
-same-host comparison. After publication, the native Criterion tarballs attached to GitHub Releases are the durable repository-owned measurements from which
-asset-to-asset CSV and Markdown reports can be regenerated.
-
-These timings are evidence about implementation overhead on the recorded hosts, not proof of sampler convergence, mixing quality, or scientific efficiency.
-For Praxis comparisons, validate invariant distributions or equilibrium observables first, then report observable-specific effective samples per second,
-integrated autocorrelation time, and uncertainty alongside these engineering timings. Apply the same diagnostic and scientific measurements to conventional
-and learned proposals.
-
-The repository intentionally starts the curated history prospectively. Earlier releases remain usable as same-host local baselines, but are not represented
-as durable assets or retrospective committed reports. A release-preparation report may therefore exist before two durable assets do; that local report does
-not substitute for verifying the first asset-to-asset pair after the second post-rollout release.
+Timing ratios and marginal bounds do not establish significance, convergence, mixing,
+or effective sample size. Research comparisons need invariant-distribution or equilibrium
+checks and observable-specific effective samples per second, autocorrelation, and
+uncertainty for conventional and learned proposals.
 
 ## Broader Profiling
 

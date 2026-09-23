@@ -1,0 +1,22 @@
+schema = 1
+command = [ "cargo", "bench", "--locked", "--bench", "stepping" ]
+sources = [ "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "src/**/*.rs", "benches/stepping.rs" ]
+harness = [ "benches/stepping.rs" ]
+criterion-dir = "target/criterion"
+sample = "new"
+statistic = "median"
+unit = "ns"
+timeout = 7200
+# Harness changes require scientific contract review, not automatic rejection.
+# Local pairs must have known, equal host identities. Asset pairs require manual review.
+compatible = [ "context.os", "context.architecture", "context.cpu" ]
+
+[probes]
+rustc = [ "rustc", "--version", "--verbose" ]
+
+[dependencies]
+criterion = "Cargo.lock"
+
+[context]
+suite = "stepping"
+scope = "release-signal"

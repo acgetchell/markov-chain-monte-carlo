@@ -1,55 +1,22 @@
-[build-system]
-requires = [ "setuptools>=83.0.0", "wheel" ]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "markov-chain-monte-carlo-tooling"
-version = "0.4.2"
-description = "Python utility scripts for the markov-chain-monte-carlo Rust library"
-readme = "scripts/README.md"
+name = "markov-chain-monte-carlo-environment"
+version = "0.0.0"
+description = "Dependency-only environment for MCMC notebooks and consumer checks"
 requires-python = ">=3.14"
-license = "BSD-3-Clause"
-authors = [
-    { name = "Adam Getchell" },
-]
-keywords = [ "mcmc", "markov-chain", "monte-carlo", "rust", "tooling" ]
-dependencies = [ "research-repo-tools==0.1.3" ]
-
-[project.optional-dependencies]
-notebook = [
-    "research-repo-tools[notebooks]==0.1.3",
-    "matplotlib>=3.11.1",
-    "polars>=1.43.2",
-]
-
-[project.urls]
-"Homepage" = "https://github.com/acgetchell/markov-chain-monte-carlo"
-"Documentation" = "https://docs.rs/markov-chain-monte-carlo"
-"Repository" = "https://github.com/acgetchell/markov-chain-monte-carlo"
-"Bug Tracker" = "https://github.com/acgetchell/markov-chain-monte-carlo/issues"
-
-[project.scripts]
-archive-performance = "archive_performance:main"
-bench-compare = "bench_compare:main"
-publish-performance-readme = "publish_performance_readme:main"
-update-release-version = "update_release_version:main"
-
-[tool.setuptools]
-package-dir = { "" = "scripts" }
-py-modules = [ "archive_performance", "bench_compare", "publish_performance_readme", "update_release_version" ]
+dependencies = [  ]
 
 [dependency-groups]
 dev = [
     { include-group = "tooling" },
-    "actionlint-py==1.7.12.24",
+    "actionlint-py==1.7.12.25",
     "pytest>=9.1.1",
     "ruff>=0.16.8",
     "semgrep==1.177.0",
     "ty>=0.0.82",
 ]
-notebook = [ "markov-chain-monte-carlo-tooling[notebook]" ]
+notebook = [ "research-repo-tools[notebooks]==0.1.5", "matplotlib>=3.11.1", "polars>=1.43.2" ]
 
-tooling = [ "research-repo-tools==0.1.3" ]
+tooling = [ "research-repo-tools==0.1.5" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -58,7 +25,9 @@ formatter = "rumdl.toml"
 
 [tool.research-repo-tools.release]
 date-policy = "declared"
+tag-policy = "canonical-stable"
 required-files = [ "Cargo.lock", "pyproject.toml", "uv.lock", "CITATION.cff", "CHANGELOG.md", "README.md", "REFERENCES.md" ]
+exclude = [ "docs/performance/**" ]
 
 [[tool.research-repo-tools.release.rules]]
 path = "CITATION.cff"
@@ -80,22 +49,17 @@ path = "README.md"
 pattern = 'https://(?:github\.com/acgetchell/markov-chain-monte-carlo/(?:blob|raw|tree)/|raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/)(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/[^\s)\]>"?#]+'
 source = "tag"
 count = 30
-exclude = '/docs/(?:PERFORMANCE\.md(?:$|[?#])|archive/performance/)'
-
-[[tool.research-repo-tools.release.rules]]
-path = "docs/BENCHMARKING.md"
-pattern = 'just performance-release[ \t]+(?P<value>v[0-9]+\.[0-9]+\.[0-9]+)(?=\s|\x60|$)'
-source = "tag"
+exclude = '/docs/(?:PERFORMANCE\.md(?:$|[?#])|archive/performance/|performance/)'
 
 [tool.research-repo-tools.toolchain.cargo]
 cargo-audit = "0.22.2"
 cargo-edit = "0.13.13"
 cargo-llvm-cov = "0.9.1"
-cargo-nextest = "0.9.145"
+cargo-nextest = "0.9.146"
 clippy-sarif = "0.8.0"
 dprint = "0.57.4"
 git-cliff = "2.14.2"
-rumdl = "0.2.74"
+rumdl = "0.2.77"
 sarif-fmt = "0.8.0"
 taplo-cli = "0.10.0"
 typos-cli = "1.50.2"
@@ -166,7 +130,7 @@ cwd = "tests/semgrep"
 [tool.ruff]
 line-length = 160
 target-version = "py314"
-src = [ "scripts" ]
+src = [ "tests/tooling" ]
 
 [tool.ruff.lint]
 select = [ "E", "F", "W", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF" ]
@@ -177,37 +141,17 @@ ignore = [
     "COM812", # Trailing comma missing (conflicts with formatter)
     "ISC001", # Implicitly concatenated string literals (conflicts with formatter)
 
-    # CLI script patterns
-    "PLR2004", # Magic value used in comparison - OK for CLI constants and thresholds
-    "FBT001", # Boolean-typed positional argument - OK for CLI flags
-    "FBT002", # Boolean default positional argument - OK for CLI flags
-    "BLE001", # Do not catch blind exception - OK for CLI robustness
-    "T201", # print found - OK for CLI output
-    "TRY300", # Consider moving statement to else block - OK for CLI control flow
-    "TRY301", # Abstract raise to inner function - OK for straightforward CLI error handling
-    "ARG001", # Unused function argument - common in callbacks
-    "ERA001", # Found commented-out code - OK for explanatory comments
-    "EXE001", # Shebang present but file not executable - handled by packaging
-    "PTH123", # open() should be replaced by Path.open() - OK for some call sites
-    "EM102", # Exception must not use f-string - OK for CLI error messages
-    "TRY003", # Avoid specifying long messages outside exception class - OK for CLI reporting
+    "PLR2004", # Scientific constants and explicit expected values in consumer tests
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/tests/**/*.py" = [
+"tests/tooling/**/*.py" = [
     "S101", # asserts are fine in tests
-    "SLF001", # tests may call internal helpers
-    "PT019", # @patch decorator params are not pytest fixtures
     "PLC0415", # test helpers may import inside functions
 ]
+"*.ipynb" = [ "T201" ] # Scientific notebook summaries
 
 [tool.ruff.lint.isort]
-known-first-party = [
-    "archive_performance",
-    "bench_compare",
-    "publish_performance_readme",
-    "update_release_version",
-]
 force-single-line = false
 split-on-trailing-comma = true
 combine-as-imports = true
@@ -229,12 +173,12 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 minversion = "9.0"
 addopts = [ "-ra", "--strict-markers", "--strict-config", "--color=yes" ]
-testpaths = [ "scripts/tests" ]
+testpaths = [ "tests/tooling" ]
 python_files = [ "test_*.py", "*_test.py" ]
 python_classes = [ "Test*" ]
 python_functions = [ "test_*" ]
 
 [tool.uv]
-required-version = "==0.12.17"
-package = true
+required-version = "==0.12.18"
+package = false
 default-groups = [ "dev", "notebook" ]

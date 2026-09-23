@@ -98,7 +98,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.1.3` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.1.5` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 Consumer tests use local process stubs; no live review is part of migration validation.
@@ -146,11 +146,11 @@ TOML pins and retain previous managed versions on failure. `cargo-update` and th
 stable-uv preflight, refresh the complete lock, and synchronize dev. Shared package and Just upgrades remain deliberate package-pin changes.
 
 The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
-the adoption of the public utility, release, performance, and publication APIs in #164.
+the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
 
 ## Line Length
 
-Non-Rust tooling uses a 160-column policy for Ruff-managed Python support scripts, `rumdl`-managed Markdown, Taplo-managed TOML, and dprint-managed YAML. Rust
+Non-Rust tooling uses a 160-column policy for Ruff-managed Python consumer tests, `rumdl`-managed Markdown, Taplo-managed TOML, and dprint-managed YAML. Rust
 remains on the narrower `rustfmt` `max_width = 100` setting because wide Rust signatures, trait bounds, and method chains are harder to scan at 160 columns.
 
 ## Testing
@@ -254,7 +254,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `dprint.json` configures YAML formatting through dprint Pretty YAML with the repository's 160-column non-Rust line length.
 - `pyproject.toml` pins Python-based development tools and configures Ruff's 160-column line length.
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.
-- `scripts/` contains consumer release policies and benchmark helpers; shared maintenance and notebook execution live in `research-repo-tools`.
+- `tooling/` contains declarative benchmark, publication, and example policy; `tests/tooling/` protects consumer integration and scientific behavior.
+  Shared maintenance, measurement, rendering, and notebook execution live in the registry-pinned `research-repo-tools` package.
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.

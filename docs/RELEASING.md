@@ -40,6 +40,8 @@ just update-version "$TAG"
 DATE=YYYY-MM-DD
 just changelog-unreleased "$TAG" "$DATE"
 just performance-release
+# Review the shared evidence, then update tooling/performance-readme.toml selections and provenance pins.
+just performance-readme --preview
 just performance-readme
 just ci
 uv run --locked --group dev research-repo-tools toolchain run -- cargo publish --locked --allow-dirty --dry-run
@@ -48,15 +50,18 @@ uv run --locked --group dev research-repo-tools toolchain run -- cargo publish -
 ### Release metadata
 
 `just update-version "$TAG"` requires canonical stable `vX.Y.Z` syntax and an available `gh`. It excludes drafts and prereleases when inferring the prior
-published stable release. It prepares the root versions in `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and `uv.lock`, citation version/date, active
-installation and release-command examples, and non-artifact README links. Dependency lock entries are preserved. It validates the complete proposed metadata
-before replacing files and restores earlier contents if publication fails.
+published stable release. It prepares Cargo versions and lock metadata, citation version/date, active installation examples, and non-artifact README links.
+The dependency-only Python environment is not a releasable package; its placeholder version stays independent of Cargo.
+All policy is declarative in `pyproject.toml`, including fixed DOI assertions, historical exclusions,
+and canonical stable tags. Version-independent benchmark examples need no callback.
 
-Common metadata preparation runs through the pinned shared package in a temporary tree; MCMC adds its DOI, performance-command, and README-link policies
-before publishing the complete candidate. For an offline preview including those policies, first set `PREVIOUS_TAG` to the preceding published stable release
-tag in `vX.Y.Z` form. Then use
-`uv run --locked update-release-version "$TAG" --previous-release "$PREVIOUS_TAG" --date "$DATE" --dry-run`.
-See the [migration record](dev/shared-maintenance-migration.md) for shared v0.1.2 ownership and the retained SARIF helper follow-up.
+For an offline preview, supply the previous published tag and date explicitly:
+
+```bash
+just update-version "$TAG" --previous-release "$PREVIOUS_TAG" --date "$DATE" --dry-run
+```
+
+See the [migration record](dev/shared-maintenance-migration.md) for the v0.1.5 ownership map.
 
 The stable Zenodo concept DOI stays `10.5281/zenodo.20033111` across releases. Keep it in `CITATION.cff`, the README badge target, and `REFERENCES.md`; do not
 substitute a version DOI or add version-specific citation identifiers. The updater validates these existing DOI references rather than changing them.
@@ -89,32 +94,36 @@ with the pinned shared package, including preserved dates and repeatable archive
 unpublished current version uses the patched working tree; an already published version uses that tag against its predecessor. Explicit
 `just performance-release <current-tag> <baseline-tag>` pairs are for repairs. Measurement reruns produce new observations and are not idempotent.
 
-The command saves and validates `target/bench-reports/release-performance.{csv,provenance.json}`, promotes `docs/PERFORMANCE.md`, and retains the compact pair
-under `docs/archive/performance/`. Review comparable-row coverage, host/toolchain details, and harness hashes. If harness hashes differ, verify the shared
-workloads against the lifecycle contract in [BENCHMARKING.md](BENCHMARKING.md). Rename changed workloads instead of comparing unlike operations.
+The command retains shared comparison/evidence JSON and CSV under `docs/performance/v1/`,
+updates its `current.md`, and archives the previous shared report. Historical files under
+`docs/PERFORMANCE.md` and `docs/archive/performance/` remain unchanged.
+Review coverage, host/toolchain context, and workload contracts in [BENCHMARKING.md](BENCHMARKING.md).
 
-`just performance-readme` consumes this validated retained pair without GitHub discovery or new measurements. It replaces only the marked README performance
-section and the pair's SVG under `docs/archive/performance/`, with tag-pinned report, CSV, JSON, and image links. Tracked paths are checked for containment
-individually, independent of link labels. Missing evidence names `just performance-release` as the recovery command before changing the README; a digest
-mismatch remains a separate integrity failure. Local release tags must be current: read-only Git checks require an existing current tag to contain the exact
-report, CSV, JSON, and rendered SVG before publication. Repaired or same-version evidence that differs cannot be published under that tag; keep it local or
-prepare a new release. New-release working-tree comparisons may target the future release tag; commit all linked artifacts before creating it. Identical
-tagged artifacts can be republished without changes, and same-version comparisons retain their source label.
+Before publishing the README, update `tooling/performance-readme.toml` with the reviewed
+pair paths, independently verified revisions/releases, SVG links, and selected workload rows.
+Future-release preparation uses `tag-policy = "prepare"` and requires current shared source
+and harness fingerprints. Tagged evidence uses `existing`; any existing tag must contain
+the exact linked and generated bytes. The publisher checks the current Cargo version and both
+report identities and rejects stale input before updating the README section and SVG together.
 
-To reproduce the curated report without measuring again:
+The checked-in historical selection cannot publish converted legacy data as fresh measurement.
+Keep the old README bytes until the next measured release is prepared. Do not bypass tag checks
+to replace artifacts already published under an existing tag.
+
+Reproduce retained reports without measurement or network access:
 
 ```bash
+just performance-doc --check
 just performance-doc
-just performance-readme
 ```
 
-`performance-doc` reads the current report's retained CSV/JSON pair by default. An explicit CSV path can repair another saved pair. It replaces the former
-`performance-rerender` command; there is no compatibility alias. These retained-data transformations are content-idempotent with unchanged evidence and the
-locked rendering environment. Native Criterion archives attached to GitHub Releases remain richer raw evidence for independent reanalysis.
+An explicit shared pair can be promoted with `--payload` and `--manifest` arguments.
+These transformations are content-idempotent. Commit the report, evidence, archive index,
+reviewed publication configuration, SVG, and README together before creating the new tag.
 
-Commit the report, compact evidence, archive index, SVG, and README together. For development without modifying committed publication artifacts, use
-`just performance-local`; same-version current-tree-versus-published-tag comparisons remain supported. `just performance-github-assets` compares durable
-release assets without local Cargo measurements. See [BENCHMARKING.md](BENCHMARKING.md) for measurement limits.
+For development use `just performance-local`; same-version working-tree comparisons remain
+supported but cannot be promoted. `just performance-github-assets` compares authenticated
+release assets without local measurements.
 
 ### Validation and release PR
 
@@ -159,9 +168,11 @@ gh release view "$TAG" --json assets --jq '.assets[].name'
 If upload succeeds but publication fails, rerun the failed publication job to reuse the saved Actions artifact. The workflow downloads any existing asset
 with the same name and requires an exact byte match before publishing. A different asset stops publication for investigation; it is never overwritten.
 
-The 30-day Actions artifact is diagnostic only. Historical releases are not backfilled: `v0.4.2` and earlier releases have no Criterion baseline attachment.
-`v0.4.3` establishes the initial asset. After publishing `v0.4.4`, run `just performance-github-assets` and verify the `v0.4.4`-against-`v0.4.3` pair before
-treating release-benchmark adoption as complete.
+The 30-day Actions artifact is diagnostic only. The shared release archive contains selected Criterion
+estimates and provenance, not the original raw Criterion time series. Preserve raw samples separately
+when needed for reanalysis. Historical releases are not backfilled. The first release containing this
+workflow creates the first shared baseline; its successor enables the first complete asset pair.
+Verify that live pair before treating release-asset adoption as complete.
 
 After confirming publication and the durable baseline, delete the merged release branch locally and remotely:
 

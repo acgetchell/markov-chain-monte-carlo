@@ -1,0 +1,14 @@
+# Read-only historical asset layout; retire once selected release pairs all use shared assets.
+schema = 1
+schema-field = "schema"
+schemas = [ 1, 2 ]
+metadata = "criterion/.mcmc-release-metadata.json"
+criterion = "criterion"
+sample = "{tag}"
+statistic = "median"
+unit = "ns"
+
+[source]
+revision = "commit"
+release = "tag"
+record = "$"
