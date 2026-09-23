@@ -9,7 +9,8 @@ runs:
       with:
         version-file: pyproject.toml
         enable-cache: true
-        cache-python: true
+        # Restored Windows Python homes can be inaccessible to ty.
+        cache-python: ${{ runner.os != 'Windows' }}
 
     - name: Cache declared Rust and Cargo tools
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
