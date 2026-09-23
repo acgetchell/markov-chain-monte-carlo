@@ -98,7 +98,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.1.5` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.1.6` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
 - Preserve historical performance bytes under `docs/PERFORMANCE.md` and `docs/archive/performance/`. Shared reports and evidence use `docs/performance/v1/`.
   Update the independently reviewed selection in `tooling/performance-readme.toml` before publishing new README evidence.
@@ -118,6 +118,11 @@ changing numerical semantics, or changing acceptance/error behavior.
   contents explicit, and fix implementation defects without weakening intended-behavior assertions or skipping Windows coverage.
 - Report the actual validation platform. A macOS or Linux run, including Windows emulation tests, does not establish that native Windows CI passes.
   Semgrep enforces recognizable source patterns; behavioral tests and native Windows CI remain necessary.
+- `just python-check` applies the full configured Ruff formatting, annotation, `TC`/`UP` and Ty policy to every tracked or non-ignored Python file, including
+  Semgrep fixtures. Keep deliberate violations as exact per-file rule exceptions; do not narrow discovery or override Ruff's selector. Notebook checks use the
+  same policy through the shared native notebook command. On Python 3.14, use deferred bare annotations and `TYPE_CHECKING` for annotation-only imports.
+- `just zizmor` uses the declared scanner and persona through the shared CLI, discovers authentication without printing tokens, and reports an offline fallback.
+  The SARIF workflow requires online audits and runs a plain findings gate before report generation; keep both steps on the same canonical recipe.
 
 ## Common Commands
 

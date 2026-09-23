@@ -41,7 +41,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: uvx --python 3.14 --exclude-newer 2026-09-23T17:01:12Z --from research-repo-tools==0.1.5 research-repo-tools performance release-draft "$GH_REPO" "$RELEASE_TAG"
+        run: uvx --python 3.14 --exclude-newer 2026-09-23T20:18:39Z --from research-repo-tools==0.1.6 research-repo-tools performance release-draft "$GH_REPO" "$RELEASE_TAG"
 
   release-baseline:
     needs: validate-release
@@ -89,4 +89,4 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: uvx --python 3.14 --exclude-newer 2026-09-23T17:01:12Z --from research-repo-tools==0.1.5 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET" --publish
+        run: uvx --python 3.14 --exclude-newer 2026-09-23T20:18:39Z --from research-repo-tools==0.1.6 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET" --publish

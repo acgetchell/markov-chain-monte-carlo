@@ -28,7 +28,7 @@ _ensure-uv-stable:
     uv run --no-config --no-sync --no-python-downloads research-repo-tools deps check-uv
 
 _notebook-all mode:
-    uv run --locked --group dev --group notebook research-repo-tools files run --include 'notebooks/*.ipynb' --exclude '*/.ipynb_checkpoints/*' -- research-repo-tools notebooks {{ quote(mode) }}
+    uv run --locked --group dev --group notebook research-repo-tools files run --include '*.ipynb' --exclude '*/.ipynb_checkpoints/*' -- research-repo-tools notebooks {{ quote(mode) }}
 
 # GitHub Actions workflow validation
 [group('validation')]
@@ -417,17 +417,17 @@ publish-check:
     {{ _run }} research-repo-tools validation cargo-metadata
     {{ _run }} cargo publish --locked --allow-dirty --dry-run
 
-# Check Python consumer tests with Ruff and Ty.
+# Check all Python files and fixtures with the complete configured Ruff and Ty policy.
 [group('validation')]
 python-check: python-typecheck
-    uv run --locked --group dev ruff format --check tests/tooling/
-    uv run --locked --group dev ruff check tests/tooling/
+    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --check --no-force-exclude
+    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --no-fix --no-force-exclude
 
-# Apply Ruff fixes and formatting to Python consumer tests.
+# Apply configured Ruff fixes and formatting to all Python files and fixtures.
 [group('validation')]
 python-fix: python-sync
-    uv run --locked --group dev ruff check tests/tooling/ --fix
-    uv run --locked --group dev ruff format tests/tooling/
+    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --fix --no-force-exclude
+    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --no-force-exclude
 
 # Alias for the canonical Python check.
 [group('validation')]
@@ -438,10 +438,10 @@ python-lint: python-check
 python-sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
-# Type-check Python consumer tests with Ty.
+# Type-check every discovered Python file and fixture with Ty.
 [group('validation')]
 python-typecheck: python-sync
-    uv run --locked --group dev ty check tests/tooling/
+    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ty check --no-force-exclude
 
 # Validate synchronized release metadata and active version references.
 [group('release')]
@@ -640,5 +640,6 @@ yaml-lint: yaml-check
 
 # GitHub Actions security analysis
 [group('validation')]
-zizmor:
-    {{ _run }} zizmor .github
+[positional-arguments]
+zizmor *args:
+    uv run --locked --group dev research-repo-tools zizmor check "$@" .github

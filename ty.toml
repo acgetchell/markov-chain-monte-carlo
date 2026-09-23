@@ -1,10 +1,7 @@
 # ty.toml
 # Astral ty configuration for markov-chain-monte-carlo
-# Python covers consumer integration checks; Rust is primary.
-
-[src]
-# Scientific notebook types are checked by the shared notebook command.
-include = [ "tests/tooling" ]
+# Check all discovered Python files, including Semgrep fixtures.
+# Scientific notebooks also use the shared native notebook checks.
 
 [environment]
 # Match the project's minimum supported Python version.
