@@ -2,6 +2,7 @@ name: Release Benchmarks
 run-name: Release benchmark ${{ inputs.release_tag }}
 
 # Write-token jobs install registry tooling and never check out benchmark code.
+# Keep both resolution cutoffs aligned with the reviewed uv.lock snapshot.
 permissions:
   contents: read
 
@@ -40,7 +41,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: uvx --python 3.14 --from research-repo-tools==0.1.5 research-repo-tools performance release-draft "$GH_REPO" "$RELEASE_TAG"
+        run: uvx --python 3.14 --exclude-newer 2026-09-23T17:01:12Z --from research-repo-tools==0.1.5 research-repo-tools performance release-draft "$GH_REPO" "$RELEASE_TAG"
 
   release-baseline:
     needs: validate-release
@@ -88,4 +89,4 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: uvx --python 3.14 --from research-repo-tools==0.1.5 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET" --publish
+        run: uvx --python 3.14 --exclude-newer 2026-09-23T17:01:12Z --from research-repo-tools==0.1.5 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET" --publish
