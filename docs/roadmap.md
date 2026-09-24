@@ -48,6 +48,11 @@ were accepted where they made invalid states unrepresentable or preserved valida
 
 - [x] [#142](https://github.com/acgetchell/markov-chain-monte-carlo/issues/142) - Update Rust to 1.98.0 and forbid relaxed algebraic `f64` operations
 
+## Unreleased Diagnostics
+
+- [x] [#73](https://github.com/acgetchell/markov-chain-monte-carlo/issues/73) - Scalar ACF and integrated autocorrelation time, with Ising notebook analysis
+- [ ] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - ESS, ESS-rate, and R-hat diagnostics
+
 ## Planned Milestones
 
 ### v0.5.0 Adaptive Diagnostics

@@ -1,7 +1,7 @@
 //! Trace recording and export helpers for MCMC diagnostics.
 //!
 //! This module stores numeric observable traces independently from plotting,
-//! notebook rendering, or downstream statistical estimators.  A [`Trace`]
+//! notebook rendering. Scalar columns can be analyzed with [`crate::Autocorrelation`]. A [`Trace`]
 //! contains one row per completed step, a stable [`ChainId`], accept/reject
 //! metadata through [`TraceStepOutcome`], the chain's cached target
 //! log-probability, and caller-defined numeric observable columns.
@@ -263,7 +263,7 @@ impl TraceRecord {
     }
 }
 
-/// Errors returned while constructing trace data.
+/// Errors returned while constructing trace data or selecting observable columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TraceError {
@@ -277,6 +277,12 @@ pub enum TraceError {
     #[non_exhaustive]
     DuplicateObservableName {
         /// Duplicated observable name.
+        name: String,
+    },
+    /// A requested observable name was not present in the trace header.
+    #[non_exhaustive]
+    UnknownObservable {
+        /// Requested observable name, matched exactly and case-sensitively.
         name: String,
     },
     /// A row had a different number of values than the trace header.
@@ -306,6 +312,9 @@ impl fmt::Display for TraceError {
             Self::DuplicateObservableName { name, .. } => {
                 write!(f, "observable name {name:?} appears more than once")
             }
+            Self::UnknownObservable { name, .. } => {
+                write!(f, "trace has no observable named {name:?}")
+            }
             Self::ObservableCountMismatch {
                 expected, actual, ..
             } => write!(
@@ -325,6 +334,11 @@ impl fmt::Display for TraceError {
 impl Error for TraceError {}
 
 /// Multi-chain numeric trace with shared observable columns.
+///
+/// Column names are nonempty, unique, and fixed at construction. Every stored
+/// row has exactly one value per column, in header order. Appending rows or
+/// merging traces validates this alignment before changing the stored records.
+/// Numeric values and step ordering are preserved without validation.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub struct Trace {
@@ -403,7 +417,7 @@ impl Trace {
     /// # Errors
     ///
     /// Returns [`TraceError::ObservableCountMismatch`] if the row does not
-    /// match this trace's observable columns.
+    /// match this trace's observable columns. On error, this trace is unchanged.
     pub fn push(&mut self, record: TraceRecord) -> Result<(), TraceError> {
         let actual = record.observable_values.len();
         let expected = self.observable_names.len();
@@ -430,7 +444,8 @@ impl Trace {
     /// # Errors
     ///
     /// Returns [`TraceError::ObservableNamesMismatch`] if the traces use
-    /// different observable columns.
+    /// different observable columns, including a different column order.
+    /// On error, this trace is unchanged; the supplied `other` is consumed.
     pub fn extend(&mut self, other: Self) -> Result<(), TraceError> {
         if self.observable_names != other.observable_names {
             return Err(TraceError::ObservableNamesMismatch {
@@ -466,6 +481,62 @@ impl Trace {
         self.records
             .iter()
             .filter(move |record| record.chain_id == chain_id)
+    }
+
+    /// Borrow one named observable's values for one chain, in insertion order.
+    ///
+    /// Select by the exact, case-sensitive header name instead of maintaining a
+    /// positional column index. Every matching row is retained, including
+    /// rejected and no-proposal steps. A known column with no rows for
+    /// `chain_id` produces an empty iterator.
+    ///
+    /// Column lookup costs `O(C)` for `C` columns; iteration scans the `R` trace
+    /// rows in `O(R)` time. Success allocates nothing. The iterator borrows only
+    /// this trace, so the supplied name need not outlive it. Use `.copied()`
+    /// when collecting a scalar slice for [`crate::Autocorrelation::estimate`].
+    ///
+    /// Selection does not sort rows, discard burn-in, or validate step spacing
+    /// or numeric values. Those responsibilities remain with the caller and
+    /// the chosen estimator; use [`Self::records_for_chain`] to inspect steps.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::{
+    ///     ChainId, Trace, TraceError, TraceRecord, TraceStepOutcome,
+    /// };
+    ///
+    /// let chain_id = ChainId::new(0);
+    /// let mut trace = Trace::new(["magnetization", "energy"])?;
+    /// trace.push(TraceRecord::new(
+    ///     chain_id, 1, TraceStepOutcome::accepted(), 0.0, vec![0.5, -2.0],
+    /// ))?;
+    /// let energy: Vec<_> = trace.observable_values(chain_id, "energy")?.copied().collect();
+    /// assert_eq!(energy, [-2.0]);
+    /// # Ok::<(), TraceError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TraceError::UnknownObservable`] when `observable` is not in
+    /// [`Self::observable_names`], even if the trace or selected chain is empty.
+    pub fn observable_values<'a>(
+        &'a self,
+        chain_id: ChainId,
+        observable: &str,
+    ) -> Result<impl Iterator<Item = &'a f64> + use<'a>, TraceError> {
+        let column = self
+            .observable_names
+            .iter()
+            .position(|name| name == observable)
+            .ok_or_else(|| TraceError::UnknownObservable {
+                name: observable.to_owned(),
+            })?;
+        // Trace::push and Trace::extend preserve header/row alignment. The
+        // iterator's shared borrow prevents mutation from invalidating it.
+        Ok(self
+            .records_for_chain(chain_id)
+            .map(move |row| &row.observable_values[column]))
     }
 
     /// Acceptance rate for one chain, counting no-proposal self-loops as
@@ -525,6 +596,9 @@ impl Trace {
     /// `log_prob`, followed by the observable columns supplied when the trace
     /// was created.
     ///
+    /// This does not flush the writer. When using a buffered writer, pass a
+    /// mutable reference and flush it afterward to handle buffered I/O errors.
+    ///
     /// ```
     /// # use std::io;
     /// use markov_chain_monte_carlo::prelude::{
@@ -563,7 +637,8 @@ impl Trace {
     ///
     /// # Errors
     ///
-    /// Returns any I/O error reported by `writer`.
+    /// Returns any I/O error reported by `writer` during serialization. The
+    /// writer may contain a partial CSV on error; the trace remains unchanged.
     pub fn write_csv(&self, mut writer: impl Write) -> io::Result<()> {
         writer.write_all(b"chain_id,step,accepted,proposed,log_prob")?;
         for name in &self.observable_names {
@@ -643,7 +718,9 @@ impl TraceRecorder {
     /// Record the current state of `chain` after a completed step.
     ///
     /// Observable values must be supplied in the same order as the recorder's
-    /// observable names.
+    /// observable names. All values are collected before a row is appended.
+    /// If collection unwinds or the row width is rejected, the recorder is
+    /// unchanged. Recording neither advances nor rolls back the supplied chain.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{
@@ -783,6 +860,61 @@ mod tests {
     }
 
     #[test]
+    fn recorder_retries_after_rejected_or_interrupted_collection() {
+        let chain = Chain::new(3, &Flat).unwrap();
+        let mut recorder =
+            TraceRecorder::new(ChainId::new(7), ["energy", "magnetization"]).unwrap();
+        recorder
+            .record(&chain, TraceStepOutcome::accepted(), [1.25, -0.5])
+            .unwrap();
+
+        for collected_before_panic in 0..=2 {
+            let before = recorder.clone();
+            assert_eq!(
+                recorder.record(&chain, TraceStepOutcome::no_proposal(), [9.0]),
+                Err(TraceError::ObservableCountMismatch {
+                    expected: 2,
+                    actual: 1,
+                })
+            );
+            assert_eq!(recorder, before);
+
+            // Fail before any value, after a partial row, and after exactly
+            // the expected width. None may publish an incomplete row.
+            let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let values =
+                    (0..collected_before_panic)
+                        .map(f64::from)
+                        .chain(std::iter::once_with(|| {
+                            panic!("injected collection failure")
+                        }));
+                recorder.record(&chain, TraceStepOutcome::accepted(), values)
+            }));
+            assert!(interrupted.is_err());
+            assert_eq!(recorder, before);
+
+            recorder
+                .record(&chain, TraceStepOutcome::no_proposal(), [3.0, 4.0])
+                .unwrap();
+            assert_eq!(recorder.trace().len(), before.trace().len() + 1);
+            assert_eq!(
+                recorder.trace().records()[..before.trace().len()],
+                *before.trace().records()
+            );
+            assert_eq!(
+                recorder.trace().records().last().unwrap(),
+                &TraceRecord::new(
+                    ChainId::new(7),
+                    0,
+                    TraceStepOutcome::no_proposal(),
+                    0.0,
+                    vec![3.0, 4.0],
+                )
+            );
+        }
+    }
+
+    #[test]
     fn chain_id_display_formats_raw_identifier() {
         assert_eq!(ChainId::new(42).to_string(), "42");
     }
@@ -830,6 +962,10 @@ mod tests {
 
     #[test]
     fn trace_error_display_messages_include_context() {
+        let missing = TraceError::UnknownObservable {
+            name: "energy".to_owned(),
+        };
+        assert!(missing.to_string().contains("energy"));
         assert_eq!(
             TraceError::EmptyObservableName { index: 3 }.to_string(),
             "observable name at index 3 is empty"

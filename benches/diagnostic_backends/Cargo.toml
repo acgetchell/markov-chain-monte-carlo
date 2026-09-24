@@ -1,0 +1,27 @@
+[package]
+name = "diagnostic-backend-comparison"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+# Deliberately independent: candidate dependencies do not enter the library graph.
+[workspace]
+
+[dependencies]
+arima = { version = "=0.3.0", default-features = false }
+ferromorphic = "=0.19.0"
+markov-chain-monte-carlo = { path = "../.." }
+rand = "=0.10.3"
+
+[dev-dependencies]
+criterion = "=0.8.2"
+num-rational = "=0.4.2"
+num-traits = "=0.2.19"
+
+[[bench]]
+name = "comparison"
+harness = false
+
+[lints.rust]
+unsafe_code = "forbid"

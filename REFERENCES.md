@@ -26,6 +26,8 @@ These references provide the standard background for the algorithms and examples
    [10.1080/00401706.1962.10490022](https://doi.org/10.1080/00401706.1962.10490022)
 7. Flyvbjerg, H., and H. G. Petersen. "Error Estimates on Averages of Correlated Data." *The Journal of Chemical Physics* 91, no. 1 (1989): 461-466. DOI:
    [10.1063/1.457480](https://doi.org/10.1063/1.457480)
+8. Geyer, C. J. "Practical Markov Chain Monte Carlo." *Statistical Science* 7 (1992): 473-483.
+   [Author's initial sequence estimator documentation](https://www.stat.umn.edu/geyer/mcmc/library/mcmc/html/initseq.html).
 
 ## Related crates
 

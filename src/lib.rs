@@ -464,6 +464,7 @@
 //! # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
 //! ```
 
+mod autocorrelation;
 mod chain;
 mod diagnostics;
 mod error;
@@ -473,6 +474,7 @@ mod statistics;
 mod testing;
 mod traits;
 
+pub use autocorrelation::{Autocorrelation, AutocorrelationError, IntegratedAutocorrelationTime};
 pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
 };
@@ -504,7 +506,8 @@ pub use traits::{
 /// Convenience re-exports for common usage.
 ///
 /// The top-level prelude contains the shared sampling foundation, observable
-/// statistics, and reusable trace diagnostics:
+/// statistics, and reusable trace diagnostics, including [`TraceRecorder`]
+/// and [`Autocorrelation`]:
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::*;
@@ -513,7 +516,15 @@ pub use traits::{
 /// fn accepts_stats(_: OnlineStats, _: BinningAnalysis) {}
 /// fn accepts_stream_result(_: ObservedIntoRunResult<McmcError, StatisticsError>) {}
 /// fn accepts_trace(_: TraceRecorder, _: TraceError) {}
+///
+/// let acf: Autocorrelation = Autocorrelation::estimate(&[1.0, 2.0, 3.0, 4.0], 3)?;
+/// let time: IntegratedAutocorrelationTime = acf.integrated_time()?;
+/// assert_eq!(time.window(), 1);
+/// # Ok::<(), AutocorrelationError>(())
 /// ```
+///
+/// Trace recording and scalar analysis apply to every proposal workflow.
+/// Import these shared diagnostics alongside the chosen workflow prelude.
 ///
 /// Workflow-specific preludes are available when tests, examples, or
 /// benchmarks should import only one proposal API.  Modules that exercise
@@ -543,8 +554,9 @@ pub use traits::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-        DelayedCommitLogProbMismatch, InvalidThinningInterval, McmcError, Observable,
+        AdditiveTarget, Autocorrelation, AutocorrelationError, BinningAnalysis, BinningEstimate,
+        Chain, ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch,
+        IntegratedAutocorrelationTime, InvalidThinningInterval, McmcError, Observable,
         ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
         Sampler, StatisticsError, Target, ThinningInterval, Trace, TraceError, TraceRecord,
         TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,

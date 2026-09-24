@@ -12,10 +12,12 @@
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, BufWriter, Write};
 
 use markov_chain_monte_carlo::prelude::in_place::*;
-use markov_chain_monte_carlo::prelude::{ChainId, TraceError, TraceRecorder, TraceStepOutcome};
+use markov_chain_monte_carlo::prelude::{
+    Autocorrelation, AutocorrelationError, ChainId, TraceError, TraceRecorder, TraceStepOutcome,
+};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
@@ -24,8 +26,17 @@ use rand::{Rng, RngExt, SeedableRng};
 enum ExampleError {
     /// MCMC transition or initialization failed.
     Mcmc(McmcError),
-    /// Trace construction failed.
+    /// Trace recording or observable selection failed.
     Trace(TraceError),
+    /// Scalar diagnostics failed for a recorded observable.
+    Autocorrelation {
+        /// Chain whose observable was being analyzed.
+        chain_id: ChainId,
+        /// Observable's exact trace-column name.
+        observable: String,
+        /// Original typed estimator failure.
+        source: AutocorrelationError,
+    },
     /// CSV export failed.
     Io(io::Error),
 }
@@ -35,6 +46,14 @@ impl fmt::Display for ExampleError {
         match self {
             Self::Mcmc(err) => write!(f, "{err}"),
             Self::Trace(err) => write!(f, "{err}"),
+            Self::Autocorrelation {
+                chain_id,
+                observable,
+                source,
+            } => write!(
+                f,
+                "autocorrelation for chain {chain_id}, observable {observable:?}: {source}"
+            ),
             Self::Io(err) => write!(f, "{err}"),
         }
     }
@@ -45,6 +64,7 @@ impl Error for ExampleError {
         match self {
             Self::Mcmc(err) => Some(err),
             Self::Trace(err) => Some(err),
+            Self::Autocorrelation { source, .. } => Some(source),
             Self::Io(err) => Some(err),
         }
     }
@@ -193,7 +213,8 @@ fn main() -> Result<(), ExampleError> {
     let n_samples: u32 = 20_000;
     let mut mag_sum = 0.0;
     let mut mag_sq_sum = 0.0;
-    let mut trace = TraceRecorder::new(ChainId::new(0), ["energy", "magnetization"])?;
+    let chain_id = ChainId::new(0);
+    let mut trace = TraceRecorder::new(chain_id, ["energy", "magnetization"])?;
     for _ in 0..n_samples {
         let step = sampler.step_mut()?;
         let chain = sampler.chain_ref();
@@ -206,7 +227,52 @@ fn main() -> Result<(), ExampleError> {
     }
     fs::create_dir_all("target")?;
     let trace_path = "target/ising_1d_trace.csv";
-    trace.into_trace().write_csv(File::create(trace_path)?)?;
+    let trace = trace.into_trace();
+    let mut trace_csv = BufWriter::new(File::create(trace_path)?);
+    trace.write_csv(&mut trace_csv)?;
+    // Flush explicitly: dropping a buffered writer cannot report I/O errors.
+    trace_csv.flush()?;
+
+    // Analyze production rows, retaining rejections and no-proposal self-loops.
+    // The notebook independently calculates these diagnostics from the trace;
+    // these companion CSVs also let downstream tools consume Rust results.
+    let mut acf_csv = BufWriter::new(File::create("target/ising_1d_acf.csv")?);
+    let mut time_csv = BufWriter::new(File::create("target/ising_1d_autocorrelation_time.csv")?);
+    writeln!(acf_csv, "chain_id,observable,lag,acf")?;
+    writeln!(time_csv, "chain_id,observable,samples,tau,window")?;
+    for name in trace.observable_names() {
+        let values: Vec<_> = trace.observable_values(chain_id, name)?.copied().collect();
+        let acf = Autocorrelation::estimate(&values, 2_000).map_err(|source| {
+            ExampleError::Autocorrelation {
+                chain_id,
+                observable: name.clone(),
+                source,
+            }
+        })?;
+        for (lag, value) in acf.values().iter().enumerate() {
+            writeln!(acf_csv, "{chain_id},{name},{lag},{value}")?;
+        }
+        match acf.integrated_time() {
+            Ok(time) => {
+                writeln!(
+                    time_csv,
+                    "{chain_id},{name},{},{},{}",
+                    time.sample_count(),
+                    time.estimate(),
+                    time.window()
+                )?;
+                println!(
+                    "  {name} autocorrelation time: {:.2} recorded steps (window {})",
+                    time.estimate(),
+                    time.window()
+                );
+            }
+            Err(err) => println!("  {name} autocorrelation time unavailable: {err}"),
+        }
+    }
+
+    acf_csv.flush()?;
+    time_csv.flush()?;
 
     let mean_mag = mag_sum / f64::from(n_samples);
     let mean_mag_sq = mag_sq_sum / f64::from(n_samples);
