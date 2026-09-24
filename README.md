@@ -79,6 +79,7 @@ For the detailed contract, see the
 - `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
 - `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
+- **Unreleased:** `Autocorrelation` for scalar ACF estimates and integrated autocorrelation time with explicit truncation and degenerate-input errors.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
@@ -172,6 +173,8 @@ fn main() -> Result<(), McmcError> {
 - Parse raw positive thinning counts with `ThinningInterval::new`, then reuse the validated interval across `Sampler::*_with_thinning` calls.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
 - Use `TraceRecorder` when you need reusable numeric traces with chain IDs, acceptance metadata, target log-probabilities, and CSV export.
+- In the unreleased checkout, select a column with `Trace::observable_values(chain_id, name)`, then use `Autocorrelation::estimate(&samples, max_lag)` and
+  `integrated_time()` to analyze the collected values after burn-in.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 
@@ -194,7 +197,7 @@ proposal, and RNG to `Sampler::new`.
 
 ## 🧪 Examples
 
-Complete runnable examples live in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.4.2/examples):
+The versioned links below show the released workflows in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.4.2/examples):
 
 - [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/normal_1d.rs) — by-value random-walk sampler for a
   normal target
@@ -217,9 +220,14 @@ just examples
 For proposal-specific testing patterns, see the
 [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).
 
-The Ising trace notebook lives at
-[`notebooks/ising_trace_analysis.ipynb`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb). Run
-`just notebook-check` to generate `target/ising_1d_trace.csv`, validate the source notebook, and write a headlessly executed copy under `target/notebooks/`.
+The released
+[`Ising trace notebook`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb)
+plots energy and magnetization traces and summarizes acceptance statistics.
+
+In the **unreleased checkout**, `examples/ising_1d.rs` also exports ACF and autocorrelation-time CSVs, and `notebooks/ising_trace_analysis.ipynb` reports
+per-chain ACFs and integrated autocorrelation times for both observables. Run `just notebook-check` from that checkout to generate `target/ising_1d_trace.csv`,
+validate the notebook, and write a headlessly executed copy under `target/notebooks/`. Times use recorded-sample intervals and Geyer's initial monotone sequence
+estimator; they do not certify convergence or adequate trace length.
 
 ## 📖 Documentation
 

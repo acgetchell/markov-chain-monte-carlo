@@ -64,7 +64,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - **ALLOWED**: Run formatters/linters: `cargo fmt`, `cargo clippy`, `cargo doc`, `just check`
 - **NEVER**: Use `sed`, `awk`, `python`, or `perl` to edit code or write file changes
-- **ALWAYS**: Use `edit_files` tool for edits (and `create_file` for new files)
+- **ALWAYS**: Use `edit_files` for edits and `create_file` for new files when available; use `apply_patch` when the required tool is unavailable
 - **EXCEPTION**: Shell text tools OK for read-only analysis only
 
 ### Validation

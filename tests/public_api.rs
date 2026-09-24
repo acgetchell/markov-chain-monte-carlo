@@ -5,10 +5,11 @@ use core::convert::Infallible;
 use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::{self, by_value, delayed, in_place, testing};
 use markov_chain_monte_carlo::{
-    AdditiveTarget, BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
-    DelayedCommitLogProbMismatch, DelayedStep, DetailedBalanceBatchReport, DetailedBalanceConfig,
-    DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
-    DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState, DiscreteProposalEndpoint,
+    AdditiveTarget, Autocorrelation, AutocorrelationError, BinningAnalysis, BinningEstimate, Chain,
+    ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch, DelayedStep,
+    DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
+    DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
+    DetailedBalanceState, DiscreteProposalEndpoint, IntegratedAutocorrelationTime,
     InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
     OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, StepOutcome,
     StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
@@ -112,6 +113,9 @@ fn downstream_exports_compile() {
     let _: Option<TraceRecord> = None;
     let _: Option<TraceRecorder> = None;
     let _: Option<TraceStepOutcome> = None;
+    let _: Option<Autocorrelation> = None;
+    let _: Option<AutocorrelationError> = None;
+    let _: Option<IntegratedAutocorrelationTime> = None;
     let _: Option<McmcError> = None;
     let _: Option<DelayedCommitLogProbMismatch> = None;
     let _: Option<DiscreteProposalEndpoint> = None;
@@ -136,6 +140,9 @@ fn downstream_exports_compile() {
     let _: Option<DetailedBalanceState> = None;
 
     let _: Option<prelude::TraceRecorder> = None;
+    let _: Option<prelude::Autocorrelation> = None;
+    let _: Option<prelude::AutocorrelationError> = None;
+    let _: Option<prelude::IntegratedAutocorrelationTime> = None;
     let _: Option<prelude::OnlineStats> = None;
     let _: Option<by_value::Step<()>> = None;
     let _: Option<by_value::ObservedStep<f64>> = None;

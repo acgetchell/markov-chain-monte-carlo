@@ -52,6 +52,19 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── REFERENCES.md
 ├── SECURITY.md
 ├── benches/
+│   ├── autocorrelation.rs
+│   ├── diagnostic_backends/
+│   │   ├── .gitignore
+│   │   ├── Cargo.lock
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   ├── benches/
+│   │   │   └── comparison.rs
+│   │   ├── src/
+│   │   │   └── lib.rs
+│   │   └── tests/
+│   │       ├── correctness.rs
+│   │       └── proptest_extreme_oracle.rs
 │   └── stepping.rs
 ├── clippy.toml
 ├── docs/
@@ -81,6 +94,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   └── v1/
 │   │       ├── README.md
 │   │       ├── current.md
+│   │       ├── experiments/
+│   │       │   ├── diagnostic-backends.json
+│   │       │   └── diagnostic-backends.md
 │   │       ├── v0.4.2-vs-v0.4.1.comparison.json
 │   │       ├── v0.4.2-vs-v0.4.1.csv
 │   │       └── v0.4.2-vs-v0.4.1.evidence.json
@@ -105,6 +121,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── rustfmt.toml
 ├── semgrep.yaml
 ├── src/
+│   ├── autocorrelation.rs
 │   ├── chain.rs
 │   ├── diagnostics.rs
 │   ├── error.rs
@@ -115,7 +132,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── testing.rs
 │   └── traits.rs
 ├── tests/
+│   ├── autocorrelation.rs
 │   ├── public_api.rs
+│   ├── proptest_autocorrelation.rs
 │   ├── proptest_chain.rs
 │   ├── proptest_validators.rs
 │   ├── tooling/
@@ -169,7 +188,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `examples/` — complete runnable workflows that demonstrate public APIs.
 - `notebooks/` — notebook consumers for example-generated artifacts such as exported diagnostic traces.
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
-- `benches/` — Criterion benchmarks for stepping, sampler loops, and observing overhead.
+- `benches/` — Criterion benchmarks for stepping, sampler loops, observing overhead, and scalar autocorrelation diagnostics.
 - `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
   README or crate-level contract material. `docs/PERFORMANCE.md` and `docs/archive/performance/` retain immutable historical reports and evidence.
   Shared reports, comparison/evidence JSON, CSV exports and the archive index live in `docs/performance/v1/`.
@@ -211,10 +230,20 @@ Defines trace-recording APIs for reusable MCMC diagnostics:
 - `TraceStepOutcome` for accepted, rejected-proposal, and no-proposal outcomes
 - `TraceRecord` for one post-step row
 - `TraceRecorder` for recording one chain into a shared-column trace
-- `Trace` for multi-chain numeric observable rows and CSV export
+- `Trace` for multi-chain numeric observable rows, borrowed named-column selection, and CSV export
 
+`Trace::observable_values` owns name lookup and chain selection; estimators consume the selected values without depending on trace storage or column layout.
+Local tests cover recorder publication after rejected or interrupted collection; `tests/autocorrelation.rs` exercises named-column alignment across
+rejected writes, merges, and retries.
 Keep diagnostics independent from plotting and notebook rendering. Domain observables should enter this module as numeric columns; visualization and
 post-processing belong in notebooks or downstream tools.
+
+### `src/autocorrelation.rs`
+
+Defines `Autocorrelation`, `IntegratedAutocorrelationTime`, and `AutocorrelationError` for scalar ACF estimation and Geyer's initial monotone sequence
+integrated-time estimator. The slice boundary accepts recorded or imported observables without depending on trace storage or plotting. Callers own burn-in,
+chain selection, and regular sample spacing. Independent arithmetic, numerical-boundary, and seeded AR(1) checks live in `tests/autocorrelation.rs`.
+`tests/proptest_autocorrelation.rs` checks exact integer covariance ratios, affine invariance, time reversal, and bounded lag prefixes on generated traces.
 
 ### `src/observable.rs`
 
@@ -295,7 +324,7 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
-- `examples/ising_1d.rs` — in-place mutation with rollback plus energy/magnetization trace CSV export.
+- `examples/ising_1d.rs` — in-place mutation with rollback plus energy/magnetization trace, ACF, and autocorrelation-time CSV export.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 - `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 
@@ -306,7 +335,8 @@ CI validation.
 
 Notebook files live in `notebooks/` and should consume generated artifacts rather than owning sampler logic:
 
-- `notebooks/ising_trace_analysis.ipynb` — reads the Ising example CSV trace, plots energy and magnetization traces, and summarizes acceptance statistics.
+- `notebooks/ising_trace_analysis.ipynb` — reads the Ising example CSV trace, plots traces and per-chain ACFs, and reports acceptance statistics and integrated
+  autocorrelation times for energy and magnetization.
 
 ## Benchmarks
 
@@ -314,6 +344,13 @@ Benchmarks live in `benches/` and use Criterion. Keep their inputs reproducible 
 lifecycle contract; do not assume a universal per-iteration reset policy. The authoritative contracts live in [`docs/BENCHMARKING.md`](BENCHMARKING.md).
 The stepping suite covers by-value, in-place rollback, delayed accepted/rejected/no plan, sampler bulk loops, and observing overhead rather than distribution
 convergence.
+
+`benches/autocorrelation.rs` isolates scalar ACF estimation across sample counts and lag budgets, plus integrated-time estimation from an existing ACF.
+
+`benches/diagnostic_backends/` is an independent, unpublished comparison workspace. It pins candidate dependencies, tests them against independent
+oracles, and measures native ACF/IMS against arima ACF and ferromorphic IPS. It does not add dependencies to the library or run under the main CI gate.
+Its reproduction commands live in its README; retained evidence and the dependency decision live in `docs/performance/v1/experiments/diagnostic-backends.*`.
+These focused diagnostic workloads are separate from the stepping release-signal suite.
 
 ## See also
 

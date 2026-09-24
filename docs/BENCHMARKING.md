@@ -190,6 +190,26 @@ uncertainty for conventional and learned proposals.
 
 ## Broader Profiling
 
+`benches/autocorrelation.rs` provides focused diagnostic workloads, separate from the stepping release-signal suite. Its fixed-seed scalar AR(1) inputs
+use coefficient 0.95, uniform innovations, and a 2,000-sample warm-up. ACF workloads vary sample count and inclusive maximum lag, including zero and one
+to expose preparation cost. Timed calls include the public boundary checks, workspace/result allocation, computation, and destruction. Input generation
+and fixture assertions run outside measurement. The integrated-time workload reuses one immutable ACF and measures only its window scan and result.
+Every fixture's ACF is checked outside timing against an expanded raw-moment reference that does not reuse the production normalization or compensated sums.
+The reference checks its conditioning and uses a conservative roundoff tolerance for these bounded fixtures.
+These are computational workloads, not evidence of convergence or estimator accuracy.
+
+The independent [backend comparison workspace](../benches/diagnostic_backends/README.md) evaluates arima ACF and ferromorphic IPS against the native
+diagnostics. Its [decision report](performance/v1/experiments/diagnostic-backends.md) separates correctness, equivalent ACF timings, differing time-estimation
+workflows, and dependency costs. These experimental results are separate from the curated release-signal reports.
+
+Use the managed toolchain for a focused before/after comparison on the same host:
+
+```bash
+uv run --locked --group dev research-repo-tools toolchain run -- cargo bench --locked --bench autocorrelation -- --save-baseline before
+# After changing the implementation, use identical Criterion options and features.
+uv run --locked --group dev research-repo-tools toolchain run -- cargo bench --locked --bench autocorrelation -- --baseline before
+```
+
 `just bench` currently runs the same fixed-seed harness without selecting a release baseline. Filter Criterion benchmarks when investigating one path:
 
 ```bash
