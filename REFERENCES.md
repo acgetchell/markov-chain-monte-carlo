@@ -35,6 +35,9 @@ These references provide the standard background for the algorithms and examples
 11. Hoeffding, Wassily. "Probability Inequalities for Sums of Bounded Random Variables." *Journal of the American Statistical Association* 58, no. 301 (1963):
     13-30. DOI: [10.1080/01621459.1963.10500830](https://doi.org/10.1080/01621459.1963.10500830). The bounded independent-sum inequality and a union bound
     supply the simultaneous tolerance used by `verify_proposal_bins`.
+12. Andrieu, Christophe, and Johannes Thoms. "A Tutorial on Adaptive MCMC." *Statistics and Computing* 18 (2008): 343-373. DOI:
+    [10.1007/s11222-008-9110-y](https://doi.org/10.1007/s11222-008-9110-y). Section 5.1.2 discusses acceptance-based global scale adaptation; this crate uses
+    a bounded acceptance-indicator update during finite warmup without covariance learning.
 
 ## Related crates
 

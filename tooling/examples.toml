@@ -1,6 +1,11 @@
 schema = 1
 
 [[checks]]
+name = "adaptive_normal"
+command = [ "target/debug/examples/adaptive_normal" ]
+expect = [ "Adaptive normal sampling", "Frozen proposal width", "Sample mean", "Acceptance rate" ]
+
+[[checks]]
 name = "benchmark_distributions"
 command = [ "target/debug/examples/benchmark_distributions" ]
 expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixture", "Banana", "Cross covariance", "mean ESS", "Acceptance rate" ]
