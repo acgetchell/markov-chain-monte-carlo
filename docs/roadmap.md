@@ -50,6 +50,7 @@ were accepted where they made invalid states unrepresentable or preserved valida
 
 ## Unreleased Diagnostics
 
+- [x] [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal density and sampled-bin diagnostics
 - [x] [#73](https://github.com/acgetchell/markov-chain-monte-carlo/issues/73) - Scalar ACF and integrated autocorrelation time, with Ising notebook analysis
 - [x] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - Single-chain mean ESS, measured ESS-rate, and classical split R-hat diagnostics
 - [x] [#20](https://github.com/acgetchell/markov-chain-monte-carlo/issues/20) - Fixed two-dimensional benchmark distributions with analytical moments and a
@@ -64,7 +65,6 @@ scientifically trustworthy. This should happen before learned-proposal work so t
 
 - [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Adaptive Metropolis-Hastings
 - [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
-- [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal diagnostics
 - [#21](https://github.com/acgetchell/markov-chain-monte-carlo/issues/21) - Tracing integration for long-running simulations
 
 ### v0.6.0 Multi-Chain, Tempering, and Learned-Proposal Foundations

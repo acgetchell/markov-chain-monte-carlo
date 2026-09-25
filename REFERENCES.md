@@ -32,6 +32,9 @@ These references provide the standard background for the algorithms and examples
    [arXiv:1903.09556](https://arxiv.org/abs/1903.09556). Section 4 supplies the conditional-normal construction and normalization of the two-dimensional family.
 10. Stan Development Team. "Efficiency Tuning: Example: Neal's Funnel." *Stan User's Guide*.
     [Funnel definition and scale convention](https://mc-stan.org/docs/stan-users-guide/efficiency-tuning.html#example-neals-funnel).
+11. Hoeffding, Wassily. "Probability Inequalities for Sums of Bounded Random Variables." *Journal of the American Statistical Association* 58, no. 301 (1963):
+    13-30. DOI: [10.1080/01621459.1963.10500830](https://doi.org/10.1080/01621459.1963.10500830). The bounded independent-sum inequality and a union bound
+    supply the simultaneous tolerance used by `verify_proposal_bins`.
 
 ## Related crates
 

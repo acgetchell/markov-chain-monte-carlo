@@ -5,19 +5,7 @@ use core::hint::cold_path;
 use std::{error::Error, fmt};
 
 use crate::TryAccumulator;
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "sample counts are expected to stay below the exact f64 integer range"
-)]
-/// Convert a sample count into the `f64` denominator used by online formulas.
-///
-/// This keeps the precision-loss lint scoped to the one place where the
-/// statistics API intentionally crosses from integer counts to floating-point
-/// arithmetic.
-const fn count_as_f64(count: usize) -> f64 {
-    count as f64
-}
+use crate::numerics::count_as_f64;
 
 /// Errors from fallible statistical accumulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -114,6 +114,9 @@ changing numerical semantics, or changing acceptance/error behavior.
   `.python-version`, Rust in `rust-toolchain.toml`, and supported Cargo tools in `[tool.research-repo-tools.toolchain.cargo]`. Run managed tools through the
   Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The SARIF converters use the same shared Cargo
   catalog. See [the migration record](docs/dev/shared-maintenance-migration.md).
+- When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
+  newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
+  bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.
 - Keep consumer tests and notebook code portable across Linux, macOS, and Windows. Use `pathlib`, avoid platform-reserved fixture names, compare paths using
   native `Path` values or normalized relative POSIX text as appropriate, and sort filesystem-derived output with explicit platform-neutral keys.
 - Treat hashes, patches, serialized artifacts, and byte-sensitive fixtures as exact bytes. Use `read_bytes()`/`write_bytes()` with deliberate encoding;

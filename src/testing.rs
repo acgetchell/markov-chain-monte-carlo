@@ -13,6 +13,10 @@
 //! [`DelayedProposal`] plans.  Batch helpers return
 //! [`DetailedBalanceBatchReport`] so callers can inspect every failed
 //! transition instead of stopping at the first violation.
+//!
+//! For continuous states, use [`crate::verify_proposal_density`] and
+//! [`crate::verify_proposal_bins`] to check independent densities and sampled
+//! bin masses without relying on exact endpoint hits.
 
 use core::{convert::Infallible, hint::cold_path, num::NonZeroUsize};
 use std::{error::Error, fmt};

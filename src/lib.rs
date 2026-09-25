@@ -162,6 +162,12 @@
 //! proposal-development checks over discrete or otherwise exactly comparable
 //! states.
 //!
+//! For continuous proposals, use [`verify_proposal_density`] to compare the
+//! reported Hastings ratio with independent forward/reverse log densities,
+//! and [`verify_proposal_bins`] to compare sampled bin masses with reference
+//! probabilities. These checks do not require exact endpoint hits. Bin checks
+//! require independent draws from a fixed kernel, not correlated chain output.
+//!
 //! # Checkpoint serialization
 //!
 //! Enable the optional `serde` feature to serialize [`Chain<S>`] checkpoints
@@ -494,9 +500,11 @@ mod autocorrelation;
 #[cfg(feature = "benchmarks")]
 mod benchmarks;
 mod chain;
+mod continuous_testing;
 mod convergence;
 mod diagnostics;
 mod error;
+mod numerics;
 mod observable;
 mod sampler;
 mod statistics;
@@ -510,6 +518,10 @@ pub use autocorrelation::{
 pub use benchmarks::BenchmarkTarget;
 pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
+};
+pub use continuous_testing::{
+    ProposalBinsError, ProposalBinsReport, ProposalDensityError, ProposalDensityReport,
+    verify_proposal_bins, verify_proposal_density,
 };
 pub use convergence::{SplitRhat, SplitRhatError};
 pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
@@ -656,16 +668,21 @@ pub mod prelude {
     /// [`crate::verify_detailed_balance`] helpers, without importing sampler
     /// execution types.  Use this prelude in tests, examples, and benchmarks
     /// that validate proposal kernels with [`crate::DetailedBalanceConfig`] and
-    /// inspect [`crate::DetailedBalanceReport`] values.
+    /// inspect [`crate::DetailedBalanceReport`] values, or use
+    /// [`crate::verify_proposal_density`] and [`crate::verify_proposal_bins`]
+    /// for continuous proposals. These diagnostic exports are available without
+    /// enabling optional Cargo features.
     pub mod testing {
         pub use crate::{
             AdditiveTarget, DelayedProposal, DetailedBalanceBatchReport, DetailedBalanceConfig,
             DetailedBalanceDelayedTransition, DetailedBalanceDirection, DetailedBalanceError,
             DetailedBalanceFailure, DetailedBalanceReport, DetailedBalanceState,
             DiscreteProposalEndpoint, DiscreteProposalRatio, DiscreteProposalRatioError, Proposal,
+            ProposalBinsError, ProposalBinsReport, ProposalDensityError, ProposalDensityReport,
             ProposalMut, Target, verify_detailed_balance, verify_detailed_balance_delayed,
             verify_detailed_balance_delayed_many, verify_detailed_balance_many,
-            verify_detailed_balance_mut, verify_detailed_balance_mut_many,
+            verify_detailed_balance_mut, verify_detailed_balance_mut_many, verify_proposal_bins,
+            verify_proposal_density,
         };
     }
 }

@@ -126,10 +126,12 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── autocorrelation.rs
 │   ├── benchmarks.rs
 │   ├── chain.rs
+│   ├── continuous_testing.rs
 │   ├── convergence.rs
 │   ├── diagnostics.rs
 │   ├── error.rs
 │   ├── lib.rs
+│   ├── numerics.rs
 │   ├── observable.rs
 │   ├── sampler.rs
 │   ├── statistics.rs
@@ -138,6 +140,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── tests/
 │   ├── autocorrelation.rs
 │   ├── benchmark_distributions.rs
+│   ├── continuous_testing.rs
 │   ├── convergence.rs
 │   ├── public_api.rs
 │   ├── proptest_autocorrelation.rs
@@ -261,6 +264,12 @@ within/between variance estimation, and explicit degeneracy errors. It does not 
 `tests/proptest_convergence.rs` checks R-hat against exact integer moments across chain counts and lengths, affine transforms, chain/time reversal, and
 omitted middle draws.
 
+### `src/numerics.rs`
+
+Owns crate-private compensated summation and count-to-float conversion shared by autocorrelation, convergence, continuous-proposal checks, and streaming
+statistics. These arithmetic primitives introduce no public API or statistical policy. Each calling module owns validation and bounds; the ACF retains
+its specialized multi-lag traversal while sharing the same ordered accumulator. Numerical helper tests live with this module.
+
 ### `src/observable.rs`
 
 Defines measurement APIs and collection helpers:
@@ -332,6 +341,14 @@ Contains test-facing validation utilities for proposal development.
 Detailed-balance helpers empirically check discrete by-value, in-place, and delayed proposal transitions by sampling forward/reverse moves and comparing
 estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday
 sampling imports.
+
+### `src/continuous_testing.rs`
+
+Owns `verify_proposal_density` and `verify_proposal_bins`, their reports, and typed errors. These test-facing checks compare independently supplied proposal
+densities and sampled bin masses without exact endpoint equality. Callers retain ownership of endpoint evaluation, histogram collection, and rollback;
+no proposal trait or sampler behavior changes. Analytical density, exact binomial, numerical-boundary, and seeded generator checks live in
+`tests/continuous_testing.rs`. The crate root and scoped testing prelude expose these diagnostics. Each report retains its original tolerance so downstream
+collectors can interpret saved successes and violations without storing a separate threshold.
 
 ### `src/benchmarks.rs`
 
