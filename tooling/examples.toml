@@ -13,7 +13,7 @@ expect = [ "Sample mean", "Acceptance rate" ]
 [[checks]]
 name = "ising_1d"
 command = [ "target/debug/examples/ising_1d" ]
-expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:" ]
+expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:", "energy ESS:", "energy split R-hat:", "diagnostics JSON:" ]
 
 [[checks]]
 name = "iterator_sampling"

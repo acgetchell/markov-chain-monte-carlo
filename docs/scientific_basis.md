@@ -123,7 +123,58 @@ A found window is not evidence of convergence or adequate length. Finite-sample 
 short trace can miss slow modes. Compare longer production runs, larger lag budgets, and independent chains. Energy and magnetization need separate estimates.
 The Ising example exports Rust estimates under `target/`; its notebook independently computes the same formulas from the trace and flags short runs with
 fewer than 50 estimated correlation times as a heuristic caution, not a pass/fail convergence test; see the
-[emcee discussion of trace length](https://emcee.readthedocs.io/en/stable/tutorials/autocorr/). ESS and R-hat remain follow-up work in #74.
+[emcee discussion of trace length](https://emcee.readthedocs.io/en/stable/tutorials/autocorr/).
+
+### ESS and wall-clock efficiency
+
+`IntegratedAutocorrelationTime::effective_sample_size()` estimates the effective sample size for one scalar mean as `N / tau`. It uses the same retained
+sample count and recorded-sample time units as the ACF. The stationarity, reversibility, finite-variance, and summable-correlation assumptions above apply.
+Positive estimates with `tau < 1` give ESS greater than `N`; there is no cap. This is not rank-normalized bulk ESS, tail ESS, or a pooled multi-chain estimator.
+Short, constant, nonfinite, nonpositive-time, and missing-truncation failures remain the typed ACF/time errors; no ESS is produced for those inputs.
+In particular, at least four samples and a complete nonpositive pair are necessary for this initial-sequence estimate, but never sufficient to trust it.
+
+`effective_sample_size_per_second(elapsed: Duration)` divides by measured wall seconds and rejects zero duration with `EssRateError`. Missing timing should
+remain unavailable; sample indices are not a clock. Measure the exact production workload supplying the analyzed draws, including intervening transitions
+when thinning. Document whether warmup, observation, I/O, and analysis are included. Never reuse a full-run duration for a selected subset of draws.
+Per-chain rates do not automatically describe aggregate parallel throughput, which requires the wall time of the complete concurrent workload.
+
+### Classical split R-hat
+
+`SplitRhat::estimate(&[&chain_a, &chain_b, ...])` takes borrowed slices for a single comparable observable. Supply at least two original chains, each with
+at least four finite draws and equal lengths, after the same warmup policy. Keep their targets, units, recording intervals, and observation definitions
+consistent; use dispersed starts and independent random streams. The scalar API checks lengths and values but cannot check these scientific prerequisites.
+
+For original length `N`, use the first and last `n = floor(N/2)` draws of each chain; omit the middle draw when `N` is odd. If there are `m` split chains,
+`W` is their mean unbiased sample variance and `B/n` is the unbiased variance of their means (denominator `m-1`). The reported value is
+`sqrt(((n-1)/n * W + B/n) / W)`, without a floor at one. Result metadata reports original chain count, supplied length, and used half length.
+This follows the [classical split R-hat definition](https://mc-stan.org/docs/2_29/reference-manual/notation-for-samples-chains-and-draws.html).
+
+`SplitRhatError` distinguishes insufficient chains, short chains, unequal lengths, nonfinite values (including omitted middle draws), any constant half, and
+numerically unresolved variance or result. Rejecting even one constant half is a conservative stuck-chain policy. Common scaling avoids overflow and local
+centering preserves small within-half changes; enormous scale disparities can still underflow variance. `UnresolvedVariance` identifies the original chain
+and half whose varying samples lost resolvable variance. `NumericalFailure` is reserved for an unrepresentable final estimate after all half variances pass.
+
+This is a raw-moment diagnostic with finite marginal mean/variance assumptions. Splitting helps expose within-chain drift, but classical R-hat can miss scale
+differences and heavy-tail problems. It does not implement the rank-normalized and folded improvements described by
+[Vehtari et al.](https://arxiv.org/abs/1903.08008). A value near one does not establish convergence or exploration of all modes; combine it with ESS, trace
+inspection, dispersed starts, and longer runs. Do not apply modern rank-normalized thresholds as a guarantee for this estimator.
+
+### Export and notebook workflow
+
+`just example ising_1d` records four sequential chains with distinct seeds and initial states. In addition to CSV traces and ACF/time estimates, it writes
+`target/ising_1d_diagnostics.json` (schema version 1). The report names the estimators and observables, identifies original chains and seeds, records sample
+counts, discarded warmup, recording interval, per-chain measured seconds, and the timing scope. ESS/rate and R-hat results carry status and nullable values;
+unavailable estimates include an error message. Successful R-hat records use the estimator's original and half lengths to report omitted-middle counts.
+On failure, half lengths and omitted-middle counts are null; the original per-chain length is also null if the inputs have unequal lengths or no chains.
+These are example-owned exports, independent of the optional checkpoint `serde` feature. R-hat chain selection does not require timing metadata.
+The `error` and `rate_error` strings are display-only diagnostics; use status and nullable values for availability, or the Rust error variants for
+failure-specific handling. Do not parse message text as a stable error category.
+
+Production timing includes sampling and observation/recording, and excludes warmup, export, and diagnostics. Rates vary with build profile and machine and
+are illustrative, not benchmark evidence. The notebook computes diagnostics from the trace and consumes companion timing only for matching full production
+samples. External traces require explicit `MCMC_DIAGNOSTICS_PATH` for rates; additional notebook warmup removal makes full-run timing unavailable. The
+notebook exports ESS and R-hat tables beside its figures, using the same availability rules for R-hat count metadata. Preserve the source JSON with those
+tables to retain the original timing and warmup scope.
 
 ## User Responsibilities
 

@@ -123,6 +123,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── src/
 │   ├── autocorrelation.rs
 │   ├── chain.rs
+│   ├── convergence.rs
 │   ├── diagnostics.rs
 │   ├── error.rs
 │   ├── lib.rs
@@ -133,9 +134,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── traits.rs
 ├── tests/
 │   ├── autocorrelation.rs
+│   ├── convergence.rs
 │   ├── public_api.rs
 │   ├── proptest_autocorrelation.rs
 │   ├── proptest_chain.rs
+│   ├── proptest_convergence.rs
 │   ├── proptest_validators.rs
 │   ├── tooling/
 │   │   ├── __init__.py
@@ -240,10 +243,19 @@ post-processing belong in notebooks or downstream tools.
 
 ### `src/autocorrelation.rs`
 
-Defines `Autocorrelation`, `IntegratedAutocorrelationTime`, and `AutocorrelationError` for scalar ACF estimation and Geyer's initial monotone sequence
-integrated-time estimator. The slice boundary accepts recorded or imported observables without depending on trace storage or plotting. Callers own burn-in,
+Defines `Autocorrelation`, `IntegratedAutocorrelationTime`, `AutocorrelationError`, and `EssRateError` for scalar ACF estimation, Geyer's initial monotone
+sequence integrated-time estimator, single-chain mean ESS, and ESS per measured second. The slice boundary accepts recorded or imported observables without
+depending on trace storage or plotting. Callers own burn-in,
 chain selection, and regular sample spacing. Independent arithmetic, numerical-boundary, and seeded AR(1) checks live in `tests/autocorrelation.rs`.
 `tests/proptest_autocorrelation.rs` checks exact integer covariance ratios, affine invariance, time reversal, and bounded lag prefixes on generated traces.
+
+### `src/convergence.rs`
+
+Defines `SplitRhat` and `SplitRhatError` for classical split R-hat on borrowed scalar chains. This module owns equal-length and finite-input checks, splitting,
+within/between variance estimation, and explicit degeneracy errors. It does not own warmup selection, chain execution, rank normalization, or plotting.
+`tests/convergence.rs` checks exact R-hat and ESS values, numerical boundaries, separated/drifting chains, and seeded independent and AR(1) traces.
+`tests/proptest_convergence.rs` checks R-hat against exact integer moments across chain counts and lengths, affine transforms, chain/time reversal, and
+omitted middle draws.
 
 ### `src/observable.rs`
 
@@ -324,7 +336,7 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
-- `examples/ising_1d.rs` — in-place mutation with rollback plus energy/magnetization trace, ACF, and autocorrelation-time CSV export.
+- `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 - `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 
@@ -335,8 +347,8 @@ CI validation.
 
 Notebook files live in `notebooks/` and should consume generated artifacts rather than owning sampler logic:
 
-- `notebooks/ising_trace_analysis.ipynb` — reads the Ising example CSV trace, plots traces and per-chain ACFs, and reports acceptance statistics and integrated
-  autocorrelation times for energy and magnetization.
+- `notebooks/ising_trace_analysis.ipynb` — reads the Ising CSV and optional timing JSON, plots traces and ACFs, and reports acceptance statistics, integrated
+  times, ESS, measured ESS rates, and classical split R-hat for energy and magnetization. Analysis tables are exported under the selected output directory.
 
 ## Benchmarks
 

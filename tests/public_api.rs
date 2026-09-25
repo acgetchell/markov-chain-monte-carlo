@@ -9,11 +9,11 @@ use markov_chain_monte_carlo::{
     ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch, DelayedStep,
     DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
     DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
-    DetailedBalanceState, DiscreteProposalEndpoint, IntegratedAutocorrelationTime,
+    DetailedBalanceState, DiscreteProposalEndpoint, EssRateError, IntegratedAutocorrelationTime,
     InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
-    OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, StatisticsError, Step, StepOutcome,
-    StepRejectionReason, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
-    TraceStepOutcome, TryObservedMutStepResult,
+    OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, SplitRhat, SplitRhatError,
+    StatisticsError, Step, StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace,
+    TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 #[cfg(feature = "serde")]
@@ -116,6 +116,10 @@ fn downstream_exports_compile() {
     let _: Option<Autocorrelation> = None;
     let _: Option<AutocorrelationError> = None;
     let _: Option<IntegratedAutocorrelationTime> = None;
+    // Both public paths must expose the same diagnostic types.
+    let _: Option<EssRateError> = None::<prelude::EssRateError>;
+    let _: Option<SplitRhat> = None::<prelude::SplitRhat>;
+    let _: Option<SplitRhatError> = None::<prelude::SplitRhatError>;
     let _: Option<McmcError> = None;
     let _: Option<DelayedCommitLogProbMismatch> = None;
     let _: Option<DiscreteProposalEndpoint> = None;
@@ -161,6 +165,65 @@ fn downstream_exports_compile() {
     let _: Option<testing::DetailedBalanceConfig> = None;
     let _: Option<testing::DiscreteProposalRatio> = None;
     let _: Option<testing::DiscreteProposalEndpoint> = None;
+}
+
+#[test]
+fn trace_diagnostics_keep_chain_boundaries_and_outlive_input_storage() {
+    let (time, rhat) = {
+        let mut trace = Trace::new(["energy"]).unwrap();
+        // Nonconsecutive IDs in deliberately nonnumeric order ensure selection
+        // follows caller identity. Interleaved rows must never become one ACF.
+        let ids = [ChainId::new(41), ChainId::new(7)];
+        for (index, (first, second)) in [1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .zip([3.0, 4.0, 5.0, 6.0])
+            .enumerate()
+        {
+            for (id, energy) in [(ids[0], first), (ids[1], second)] {
+                trace
+                    .push(TraceRecord::new(
+                        id,
+                        index + 1,
+                        TraceStepOutcome::accepted(),
+                        -energy,
+                        vec![energy],
+                    ))
+                    .unwrap();
+            }
+        }
+        let columns: Vec<Vec<_>> = ids
+            .iter()
+            .map(|&id| {
+                trace
+                    .observable_values(id, "energy")
+                    .unwrap()
+                    .copied()
+                    .collect()
+            })
+            .collect();
+        // ESS is translation-invariant and R-hat is chain-order-invariant,
+        // so the summaries alone cannot detect swapped chain selections.
+        assert_eq!(
+            columns,
+            [vec![1.0, 2.0, 3.0, 4.0], vec![3.0, 4.0, 5.0, 6.0]]
+        );
+        let time = Autocorrelation::estimate(&columns[0], 3)
+            .unwrap()
+            .integrated_time()
+            .unwrap();
+        let chains: Vec<_> = columns.iter().map(Vec::as_slice).collect();
+        let rhat = prelude::SplitRhat::estimate(&chains).unwrap();
+        (time, rhat)
+    }; // Both summaries remain usable after the trace and scratch columns drop.
+
+    // Independently derived finite fixtures: tau=3/2, and split-half means
+    // [1.5,3.5,3.5,5.5] give W=1/2 and B/n=8/3, hence Rhat^2=35/6.
+    assert_eq!(time.sample_count(), 4);
+    assert_relative_eq!(time.effective_sample_size(), 8.0 / 3.0, epsilon = 1e-14);
+    assert_eq!(rhat.chain_count(), 2);
+    assert_eq!(rhat.samples_per_chain(), 4);
+    assert_eq!(rhat.samples_per_split_chain(), 2);
+    assert_relative_eq!(rhat.value(), (35.0_f64 / 6.0).sqrt(), epsilon = 1e-14);
 }
 
 #[test]

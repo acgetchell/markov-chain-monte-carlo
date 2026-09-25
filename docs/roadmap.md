@@ -51,7 +51,7 @@ were accepted where they made invalid states unrepresentable or preserved valida
 ## Unreleased Diagnostics
 
 - [x] [#73](https://github.com/acgetchell/markov-chain-monte-carlo/issues/73) - Scalar ACF and integrated autocorrelation time, with Ising notebook analysis
-- [ ] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - ESS, ESS-rate, and R-hat diagnostics
+- [x] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - Single-chain mean ESS, measured ESS-rate, and classical split R-hat diagnostics
 
 ## Planned Milestones
 
