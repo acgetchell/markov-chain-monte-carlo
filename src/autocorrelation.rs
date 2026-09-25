@@ -1,6 +1,22 @@
 //! Autocorrelation diagnostics for finite, regularly sampled scalar traces.
 
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, time::Duration};
+
+/// Failure to compute ESS per second because the measured duration is zero.
+///
+/// Returned by [`IntegratedAutocorrelationTime::effective_sample_size_per_second`].
+/// Keep a rate unavailable when timing is absent or too short for the clock to
+/// resolve; substituting a positive duration would invent a throughput estimate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EssRateError;
+
+impl fmt::Display for EssRateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ESS per second requires a nonzero elapsed duration")
+    }
+}
+
+impl Error for EssRateError {}
 
 /// Errors from scalar autocorrelation diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -306,6 +322,27 @@ impl Autocorrelation {
 ///
 /// Constructed only by [`Autocorrelation::integrated_time`]. This is an
 /// estimate for one observable, not a convergence certificate for a chain.
+/// Use [`Self::effective_sample_size`] to express it as an independent-sample
+/// equivalent for the observable mean, and [`Self::effective_sample_size_per_second`]
+/// to compare measured sampling efficiency. These calculations reuse this
+/// summary without retaining or recomputing the ACF.
+///
+/// # Examples
+///
+/// This short arithmetic fixture illustrates the units and metadata, not
+/// sufficient trace length for scientific inference.
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::{Autocorrelation, AutocorrelationError};
+///
+/// let samples = [1.0, 2.0, 3.0, 4.0];
+/// let time = Autocorrelation::estimate(&samples, 3)?.integrated_time()?;
+/// assert_eq!(time.sample_count(), samples.len());
+/// assert_eq!(time.window(), 1);
+/// assert!((time.estimate() - 1.5).abs() < 1e-14);
+/// assert!((time.effective_sample_size() - 8.0 / 3.0).abs() < 1e-14);
+/// # Ok::<(), AutocorrelationError>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use]
 pub struct IntegratedAutocorrelationTime {
@@ -332,13 +369,90 @@ impl IntegratedAutocorrelationTime {
     pub const fn sample_count(self) -> usize {
         self.sample_count
     }
+
+    /// Effective sample size for this scalar mean, `N / tau`.
+    ///
+    /// Uses the retained sample count and time in recorded-sample intervals.
+    /// The result is a positive, finite, dimensionless estimate in effective
+    /// samples, computed in constant time without allocation. It uses
+    /// [`Self::sample_count`] and [`Self::estimate`]; multiplying the time by
+    /// a thinning interval before dividing would mix incompatible units.
+    /// Anticorrelated samples can give ESS greater than `N`; no
+    /// cap is imposed. This inherits the stationarity, reversibility, finite
+    /// variance, and trace-length limitations of [`Autocorrelation::integrated_time`].
+    /// It is a single-chain mean ESS, not rank-normalized bulk or tail ESS.
+    /// Compare independent chains with [`crate::SplitRhat`] as a separate
+    /// diagnostic; do not concatenate chains into one ACF input.
+    ///
+    /// # Examples
+    ///
+    /// A short anticorrelated arithmetic fixture shows why ESS is not capped
+    /// at the number of recorded samples. Its size is not adequate for inference.
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::{Autocorrelation, AutocorrelationError};
+    ///
+    /// let samples = [3.0, -1.0, -1.0, -1.0];
+    /// let time = Autocorrelation::estimate(&samples, 3)?.integrated_time()?;
+    /// assert!((time.effective_sample_size() - 4.8).abs() < 1e-14);
+    /// assert_eq!(time.sample_count(), 4);
+    /// # Ok::<(), AutocorrelationError>(())
+    /// ```
+    #[must_use]
+    pub fn effective_sample_size(self) -> f64 {
+        count_as_f64(self.sample_count) / self.estimate
+    }
+
+    /// Effective samples per wall-clock second, `ESS / elapsed.as_secs_f64()`.
+    ///
+    /// Supply the measured duration for producing exactly the analyzed samples,
+    /// including transitions skipped by thinning. The caller chooses whether
+    /// to include warmup, observation, or other overhead and must record that
+    /// scope when comparing runs. For example, use [`std::time::Instant`] to
+    /// measure production after warmup, then analyze those production samples.
+    /// A duration covering a larger run cannot time a subsequently selected
+    /// subset. No timing is inferred from sample counts.
+    ///
+    /// The result is positive and finite, in effective samples per second.
+    /// The calculation takes constant time and allocates nothing; the underlying
+    /// ESS has the assumptions and limits of [`Self::effective_sample_size`].
+    /// Do not divide summed per-chain ESS by summed durations and label it a
+    /// parallel throughput rate; use the actual wall time for that workload.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use markov_chain_monte_carlo::prelude::{Autocorrelation, AutocorrelationError, EssRateError};
+    ///
+    /// let time = Autocorrelation::estimate(&[1.0, 2.0, 3.0, 4.0], 3)?.integrated_time()?;
+    /// assert!((time.effective_sample_size() - 8.0 / 3.0).abs() < 1e-14);
+    /// // Illustrative duration; use the measured duration of the analyzed run.
+    /// let rate = time.effective_sample_size_per_second(Duration::from_secs(2));
+    /// assert!(matches!(rate, Ok(value) if (value - 4.0 / 3.0).abs() < 1e-14));
+    /// assert_eq!(time.effective_sample_size_per_second(Duration::ZERO), Err(EssRateError));
+    /// # Ok::<(), AutocorrelationError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EssRateError`] when `elapsed` is zero.
+    pub fn effective_sample_size_per_second(self, elapsed: Duration) -> Result<f64, EssRateError> {
+        if elapsed.is_zero() {
+            return Err(EssRateError);
+        }
+        Ok(self.effective_sample_size() / elapsed.as_secs_f64())
+    }
 }
 
-/// Reduce accumulation error in the ACF and integrated-time formulas using Kahan summation.
+/// Reduce accumulation error in scalar diagnostic sums using Kahan summation.
 ///
-/// Callers supply scaled finite terms so summation stays finite; compensation
-/// helps limit rounding error in the signed covariance sums.
-fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+/// Internal arithmetic shared by the ACF, integrated-time, and split R-hat
+/// estimators; this helper is not re-exported as a caller-facing API. Callers
+/// supply finite terms scaled so that the sum and its intermediates remain
+/// representable. Compensation limits rounding error, including cancellation
+/// in signed covariance sums; it does not validate inputs or prevent overflow.
+pub fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
     let mut accumulator = CompensatedSum::default();
     for value in values {
         accumulator.add(value);
@@ -392,11 +506,13 @@ fn lag_covariances(centered: &[f64], first_lag: usize) -> [f64; 4] {
     clippy::cast_precision_loss,
     reason = "allocated sample counts fit f64 at practical trace sizes"
 )]
-/// Convert an allocated trace length for the sample-mean denominator.
+/// Convert a diagnostic sample, lag-pair, or chain count to floating point.
 ///
-/// Keep the integer-to-float boundary in one place; practical trace lengths
-/// stay within the exact integer range of `f64`.
-const fn count_as_f64(count: usize) -> f64 {
+/// Internal boundary shared by autocorrelation, ESS, and split R-hat arithmetic;
+/// this helper does not validate minimum counts. Callers establish those
+/// preconditions before forming denominators. Practical allocated trace sizes
+/// stay within the exact integer range of `f64`; larger counts may be rounded.
+pub const fn count_as_f64(count: usize) -> f64 {
     count as f64
 }
 

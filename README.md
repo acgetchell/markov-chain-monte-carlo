@@ -14,7 +14,8 @@
 
 ![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.4.2/docs/assets/ising_energy_trace.png)
 
-_Open-boundary 1-D Ising chain with 50 spins, β = 0.5, J = 1, seed 42, 5,000 burn-in steps, and 20,000 recorded steps. `just notebook-check`
+_Single-chain illustration: open-boundary 1-D Ising with 50 spins, β = 0.5, J = 1, seed 42, 5,000 burn-in steps, and 20,000 recorded steps. The unreleased
+example extends this to four chains. `just notebook-check`
 regenerates `target/ising_1d_trace.csv`, the executed notebook, and the PNG under `target/notebooks/`; `just notebook-ising-figure` promotes that exact PNG to
 the tracked image above._
 
@@ -80,6 +81,7 @@ For the detailed contract, see the
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
 - `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
 - **Unreleased:** `Autocorrelation` for scalar ACF estimates and integrated autocorrelation time with explicit truncation and degenerate-input errors.
+- **Unreleased:** single-chain mean ESS and measured ESS/second from integrated time; `SplitRhat` for classical multi-chain split R-hat.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
@@ -173,8 +175,10 @@ fn main() -> Result<(), McmcError> {
 - Parse raw positive thinning counts with `ThinningInterval::new`, then reuse the validated interval across `Sampler::*_with_thinning` calls.
 - Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
 - Use `TraceRecorder` when you need reusable numeric traces with chain IDs, acceptance metadata, target log-probabilities, and CSV export.
-- In the unreleased checkout, select a column with `Trace::observable_values(chain_id, name)`, then use `Autocorrelation::estimate(&samples, max_lag)` and
-  `integrated_time()` to analyze the collected values after burn-in.
+- In the unreleased checkout, select a column with `Trace::observable_values(chain_id, name)`, collect its values after burn-in, then use
+  `let time = Autocorrelation::estimate(&samples, max_lag)?.integrated_time()?;` to obtain a reusable summary.
+- Use `time.effective_sample_size()` and `time.effective_sample_size_per_second(elapsed)?` for scalar mean ESS and measured efficiency. Pass comparable,
+  equally long per-chain slices to `SplitRhat::estimate(&chains)?` for classical split R-hat; inspect the result with `value()`.
 - Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
 - Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
 
@@ -192,6 +196,8 @@ owned `Chain`; deserialize a `ChainCheckpoint`, restore it with `Chain::from_che
 proposal, and RNG to `Sampler::new`.
 
 ## 📦 Cargo features
+
+No Cargo features are enabled by default. The ESS, ESS/second, and split R-hat APIs added in the unreleased checkout are available without enabling a feature.
 
 - `serde` — serialize `Chain` and `Sampler` as canonical checkpoints, plus serialize/deserialize `ChainCheckpoint` for validated resume flows.
 
@@ -224,10 +230,18 @@ The released
 [`Ising trace notebook`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb)
 plots energy and magnetization traces and summarizes acceptance statistics.
 
-In the **unreleased checkout**, `examples/ising_1d.rs` also exports ACF and autocorrelation-time CSVs, and `notebooks/ising_trace_analysis.ipynb` reports
-per-chain ACFs and integrated autocorrelation times for both observables. Run `just notebook-check` from that checkout to generate `target/ising_1d_trace.csv`,
-validate the notebook, and write a headlessly executed copy under `target/notebooks/`. Times use recorded-sample intervals and Geyer's initial monotone sequence
-estimator; they do not certify convergence or adequate trace length.
+In the **unreleased checkout**, `examples/ising_1d.rs` runs four separately seeded chains and exports trace, ACF, and autocorrelation-time CSVs plus
+`target/ising_1d_diagnostics.json` with ESS, measured ESS/second, classical split R-hat, chain IDs, sample counts, and timing/warmup metadata.
+
+This workflow uses a Cargo example with parameters set in Rust source. Run `just example ising_1d` from the repository root to generate its files under
+`target/`; reruns replace those files. Console output is a human-readable summary; consume the CSV and JSON files for machine-readable results.
+JSON reporting uses a development dependency, and notebook dependencies belong to the contributor environment. Ordinary library use requires neither;
+the crate does not provide an installed CLI or a `cli` feature.
+
+Run `just notebook-check` to regenerate the inputs and execute `notebooks/ising_trace_analysis.ipynb` headlessly under `target/notebooks/`.
+The notebook reports these diagnostics and exports analysis tables. ESS uses Geyer's initial monotone sequence time in recorded-sample intervals.
+Split R-hat uses raw moments, assumes finite variance, and is not rank-normalized or folded. These estimates do not certify convergence or adequate
+trace length.
 
 ## 📖 Documentation
 

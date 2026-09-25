@@ -418,6 +418,30 @@
 //! # Ok::<(), McmcError>(())
 //! ```
 //!
+//! # Recorded-trace diagnostics
+//!
+//! Use [`TraceRecorder`] to retain numeric observables, including rejected steps
+//! and no-proposal self-loops. Select one chain and named column with
+//! [`Trace::observable_values`]; it preserves insertion order and leaves warmup
+//! removal and regular sample spacing to the caller. The [`SplitRhat`] example
+//! shows how to collect comparable named columns from several original chains.
+//!
+//! [`Autocorrelation::estimate`] and [`Autocorrelation::integrated_time`] produce
+//! a scalar correlation-time summary. Its
+//! [`effective_sample_size`](IntegratedAutocorrelationTime::effective_sample_size)
+//! method reports single-chain mean ESS, and
+//! [`effective_sample_size_per_second`](IntegratedAutocorrelationTime::effective_sample_size_per_second)
+//! divides by a caller-measured duration covering the analyzed workload.
+//! Keep independent chains separate for ACF and ESS; pass borrowed per-chain
+//! slices to [`SplitRhat::estimate`] for classical split R-hat instead.
+//!
+//! These estimators and their error types are available in the shared [`prelude`]
+//! with default features. They do not depend on the optional `serde` checkpoint
+//! feature. Read the linked estimator contracts for minimum lengths, truncation,
+//! degenerate inputs, and finite-variance assumptions. A successful estimate is
+//! not a convergence certificate; classical split R-hat is not rank-normalized
+//! or folded, and single-chain mean ESS is not bulk or tail ESS.
+//!
 //! # Streaming statistics
 //!
 //! Use [`OnlineStats`] for Welford mean and variance updates, and
@@ -464,8 +488,11 @@
 //! # Ok::<(), ObservedStreamError<McmcError, Infallible, StatisticsError>>(())
 //! ```
 
+// Keep implementation modules private; only the explicit re-exports below
+// form the public API, leaving shared arithmetic helpers internal.
 mod autocorrelation;
 mod chain;
+mod convergence;
 mod diagnostics;
 mod error;
 mod observable;
@@ -474,10 +501,13 @@ mod statistics;
 mod testing;
 mod traits;
 
-pub use autocorrelation::{Autocorrelation, AutocorrelationError, IntegratedAutocorrelationTime};
+pub use autocorrelation::{
+    Autocorrelation, AutocorrelationError, EssRateError, IntegratedAutocorrelationTime,
+};
 pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
 };
+pub use convergence::{SplitRhat, SplitRhatError};
 pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
 pub use error::{DelayedCommitLogProbMismatch, McmcError};
 pub use observable::{
@@ -506,8 +536,10 @@ pub use traits::{
 /// Convenience re-exports for common usage.
 ///
 /// The top-level prelude contains the shared sampling foundation, observable
-/// statistics, and reusable trace diagnostics, including [`TraceRecorder`]
-/// and [`Autocorrelation`]:
+/// statistics, and reusable trace diagnostics, including [`TraceRecorder`],
+/// [`Autocorrelation`], and [`SplitRhat`]. Integrated-time summaries also expose
+/// [ESS](IntegratedAutocorrelationTime::effective_sample_size) and
+/// [measured ESS rates](IntegratedAutocorrelationTime::effective_sample_size_per_second):
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::*;
@@ -520,6 +552,7 @@ pub use traits::{
 /// let acf: Autocorrelation = Autocorrelation::estimate(&[1.0, 2.0, 3.0, 4.0], 3)?;
 /// let time: IntegratedAutocorrelationTime = acf.integrated_time()?;
 /// assert_eq!(time.window(), 1);
+/// assert!((time.effective_sample_size() - 8.0 / 3.0).abs() < 1e-14);
 /// # Ok::<(), AutocorrelationError>(())
 /// ```
 ///
@@ -555,12 +588,12 @@ pub use traits::{
 pub mod prelude {
     pub use crate::{
         AdditiveTarget, Autocorrelation, AutocorrelationError, BinningAnalysis, BinningEstimate,
-        Chain, ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch,
+        Chain, ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch, EssRateError,
         IntegratedAutocorrelationTime, InvalidThinningInterval, McmcError, Observable,
         ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
-        Sampler, StatisticsError, Target, ThinningInterval, Trace, TraceError, TraceRecord,
-        TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-        TryThinnedObservedRunResult,
+        Sampler, SplitRhat, SplitRhatError, StatisticsError, Target, ThinningInterval, Trace,
+        TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
+        TryObservedIntoRunResult, TryThinnedObservedRunResult,
     };
 
     /// Prelude for by-value proposals.

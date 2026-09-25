@@ -69,9 +69,17 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Validation
 
-- **Primary gate**: Run `just check` for non-mutating local validation (Rust and Justfile format checks, core-library Clippy, Python and notebook checks, JSON,
-  YAML, GitHub Actions, Actions security, TOML, Markdown, spell check, Semgrep, Semgrep rule tests)
-- **Full CI simulation**: Run `just ci` before handing off broad tooling or behavior changes
+- **Iteration**: Use `just check` during iterative review and fixes, alongside the smallest targeted tests that exercise changed behavior. It covers
+  non-mutating local validation (Rust and Justfile format checks, core-library Clippy, Python and notebook checks, JSON, YAML, GitHub Actions, Actions
+  security, TOML, Markdown, spell check, Semgrep, and Semgrep rule tests).
+- **Full CI simulation**: Reserve `just ci` for final commit/push readiness after review and fix iterations are complete, or an explicit maintainer request.
+  Core Rust/Cargo, public-behavior, and broad tooling changes require that comprehensive pass at the final stage. Ordinary implementation, specialist
+  reviews, and intermediate handoffs do not trigger full CI.
+- **Focused changes**: Documentation, configuration, Python, notebook, Rust unit-test-only, doctest-only, integration-test-only, benchmark-only, and
+  example-only changes use the matching focused validators. Compose those validators once each when multiple focused surfaces changed; that alone does
+  not require `just ci`. Use managed tool invocations with target or test filters when a Just recipe is broader than the changed behavior.
+- **Reuse validation**: Reuse successful checks while their relevant inputs remain unchanged. Repeat or broaden validation only for new changes, failures,
+  or unresolved concerns. Do not run `just check` immediately before `just ci`; the full CI recipe already includes those checks.
 - **GitHub Actions**: Validate workflows with `just action-lint` (uses `actionlint`)
 - **GitHub Actions security**: Validate workflows with `just zizmor` (uses `zizmor`)
 - **YAML**: Use `just yaml-check` (uses dprint Pretty YAML)
@@ -128,7 +136,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ```bash
 just check            # Lint/validators (non-mutating)
-just ci               # Full CI simulation (checks + tests + examples)
+just ci               # Final commit/push validation (checks + tests + examples)
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install managed tools and verify system prerequisites

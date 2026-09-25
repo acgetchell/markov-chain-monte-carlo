@@ -1,14 +1,12 @@
 """Consumer notebook policies exercised through the pinned shared public CLI."""
 
+import csv
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+import pytest
 from research_repo_tools.cli import main
-
-if TYPE_CHECKING:
-    import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ISING_NOTEBOOK = REPO_ROOT / "notebooks" / "ising_trace_analysis.ipynb"
@@ -123,6 +121,23 @@ huge = float.fromhex("0x1.fffffffffffffp+1023")
 actual = scalar_acf(pl.Series([-huge, huge, -huge, huge]), 3)
 assert all(math.isclose(a, b, abs_tol=1e-14) for a, b in zip(actual, [1.0, -0.75, 0.5, -0.25], strict=True))
 assert initial_monotone_time([1.0, 0.5, 0.3, 0.2, 0.4, 0.3, -0.2, 0.1, 0.9]) == (4.0, 5)
+ess = {(row["chain_id"], row["observable"]): row for row in ess_rows}
+assert math.isclose(ess[0, "energy"]["ess"], 8 / 3, abs_tol=1e-14)
+assert math.isclose(ess[0, "magnetization"]["ess"], 24 / 5, abs_tol=1e-14)
+assert all(row["ess_per_second"] is None for row in ess_rows)
+assert all(row["rhat"] is None for row in rhat_rows)
+left, right = [0.0, 2.0, 0.0, 2.0], [2.0, 4.0, 2.0, 4.0]
+assert math.isclose(classical_split_rhat([left, right]), math.sqrt(7 / 6), abs_tol=1e-14)
+assert math.isclose(classical_split_rhat([left, left]), math.sqrt(0.5), abs_tol=1e-14)
+assert math.isclose(classical_split_rhat([[0, 2, huge, 0, 2], [2, 4, -huge, 2, 4]]), math.sqrt(7 / 6), abs_tol=1e-14)
+assert classical_split_rhat([[0, 1, 10, 11], [11, 10, 1, 0]]) > 8
+for bad in ([], [left], [left, [1, 2]], [left, left + [1]], [left, [1] * 4], [left, [1, 2, 3, math.nan]]):
+    try:
+        classical_split_rhat(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"Unexpected R-hat for {bad}")
 """
     payload = json.loads(notebook.read_bytes())
     payload["cells"].append(
@@ -142,3 +157,109 @@ assert initial_monotone_time([1.0, 0.5, 0.3, 0.2, 0.4, 0.3, -0.2, 0.1, 0.9]) == 
 
     assert execute(tmp_path, notebook) == 0
     assert notebook.read_bytes() == before
+
+
+@pytest.mark.parametrize("timing_case", [(4, 0.5, 0, 0), (5, 0.5, 0, 1), (4, -1.0, 0, 1), (4, 0.0, 0, 0), (4, 0.5, 1, 0)])
+def test_ess_timing_requires_matching_analyzed_samples(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing_case: tuple[int, float, int, int]) -> None:
+    """Measured rates are available only for the complete matching workload."""
+    samples, elapsed, discard, expected_exit = timing_case
+    notebook = notebook_project(tmp_path, monkeypatch)
+    trace_path = tmp_path / "trace.csv"
+    trace_path.write_text(
+        "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"
+        + "".join(f"{chain},{step},true,true,0,{step + 2 * chain},{step + 2 * chain}\n" for chain in range(2) for step in range(1, 5)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    report_path = tmp_path / "diagnostics.json"
+    report = {
+        "schema_version": 1,
+        "chains": [
+            {
+                "chain_id": chain,
+                "samples": samples,
+                "elapsed_seconds": elapsed,
+                "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
+            }
+            for chain in range(2)
+        ],
+    }
+    report_path.write_text(json.dumps(report), encoding="utf-8", newline="\n")
+    payload = json.loads(notebook.read_bytes())
+    for cell in payload["cells"]:
+        if cell["id"] == "analyze-autocorrelation-by-chain":
+            cell["source"][0] = f"analysis_discard = {discard}\n"
+    checks = """
+if analysis_discard == 0:
+    assert all(math.isclose(row["rhat"], math.sqrt(35 / 6), abs_tol=1e-14) for row in rhat_rows)
+if elapsed_by_chain:
+    assert all(math.isclose(row["ess_per_second"], 16 / 3, abs_tol=1e-14) for row in ess_rows)
+else:
+    assert all(row["ess_per_second"] is None for row in ess_rows)
+"""
+    payload["cells"].append(
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "id": "verify-measured-ess-rate",
+            "metadata": {},
+            "outputs": [],
+            "source": checks.strip().splitlines(keepends=True),
+        }
+    )
+    notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(tmp_path / "figures"))
+    assert execute(tmp_path, notebook) == expected_exit
+
+
+@pytest.mark.parametrize(
+    ("chains", "expected_count", "expected_split"),
+    [
+        (((0, 2, 0, 2), (2, 4, 2, 4, 6)), "", None),
+        (((1, 1, 1, 1), (2, 4, 2, 4)), "4", None),
+        (((0, 2, 99, 0, 2), (2, 4, -99, 2, 4)), "5", (2, 1)),
+    ],
+    ids=["unequal-lengths", "constant-half", "valid-odd-length"],
+)
+def test_rhat_export_counts_describe_analyzed_chains(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    chains: tuple[tuple[int, ...], ...],
+    expected_count: str,
+    expected_split: tuple[int, int] | None,
+) -> None:
+    """Export common input counts and successful split counts without inventing metadata."""
+    notebook = notebook_project(tmp_path, monkeypatch)
+    trace_path = tmp_path / "trace.csv"
+    trace_path.write_text(
+        "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"
+        + "".join(f"{chain_id},{step},true,true,0,{value},{value}\n" for chain_id, values in enumerate(chains) for step, value in enumerate(values, start=1)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    figure_root = tmp_path / "figures"
+    monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(figure_root))
+    monkeypatch.delenv("MCMC_DIAGNOSTICS_PATH", raising=False)
+    before = notebook.read_bytes()
+
+    assert execute(tmp_path, notebook) == 0
+
+    assert notebook.read_bytes() == before
+    with (figure_root / "ising_rhat_summary.csv").open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 2
+    assert {row["observable"] for row in rows} == {"energy", "magnetization"}
+    for row in rows:
+        assert row["chain_count"] == str(len(chains))
+        assert row["samples_per_chain"] == expected_count
+        if expected_split is None:
+            assert row["rhat"] == ""
+            assert row["samples_per_split_chain"] == ""
+            assert row["omitted_middle_draws_per_chain"] == ""
+        else:
+            assert float(row["rhat"]) == pytest.approx((7 / 6) ** 0.5, rel=1e-14)
+            assert row["samples_per_split_chain"] == str(expected_split[0])
+            assert row["omitted_middle_draws_per_chain"] == str(expected_split[1])
