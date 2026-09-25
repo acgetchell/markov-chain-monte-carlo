@@ -364,7 +364,7 @@ For the full agent-facing rule set, see the `## Documentation generation` sectio
 ### Generating Docs Locally
 
 ```bash
-just doc                                   # cargo doc --no-deps --document-private-items
+just doc                                   # cargo doc --all-features --no-deps --document-private-items
 RUSTDOCFLAGS="-D warnings" cargo doc       # fail on rustdoc warnings
 ```
 

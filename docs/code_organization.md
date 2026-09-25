@@ -85,6 +85,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │       └── 0.3.md
 │   ├── assets/
 │   │   └── ising_energy_trace.png
+│   ├── benchmark_distributions.md
 │   ├── code_organization.md
 │   ├── dev/
 │   │   ├── rust.md
@@ -107,6 +108,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── dprint.json
 ├── examples/
 │   ├── additive_target_bias.rs
+│   ├── benchmark_distributions.rs
 │   ├── delayed_chunked_telemetry.rs
 │   ├── detailed_balance.rs
 │   ├── ising_1d.rs
@@ -122,6 +124,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── semgrep.yaml
 ├── src/
 │   ├── autocorrelation.rs
+│   ├── benchmarks.rs
 │   ├── chain.rs
 │   ├── convergence.rs
 │   ├── diagnostics.rs
@@ -134,6 +137,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── traits.rs
 ├── tests/
 │   ├── autocorrelation.rs
+│   ├── benchmark_distributions.rs
 │   ├── convergence.rs
 │   ├── public_api.rs
 │   ├── proptest_autocorrelation.rs
@@ -329,11 +333,19 @@ Detailed-balance helpers empirically check discrete by-value, in-place, and dela
 estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday
 sampling imports.
 
+### `src/benchmarks.rs`
+
+Defines the optional `BenchmarkTarget` catalog behind the `benchmarks` feature. It owns fixed two-dimensional reference densities and their analytical
+population moments, independently of proposal kernels and diagnostics. The canonical import is at the crate root; the module stays private.
+`tests/benchmark_distributions.rs` checks density values, numerical extremes, normalization, and moments through deterministic quadrature with independent
+changes of variables. Definitions and moment derivations live in [`docs/benchmark_distributions.md`](benchmark_distributions.md).
+
 ## Examples
 
 New examples go in `examples/`. Each is a complete, runnable workflow:
 
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
+- `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.

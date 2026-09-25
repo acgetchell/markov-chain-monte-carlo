@@ -82,6 +82,7 @@ For the detailed contract, see the
 - `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
 - **Unreleased:** `Autocorrelation` for scalar ACF estimates and integrated autocorrelation time with explicit truncation and degenerate-input errors.
 - **Unreleased:** single-chain mean ESS and measured ESS/second from integrated time; `SplitRhat` for classical multi-chain split R-hat.
+- **Unreleased:** optional `BenchmarkTarget` presets for Rosenbrock, Neal's funnel, Gaussian mixture, and banana distributions with analytical moments.
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
@@ -200,6 +201,8 @@ proposal, and RNG to `Sampler::new`.
 No Cargo features are enabled by default. The ESS, ESS/second, and split R-hat APIs added in the unreleased checkout are available without enabling a feature.
 
 - `serde` — serialize `Chain` and `Sampler` as canonical checkpoints, plus serialize/deserialize `ChainCheckpoint` for validated resume flows.
+- `benchmarks` — **unreleased**, dependency-free `BenchmarkTarget` presets implementing `Target<[f64; 2]>`, with analytical `mean()` and `covariance()`.
+  These fix two-dimensional distributions and their parameters for reproducible validation and mixing experiments.
 
 ## 🧪 Examples
 
@@ -222,6 +225,10 @@ Run them with:
 ```bash
 just examples
 ```
+
+The unreleased checkout also includes `examples/benchmark_distributions.rs`. Run it with
+`cargo run --release --features benchmarks --example benchmark_distributions` to compare seeded random walks against analytical moments and report scalar
+mean ESS and measured ESS/second. Difficult targets can yield biased moments or unavailable diagnostics; this example does not certify convergence.
 
 For proposal-specific testing patterns, see the
 [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).

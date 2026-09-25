@@ -190,6 +190,10 @@ uncertainty for conventional and learned proposals.
 
 ## Broader Profiling
 
+For distribution-level validation and mixing experiments, enable the `benchmarks` feature and use `BenchmarkTarget`.
+The [reference distribution guide](benchmark_distributions.md) defines all four fixed two-dimensional targets, derives their analytical moments, and explains
+the seeded example's ESS/second measurement scope. These experiments are separate from the Criterion stepping release signal described above.
+
 `benches/autocorrelation.rs` provides focused diagnostic workloads, separate from the stepping release-signal suite. Its fixed-seed scalar AR(1) inputs
 use coefficient 0.95, uniform innovations, and a 2,000-sample warm-up. ACF workloads vary sample count and inclusive maximum lag, including zero and one
 to expose preparation cost. Timed calls include the public boundary checks, workspace/result allocation, computation, and destruction. Input generation

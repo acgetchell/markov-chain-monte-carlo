@@ -70,6 +70,10 @@ Doctests remain in `just test-doc` because nextest does not execute rustdoc exam
 while `just ci` uses `just clippy-all-targets` to match `.github/workflows/rust-clippy.yml`. Test, example, and benchmark validators still own their execution
 or compile-contract evidence because ordinary compilation does not execute Clippy lints.
 
+`just doc`, `just test-doc`, `just test-integration`, `just example`, and `just examples` enable all features so the optional benchmark targets and their
+tests and example are covered.
+`just check-fast` retains default-feature compilation; downstream users only enable `benchmarks` when they need the reference targets.
+
 The named subsets remain available for focused timing or platform work, but `just ci` does not compose through them:
 
 - `just ci-rust` - Rust formatting, core Clippy, documentation, broad release-profile Rust tests, doctests, and deterministic example-output validation.

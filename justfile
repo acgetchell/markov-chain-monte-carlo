@@ -18,7 +18,7 @@ _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
 
 # Examples
 _build-examples:
-    {{ _run }} cargo build --locked --examples
+    {{ _run }} cargo build --locked --all-features --examples
 
 # System prerequisites remain outside the shared managed toolchain.
 _ensure-jq:
@@ -189,12 +189,12 @@ default: help-workflows
 # Build rustdoc for the library.
 [group('validation')]
 doc:
-    {{ _run }} cargo doc --locked --no-deps --document-private-items
+    {{ _run }} cargo doc --locked --all-features --no-deps --document-private-items
 
 # Run one example by name, e.g. `just example ising_1d`.
 [group('tests and coverage')]
 example name:
-    {{ _run }} cargo run --locked --example "{{ name }}"
+    {{ _run }} cargo run --locked --all-features --example "{{ name }}"
 
 # Build and run every Rust example.
 [group('tests and coverage')]
@@ -509,12 +509,12 @@ test-all: test-rust test-python
 # Run rustdoc doctests.
 [group('tests and coverage')]
 test-doc:
-    {{ _run }} cargo test --locked --doc --verbose
+    {{ _run }} cargo test --locked --all-features --doc --verbose
 
-# Integration tests
+# Run integration tests across all public features.
 [group('tests and coverage')]
 test-integration:
-    {{ _run }} cargo nextest run --locked --test '*' --verbose
+    {{ _run }} cargo nextest run --locked --all-features --test '*' --verbose
 
 # Backward-compatible alias for the former recipe name.
 [group('tests and coverage')]
@@ -612,7 +612,7 @@ update-version tag *args: python-sync
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
 validate-examples: _build-examples validate-ising-example
-    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias
+    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]
