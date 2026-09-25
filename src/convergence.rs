@@ -6,7 +6,7 @@
 
 use std::{error::Error, fmt};
 
-use crate::autocorrelation::{compensated_sum, count_as_f64};
+use crate::numerics::{compensated_sum, count_as_f64};
 
 /// Invalid or numerically unresolved input to [`SplitRhat::estimate`].
 ///

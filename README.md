@@ -86,6 +86,7 @@ For the detailed contract, see the
 - `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
 - Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
 - Detailed-balance diagnostics for proposal tests on representative discrete transitions.
+- **Unreleased:** continuous-proposal checks for independent log densities and sampled bin probabilities.
 
 ## Contents
 
@@ -232,6 +233,9 @@ mean ESS and measured ESS/second. Difficult targets can yield biased moments or 
 
 For proposal-specific testing patterns, see the
 [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).
+
+For the **unreleased** continuous-proposal diagnostics, read the checkout's `docs/proposal_validation.md` section "Continuous Proposals" and run `just doc`
+to build the matching `verify_proposal_density` and `verify_proposal_bins` API reference. These helpers are not available in the published v0.4.2 crate.
 
 The released
 [`Ising trace notebook`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb)

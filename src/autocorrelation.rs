@@ -2,6 +2,8 @@
 
 use std::{error::Error, fmt, time::Duration};
 
+use crate::numerics::{CompensatedSum, compensated_sum, count_as_f64};
+
 /// Failure to compute ESS per second because the measured duration is zero.
 ///
 /// Returned by [`IntegratedAutocorrelationTime::effective_sample_size_per_second`].
@@ -445,37 +447,6 @@ impl IntegratedAutocorrelationTime {
     }
 }
 
-/// Reduce accumulation error in scalar diagnostic sums using Kahan summation.
-///
-/// Internal arithmetic shared by the ACF, integrated-time, and split R-hat
-/// estimators; this helper is not re-exported as a caller-facing API. Callers
-/// supply finite terms scaled so that the sum and its intermediates remain
-/// representable. Compensation limits rounding error, including cancellation
-/// in signed covariance sums; it does not validate inputs or prevent overflow.
-pub fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
-    let mut accumulator = CompensatedSum::default();
-    for value in values {
-        accumulator.add(value);
-    }
-    accumulator.sum
-}
-
-/// Independent Kahan state for one ordered sum of scaled finite terms.
-#[derive(Clone, Copy, Default)]
-struct CompensatedSum {
-    sum: f64,
-    correction: f64,
-}
-
-impl CompensatedSum {
-    fn add(&mut self, value: f64) {
-        let adjusted = value - self.correction;
-        let next = self.sum + adjusted;
-        self.correction = (next - self.sum) - adjusted;
-        self.sum = next;
-    }
-}
-
 /// Sum four successive lag covariances in their original per-lag order.
 ///
 /// The estimator supplies centered finite samples and `first_lag + 3 < N`.
@@ -499,21 +470,7 @@ fn lag_covariances(centered: &[f64], first_lag: usize) -> [f64; 4] {
             sum.add(left * right);
         }
     }
-    sums.map(|sum| sum.sum)
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "allocated sample counts fit f64 at practical trace sizes"
-)]
-/// Convert a diagnostic sample, lag-pair, or chain count to floating point.
-///
-/// Internal boundary shared by autocorrelation, ESS, and split R-hat arithmetic;
-/// this helper does not validate minimum counts. Callers establish those
-/// preconditions before forming denominators. Practical allocated trace sizes
-/// stay within the exact integer range of `f64`; larger counts may be rounded.
-pub const fn count_as_f64(count: usize) -> f64 {
-    count as f64
+    sums.map(|sum| sum.total())
 }
 
 #[cfg(test)]
@@ -550,15 +507,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn compensated_sum_accepts_iterables_and_preserves_small_terms() {
-        // An array is IntoIterator but not Iterator. Two half-ULP terms
-        // would both disappear in a naive left-to-right sum starting at 1.
-        let half_ulp = f64::EPSILON / 2.0;
-        let sum = compensated_sum([1.0, half_ulp, half_ulp, -1.0]);
-        assert_eq!(sum.to_bits(), f64::EPSILON.to_bits());
     }
 
     #[test]

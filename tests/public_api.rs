@@ -11,13 +11,27 @@ use markov_chain_monte_carlo::{
     DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
     DetailedBalanceState, DiscreteProposalEndpoint, EssRateError, IntegratedAutocorrelationTime,
     InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
-    OnlineStats, Proposal, ProposalMut, SampleBuffer, Sampler, SplitRhat, SplitRhatError,
-    StatisticsError, Step, StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace,
-    TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
+    OnlineStats, Proposal, ProposalBinsReport, ProposalDensityReport, ProposalMut, SampleBuffer,
+    Sampler, SplitRhat, SplitRhatError, StatisticsError, Step, StepOutcome, StepRejectionReason,
+    Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
+    TryObservedMutStepResult,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 #[cfg(feature = "serde")]
 use serde_json::{Error as JsonError, json, to_value};
+
+#[test]
+fn continuous_diagnostics_share_root_and_testing_types() {
+    let density: Result<testing::ProposalDensityReport, testing::ProposalDensityError> =
+        testing::verify_proposal_density(-1.0, -2.0, -1.0, 0.0);
+    let density: ProposalDensityReport = density.unwrap();
+    assert_eq!(density.residual().to_bits(), 0.0_f64.to_bits());
+    assert_eq!(density.tolerance().to_bits(), 0.0_f64.to_bits());
+    let bins: Result<testing::ProposalBinsReport, testing::ProposalBinsError> =
+        testing::verify_proposal_bins(&[50, 50], &[0.5, 0.5], 0.01);
+    let bins: ProposalBinsReport = bins.unwrap();
+    assert_eq!(bins.max_residual().to_bits(), 0.0_f64.to_bits());
+}
 
 struct Smoke;
 

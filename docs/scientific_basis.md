@@ -84,12 +84,19 @@ The crate includes diagnostics that help users test assumptions:
 - `Autocorrelation` estimates the ACF and integrated autocorrelation time for one regularly sampled scalar observable after burn-in.
 - Thinning helpers collect every k-th state or observation while still advancing the chain on every step.
 - Detailed-balance helpers empirically compare forward and reverse transition flows for representative discrete transitions.
+- `verify_proposal_density` compares reported Hastings ratios with independently supplied forward/reverse log densities.
+- `verify_proposal_bins` compares independent proposal histograms with reference bin probabilities using a simultaneous Hoeffding bound.
 
 Detailed-balance checks are especially useful for new proposal kernels, but they remain empirical tests over selected transitions. Passing them does not
 establish irreducibility, aperiodicity, or adequate mixing.
 
 For in-place proposals, every concrete hypothetical proposal is undone before the next trial, and no-proposal telemetry is consumed. The proposal must still
 represent a fixed kernel: freeze online adaptation before validation, and keep any transition-relevant mutable state inside the `undo` contract.
+
+Continuous density checks test the supplied pair's ratio; binned checks test the generator's mass over a fixed partition. Neither is a continuous
+detailed-balance or convergence test. Bin checks require independent proposal draws from a fixed endpoint, exhaustive bins, and reference probabilities
+derived independently of the generator. They are not calibrated for correlated chain output. See the
+[continuous-proposal workflow](proposal_validation.md#continuous-proposals) for the bound, error budget, and limits of coarsened flow comparisons.
 
 ### Autocorrelation estimator contract
 
