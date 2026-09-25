@@ -491,6 +491,8 @@
 // Keep implementation modules private; only the explicit re-exports below
 // form the public API, leaving shared arithmetic helpers internal.
 mod autocorrelation;
+#[cfg(feature = "benchmarks")]
+mod benchmarks;
 mod chain;
 mod convergence;
 mod diagnostics;
@@ -504,6 +506,8 @@ mod traits;
 pub use autocorrelation::{
     Autocorrelation, AutocorrelationError, EssRateError, IntegratedAutocorrelationTime,
 };
+#[cfg(feature = "benchmarks")]
+pub use benchmarks::BenchmarkTarget;
 pub use chain::{
     Chain, ChainCheckpoint, DelayedStep, DelayedStepError, Step, StepOutcome, StepRejectionReason,
 };

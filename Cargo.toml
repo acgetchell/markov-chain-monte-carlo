@@ -33,6 +33,7 @@ rand = "0.10.3"
 serde = { version = "1.0.229", features = [ "derive" ], optional = true }
 
 [features]
+benchmarks = [  ]
 serde = [ "dep:serde" ]
 
 [package.metadata.docs.rs]
@@ -43,6 +44,10 @@ approx = "0.5.1"
 criterion = "0.8.2"
 proptest = "1.11.0"
 serde_json = "1.0.151"
+
+[[example]]
+name = "benchmark_distributions"
+required-features = [ "benchmarks" ]
 
 [[bench]]
 name = "stepping"

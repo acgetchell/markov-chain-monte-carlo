@@ -1,6 +1,11 @@
 schema = 1
 
 [[checks]]
+name = "benchmark_distributions"
+command = [ "target/debug/examples/benchmark_distributions" ]
+expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixture", "Banana", "Cross covariance", "mean ESS", "Acceptance rate" ]
+
+[[checks]]
 name = "detailed_balance"
 command = [ "target/debug/examples/detailed_balance" ]
 expect = [ "Detailed balance checks passed", "by-value residual" ]

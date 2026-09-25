@@ -28,6 +28,10 @@ These references provide the standard background for the algorithms and examples
    [10.1063/1.457480](https://doi.org/10.1063/1.457480)
 8. Geyer, C. J. "Practical Markov Chain Monte Carlo." *Statistical Science* 7 (1992): 473-483.
    [Author's initial sequence estimator documentation](https://www.stat.umn.edu/geyer/mcmc/library/mcmc/html/initseq.html).
+9. Pagani, Filippo, Martin Wiegand, and Saralees Nadarajah. "An n-dimensional Rosenbrock Distribution for MCMC Testing." 2020.
+   [arXiv:1903.09556](https://arxiv.org/abs/1903.09556). Section 4 supplies the conditional-normal construction and normalization of the two-dimensional family.
+10. Stan Development Team. "Efficiency Tuning: Example: Neal's Funnel." *Stan User's Guide*.
+    [Funnel definition and scale convention](https://mc-stan.org/docs/stan-users-guide/efficiency-tuning.html#example-neals-funnel).
 
 ## Related crates
 
