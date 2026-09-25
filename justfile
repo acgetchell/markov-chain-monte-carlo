@@ -612,7 +612,7 @@ update-version tag *args: python-sync
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
 validate-examples: _build-examples validate-ising-example
-    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions
+    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]

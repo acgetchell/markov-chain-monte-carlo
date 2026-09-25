@@ -591,20 +591,31 @@ impl<S, P: ProposalMut<S> + ?Sized> MutTelemetryMode<S, P> for CaptureMutTelemet
     }
 }
 
-/// In-place transition policy that omits all telemetry work.
+/// In-place transition policy that returns only the outcome, omitting metadata.
 struct DiscardMutTelemetry;
 
 impl<S, P: ProposalMut<S> + ?Sized> MutTelemetryMode<S, P> for DiscardMutTelemetry {
     type Captured = ();
-    type Output = ();
+    type Output = StepOutcome;
 
-    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) {}
+    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) -> Self::Output {
+        StepOutcome::NoProposal
+    }
 
     fn capture(_proposal: &P, _state: &S, _token: &P::Undo) {}
 
-    fn accepted((): Self::Captured, _log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
+    fn accepted(
+        (): Self::Captured,
+        _log_prob_before: f64,
+        _log_prob_after: f64,
+        _log_alpha: f64,
+    ) -> Self::Output {
+        StepOutcome::Accepted
+    }
 
-    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
+    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) -> Self::Output {
+        StepOutcome::RejectedProposal
+    }
 }
 
 /// Select how a delayed transition reports its completed outcome.
@@ -654,16 +665,28 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for CaptureDe
     }
 }
 
+/// Delayed transition policy that returns only the outcome, omitting metadata.
 struct DiscardDelayedTelemetry;
 
 impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for DiscardDelayedTelemetry {
     type Captured = ();
-    type Output = ();
+    type Output = StepOutcome;
 
-    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) {}
+    fn no_proposal(_proposal: &mut P, _log_prob_before: f64) -> Self::Output {
+        StepOutcome::NoProposal
+    }
     fn capture(_proposal: &P, _plan: &P::Plan) {}
-    fn accepted((): Self::Captured, _log_prob_before: f64, _log_prob_after: f64, _log_alpha: f64) {}
-    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) {}
+    fn accepted(
+        (): Self::Captured,
+        _log_prob_before: f64,
+        _log_prob_after: f64,
+        _log_alpha: f64,
+    ) -> Self::Output {
+        StepOutcome::Accepted
+    }
+    fn rejected((): Self::Captured, _log_prob_before: f64, _log_alpha: f64) -> Self::Output {
+        StepOutcome::RejectedProposal
+    }
 }
 
 /// Roll back an in-place proposal unless the accepted mutation is committed.
@@ -1065,7 +1088,7 @@ impl<S> Chain<S> {
         self.step_mut_with_mode::<CaptureMutTelemetry, T, P, R>(target, proposal, rng)
     }
 
-    /// Perform an in-place step without constructing proposal telemetry.
+    /// Return an in-place step's outcome without constructing proposal telemetry.
     ///
     /// Bulk sampler methods use this path when their return type does not expose
     /// per-step metadata. The transition mechanics are shared with [`step_mut`](Self::step_mut).
@@ -1078,7 +1101,7 @@ impl<S> Chain<S> {
         target: &T,
         proposal: &mut P,
         rng: &mut R,
-    ) -> Result<(), McmcError> {
+    ) -> Result<StepOutcome, McmcError> {
         self.step_mut_with_mode::<DiscardMutTelemetry, T, P, R>(target, proposal, rng)
     }
 
@@ -1230,7 +1253,7 @@ impl<S> Chain<S> {
         self.step_delayed_with_mode::<CaptureDelayedTelemetry, T, P, R>(target, proposal, rng)
     }
 
-    /// Perform a delayed step without constructing proposal telemetry.
+    /// Return a delayed step's outcome without constructing proposal telemetry.
     pub(crate) fn step_delayed_without_telemetry<
         T: Target<S> + ?Sized,
         P: DelayedProposal<S> + ?Sized,
@@ -1240,7 +1263,7 @@ impl<S> Chain<S> {
         target: &T,
         proposal: &mut P,
         rng: &mut R,
-    ) -> Result<(), DelayedStepError<P::Error>> {
+    ) -> Result<StepOutcome, DelayedStepError<P::Error>> {
         self.step_delayed_with_mode::<DiscardDelayedTelemetry, T, P, R>(target, proposal, rng)
     }
 

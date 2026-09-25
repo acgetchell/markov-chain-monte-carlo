@@ -63,7 +63,8 @@ were accepted where they made invalid states unrepresentable or preserved valida
 After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
 scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
 
-- [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Adaptive Metropolis-Hastings
+- [x] [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Bounded scalar adaptive Metropolis-Hastings warmup (unreleased); production
+      uses the final fixed proposal scale
 - [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
 - [#21](https://github.com/acgetchell/markov-chain-monte-carlo/issues/21) - Tracing integration for long-running simulations
 

@@ -58,8 +58,34 @@ The runnable [`examples/additive_target_bias.rs`](../examples/additive_target_bi
 combined with a bias weight through `AdditiveTarget`, while the symmetric flip proposal keeps the proposal-ratio correction at its default zero value.
 
 Externally supplied learned regularizer terms use the same contract as physics actions: return an unnormalized log weight, or return `-E(state)` when the term
-is written in energy form. This crate currently provides sampler mechanics and target composition, not training for learned energies or adaptive proposal
+is written in energy form. This crate currently provides sampler mechanics and target composition, not training for learned energies or learned proposal
 policies.
+
+## Adaptive Warmup
+
+`AdaptiveScale` tunes one positive proposal width through `TunableProposal`. `Sampler::warm_up`, `warm_up_mut`, and `warm_up_delayed` run the existing
+Metropolis-Hastings transitions and change the scale only after each completed transition. All sampling and Hastings-ratio calculations for a transition
+must use the same scale. Every fixed scale must define a valid kernel for the same target, and increasing width should generally lower acceptance.
+
+For completed warmup step `n`, starting at one, the implemented update is:
+
+```text
+log_scale = clamp(log_scale + n^(-0.6) * (I_accepted - target_acceptance), log_min, log_max)
+scale = clamp(exp(log_scale), min_scale, max_scale)
+```
+
+This is a bounded acceptance-indicator Robbins-Monro scale update, related to the acceptance-probability scaling updates discussed in
+[Andrieu and Thoms (2008)](https://doi.org/10.1007/s11222-008-9110-y), section 5.1.2. It does not estimate a covariance matrix or implement the full
+Haario adaptive Metropolis algorithm. The gain exponent is fixed at 0.6; the target rate and bounds are explicit caller choices, not universal optima.
+
+Rejection and no-proposal self-loops both contribute zero acceptance, matching chain counters. Errors do not advance tuning, and earlier completed work
+is retained. A zero-step call has no effects. Keep the same tuner, proposal, and RNG across warmup chunks; counter resets do not restart the schedule.
+Chain checkpoints contain neither the tuner nor the tuned proposal parameters. The completed-step count saturates at `usize::MAX`, freezing further updates.
+
+Discard adaptive draws. Ordinary `step`, `run`, observation, thinning, and iterator methods perform no tuning, so production uses the final fixed kernel.
+This avoids claiming validity for indefinite adaptation, but freezing does not itself make the starting state stationary. Choose additional burn-in and
+assess mixing, ESS, and convergence for the frozen kernel. A bounded scale and a plausible acceptance rate do not establish irreducibility or adequate
+exploration; targets with strong correlations or multiple modes may need different proposals.
 
 ## What the Crate Checks
 

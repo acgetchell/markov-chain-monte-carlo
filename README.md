@@ -62,7 +62,7 @@ for the same concrete transition they generate. For asymmetric combinatorial mov
 counts, reverse-site counts, and invalid-move handling.
 
 Physics actions and externally supplied learned regularizer terms fit the same target interface: implement `Target::log_prob` as an unnormalized log weight, or
-as `-E(state)` when working in energy/action form. Training learned energies or adaptive proposal policies is outside the current crate scope.
+as `-E(state)` when working in energy/action form. Training learned energies or learned proposal policies is outside the current crate scope.
 
 The crate checks local transition mechanics: log-space acceptance, invalid floating-point values, rollback for in-place proposals, delayed commits, counters,
 checkpoints, and empirical detailed-balance diagnostics for representative discrete transitions. It does not prove that a proposal is ergodic, that a chain has
@@ -78,6 +78,8 @@ For the detailed contract, see the
 - `AdditiveTarget` for composing model and bias log-weight terms without mixing them into proposal-ratio corrections.
 - Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
 - `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
+- **Unreleased:** bounded scalar proposal tuning with `AdaptiveScale` and `TunableProposal` during explicit `Sampler::warm_up*` calls; production keeps the
+  final scale fixed.
 - Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
 - `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
 - **Unreleased:** `Autocorrelation` for scalar ACF estimates and integrated autocorrelation time with explicit truncation and degenerate-input errors.
@@ -226,6 +228,11 @@ Run them with:
 ```bash
 just examples
 ```
+
+The unreleased checkout includes `examples/adaptive_normal.rs`: run `cargo run --release --example adaptive_normal` to tune a random-walk width during
+warmup, discard those draws, and sample with the fixed final width. Implement `TunableProposal` alongside any proposal workflow and import
+`AdaptiveScale` from the shared prelude. Choose a target acceptance rate and positive finite scale bounds appropriate to your proposal; reaching the target
+does not establish convergence. Reuse the tuner across warmup chunks, then use ordinary sampler methods for production.
 
 The unreleased checkout also includes `examples/benchmark_distributions.rs`. Run it with
 `cargo run --release --features benchmarks --example benchmark_distributions` to compare seeded random walks against analytical moments and report scalar

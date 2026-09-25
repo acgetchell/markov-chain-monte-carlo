@@ -18,8 +18,8 @@ The README should stay compact. It should answer:
 
 - What the crate is: research-oriented Metropolis-Hastings tools in Rust.
 - Why it exists: reusable sampler mechanics for downstream scientific crates with domain-specific states, proposals, and observables.
-- What is implemented now: by-value, in-place rollback, delayed-commit proposals, additive targets, traces, checkpoints, statistics, and detailed-balance
-  diagnostics.
+- What is implemented now: by-value, in-place rollback, delayed-commit proposals, scalar adaptive warmup, additive targets, traces, checkpoints, statistics,
+  and detailed-balance diagnostics.
 - What is not claimed: proposal ergodicity, convergence, scientific model validity, learned-energy training, or adaptive learned proposal policies.
 - How to run it locally: install with Cargo, run examples, and use `just check` for the non-mutating validation gate.
 
@@ -46,7 +46,7 @@ AI tools were used as development aids and are cited in [`REFERENCES.md`](../REF
 land.
 
 Learned proposals are roadmap work. The current crate can compose externally supplied learned regularizer terms as target log weights, but it does not train
-energy models or adaptive proposal policies. The roadmap intentionally puts multi-chain execution, tempering, and diagnostics ahead of learned-proposal
+energy models or learned proposal policies. The roadmap intentionally puts multi-chain execution, tempering, and diagnostics ahead of learned-proposal
 experiments so failures have useful baselines.
 
 ## Reproducible Local Checks

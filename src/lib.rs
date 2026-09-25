@@ -27,7 +27,7 @@
 //! Use [`AdditiveTarget`] when model and bias terms are easiest to express as
 //! separate log-weight components.  The crate treats learned regularizers as
 //! already supplied log-weight terms; it does not train learned energies or
-//! adaptive proposal policies.
+//! learned proposal policies.
 //!
 //! If a downstream model is written in action form, implement each component
 //! with the same sign convention: return `-S_component(state)`.  Then the
@@ -496,6 +496,7 @@
 
 // Keep implementation modules private; only the explicit re-exports below
 // form the public API, leaving shared arithmetic helpers internal.
+mod adaptive;
 mod autocorrelation;
 #[cfg(feature = "benchmarks")]
 mod benchmarks;
@@ -511,6 +512,7 @@ mod statistics;
 mod testing;
 mod traits;
 
+pub use adaptive::{AdaptiveScale, AdaptiveScaleError, TunableProposal};
 pub use autocorrelation::{
     Autocorrelation, AutocorrelationError, EssRateError, IntegratedAutocorrelationTime,
 };
@@ -603,13 +605,14 @@ pub use traits::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        AdditiveTarget, Autocorrelation, AutocorrelationError, BinningAnalysis, BinningEstimate,
-        Chain, ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch, EssRateError,
-        IntegratedAutocorrelationTime, InvalidThinningInterval, McmcError, Observable,
-        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, SampleBuffer,
-        Sampler, SplitRhat, SplitRhatError, StatisticsError, Target, ThinningInterval, Trace,
-        TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
-        TryObservedIntoRunResult, TryThinnedObservedRunResult,
+        AdaptiveScale, AdaptiveScaleError, AdditiveTarget, Autocorrelation, AutocorrelationError,
+        BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
+        DelayedCommitLogProbMismatch, EssRateError, IntegratedAutocorrelationTime,
+        InvalidThinningInterval, McmcError, Observable, ObservedIntoRunResult, ObservedStepError,
+        ObservedStreamError, OnlineStats, SampleBuffer, Sampler, SplitRhat, SplitRhatError,
+        StatisticsError, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
+        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        TryThinnedObservedRunResult, TunableProposal,
     };
 
     /// Prelude for by-value proposals.

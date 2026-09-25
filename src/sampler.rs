@@ -9,8 +9,8 @@ use serde::{Serialize, Serializer};
 
 use crate::{
     Chain, ChainCheckpoint, DelayedProposal, DelayedStep, DelayedStepError, McmcError, Observable,
-    ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Step, Target,
-    TryAccumulator, TryObservable,
+    ObservedStepError, ObservedStreamError, Proposal, ProposalMut, SampleBuffer, Step, StepOutcome,
+    Target, TryAccumulator, TryObservable,
 };
 
 /// Delayed-step telemetry paired with a measurement from the resulting state.
@@ -1483,6 +1483,11 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
 
     /// Perform one in-place transition without constructing step telemetry.
     fn step_mut_without_telemetry(&mut self) -> Result<(), McmcError> {
+        self.step_mut_outcome().map(|_| ())
+    }
+
+    /// Complete an in-place transition without invoking metadata hooks.
+    pub(crate) fn step_mut_outcome(&mut self) -> Result<StepOutcome, McmcError> {
         self.chain
             .step_mut_without_telemetry(self.target, &mut self.proposal, self.rng)
     }
@@ -2339,6 +2344,13 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     }
 
     fn step_delayed_without_telemetry(&mut self) -> Result<(), DelayedStepError<P::Error>> {
+        self.step_delayed_outcome().map(|_| ())
+    }
+
+    /// Complete a delayed transition without invoking metadata hooks.
+    pub(crate) fn step_delayed_outcome(
+        &mut self,
+    ) -> Result<StepOutcome, DelayedStepError<P::Error>> {
         self.chain
             .step_delayed_without_telemetry(self.target, &mut self.proposal, self.rng)
     }
@@ -2586,7 +2598,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     /// [`run_delayed_chunk`](Self::run_delayed_chunk) with per-step
     /// [`DelayedStep`] telemetry.  After each completed step, `on_step` is
     /// invoked with the [`DelayedStep`] for that step — exposing its
-    /// [`StepOutcome`](crate::StepOutcome), proposal
+    /// [`StepOutcome`], proposal
     /// [`info`](DelayedStep::info), and
     /// [`rejection_reason`](DelayedStep::rejection_reason) — together with the
     /// chain state *after* the step.  A downstream caller can therefore record
