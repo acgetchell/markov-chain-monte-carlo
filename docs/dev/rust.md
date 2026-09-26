@@ -1,6 +1,6 @@
 # Rust Development
 
-This repository is a single Rust library crate using Rust 1.98.1 and edition 2024. Auxiliary repository tooling requires Python 3.14 and is managed by uv.
+This repository is a single Rust library crate using Rust 1.98.1 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
 
 ## Core Commands
 
@@ -22,6 +22,7 @@ just test-rust-ci     # All-feature release lib + integration tests in one nexte
 just test-rust        # Broad Rust CI tests + doctests
 just test-all         # Broad Rust + Python tooling tests
 just notebook-check   # Notebook lint + fast headless execution
+just security         # Network dependency audit + full-history secret scan
 just bench-compile    # Compile Criterion benchmarks without measuring
 just bench            # Criterion benchmarks
 just examples         # Run all examples
@@ -107,6 +108,25 @@ The SARIF workflow invokes `just zizmor --require-online` with the workflow toke
 the first step. SARIF generation alone does not fail on findings. Upload requires successful report generation and skips fork PRs and Dependabot;
 those runs still execute the audit gate. Online zizmor audits own remote action SHA/version-comment resolution.
 
+## Dependency and Secret Scanning
+
+`just security` runs two shared scanner gates. Use `just security-osv` or `just security-secrets` to run either independently.
+Exact native scanner versions live in `[tool.research-repo-tools.toolchain.binaries]`; `just setup` installs verified release binaries, and
+`just update-cargo-tools` also updates these managed binary pins through the shared toolchain updater.
+
+OSV-Scanner audits `uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These are the three maintained lockfiles, including the
+isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
+The existing Cargo audit workflow continues to check RustSec advisories separately.
+
+Gitleaks scans all reachable Git history plus a private snapshot of tracked and nonignored working files, including uncommitted files. CI fetches complete
+history (`fetch-depth: 0`). Shared defaults exclude environment/build directories; ignored untracked files, unreachable objects, binary blobs, archives, and
+nested repositories are outside this scan. The shared command disables inline and ambient-ignore bypasses and redacts secret values and adjacent match text.
+
+`.github/workflows/osv.yml` and `.github/workflows/gitleaks.yml` run on PRs, pushes to `main`, weekly schedules, and manual dispatch. They call the same Just
+recipes with read-only repository permissions and fail on findings, scanner errors, or missing/incomplete reports. Reports under `target/security` include
+native JSON/SARIF for each lockfile and redacted Gitleaks history/working reports; Actions retains them as artifacts for seven days, including on findings.
+README badges report the respective workflow status. These network/full-history scans stay separate from `just check` and the platform `just ci` matrix.
+
 ## Local CodeRabbit Review
 
 CodeRabbit review is opt-in and separate from `just check` and `just ci`. Agents run it only when the maintainer explicitly requests CodeRabbit review;
@@ -124,10 +144,10 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.1.6` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.1.7` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
-Consumer tests use local process stubs; no live review is part of migration validation.
+The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
 
 CodeRabbit's general review excludes deliberate Semgrep fixtures and disables the docstring-percentage pre-merge check. Repository-owned Ruff, Ty and
 Semgrep fixture validation remain blocking in the canonical local and CI gates.
@@ -165,7 +185,9 @@ Follow [contributor setup](../../CONTRIBUTING.md#development-environment-setup) 
 alias `just setup-tools`) delegates to the pinned shared installer. `just tools-check` checks existing installations without synchronization or Python
 downloads.
 
-The authoritative declarations are `[tool.uv].required-version`, `.python-version`, `rust-toolchain.toml`, and `[tool.research-repo-tools.toolchain.cargo]`.
+The authoritative declarations are `[tool.uv].required-version`, the installed shared Python baseline, `rust-toolchain.toml`, and
+`[tool.research-repo-tools.toolchain.cargo]`. With `toolchain.inherit-python = true`, `.python-version` and `project.requires-python` are checked mirrors.
+`python-typecheck` runs the shared drift check before Ty; Ruff and Ty infer their Python targets from project metadata.
 Shared setup installs isolated Rust/Cargo tools, managed Python, and user-level Just, configures shell PATH, and synchronizes the locked dev environment. Git,
 Bash/sh, the native compiler/linker, jq, and uv remain system prerequisites; authenticated gh is needed for release operations.
 
@@ -174,8 +196,40 @@ configuration so an externally upgraded supported uv can reconcile its pin. Unsu
 TOML pins and retain previous managed versions on failure. `cargo-update` and the legacy Just pin reconciler are no longer used. Python-only updates retain the
 stable-uv preflight, refresh the complete lock, and synchronize dev. Shared package and Just upgrades remain deliberate package-pin changes.
 
+For a newer published shared package, run `just shared-python-plan VERSION`, then `just shared-python-update VERSION` after reviewing the preview.
+`VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.
+Adoption updates both dependency-group pins, `.python-version`, `project.requires-python`, `uv.lock`, `.venv`, and the notebook kernel. This carries a future
+shared Python baseline into this repository without editing Python versions locally. `just update` does not advance the exact shared-package pin.
+The registry-only release writer jobs retain separate package pins and resolution cutoffs, which must be aligned with each adopted release;
+their interpreter is selected from the package's runtime requirement without a duplicated Python minor.
+
 The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
 the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
+
+## Dependabot Automation
+
+`.github/workflows/dependabot-auto-merge.yml` calls the shared
+[`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)
+at a reviewed commit. The caller supplies this repository's identity and exact Cargo, uv, workflow, and composite-action file allowlists.
+Dependabot maintains the shared workflow's SHA through its GitHub Actions updates. Keep the file policy current when adding or renaming those files.
+
+The shared workflow uses only `GITHUB_TOKEN`, validates signed same-repository Dependabot updates at the current head, and enables native squash auto-merge.
+It runs from the trusted default branch through `pull_request_target` without checking out or executing PR code. Existing Dependabot schedules, groups,
+cooldowns, and version eligibility apply. Required CI checks, the CodeRabbit status, resolved threads, and current-head approval still gate merging.
+CodeRabbit can report a successful skipped status for bot authors; automatic approval comes from the shared workflow, without a forced CodeRabbit review.
+
+GitHub settings must allow auto-merge, squash merging, and Actions approvals while retaining read-only default workflow permissions. The selected-actions
+allowlist includes `dependabot/fetch-metadata@*` and `acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@*`.
+The active main ruleset requires an approval, dismisses stale reviews, resolves review threads, and requires strict up-to-date status checks.
+Keep the approval job optional as a status check because it skips ordinary PRs.
+
+After this caller is merged into `main`, delete `CODERABBIT_REVIEW_TOKEN` from this repository's Dependabot secrets; no workflow consumes it anymore.
+A new Dependabot PR or synchronization event exercises the new caller. Rerunning an old workflow run still uses its old definition.
+Verify the first eligible update receives an approval and merges only after required checks pass.
+
+Shared-package upgrades that need a Python migration still use `shared-python-plan` and `shared-python-update`; Dependabot does not run that adoption command
+or align the separate release-writer pins. CI blocks an incomplete migration. Automatic approval does not bypass those checks.
+GitHub-token merges may not trigger push workflows; when post-merge evidence is needed, dispatch `ci.yml` on `main` and verify the run's commit.
 
 ## Line Length
 
@@ -277,6 +331,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.github/actions/setup-toolchain` caches all declared managed tools, including both SARIF converters, by OS, architecture, and declarations.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
+- `.github/workflows/osv.yml` audits all maintained Python/Rust lockfiles through the shared OSV command.
+- `.github/workflows/gitleaks.yml` scans full Git history and current files through the shared redacted Gitleaks command.
 - `clippy.toml` pins Clippy's MSRV to the crate MSRV.
 - `pyproject.toml` pins the shared changelog package and configures owner/repository links and the local Markdown formatter.
   See [the pilot comparison](shared-changelog-pilot.md) for command contracts and the completed consumer comparison.
@@ -288,7 +344,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.
-- `ty.toml` configures Python 3.14 type checking without restricting discovered Python surfaces.
+- `ty.toml` configures type-checker output; Ty infers Python compatibility from project metadata without restricting discovered Python surfaces.
 - `semgrep.yaml` contains repository-owned Rust and Python policy rules.
 
 Keep these checks focused. Avoid broad community rule packs unless they prove low-noise for this crate.

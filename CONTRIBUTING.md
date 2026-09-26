@@ -91,27 +91,40 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.6` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+The published `research-repo-tools==0.1.7` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
 | Declaration | Authority |
 | --- | --- |
 | uv | `[tool.uv].required-version` in `pyproject.toml` |
-| Python | `.python-version` |
+| Python | Installed shared baseline; `.python-version` and `project.requires-python` are checked mirrors |
 | Rust and components, including coverage tools | `rust-toolchain.toml` |
 | Cargo tools | `[tool.research-repo-tools.toolchain.cargo]` in `pyproject.toml` |
+| Gitleaks and OSV-Scanner | `[tool.research-repo-tools.toolchain.binaries]` in `pyproject.toml` |
 | Python tools and shared package | Dependency groups and `uv.lock` |
 
 After initial setup, run `just setup` again when declarations change, or `just tools-check` for a read-only inventory. Setup does not upgrade declared versions.
 Managed Rust/Cargo installations live under `~/.cache/research-repo-tools`; set an absolute `RESEARCH_REPO_TOOLS_HOME` to choose another location. Prefer a
 short path on Windows. Normal recipes select the checked tool paths through `toolchain run`.
 
+To adopt a newer published shared package and its Python baseline, run `just shared-python-plan VERSION`, review the preview, then run
+`just shared-python-update VERSION`. Use the package version, not the Python version. These standalone commands work outside the old environment and update
+both package pins, the Python mirrors, lockfile, environment, and notebook kernel together. `just update` retains the exact shared-package pin.
+Keep the registry-only release workflow's package pin and resolution cutoff aligned with the adopted version; it selects a package-compatible Python.
+
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated
 [GitHub CLI](https://cli.github.com/). CodeRabbit has separate opt-in installation and authentication.
 
 CI uses the same declarations through `.github/actions/setup-toolchain`, with OS/architecture-specific caches, including both SARIF converters. See
 [the migration record](docs/dev/shared-maintenance-migration.md) for ownership and validation.
+
+Dependabot approvals and native auto-merge use the shared SHA-pinned GitHub workflow with `GITHUB_TOKEN`.
+See [Dependabot automation](docs/dev/rust.md#dependabot-automation) for repository settings, required checks, and personal-token retirement.
+
+Run `just security` for the shared OSV dependency and Gitleaks secret scans. These separate security workflows run on PRs, pushes to `main`, and weekly;
+the README badges link to their results. OSV requires network access, and Gitleaks requires a complete Git checkout. Both retain JSON/SARIF reports under
+`target/security`, with secret findings redacted. See [dependency and secret scanning](docs/dev/rust.md#dependency-and-secret-scanning) for scope.
 
 ## Project Structure
 

@@ -11,6 +11,8 @@
 [![rust-clippy analyze](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/rust-clippy.yml)
 [![codecov](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo/graph/badge.svg)](https://codecov.io/gh/acgetchell/markov-chain-monte-carlo)
 [![Audit dependencies](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/audit.yml)
+[![OSV-Scanner](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/osv.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/osv.yml)
+[![Gitleaks](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/gitleaks.yml)
 
 ![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.4.2/docs/assets/ising_energy_trace.png)
 
