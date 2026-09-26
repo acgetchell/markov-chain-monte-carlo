@@ -4,6 +4,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  approved-shared-workflow:
+    # ok: mcmc.github-actions.external-action-sha-pinned
+    # ok: mcmc.github-actions.external-action-approved-allowlist
+    # ok: mcmc.github-actions.external-action-version-comment
+    uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@0123456789abcdef0123456789abcdef01234567 # reviewed 2026-09-26
+
+  unpinned-shared-workflow:
+    # ruleid: mcmc.github-actions.external-action-sha-pinned
+    uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@main
+
+  unapproved-shared-workflow:
+    # ruleid: mcmc.github-actions.external-action-approved-allowlist
+    uses: untrusted/tooling/.github/workflows/approve.yml@0123456789abcdef0123456789abcdef01234567 # v1.2.3
+
+  missing-shared-workflow-comment:
+    # ruleid: mcmc.github-actions.external-action-version-comment
+    uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@0123456789abcdef0123456789abcdef01234567
+
   action-policy:
     runs-on: ubuntu-latest
     steps:

@@ -1,7 +1,7 @@
 # Shared changelog adoption (#157)
 
 This record describes the original `research-repo-tools==0.1.1` changelog adoption,
-which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.1.6;
+which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.1.7;
 the [maintenance migration](shared-maintenance-migration.md) covers its broader
 setup, release, review, and notebook ownership and consumer verification.
 

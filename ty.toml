@@ -3,10 +3,6 @@
 # Check all discovered Python files, including Semgrep fixtures.
 # Scientific notebooks also use the shared native notebook checks.
 
-[environment]
-# Match the project's minimum supported Python version.
-python-version = "3.14"
-
 [terminal]
 # Keep output concise by default.
 output-format = "concise"

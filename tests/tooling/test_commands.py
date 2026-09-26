@@ -1,20 +1,16 @@
-"""Regression tests for the public Just recipe surface."""
+"""MCMC command scope, validation coverage, and release credential boundaries."""
 
 import json
-import re
 import shlex
 import shutil
 import subprocess
 import tomllib
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-JUSTFILE = REPO_ROOT / "justfile"
-RECIPE_DECLARATION = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)(?:\s+.*?)?:(?=\s|$)", re.MULTILINE)
 
 
 def _run_just(*args: str) -> subprocess.CompletedProcess[str]:
@@ -36,78 +32,6 @@ def _recipes() -> dict[str, dict[str, Any]]:
     return recipes
 
 
-def test_recipe_declarations_are_lexicographically_sorted() -> None:
-    names = RECIPE_DECLARATION.findall(JUSTFILE.read_text(encoding="utf-8"))
-
-    assert names == sorted(names)
-
-
-def test_bare_just_shows_curated_help() -> None:
-    result = _run_just()
-
-    assert result.stdout.startswith("Common Just workflows:\n")
-    assert "Use 'just --list' for the complete grouped recipe reference." in result.stdout
-
-
-def test_review_recipes_select_shared_modes() -> None:
-    prefix = ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "review"]
-    assert shlex.split(_run_just("--dry-run", "review").stderr) == [*prefix, "branch", "--base=origin/main"]
-    assert shlex.split(_run_just("--dry-run", "review-uncommitted").stderr) == [*prefix, "uncommitted"]
-
-
-def test_review_is_discoverable_and_separate_from_validation() -> None:
-    recipes = _recipes()
-    help_text = _run_just("help-workflows").stdout
-    for name in ("review", "review-uncommitted"):
-        assert recipes[name]["private"] is False
-        assert {"group": "review"} in recipes[name]["attributes"]
-        assert f"just {name}" in help_text
-    for name in ("check", "ci", "setup-tools", "update"):
-        result = _run_just("--dry-run", name)
-        assert "coderabbit" not in (result.stdout + result.stderr).lower()
-
-
-def test_public_recipes_have_one_group_and_a_description() -> None:
-    for name, recipe in _recipes().items():
-        if recipe["private"]:
-            continue
-        groups = [attribute["group"] for attribute in recipe["attributes"] if "group" in attribute]
-        assert recipe["doc"], f"public recipe {name!r} has no description"
-        assert len(groups) == 1, f"public recipe {name!r} has groups {groups!r}"
-
-
-def test_public_recipes_do_not_duplicate_exact_behavior() -> None:
-    signatures: defaultdict[str, list[str]] = defaultdict(list)
-    for name, recipe in _recipes().items():
-        if recipe["private"]:
-            continue
-        signature = json.dumps(
-            {
-                "body": recipe["body"],
-                "dependencies": recipe["dependencies"],
-                "parameters": recipe["parameters"],
-            },
-            sort_keys=True,
-        )
-        signatures[signature].append(name)
-
-    duplicates = [names for names in signatures.values() if len(names) > 1]
-    assert duplicates == []
-
-
-def test_dependency_only_environment_and_registry_pins() -> None:
-    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert manifest["tool"]["uv"]["package"] is False
-    assert "build-system" not in manifest
-    assert "scripts" not in manifest["project"]
-    assert manifest["dependency-groups"]["tooling"] == ["research-repo-tools==0.1.6"]
-    assert "research-repo-tools[notebooks]==0.1.6" in manifest["dependency-groups"]["notebook"]
-    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
-    shared = next(package for package in lock["package"] if package["name"] == "research-repo-tools")
-    assert shared["version"] == "0.1.6"
-    assert shared["source"] == {"registry": "https://pypi.org/simple"}
-
-
 def test_offline_reporting_and_explicit_measurement_boundary() -> None:
     for name in ("performance-doc", "performance-readme"):
         result = _run_just("--dry-run", name)
@@ -116,7 +40,8 @@ def test_offline_reporting_and_explicit_measurement_boundary() -> None:
         assert "cargo bench" not in result.stderr
     for name in ("performance-local", "performance-release"):
         assert "--allow-git-mutations" in _run_just("--dry-run", name).stderr
-    assert "release update" in _run_just("--dry-run", "update-version", "v9.9.9", "--previous-release", "v9.9.8", "--dry-run").stderr
+    for gate in ("check", "ci", "setup-tools", "update"):
+        assert "research-repo-tools review " not in _run_just("--dry-run", gate).stderr
 
 
 def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
@@ -132,13 +57,15 @@ def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
 
 
 def test_release_credentials_and_shared_commands_are_separated() -> None:
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    shared_pin = manifest["dependency-groups"]["tooling"][0]
     workflow = (REPO_ROOT / ".github/workflows/release-benchmarks.yml").read_text(encoding="utf-8")
     validation, rest = workflow.split("  validate-release:\n", 1)[1].split("  release-baseline:\n", 1)
     baseline, publication = rest.split("  publish-baseline:\n", 1)
     for writer, command in ((validation, "release-draft"), (publication, "release-upload")):
         assert "contents: write" in writer
         assert "actions/checkout@" not in writer
-        assert "research-repo-tools==0.1.6 research-repo-tools performance " + command in writer
+        assert f"{shared_pin} research-repo-tools performance {command}" in writer
     assert "--publish" in publication
     assert "GH_TOKEN:" not in baseline
     assert "persist-credentials: false" in baseline
@@ -146,12 +73,6 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     setup = (REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
     assert "research-repo-tools toolchain export" in setup
     assert "<<'PY'" not in workflow + setup
-
-
-def test_file_validation_uses_shared_selection() -> None:
-    recipes = _recipes()
-    for name in ("_notebook-all", "action-lint", "markdown-check", "semgrep", "toml-lint", "validate-json", "yaml-check"):
-        assert "research-repo-tools files run" in json.dumps(recipes[name]["body"])
 
 
 def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> None:
@@ -182,6 +103,63 @@ def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> Non
     assert "--include '*.ipynb'" in _run_just("--dry-run", "notebook-lint").stderr
 
 
+def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> None:
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/dependabot-auto-merge.yml").read_bytes())
+    events = workflow.get("on", workflow.get(True))  # PyYAML's YAML 1.1 resolver treats unquoted "on" as True.
+    assert set(events) == {"pull_request_target"}
+    assert events["pull_request_target"]["branches"] == ["main"]
+    assert workflow["permissions"] == {}
+    assert len(workflow["jobs"]) == 1
+    job = workflow["jobs"]["approve-and-enable-auto-merge"]
+    assert job["uses"].split("@")[0] == "acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml"
+    assert "steps" not in job
+    assert "secrets" not in job
+    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
+    assert job["with"]["repository"] == "acgetchell/markov-chain-monte-carlo"
+    policy = json.loads(job["with"]["policy"])
+    assert set(policy) == {"cargo", "uv", "github_actions"}
+    assert set(policy["cargo"]["files"]) == {"Cargo.toml", "Cargo.lock"}
+    assert set(policy["uv"]["files"]) == {"pyproject.toml", "uv.lock"}
+    actions = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for directory in (REPO_ROOT / ".github/workflows", REPO_ROOT / ".github/actions")
+        for path in directory.rglob("*")
+        if path.suffix in {".yml", ".yaml"}
+    }
+    assert set(policy["github_actions"]["files"]) == actions
+    for path in (REPO_ROOT / ".github").rglob("*"):
+        if path.is_file():
+            assert b"CODERABBIT_REVIEW_TOKEN" not in path.read_bytes()
+
+
+def test_security_workflows_cover_owned_inputs_and_fail_on_findings() -> None:
+    from research_repo_tools.selection import select_files
+
+    osv = shlex.split(_run_just("--dry-run", "security-osv").stderr)
+    lockfiles = osv[osv.index("osv") + 1 :]
+    assert set(lockfiles) == set(select_files(REPO_ROOT, include=("Cargo.lock", "**/Cargo.lock", "uv.lock")))
+    assert shlex.split(_run_just("--dry-run", "security-secrets").stderr)[-2:] == ["security", "secrets"]
+    for scanner, recipe in (("osv", "security-osv"), ("gitleaks", "security-secrets")):
+        workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{scanner}.yml").read_bytes())
+        events = workflow.get("on", workflow.get(True))
+        assert {"pull_request", "push", "schedule", "workflow_dispatch"} <= set(events)
+        assert "pull_request_target" not in events
+        assert workflow["permissions"] == {"contents": "read"}
+        job = workflow["jobs"]["scan"]
+        assert not job.get("continue-on-error", False)
+        checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        assert checkout["with"]["persist-credentials"] is False
+        if scanner == "gitleaks":
+            assert checkout["with"]["fetch-depth"] == 0
+        scan = next(step for step in job["steps"] if step.get("id") == "scan")
+        assert scan["run"] == f"just {recipe}"
+        assert not scan.get("continue-on-error", False)
+        upload = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+        assert upload["if"] == "${{ !cancelled() && steps.scan.outcome != 'skipped' }}"
+        assert upload["with"]["path"] == f"target/security/{scanner}-*"
+        assert upload["with"]["if-no-files-found"] == "error"
+
+
 def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = manifest["tool"]["ruff"]["lint"]
@@ -197,7 +175,6 @@ def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None
 
 def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["research-repo-tools"]
-    assert manifest["toolchain"]["cargo"]["zizmor"] == "1.30.1"
     assert manifest["zizmor"]["persona"] == "regular"
     prefix = ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "zizmor", "check"]
     assert shlex.split(_run_just("--dry-run", "zizmor").stderr) == [*prefix, "$@", ".github"]

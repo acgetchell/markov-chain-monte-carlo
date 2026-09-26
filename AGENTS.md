@@ -106,14 +106,19 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.1.6` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.1.7` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
 - Preserve historical performance bytes under `docs/PERFORMANCE.md` and `docs/archive/performance/`. Shared reports and evidence use `docs/performance/v1/`.
   Update the independently reviewed selection in `tooling/performance-readme.toml` before publishing new README evidence.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
-  `.python-version`, Rust in `rust-toolchain.toml`, and supported Cargo tools in `[tool.research-repo-tools.toolchain.cargo]`. Run managed tools through the
-  Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing. The SARIF converters use the same shared Cargo
+  `.python-version` as a checked mirror of the shared Python baseline, Rust in `rust-toolchain.toml`, and supported Cargo tools in
+  `[tool.research-repo-tools.toolchain.cargo]`. Keep `toolchain.inherit-python` enabled; Ruff and Ty infer their targets from project metadata.
+  Run managed tools through the Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing.
+  The SARIF converters use the same shared Cargo
   catalog. See [the migration record](docs/dev/shared-maintenance-migration.md).
+- Adopt a newer shared package and its Python baseline with `just shared-python-plan VERSION`, then `just shared-python-update VERSION`. These standalone
+  commands update both exact package pins, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the Python mirrors.
+  Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
   newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
   bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.
@@ -134,6 +139,9 @@ changing numerical semantics, or changing acceptance/error behavior.
   same policy through the shared native notebook command. On Python 3.14, use deferred bare annotations and `TYPE_CHECKING` for annotation-only imports.
 - `just zizmor` uses the declared scanner and persona through the shared CLI, discovers authentication without printing tokens, and reports an offline fallback.
   The SARIF workflow requires online audits and runs a plain findings gate before report generation; keep both steps on the same canonical recipe.
+- `just security` runs the shared OSV and Gitleaks gates. Keep scanner versions in `[tool.research-repo-tools.toolchain.binaries]`, maintained lockfile scope in
+  `security-osv`, and full-history checkout in the Gitleaks workflow. Scans fail on findings or invalid reports; use only the shared redacted secret reports.
+  These network/full-history checks run in separate security workflows rather than `just check` or the platform `just ci` matrix.
 
 ## Common Commands
 

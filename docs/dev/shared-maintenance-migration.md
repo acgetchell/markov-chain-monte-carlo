@@ -1,6 +1,6 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.1.6` registry distribution.
+MCMC pins the published `research-repo-tools==0.1.7` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the local extraction planned in #166
@@ -15,7 +15,7 @@ after #164; hosted CI and the first live release-asset pair remain separate evid
 | Release discovery, worktrees, binary patches, untracked files | Shared `performance measure`; explicit Git mutation opt-in, publication-order selection |
 | Stepping execution, sample selection, source/host/toolchain capture | Shared measurement; `tooling/benchmark.toml` retains MCMC command, inventories, and compatibility policy |
 | Criterion comparison, CSV/evidence serialization, reports, SVG/table rendering | Shared models and renderers; scientific prose and row selection in `tooling/` |
-| Historical CSV/provenance interpretation | Shared `performance convert` with bounded `legacy-csv.toml`; no local reader or writer |
+| Historical CSV/provenance interpretation | Conversion complete; consumers read verified shared companions, with original values and hashes checked locally |
 | Authenticated legacy release assets | Shared `performance assets` and `legacy-baseline.toml`; exact historical layout declared locally |
 | Archival, index/link updates, immutable pairs, promotion | Shared `performance promote`; new paths under `docs/performance/v1/` |
 | Current-version checks, future-release preparation, tagged blobs, stale inputs | Shared `performance publish`; independently reviewed pins, inventories and references in publication TOML |
@@ -25,7 +25,9 @@ after #164; hosted CI and the first live release-asset pair remain separate evid
 | Example binary suffix detection and output loops | Shared `validation run`; six scientific output contracts in `tooling/examples.toml` |
 | Notebook parser, kernel/lint/execution, cleanup and provenance | Shared notebook CLI; fast/slow selection, Ising trace ordering and figure destination remain in Just |
 | SARIF and coverage | Native Semgrep, clippy-sarif, sarif-fmt and cargo-llvm-cov; no local parser or converter |
-| Rust test/check gates, CodeQL, audit, Dependabot, cache/permission policy | Native tools/actions and thin Just composition retained |
+| Rust test/check gates, CodeQL, audit, cache/permission policy | Native tools/actions and thin Just composition retained |
+| Dependabot approval and auto-merge | SHA-pinned shared workflow; local repository and file policy |
+| Dependency and secret scans | Shared OSV/Gitleaks commands and managed binaries; local lockfile scope, schedules, and badges |
 | Local package/build/console scripts and wheel/entry-point tests | Obsolete and removed; dependency-only uv environment |
 | Production-only Python portability rules/fixtures | Obsolete locally after deletion; shared package owns byte transport and text publication |
 | Generic parser, process, worktree, rendering, rollback and upload tests | Shared upstream; local duplicates removed |
@@ -63,11 +65,11 @@ New shared reports use `docs/performance/v1/current.md` and pair-specific
 promotion operate only on that shared path. Report formatting may differ; numerical
 meaning and scientific limitations are unchanged.
 
-The legacy CSV configuration is a bounded migration aid. Retire it and its conversion
-test once consumers no longer invoke conversion and all retained evidence uses verified
-companions. Retire the legacy baseline layout once ordinary release pairs use shared
-assets. Originals remain immutable after both retirements; no local Python is retained
-for either boundary.
+The one-time legacy CSV configuration and conversion test are retired. Reporting
+consumers read the verified companions directly; the local evidence check still compares
+every original value, bound, coverage label and provenance record. Retire the legacy
+baseline layout once ordinary release pairs use shared assets. Originals remain
+immutable after both retirements; no production Python is retained for either boundary.
 
 The existing historical README cannot be regenerated into a different format under
 its already published tag. The checked-in selection records that historical pair but
@@ -82,7 +84,7 @@ The baseline at `b717f48` contains 1,991 production Python lines, 2,987 test Pyt
 lines, and 217 collected tests. Counts exclude notebook cells, embedded workflow
 programs, and deliberately invalid Semgrep fixtures.
 
-| Python surface | Before | After |
+| Python surface | Before extraction | After initial extraction |
 | --- | ---: | ---: |
 | Production lines | 1,991 | 0 |
 | Test lines (including initializer) | 2,987 | 535 |
@@ -94,22 +96,62 @@ Retained tests cover:
   regions, fresh batches, stepping configuration, and same-host eligibility policy.
 - `test_notebooks.py`: explicit trace/root semantics, unchanged notebook source,
   and selected figure destinations exercised through shared execution.
-- `test_release_policy.py`: MCMC DOI/reference requirements, active source links,
-  historical exclusions, and the independent non-package environment.
-- `test_commands.py`: pinned registry/configuration, canonical recipe exposure,
-  shared review modes, actual scan exclusions, scientific CI dependencies and credential separation.
+- `test_release_policy.py`: MCMC's fixed concept DOI, active source links and
+  historical exclusions, using copies of the actual metadata and release policy.
+- `test_commands.py`: actual scan exclusions, Python policy, scientific CI dependencies,
+  release writer pins and credential separation; review remains outside validation.
 - `test_performance_evidence.py`: every historical value/bound and coverage label,
-  opaque source identity, verified companions, offline reproduction,
-  and representative document/SVG publication.
+  opaque source identity, verified companions and future-publication eligibility.
 
 Generic implementation tests now run upstream. Wheel/entry-point tests are obsolete;
 existing release-workflow tests are replaced by a consumer wiring/permission check.
-The v0.1.5 upstream suite owns saved-sample comparison, notebook lint/provenance,
+The shared upstream suite owns saved-sample comparison, notebook lint/provenance,
 final-changelog enforcement, and review argument/failure matrices. Local tests do not
 repeat those suites; representative integrations exercise MCMC's actual configuration
 and content. Native notebook linting remains part of the regular validation gate.
 The scientific benchmark lifecycle and notebook tests were retained, not traded for
 a smaller count.
+
+## v0.1.7 adoption and further reduction
+
+The official `toolchain adopt` preview and apply commands updated both exact registry
+pins and `uv.lock`, preserving all other locked dependency versions. The environment
+opts into `toolchain.inherit-python`; the installed package owns the Python baseline
+and checks `.python-version`, the dependency-only runtime requirement and package pins.
+Ruff and Ty infer their targets from project metadata, replacing two redundant targets
+and local pin assertions. `python-typecheck` runs the shared drift check before Ty.
+
+`shared-python-plan VERSION` and `shared-python-update VERSION` expose the upstream standalone preview and apply commands without starting the old environment.
+A future package release can therefore carry its Python baseline, both package pins, lockfile, environment, and notebook kernel into MCMC together.
+The registry-only release jobs select a package-compatible interpreter without a numeric Python override. Their separate package pins and resolution cutoffs
+remain reviewed release inputs and must be aligned when adopting another shared release.
+
+Consumer Python tests shrink from 788 to 664 lines and from 40 to 29 collected cases,
+including the new Dependabot caller/token and security-workflow boundary checks.
+Generic recipe shape/help checks, shared review argument checks, required-file failure
+cases and document/SVG renderer checks are removed. Release-policy fixtures now copy
+the actual metadata instead of constructing a second release and editing its policy.
+`performance-check` owns offline report reproduction; the retained scientific evidence
+test reads the shared companions directly. Removing the unused 60-line CSV conversion
+configuration completes that migration without changing any historical artifact.
+
+The registry-only release writer jobs use v0.1.7 and uv 0.12.19. Their resolution cutoff
+is after both v0.1.7 PyPI artifacts were uploaded. Native Rust, scientific notebook,
+benchmark lifecycle, project-rule fixtures and consumer security boundaries remain
+locally owned. The existing batched native Semgrep scan stays in place: the shared
+per-file JSON/SARIF scan is not a replacement for its command and performance contract.
+Dependabot approval now calls the separately SHA-pinned shared workflow. The caller
+owns only repository identity and dependency-file policy; signed-head eligibility,
+approval and native auto-merge live upstream. The personal-token CodeRabbit request
+is removed. See [Dependabot automation](rust.md#dependabot-automation) for GitHub
+settings, the required-check boundary, and token removal after merging the caller.
+
+OSV-Scanner and Gitleaks use exact managed binary pins and shared report handling.
+OSV covers all three maintained lockfiles; Gitleaks covers full reachable history
+and current tracked/nonignored files. Dedicated security workflows retain native
+JSON/SARIF reports, with Gitleaks findings redacted, and supply README badges.
+The consumer test checks lockfile coverage, full-history checkout, and failure
+propagation; scanner implementation and generic report tests remain upstream.
 
 ## Audit and Python policy adoption (#150 and #153)
 
@@ -149,7 +191,8 @@ fallback scans reported no findings; the online SARIF command produced a valid
 its new cutoff. Workflow wiring is covered locally; hosted SARIF upload and the
 native Linux/Windows runs still require GitHub Actions evidence.
 
-Run `just check` and `just ci`. The full gate remains configured for native Linux,
+Use `just check` during iteration and `just ci` for final readiness without immediately
+repeating the smaller gate. The full gate remains configured for native Linux,
 macOS and Windows. A local macOS arm64 pass does not prove native Linux or Windows
 success. Live worktree measurement requires maintainer execution under the repository's
 Git policy; live asset publication requires the next release pair. Local fixture evidence

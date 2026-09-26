@@ -441,6 +441,7 @@ python-sync:
 # Type-check every discovered Python file and fixture with Ty.
 [group('validation')]
 python-typecheck: python-sync
+    uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain python-check
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ty check --no-force-exclude
 
 # Validate synchronized release metadata and active version references.
@@ -463,6 +464,20 @@ review base="origin/main":
 review-uncommitted:
     uv run --locked --group dev research-repo-tools review uncommitted
 
+# Run the network-dependent vulnerability and full-history secret gates.
+[group('security')]
+security: security-osv security-secrets
+
+# Audit every maintained Python and Rust lockfile without executing dependency code.
+[group('security')]
+security-osv:
+    uv run --locked --group dev research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+
+# Scan all reachable Git history and current tracked/nonignored files with redacted reports.
+[group('security')]
+security-secrets:
+    uv run --locked --group dev research-repo-tools security secrets
+
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
 semgrep:
@@ -481,6 +496,18 @@ setup: _ensure-jq
 # Compatibility entry point for shared setup.
 [group('build and setup')]
 setup-tools: setup
+
+# Preview a shared-package/Python migration outside the current environment.
+[group('build and setup')]
+[positional-arguments]
+shared-python-plan version:
+    uvx --no-config --isolated --managed-python --from "research-repo-tools==$1" research-repo-tools toolchain adopt --dry-run
+
+# Adopt the selected shared package and its Python baseline, environment, and kernel.
+[group('build and setup')]
+[positional-arguments]
+shared-python-update version:
+    uvx --no-config --isolated --managed-python --from "research-repo-tools==$1" research-repo-tools toolchain adopt --apply
 
 # Check repository spelling.
 [group('validation')]

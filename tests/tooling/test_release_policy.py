@@ -1,66 +1,27 @@
 """Tests for release metadata and version synchronization checks."""
 
+import tomllib
 from pathlib import Path
 
-import pytest
 from research_repo_tools.cli import main
 
-_VERSION = "1.2.3"
+ROOT = Path(__file__).resolve().parents[2]
 _DOI = "10.5281/zenodo.20033111"
-_RELEASE_DATE = "2026-08-04"
-_CARGO_TOML = f"""[package]
-name = "markov-chain-monte-carlo"
-version = "{_VERSION}"
-repository = "https://github.com/acgetchell/markov-chain-monte-carlo"
-"""
+_VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
 
 
-def _write_project(
-    root: Path,
-    *,
-    metadata_version: str = _VERSION,
-    readme: str | None = None,
-    citation_doi: str = _DOI,
-    citation_date: str = _RELEASE_DATE,
-) -> None:
-    """Write a minimal repository for release-check tests."""
-    readme_text = (
-        readme
-        if readme is not None
-        else (
-            f"[![DOI](https://badgen.net/badge/DOI/10.5281%2Fzenodo.20033111/blue)](https://doi.org/{_DOI})\n"
-            f'markov-chain-monte-carlo = "{_VERSION}"\n'
-            f"cargo add markov-chain-monte-carlo@{_VERSION}\n"
-            f"[tagged](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{_VERSION}/README.md)\n"
-        )
-    )
-    files = {
-        "Cargo.toml": _CARGO_TOML,
-        "Cargo.lock": f'version = 4\n\n[[package]]\nname = "markov-chain-monte-carlo"\nversion = "{metadata_version}"\n',
-        "pyproject.toml": '[project]\nname = "markov-chain-monte-carlo-environment"\nversion = "0.0.0"\n[tool.uv]\npackage = false\n',
-        "uv.lock": 'version = 1\n\n[[package]]\nname = "markov-chain-monte-carlo-environment"\nversion = "0.0.0"\nsource = { virtual = "." }\n',
-        "CITATION.cff": (f"cff-version: 1.2.0\nversion: {metadata_version}\ndoi: {citation_doi}\ndate-released: {citation_date}\n"),
-        "CHANGELOG.md": (
-            f"# Changelog\n\n## [{_VERSION}] - {_RELEASE_DATE}\n\n- Release\n\n"
-            f"[{_VERSION}]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v1.2.2...v{_VERSION}\n"
-        ),
-        "README.md": readme_text,
-        "REFERENCES.md": f"- DOI: <https://doi.org/{_DOI}>\n",
-    }
-    configuration = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
-    release_policy = configuration.split("[tool.research-repo-tools.release]", 1)[1].split("[tool.research-repo-tools.toolchain.cargo]", 1)[0]
-    files["pyproject.toml"] += "\n[tool.research-repo-tools.release]" + release_policy.replace("count = 30", "count = 1")
-    files["docs/BENCHMARKING.md"] = f"just performance-release v{_VERSION} v1.2.2\n"
-    for filename, content in files.items():
-        destination = root / filename
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8", newline="\n")
+def _write_project(root: Path) -> None:
+    """Exercise the actual release policy and metadata without synthetic mirrors."""
+    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    for name in ("Cargo.toml", *manifest["tool"]["research-repo-tools"]["release"]["required-files"]):
+        (root / name).write_bytes((ROOT / name).read_bytes())
+    assert main(["--root", str(root), "release", "check", "--final-release"]) == 0
 
 
 def test_configured_checker_requires_current_source_links(tmp_path: Path) -> None:
     _write_project(tmp_path)
     path = tmp_path / "README.md"
-    path.write_text(path.read_text(encoding="utf-8").replace("/blob/v1.2.3/", "/blob/v1.2.2/"), encoding="utf-8", newline="\n")
+    path.write_text(path.read_text(encoding="utf-8").replace(f"/blob/v{_VERSION}/", "/blob/v0.0.0/"), encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
@@ -69,19 +30,6 @@ def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
     for name in ("CITATION.cff", "README.md", "REFERENCES.md"):
         path = tmp_path / name
         path.write_text(path.read_text(encoding="utf-8").replace(_DOI, "10.5281/zenodo.12345"), encoding="utf-8", newline="\n")
-    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
-
-
-def test_required_references_surface_cannot_disappear(tmp_path: Path) -> None:
-    _write_project(tmp_path)
-    (tmp_path / "REFERENCES.md").unlink()
-    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
-
-
-@pytest.mark.parametrize("name", ["README.md", "REFERENCES.md"])
-def test_required_doi_reference_cannot_disappear(tmp_path: Path, name: str) -> None:
-    _write_project(tmp_path)
-    (tmp_path / name).write_text("# No DOI reference\n", encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 

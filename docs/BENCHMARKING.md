@@ -121,9 +121,10 @@ To promote explicitly saved shared evidence:
 just performance-doc --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
 ```
 
-The bounded `tooling/legacy-csv.toml` conversion exists only to reproduce the verified
-v0.4.2 transition. Retire it and its conversion test once all consumers use shared
-companions without conversion. Historical originals stay immutable after retirement.
+The v0.4.2 transition is complete: all reporting consumers use the verified shared
+companions directly, and the one-time CSV conversion configuration is retired.
+Historical originals stay immutable; consumer tests compare retained values and
+provenance with those originals.
 
 ## Release Preparation and README Publication
 
