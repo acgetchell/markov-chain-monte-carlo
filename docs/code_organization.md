@@ -150,6 +150,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── proptest_chain.rs
 │   ├── proptest_convergence.rs
 │   ├── proptest_validators.rs
+│   ├── tracing.rs
 │   ├── tooling/
 │   │   ├── __init__.py
 │   │   ├── test_benchmark_contracts.py
@@ -315,6 +316,7 @@ This module owns:
 - in-place `step_mut`
 - state accessors and replacement helpers
 - acceptance-rate and counter utilities
+- feature-gated `tracing` events after completed transitions, including no-proposal self-loops
 
 Algorithmic correctness belongs here. Higher-level convenience APIs should only move into `Chain` when they are fundamental to a single chain's state.
 
@@ -330,8 +332,11 @@ This module owns:
 - observing variants that measure derived quantities after sampling steps
 - by-value `Iterator` support
 - access to the bundled `Chain`
+- feature-gated DEBUG spans around sampling loops; `src/adaptive.rs` owns warmup spans
 
 Use `Sampler` for workflow ergonomics; use `Chain` for the core transition logic.
+
+`tests/tracing.rs` checks subscriber-visible metrics, loop scopes, failed transitions, counter resets, and preservation of seeded results and RNG state.
 
 ### `src/statistics.rs`
 

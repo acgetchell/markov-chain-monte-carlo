@@ -1019,9 +1019,13 @@ impl<S> Chain<S> {
             self.state = proposed;
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("by_value", StepOutcome::Accepted);
             Ok(M::accepted(log_prob_before, log_prob_new, log_alpha))
         } else {
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("by_value", StepOutcome::RejectedProposal);
             Ok(M::rejected(log_prob_before, log_alpha))
         }
     }
@@ -1122,6 +1126,8 @@ impl<S> Chain<S> {
         let Some(token) = proposal.propose_mut(&mut self.state, rng) else {
             let output = M::no_proposal(proposal, log_prob_before);
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("in_place", StepOutcome::NoProposal);
             return Ok(output);
         };
 
@@ -1143,6 +1149,8 @@ impl<S> Chain<S> {
             rollback.commit();
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("in_place", StepOutcome::Accepted);
             Ok(M::accepted(
                 captured,
                 log_prob_before,
@@ -1152,6 +1160,8 @@ impl<S> Chain<S> {
         } else {
             rollback.rollback()?;
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("in_place", StepOutcome::RejectedProposal);
             Ok(M::rejected(captured, log_prob_before, log_alpha))
         }
     }
@@ -1288,6 +1298,8 @@ impl<S> Chain<S> {
         else {
             let output = M::no_proposal(proposal, log_prob_before);
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed", StepOutcome::NoProposal);
             return Ok(output);
         };
 
@@ -1311,6 +1323,8 @@ impl<S> Chain<S> {
                 .map_err(DelayedStepError::Commit)?;
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed", StepOutcome::Accepted);
             Ok(M::accepted(
                 captured,
                 log_prob_before,
@@ -1319,6 +1333,8 @@ impl<S> Chain<S> {
             ))
         } else {
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed", StepOutcome::RejectedProposal);
             Ok(M::rejected(captured, log_prob_before, log_alpha))
         }
     }
@@ -1437,6 +1453,8 @@ impl<S> Chain<S> {
         else {
             let info = proposal.no_plan_info();
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed_checked", StepOutcome::NoProposal);
             return Ok(Step::no_proposal(info, log_prob_before));
         };
 
@@ -1468,6 +1486,8 @@ impl<S> Chain<S> {
 
             self.log_prob = committed_log_prob;
             self.accepted = self.accepted.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed_checked", StepOutcome::Accepted);
             Ok(Step::accepted_proposal(
                 info,
                 log_prob_before,
@@ -1476,8 +1496,25 @@ impl<S> Chain<S> {
             ))
         } else {
             self.rejected = self.rejected.saturating_add(1);
+            #[cfg(feature = "tracing")]
+            self.trace_step("delayed_checked", StepOutcome::RejectedProposal);
             Ok(Step::rejected_proposal(info, log_prob_before, log_alpha))
         }
+    }
+
+    /// Publish only completed transitions, after commit or rollback and counting.
+    #[cfg(feature = "tracing")]
+    fn trace_step(&self, kernel: &'static str, outcome: StepOutcome) {
+        tracing::trace!(
+            target: "markov_chain_monte_carlo",
+            kernel,
+            step = self.total_steps(),
+            accepted = outcome.is_accepted(),
+            proposed = outcome.has_proposal(),
+            acceptance_rate = self.acceptance_rate(),
+            log_prob = self.log_prob,
+            "MCMC step completed"
+        );
     }
 
     /// Shared reference to the current state.

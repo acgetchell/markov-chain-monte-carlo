@@ -269,6 +269,14 @@ impl<S, T: ?Sized, P: TunableProposal, R: ?Sized> Sampler<'_, S, T, P, R> {
         tuning: &mut AdaptiveScale,
         mut step: impl FnMut(&mut Self) -> Result<bool, E>,
     ) -> Result<(), E> {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "warm_up",
+            steps,
+            start_step = self.chain_ref().total_steps()
+        )
+        .entered();
         if steps == 0 {
             return Ok(());
         }

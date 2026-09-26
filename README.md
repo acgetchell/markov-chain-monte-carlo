@@ -204,8 +204,34 @@ proposal, and RNG to `Sampler::new`.
 No Cargo features are enabled by default. The ESS, ESS/second, and split R-hat APIs added in the unreleased checkout are available without enabling a feature.
 
 - `serde` — serialize `Chain` and `Sampler` as canonical checkpoints, plus serialize/deserialize `ChainCheckpoint` for validated resume flows.
+- `tracing` — **unreleased**, structured sampling spans and per-step metrics for live monitoring; see [tracing setup](#tracing-setup).
 - `benchmarks` — **unreleased**, dependency-free `BenchmarkTarget` presets implementing `Target<[f64; 2]>`, with analytical `mean()` and `covariance()`.
   These fix two-dimensional distributions and their parameters for reproducible validation and mixing experiments.
+
+### Tracing setup
+
+Enable the `tracing` feature in your dependency on the unreleased checkout and add
+[`tracing`](https://docs.rs/tracing/) and [`tracing-subscriber`](https://docs.rs/tracing-subscriber/) to your application. Install a subscriber before sampling:
+
+```rust
+# #[cfg(feature = "tracing")]
+# {
+let subscriber = tracing_subscriber::fmt()
+    .with_max_level(tracing::Level::TRACE)
+    .finish();
+let _guard = tracing::subscriber::set_default(subscriber);
+// Run your Chain or Sampler here, while the subscriber guard is alive.
+# }
+```
+
+The library emits under the `markov_chain_monte_carlo` target and leaves subscriber configuration to the application. DEBUG spans surround bulk sampling,
+observation, thinning, and adaptive warmup loops. TRACE events report every completed step, including transitions skipped by observation thinning. They
+contain `kernel`, `step`, `accepted`, `proposed`, `acceptance_rate`, and the resulting state's `log_prob`. For applications using an environment filter,
+`RUST_LOG=markov_chain_monte_carlo=trace` enables these events. Attach an application span around each chain to distinguish concurrent simulations.
+
+TRACE output can be expensive for long runs; select DEBUG for loop spans alone. Disabling the Cargo feature removes all instrumentation and its runtime
+dependency. Step counts and acceptance rates follow the chain counters, including resets and checkpoint restoration. Failed transitions emit no completion
+event; an observation error after a completed transition does not remove that transition's event.
 
 ## 🧪 Examples
 

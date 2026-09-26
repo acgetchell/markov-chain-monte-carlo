@@ -18,6 +18,34 @@
 //! the generated move and `log_q_ratio`.  Irreducibility, convergence, and the
 //! scientific meaning of observables remain caller responsibilities.
 //!
+//! # Tracing contract
+//!
+//! The optional `tracing` feature emits TRACE events for completed by-value,
+//! in-place, delayed, and checked delayed steps, including direct [`Chain`]
+//! calls and iterator steps. Each event reports `kernel` (`by_value`,
+//! `in_place`, `delayed`, or `delayed_checked`), `step`, `accepted`, `proposed`,
+//! `acceptance_rate`, and `log_prob` under the `markov_chain_monte_carlo` target.
+//! Metrics describe the retained state after commit or rollback. No-proposal
+//! self-loops count as rejections; failed steps emit no completion event.
+//! Observation or accumulation errors occur after a completed transition, so
+//! that transition still has an event. The instrumentation does not evaluate
+//! targets, draw random numbers, or construct proposal-specific metadata.
+//!
+//! `step` and `acceptance_rate` match [`Chain::total_steps`] and
+//! [`Chain::acceptance_rate`], including counter resets, restored checkpoints,
+//! and saturation. They are cumulative chain metrics, not per-run metrics.
+//! Each DEBUG loop span records requested `steps` and the initial `start_step`.
+//! Unthinned spans use the corresponding run method's name; thinned methods
+//! share `run_thinning_loop` with a `thin_interval` field. Warmup methods share
+//! `warm_up`. Chunk wrappers use the underlying run span, except
+//! [`Sampler::run_delayed_chunk_observing`], which has its own loop span.
+//! All spans close on early returns and unwinding. Callers can add parent
+//! spans to identify chains or application phases.
+//!
+//! Subscriber callbacks run synchronously; their cost is part of sampling
+//! time. With the feature disabled, all instrumentation is compiled out.
+//! The library never installs a subscriber or changes global filters.
+//!
 //! # Additive target terms
 //!
 //! Bias potentials, umbrella-sampling weights, softened constraints, auxiliary

@@ -493,6 +493,15 @@ impl<S, T: ?Sized, P, R: ?Sized> Sampler<'_, S, T, P, R> {
     ) -> Result<(), E> {
         let interval = thin_interval.get();
         let mut steps_until_emit = interval;
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_thinning_loop",
+            steps,
+            start_step = self.chain.total_steps(),
+            thin_interval = interval
+        )
+        .entered();
         for _ in 0..steps {
             step_once(self)?;
             steps_until_emit -= 1;
@@ -761,6 +770,14 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
     ///
     /// Returns [`McmcError`] on the first step that fails.
     pub fn run(&mut self, steps: usize) -> Result<(), McmcError> {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_without_telemetry()?;
         }
@@ -947,6 +964,14 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
         observable: &mut O,
     ) -> Result<SampleBuffer<O::Output>, McmcError> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_without_telemetry()?;
             samples.push(observable.observe(self.chain.state()));
@@ -1062,6 +1087,14 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
@@ -1229,6 +1262,14 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
         observable: &mut O,
     ) -> TryObservedRunResult<O::Output, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_without_telemetry()
                 .map_err(ObservedStepError::Step)?;
@@ -1351,6 +1392,14 @@ impl<S, T: Target<S> + ?Sized, P: Proposal<S>, R: Rng + ?Sized> Sampler<'_, S, T
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
@@ -1532,6 +1581,14 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
     ///
     /// Returns [`McmcError`] on the first step that fails.
     pub fn run_mut(&mut self, steps: usize) -> Result<(), McmcError> {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_mut",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_mut_without_telemetry()?;
         }
@@ -1742,6 +1799,14 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
         observable: &mut O,
     ) -> Result<SampleBuffer<O::Output>, McmcError> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_mut_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_mut_without_telemetry()?;
             samples.push(observable.observe(self.chain.state()));
@@ -1862,6 +1927,14 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_mut_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_mut_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
@@ -2043,6 +2116,14 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
         observable: &mut O,
     ) -> TryObservedRunResult<O::Output, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_mut_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_mut_without_telemetry()
                 .map_err(ObservedStepError::Step)?;
@@ -2176,6 +2257,14 @@ impl<S, T: Target<S> + ?Sized, P: ProposalMut<S>, R: Rng + ?Sized> Sampler<'_, S
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_mut_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_mut_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
@@ -2505,6 +2594,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
     ///
     /// Returns [`DelayedStepError`] on the first step that fails.
     pub fn run_delayed(&mut self, steps: usize) -> Result<(), DelayedStepError<P::Error>> {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_delayed",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_delayed_without_telemetry()?;
         }
@@ -2696,6 +2793,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         steps: usize,
         mut on_step: impl FnMut(&DelayedStep<P::Info>, &S),
     ) -> Result<ChainCheckpoint<&S>, DelayedStepError<P::Error>> {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_delayed_chunk_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             let step = self.step_delayed()?;
             on_step(&step, self.chain.state());
@@ -2917,6 +3022,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         observable: &mut O,
     ) -> Result<SampleBuffer<O::Output>, DelayedStepError<P::Error>> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_delayed_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_delayed_without_telemetry()?;
             samples.push(observable.observe(self.chain.state()));
@@ -3043,6 +3156,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         O: Observable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "run_delayed_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_delayed_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
@@ -3231,6 +3352,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         observable: &mut O,
     ) -> TryObservedDelayedRunResult<O::Output, P::Error, O::Error> {
         let mut samples = SampleBuffer::with_capacity(steps);
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_delayed_observing",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_delayed_without_telemetry()
                 .map_err(ObservedStepError::Step)?;
@@ -3369,6 +3498,14 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         O: TryObservable<S> + ?Sized,
         A: TryAccumulator<O::Output> + ?Sized,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::debug_span!(
+            target: "markov_chain_monte_carlo",
+            "try_run_delayed_observing_into",
+            steps,
+            start_step = self.chain.total_steps()
+        )
+        .entered();
         for _ in 0..steps {
             self.step_delayed_without_telemetry()
                 .map_err(ObservedStreamError::Step)?;
