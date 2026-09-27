@@ -66,6 +66,12 @@ def test_release_update_advances_api_guides_and_nested_package_version(tmp_path:
     before = readme.read_text(encoding="utf-8")
     api_links = re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", before)
     assert len(api_links) == 11
+    image_links = re.findall(r"!\[[^\]]*\]\((https://raw\.githubusercontent\.com/[^)]+)\)", before)
+    assert len(image_links) == 1
+    assert re.fullmatch(
+        r"https://raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/[0-9a-f]{40}/docs/assets/ising_energy_trace\.png",
+        image_links[0],
+    )
     for guide in _GUIDES:
         assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{_VERSION}/{guide}" in before
     nested_lock = tmp_path / "benches/diagnostic_backends/Cargo.lock"
@@ -92,6 +98,7 @@ def test_release_update_advances_api_guides_and_nested_package_version(tmp_path:
     )
 
     after = readme.read_text(encoding="utf-8")
+    assert re.findall(r"!\[[^\]]*\]\((https://raw\.githubusercontent\.com/[^)]+)\)", after) == image_links
     assert tomllib.loads((tmp_path / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"] == next_version
     assert re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", after) == [
         link.replace(f"/{_VERSION}/", f"/{next_version}/") for link in api_links

@@ -14,7 +14,7 @@
 [![OSV-Scanner](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/osv.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/osv.yml)
 [![Gitleaks](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/acgetchell/markov-chain-monte-carlo/actions/workflows/gitleaks.yml)
 
-![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.0/docs/assets/ising_energy_trace.png)
+![Ising energy trace](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/baef8747db4d9afa4f77dd3229f9548fdd7faa30/docs/assets/ising_energy_trace.png)
 
 _Single-chain illustration: open-boundary 1-D Ising with 50 spins, β = 0.5, J = 1, seed 42, 5,000 burn-in steps, and 20,000 recorded steps. The current
 example extends this to four chains. `just notebook-check`
@@ -68,12 +68,16 @@ Proposal correctness, irreducibility, aperiodicity, equilibration, and scientifi
 
 ## 🚀 Quick start
 
-Add the library and the RNG dependency used by the example to your crate:
+Add the library and `rand` 0.10 to your crate:
 
 ```bash
 cargo add markov-chain-monte-carlo
 cargo add rand@0.10
 ```
+
+The example imports `StdRng` and its traits from `rand`, so your application needs
+to declare `rand` directly. You create and seed the generator, then pass it to the
+sampler to control its randomness.
 
 Enable checkpoint serialization when needed:
 

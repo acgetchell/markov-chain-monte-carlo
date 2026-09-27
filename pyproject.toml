@@ -54,8 +54,9 @@ value = "10.5281/zenodo.20033111"
 path = "README.md"
 pattern = 'https://(?:github\.com/acgetchell/markov-chain-monte-carlo/(?:blob|raw|tree)/|raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/)(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/[^\s)\]>"?#]+'
 source = "tag"
-count = 12
-exclude = '/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?:$|[?#])|/docs/performance/'
+count = 11
+# Preserve image commit pins so the README renders before the release tag exists.
+exclude = '/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?:$|[?#])|/docs/(?:assets|performance)/'
 
 # Active guides ship with the declared release and advance with its source links.
 [[tool.research-repo-tools.release.rules]]
