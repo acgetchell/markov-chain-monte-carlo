@@ -15,10 +15,10 @@ after #164; hosted CI and the first live release-asset pair remain separate evid
 | Release discovery, worktrees, binary patches, untracked files | Shared `performance measure`; explicit Git mutation opt-in, publication-order selection |
 | Stepping execution, sample selection, source/host/toolchain capture | Shared measurement; `tooling/benchmark.toml` retains MCMC command, inventories, and compatibility policy |
 | Criterion comparison, CSV/evidence serialization, reports, SVG/table rendering | Shared models and renderers; scientific prose and row selection in `tooling/` |
-| Historical CSV/provenance interpretation | Conversion complete; consumers read verified shared companions, with original values and hashes checked locally |
-| Authenticated legacy release assets | Shared `performance assets` and `legacy-baseline.toml`; exact historical layout declared locally |
+| Historical CSV/provenance interpretation | Retired with the old performance series during #154; new series uses native shared evidence |
+| Authenticated release assets | Shared `performance assets`; only native shared archives are supported after the reset |
 | Archival, index/link updates, immutable pairs, promotion | Shared `performance promote`; new paths under `docs/performance/v1/` |
-| Current-version checks, future-release preparation, tagged blobs, stale inputs | Shared `performance publish`; independently reviewed pins, inventories and references in publication TOML |
+| Current-version checks, future-release preparation, tagged blobs, stale inputs | Shared `performance publish`; construct reviewed publication TOML when the first new pair exists |
 | Release workflow inline Python, packaging, draft checks, retry/upload/publish shell | Shared `performance baseline/release-draft/release-upload`; separate read-only benchmark and registry-only writer jobs |
 | Setup composite inline environment exporter | Shared `toolchain export`; uv/cache inputs remain thin workflow configuration |
 | Just file discovery, batching, prerequisites and metadata validation | Shared `files run` and `validation require/cargo-metadata` |
@@ -49,35 +49,23 @@ self-referencing extras. Its placeholder version is independent of the Rust rele
 The notebook group directly selects the shared notebook extra plus Matplotlib and Polars.
 
 Release checks remain offline. Three fixed DOI assertions, required publication files,
-30 active README source links, and historical artifact exclusions remain declared in
+active README source links, and historical artifact exclusions remain declared in
 `pyproject.toml`. `just update-version TAG --previous-release PREVIOUS --date DATE --dry-run`
 previews the complete release plan offline. No callback advances benchmark examples.
 
-## Evidence transition
+## Performance series reset
 
-Historical `docs/PERFORMANCE.md`, `docs/archive/performance/`, and the README performance
-section are unchanged. Shared companions retain every v0.4.2 point and marginal bound,
-both sample inventories and coverage gaps, original hashes, release/source identities,
-and opaque legacy records. Missing confidence levels remain unknown.
-Legacy source digests are never promoted to shared fingerprints.
+The maintainer requested a fresh start during #154. Earlier release-performance reports, the original CSV/provenance/SVG files, converted shared companions,
+and the old README comparison have been removed. The legacy asset-layout adapter and publication selection were also retired. This supersedes the original
+migration's historical-byte preservation requirement. No old measurements are relabeled as current data.
 
-New shared reports use `docs/performance/v1/current.md` and pair-specific
-`.comparison.json`, `.evidence.json`, and CSV files beside it. Future archival and
-promotion operate only on that shared path. Report formatting may differ; numerical
-meaning and scientific limitations are unchanged.
+The current checkout can produce local Criterion baselines without Git changes. The next tagged release records the first shared release baseline; its
+successor enables the first comparison. `performance-check` explicitly accepts an empty release inventory and rejects orphaned evidence without its
+report. Actual report validation still runs through shared `performance promote --check`.
 
-The one-time legacy CSV configuration and conversion test are retired. Reporting
-consumers read the verified companions directly; the local evidence check still compares
-every original value, bound, coverage label and provenance record. Retire the legacy
-baseline layout once ordinary release pairs use shared assets. Originals remain
-immutable after both retirements; no production Python is retained for either boundary.
-
-The existing historical README cannot be regenerated into a different format under
-its already published tag. The checked-in selection records that historical pair but
-fails future-release eligibility. Before the next publication, measure the new release
-and update the explicit selection and independently verified provenance pins. Shared
-publication then checks the current Cargo version, report identity, measured inputs,
-and exact existing-tag blobs. See [benchmarking](../BENCHMARKING.md).
+New release evidence and generated navigation belong under `docs/performance/v1/`, with `performance.md` as the configured current report.
+`tooling/performance-readme.toml` will be created from a real, independently reviewed pair before publication. The diagnostic-backend experiment remains
+separate under `experiments/` because it records the current backend decision. See [benchmarking](../BENCHMARKING.md) for the first-baseline workflow.
 
 ## Regression ownership and reduction
 
@@ -101,8 +89,7 @@ Retained tests cover:
   historical exclusions, using copies of the actual metadata and release policy.
 - `test_commands.py`: actual scan exclusions, Python policy, scientific CI dependencies,
   release writer pins and credential separation; review remains outside validation.
-- `test_performance_evidence.py`: every historical value/bound and coverage label,
-  opaque source identity, verified companions and future-publication eligibility.
+- `test_performance_evidence.py`: the empty first-report state, rejection of orphaned release artifacts, and delegation to shared report validation.
 
 Generic implementation tests now run upstream. Wheel/entry-point tests are obsolete;
 existing release-workflow tests are replaced by a consumer wiring/permission check.
@@ -132,9 +119,8 @@ including the new Dependabot caller/token and security-workflow boundary checks.
 Generic recipe shape/help checks, shared review argument checks, required-file failure
 cases and document/SVG renderer checks are removed. Release-policy fixtures now copy
 the actual metadata instead of constructing a second release and editing its policy.
-`performance-check` owns offline report reproduction; the retained scientific evidence
-test reads the shared companions directly. Removing the unused 60-line CSV conversion
-configuration completes that migration without changing any historical artifact.
+`performance-check` owns offline report reproduction. The initial adoption removed the unused CSV conversion configuration; #154 subsequently retired
+that historical evidence series and replaced its preservation tests with first-report state checks.
 
 The registry-only release writer jobs use v0.1.7 and uv 0.12.19. Their resolution cutoff
 is after both v0.1.7 PyPI artifacts were uploaded. Native Rust, scientific notebook,
@@ -144,7 +130,7 @@ per-file JSON/SARIF scan is not a replacement for its command and performance co
 Dependabot approval now calls the separately SHA-pinned shared workflow. The caller
 owns only repository identity and dependency-file policy; signed-head eligibility,
 approval and native auto-merge live upstream. The personal-token CodeRabbit request
-is removed. See [Dependabot automation](rust.md#dependabot-automation) for GitHub
+is removed. See [Dependabot automation](DEVELOPING.md#dependabot-automation) for GitHub
 settings, the required-check boundary, and token removal after merging the caller.
 
 OSV-Scanner and Gitleaks use exact managed binary pins and shared report handling.
@@ -158,6 +144,17 @@ The #13 completion audit also exposes `tools-clean` without changing the existin
 `coverage-ci` now calls that shared parser after generation; the workflow no longer duplicates directory setup and shell file-existence checks.
 The scalar diagnostics example joins the shared example-output inventory and final CI selection. Numerical diagnostic tests remain Rust-owned;
 consumer checks protect example inventory coverage and the actual Codecov recipe, while generic XML parsing and tool-retention tests stay upstream.
+
+## Documentation and remaining v0.1.7 wiring (#154)
+
+The documentation ownership refactor retains the exact v0.1.7 pins and shared performance workflow; the maintainer-requested performance reset is described
+above. Active README guide links follow `main` through an explicit fixed-value release rule; source, image, and metadata links retain the separate current-tag
+rule. A renamed guide cannot accidentally link to the older Cargo tag. The release process must deliberately review the guide-link policy when pinning those
+paths in a future release.
+
+Notebook linting now opts into shared `notebooks.prohibit-installs`, so literal dependency-install cells fail the locked-environment policy. The setup
+composite supplies the job's GitHub token only to shared setup for authenticated scanner release-metadata reads; it retains the caller's permissions.
+Consumer checks exercise install rejection, release-link revision boundaries, and token scope. The shared package owns their generic implementations.
 
 ## Audit and Python policy adoption (#150 and #153)
 

@@ -120,11 +120,11 @@ CI uses the same declarations through `.github/actions/setup-toolchain`, with OS
 [the migration record](docs/dev/shared-maintenance-migration.md) for ownership and validation.
 
 Dependabot approvals and native auto-merge use the shared SHA-pinned GitHub workflow with `GITHUB_TOKEN`.
-See [Dependabot automation](docs/dev/rust.md#dependabot-automation) for repository settings, required checks, and personal-token retirement.
+See [Dependabot automation](docs/dev/DEVELOPING.md#dependabot-automation) for repository settings, required checks, and personal-token retirement.
 
 Run `just security` for the shared OSV dependency and Gitleaks secret scans. These separate security workflows run on PRs, pushes to `main`, and weekly;
 the README badges link to their results. OSV requires network access, and Gitleaks requires a complete Git checkout. Both retain JSON/SARIF reports under
-`target/security`, with secret findings redacted. See [dependency and secret scanning](docs/dev/rust.md#dependency-and-secret-scanning) for scope.
+`target/security`, with secret findings redacted. See [dependency and secret scanning](docs/dev/DEVELOPING.md#dependency-and-secret-scanning) for scope.
 
 ## Project Structure
 
@@ -191,8 +191,8 @@ just help-workflows  # Detailed workflow guidance
 
 For an optional local CodeRabbit review, use `just review [base]` for branch changes plus local edits (default base: `origin/main`), or
 `just review-uncommitted` for only staged, unstaged, and new files. CodeRabbit is separate from `just check` and `just ci`, requires its separately installed
-and authenticated CLI, and agents invoke it only when explicitly requested. See [local CodeRabbit review](docs/dev/rust.md#local-coderabbit-review) for scope
-and follow-up guidance. The default base must match the live remote; a stale ref stops review with fetch instructions.
+and authenticated CLI, and agents invoke it only when explicitly requested. See [local CodeRabbit review](docs/dev/DEVELOPING.md#local-coderabbit-review) for
+scope and follow-up guidance. The default base must match the live remote; a stale ref stops review with fetch instructions.
 
 1. **Start a feature/fix branch.** Prefer `{type}/{issue}-descriptor`, e.g. `fix/307-acceptance-rate`, `feat/315-thinning-helpers`, `doc/329-citation-notes`:
 
@@ -366,6 +366,8 @@ Rules:
   belongs in `src/lib.rs //!`, and landing-page prose belongs in README.
 
 For the full agent-facing rule set, see the `## Documentation generation` section of [`AGENTS.md`](AGENTS.md).
+The [documentation ownership and filename policy](docs/code_organization.md#documentation-ownership-and-names) covers Contents navigation, early API/scope
+guidance, method ordering, stable citation identifiers, and task-guide names.
 
 ### Other Documentation Standards
 
@@ -389,9 +391,10 @@ Long-form discussion lives under `docs/`. Update these alongside code changes th
 - [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) — local regression checks, release comparisons, durable assets, and report promotion
 - [`docs/reviewer_guide.md`](docs/reviewer_guide.md) — short reading path for scientific and engineering reviewers
 - [`docs/scientific_basis.md`](docs/scientific_basis.md) — Metropolis–Hastings contract and scope discussion that expands the README scientific-basis summary
-- [`docs/proposal_validation.md`](docs/proposal_validation.md) — proposal-author testing patterns and `verify_detailed_balance*` usage
+- [`docs/VALIDATING_PROPOSALS.md`](docs/VALIDATING_PROPOSALS.md) — proposal-author testing patterns and `verify_detailed_balance*` usage
+- [`docs/ANALYZING_CHAINS.md`](docs/ANALYZING_CHAINS.md) — scalar diagnostics, trace selection, and notebook/export workflow
 - [`docs/roadmap.md`](docs/roadmap.md) — planned feature work
-- [`docs/dev/rust.md`](docs/dev/rust.md) — Rust toolchain notes and tooling deep-dive
+- [`docs/dev/DEVELOPING.md`](docs/dev/DEVELOPING.md) — Rust toolchain notes and tooling deep-dive
 - [`docs/RELEASING.md`](docs/RELEASING.md) — release procedure
 
 ## Performance and Benchmarking
@@ -409,10 +412,10 @@ just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release maintainers use `just performance-release` to save shared JSON evidence and CSV
-exports under `docs/performance/v1/` and update the shared report, `just performance-doc` to reproduce it, and `just performance-readme` to publish the reviewed
-selection in `tooling/performance-readme.toml` without remeasuring. Historical artifacts stay unchanged; converted legacy evidence cannot authorize a new README
-publication. Use `just performance-github-assets` for comparisons that consume durable release artifacts without local measurements. See
+Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release tracking starts with this development version: the next tagged release
+establishes the baseline, and its successor enables the first comparison. Release maintainers then use `just performance-release` to retain shared JSON/CSV
+under `docs/performance/v1/`, `just performance-doc` to reproduce `performance.md`, and `just performance-readme` to publish a reviewed selection created from
+actual evidence in `tooling/performance-readme.toml`. `just performance-github-assets CURRENT BASELINE` compares two native shared release assets. See
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
 Performance guidelines:
@@ -537,9 +540,10 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
 2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG" "$DATE"` (set `DATE` to the prepared citation date).
-3. Run `just performance-release`, review the retained evidence, update the explicit selection and provenance pins in `tooling/performance-readme.toml`,
-   then preview and publish the README table and SVG with `just performance-readme --preview` and `just performance-readme`.
-4. Confirm the report reproduces with `just performance-doc`, run `just ci`, and run `cargo publish --locked --allow-dirty --dry-run`.
+3. For the first release after the performance reset, let the tagged workflow establish the baseline. For subsequent releases, follow
+   [retained performance publication](docs/RELEASING.md#retained-performance-evidence-and-publication) to measure a real pair, create the reviewed
+   `tooling/performance-readme.toml`, and publish the README table/SVG.
+4. Once a report exists, confirm it reproduces with `just performance-doc`. Run `just ci` and `cargo publish --locked --allow-dirty --dry-run`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
 6. Publish to crates.io, create a draft GitHub Release, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
    durable attachment and delete the merged release branch.

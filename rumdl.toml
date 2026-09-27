@@ -8,3 +8,6 @@ disable = [
 [MD013]
 line-length = 160
 reflow = true
+
+[MD033]
+allowed-elements = [ "a" ]

@@ -103,6 +103,10 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     setup = (REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
     assert "research-repo-tools toolchain export" in setup
     assert "<<'PY'" not in workflow + setup
+    setup_steps = yaml.safe_load(setup)["runs"]["steps"]
+    installer = next(step for step in setup_steps if step.get("run", "").endswith("research-repo-tools setup"))
+    assert installer["env"]["GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - literal Actions expression, not a credential.
+    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step is not installer)
 
 
 def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> None:

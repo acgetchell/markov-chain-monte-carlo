@@ -9,5 +9,4 @@ Review common names against the lifecycle contracts in `docs/BENCHMARKING.md`, e
 when harness fingerprints differ. Added and removed names are coverage changes.
 Local measurements require matching known host identities. Release-asset comparisons
 need separate hardware and workload review; GitHub runners can change between releases.
-Unknown historical provenance stays unknown. Legacy fingerprints retain their original
-meaning in the evidence's `legacy.*` context and are not shared-format fingerprints.
+Source and harness fingerprints come from the shared measurement workflow.

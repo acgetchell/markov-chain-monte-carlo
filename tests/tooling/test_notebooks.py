@@ -33,6 +33,28 @@ def write_ising_trace(path: Path) -> None:
     path.write_bytes(b"chain_id,step,accepted,proposed,log_prob,energy,magnetization\n0,0,false,false,-1.0,-2.0,0.5\n")
 
 
+def test_notebook_lint_rejects_dependency_installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """MCMC notebooks consume the locked environment rather than installing dependencies."""
+    notebook = notebook_project(tmp_path, monkeypatch)
+    payload = json.loads(notebook.read_bytes())
+    payload["cells"].append(
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "id": "forbidden-install",
+            "metadata": {},
+            "outputs": [],
+            "source": ["%pip install numpy\n"],
+        }
+    )
+    notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    before = notebook.read_bytes()
+    assert main(["--root", str(tmp_path), "notebooks", "lint", str(notebook)]) == 1
+    output = capsys.readouterr()
+    assert "install" in output.out + output.err
+    assert notebook.read_bytes() == before
+
+
 def execute(root: Path, notebook: Path) -> int:
     return main(["--root", str(root), "notebooks", "execute", str(notebook)])
 

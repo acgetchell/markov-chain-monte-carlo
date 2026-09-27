@@ -1,4 +1,4 @@
-# Proposal Validation Guide
+# Validating Proposals
 
 This guide summarizes practical checks for proposal kernels built on `Proposal`, `ProposalMut`, and `DelayedProposal`.
 

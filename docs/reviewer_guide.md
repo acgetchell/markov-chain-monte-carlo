@@ -7,10 +7,10 @@ This guide is a short reading path for reviewers who want to evaluate the crate'
 - [`README.md`](../README.md) — public overview, current scope, quick start, API choices, examples, ecosystem links, citation, and AI-assisted-development
   disclosure.
 - [`docs/scientific_basis.md`](scientific_basis.md) — Metropolis-Hastings contract, additive target terms, diagnostics, and user responsibilities.
-- [`docs/proposal_validation.md`](proposal_validation.md) — how proposal kernels are tested for rollback behavior, proposal ratios, and representative
+- [`docs/VALIDATING_PROPOSALS.md`](VALIDATING_PROPOSALS.md) — how proposal kernels are tested for rollback behavior, proposal ratios, and representative
   detailed-balance checks.
 - [`docs/roadmap.md`](roadmap.md) — planned work and non-goals, including the baseline diagnostics needed before learned-proposal experiments.
-- [`docs/diagnostics.md`](diagnostics.md) — complete scalar ACF, ESS, and split R-hat workflow, assumptions, failure modes, and validation evidence.
+- [`docs/ANALYZING_CHAINS.md`](ANALYZING_CHAINS.md) — complete scalar ACF, ESS, and split R-hat workflow, assumptions, failure modes, and validation evidence.
 - [`REFERENCES.md`](../REFERENCES.md) — canonical MCMC, statistics, statistical-physics, and tooling citations.
 
 ## What the README Should Answer

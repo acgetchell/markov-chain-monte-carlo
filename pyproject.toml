@@ -48,8 +48,28 @@ value = "10.5281/zenodo.20033111"
 path = "README.md"
 pattern = 'https://(?:github\.com/acgetchell/markov-chain-monte-carlo/(?:blob|raw|tree)/|raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/)(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/[^\s)\]>"?#]+'
 source = "tag"
-count = 30
-exclude = '/docs/(?:PERFORMANCE\.md(?:$|[?#])|archive/performance/|performance/)'
+count = 12
+exclude = '/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?:$|[?#])|/docs/performance/'
+
+# Active guides describe this checkout, including paths and APIs absent from v0.4.2.
+# Pin them to a release only when that release contains the reviewed destinations.
+[[tool.research-repo-tools.release.rules]]
+path = "README.md"
+pattern = 'https://github\.com/acgetchell/markov-chain-monte-carlo/blob/(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?=$|[\s?#)\]])'
+value = "main"
+count = 11
+
+[[tool.research-repo-tools.release.rules]]
+path = "README.md"
+pattern = 'https://docs\.rs/markov-chain-monte-carlo/(?P<value>[^/\s)]+)(?=/markov_chain_monte_carlo/)'
+source = "version"
+count = 11
+
+[[tool.research-repo-tools.release.rules]]
+path = "README.md"
+pattern = 'published API links below target v(?P<value>[0-9]+\.[0-9]+\.[0-9]+)\.'
+source = "version"
+count = 1
 
 [tool.research-repo-tools.toolchain]
 inherit-python = true
@@ -81,6 +101,7 @@ cwd = "."
 output-dir = "target/notebooks"
 timeout = 120
 outputs = "clear"
+prohibit-installs = true
 
 [tool.research-repo-tools.semgrep]
 config = "semgrep.yaml"
