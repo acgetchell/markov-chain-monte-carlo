@@ -712,14 +712,14 @@ impl<'a, S, P: ProposalMut<S> + ?Sized> InPlaceRollback<'a, S, P> {
         token: P::Undo,
         inspect: impl FnOnce(&S, &P, &P::Undo) -> T,
     ) -> T {
-        let rollback = Self::new(state, proposal, token);
-        // Constructor invariant: no path can disarm this guard before this borrow.
-        // nosemgrep: mcmc.rust.no-production-unwrap-panic
-        let token = rollback
-            .token
-            .as_ref()
-            .expect("a newly armed rollback guard owns its undo token");
-        inspect(rollback.state(), rollback.proposal(), token)
+        let mut rollback = Self {
+            state,
+            proposal,
+            token: None,
+        };
+        // Arm the guard and borrow its token before invoking user code.
+        let token = rollback.token.insert(token);
+        inspect(rollback.state, rollback.proposal, token)
     }
 
     const fn new(state: &'a mut S, proposal: &'a mut P, token: P::Undo) -> Self {

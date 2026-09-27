@@ -195,25 +195,38 @@ Use a clean checkout and keep the release variables from preparation. In a new
 shell, restore the same version, previous tag, and declared release date.
 
 ```bash
+RELEASE_COMMIT="$(gh pr view "release/$TAG" --json state,mergeCommit --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
 git switch main
 git pull --ff-only
-git --no-pager status --short
-just sync
-just check
-just release-check "$TAG"
+test -n "$RELEASE_COMMIT" &&
+test "$(git --no-pager rev-parse HEAD)" = "$RELEASE_COMMIT" &&
+test -z "$(git --no-pager status --porcelain)" &&
+just sync &&
+just check &&
+just release-check "$TAG" &&
 just release-notes "$TAG"
 ```
 
-Confirm the checkout contains the release PR and the extracted notes are the
-reviewed notes. The configured `declared` date policy preserves the prepared date;
-crossing midnight does not require changing it.
+`RELEASE_COMMIT` is populated from the merged release PR. The checks require a
+clean checkout at that exact commit. If the PR has not merged, or `main` has
+advanced beyond its merge, stop. Selecting a newer commit requires reviewing its
+changes and successful final `just ci` validation for those release contents
+before tagging. `just check` alone is insufficient, and earlier CI results can
+only be reused while their inputs remain unchanged.
+
+Confirm the extracted notes are the reviewed notes. The configured `declared`
+date policy preserves the prepared date; crossing midnight does not require
+changing it.
 
 ### Create and push the annotated tag
 
 ```bash
-just tag "$TAG"
-git --no-pager show --no-patch "$TAG"
-test "$(git --no-pager rev-parse "$TAG^{commit}")" = "$(git --no-pager rev-parse HEAD)"
+test -n "$RELEASE_COMMIT" &&
+test "$(git --no-pager rev-parse HEAD)" = "$RELEASE_COMMIT" &&
+test -z "$(git --no-pager status --porcelain)" &&
+just tag "$TAG" &&
+git --no-pager show --no-patch "$TAG" &&
+test "$(git --no-pager rev-parse "$TAG^{commit}")" = "$RELEASE_COMMIT" &&
 git push origin "$TAG"
 ```
 

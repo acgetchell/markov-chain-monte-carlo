@@ -2016,6 +2016,22 @@ mod tests {
         }
     }
 
+    struct FixedRatioFlip {
+        ratios: [f64; 2],
+        draws: Cell<usize>,
+    }
+
+    impl Proposal<bool> for FixedRatioFlip {
+        fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
+            self.draws.set(self.draws.get() + 1);
+            !current
+        }
+
+        fn log_q_ratio(&self, current: &bool, _: &bool) -> f64 {
+            self.ratios[usize::from(*current)]
+        }
+    }
+
     struct InfiniteLogQ;
     impl Proposal<bool> for InfiniteLogQ {
         fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
@@ -2775,6 +2791,83 @@ mod tests {
             )
             .unwrap();
             assert_eq!(probability.to_bits(), f64::NEG_INFINITY.to_bits());
+        }
+    }
+
+    #[test]
+    fn one_way_zero_acceptance_reports_signed_balance_violation() {
+        for (ratios, expected_residual) in [
+            ([f64::NEG_INFINITY, 0.0], f64::NEG_INFINITY),
+            ([0.0, f64::NEG_INFINITY], f64::INFINITY),
+        ] {
+            let proposal = FixedRatioFlip {
+                ratios,
+                draws: Cell::new(0),
+            };
+            let config = small_config();
+            let mut rng = StdRng::seed_from_u64(42);
+            let error = verify_detailed_balance(
+                &false,
+                &true,
+                &EndpointWeights([0.0; 2]),
+                &proposal,
+                &mut rng,
+                config,
+            )
+            .unwrap_err();
+            let DetailedBalanceError::Violation {
+                residual, report, ..
+            } = error
+            else {
+                panic!("one-way zero flow must violate detailed balance");
+            };
+
+            // Both endpoints are proposed every time; only acceptance blocks
+            // one direction. This must not be classified as insufficient hits
+            // or the balanced case where both flows are impossible.
+            assert_eq!(proposal.draws.get(), 2 * config.samples());
+            assert_eq!(report.forward_hits, config.samples());
+            assert_eq!(report.reverse_hits, config.samples());
+            assert_eq!(residual.to_bits(), expected_residual.to_bits());
+            assert_eq!(report.log_balance_residual.to_bits(), residual.to_bits());
+            assert_eq!(report.forward_log_transition.to_bits(), ratios[0].to_bits());
+            assert_eq!(report.reverse_log_transition.to_bits(), ratios[1].to_bits());
+            assert!(!report.is_within_tolerance(f64::MAX));
+            assert_eq!(report.z_score(), None);
+        }
+    }
+
+    #[test]
+    fn reverse_acceptance_overflow_is_reported_before_sampling() {
+        for (proposed_weight, ratios) in [
+            (-f64::MAX, [0.0, f64::MAX]),
+            (f64::MAX, [-f64::MAX, -f64::MAX]),
+        ] {
+            let proposal = FixedRatioFlip {
+                ratios,
+                draws: Cell::new(0),
+            };
+            let mut rng = StdRng::seed_from_u64(42);
+            let error = verify_detailed_balance(
+                &false,
+                &true,
+                &EndpointWeights([0.0, proposed_weight]),
+                &proposal,
+                &mut rng,
+                small_config(),
+            )
+            .unwrap_err();
+
+            // Finite inputs have a representable forward acceptance ratio, but
+            // the reverse arithmetic overflows with either sign. Validation
+            // must reject it before drawing either empirical transition sample.
+            assert_matches!(
+                error,
+                DetailedBalanceError::NumericalResolution {
+                    direction: Some(DetailedBalanceDirection::Reverse),
+                }
+            );
+            assert_eq!(proposal.draws.get(), 0);
         }
     }
 
