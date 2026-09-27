@@ -235,14 +235,13 @@ proptest! {
                 by_value_step.outcome(), in_place_step.outcome(),
                 "outcomes diverged at step {} with seed {}", step, seed,
             );
-            prop_assert_eq!(chain_clone.state(), chain_mut.state());
+            prop_assert_eq!(
+                chain_clone.state(), chain_mut.state(),
+                "states diverged at step {} with seed {}", step, seed,
+            );
             prop_assert_eq!(by_value_step.log_alpha(), in_place_step.log_alpha());
         }
 
-        prop_assert_eq!(
-            chain_clone.state(), chain_mut.state(),
-            "Final states diverged after {} steps", steps,
-        );
         prop_assert!(
             relative_eq!(chain_clone.log_prob(), chain_mut.log_prob(), epsilon = 1e-12),
             "log_prob diverged: clone={:.15}, mut={:.15}",
@@ -281,14 +280,13 @@ proptest! {
                 by_value_step.outcome(), delayed_step.outcome(),
                 "outcomes diverged at step {} with seed {}", step, seed,
             );
-            prop_assert_eq!(chain_clone.state(), chain_delayed.state());
+            prop_assert_eq!(
+                chain_clone.state(), chain_delayed.state(),
+                "states diverged at step {} with seed {}", step, seed,
+            );
             prop_assert_eq!(by_value_step.log_alpha(), delayed_step.log_alpha());
         }
 
-        prop_assert_eq!(
-            chain_clone.state(), chain_delayed.state(),
-            "Final states diverged after {} steps", steps,
-        );
         prop_assert!(
             relative_eq!(chain_clone.log_prob(), chain_delayed.log_prob(), epsilon = 1e-12),
             "log_prob diverged: clone={:.15}, delayed={:.15}",

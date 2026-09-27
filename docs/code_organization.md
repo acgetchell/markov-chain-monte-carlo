@@ -33,9 +33,9 @@ The #154 task-guide renames are `proposal_validation.md` → `VALIDATING_PROPOSA
 preserving measurements and provenance; path changes alone do not require benchmark runs.
 
 README is also embedded in rustdoc, so repository destinations use explicit GitHub URLs and API destinations use the generated reference site. Active
-guide links follow `main` and are declared separately from release-pinned source/metadata links in the shared release policy. Never attach a renamed
-path or new anchor to an older tag where it is absent. When a release intentionally pins guide links, update that policy and verify the tagged files
-together. Maintain compatibility anchors for renamed README/scientific headings; verify Contents in GitHub-style Markdown and generated rustdoc.
+guide links advance with source/metadata links to the declared release tag through the shared release policy. Never attach a renamed path or new anchor
+to an older tag where it is absent. Verify guide destinations when preparing each release. Maintain compatibility anchors for renamed
+README/scientific headings; verify Contents in GitHub-style Markdown and generated rustdoc.
 
 ## Full checkout tree
 
@@ -105,7 +105,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   └── changelog/
 │   │       ├── 0.1.md
 │   │       ├── 0.2.md
-│   │       └── 0.3.md
+│   │       ├── 0.3.md
+│   │       └── 0.4.md
 │   ├── assets/
 │   │   └── ising_energy_trace.png
 │   ├── benchmark_distributions.md
@@ -359,7 +360,9 @@ Defines streaming statistics helpers for post-processing observed samples:
 
 - `OnlineStats` for one-pass means and variances
 - `BinningAnalysis` and `BinningEstimate` for correlated-sample uncertainty estimates
-- `StatisticsError` for invalid inputs and insufficient data
+- `StatisticsError` for invalid samples, exhausted counts, and non-finite accumulator updates
+
+Estimate accessors return `None` until their sample requirements are met.
 
 Statistics helpers are ordinary public API, but they should stay independent of chain mutation and proposal mechanics.
 

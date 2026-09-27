@@ -26,8 +26,14 @@ formatter = "rumdl.toml"
 [tool.research-repo-tools.release]
 date-policy = "declared"
 tag-policy = "canonical-stable"
-required-files = [ "Cargo.lock", "pyproject.toml", "uv.lock", "CITATION.cff", "CHANGELOG.md", "README.md", "REFERENCES.md" ]
+required-files = [ "Cargo.lock", "benches/diagnostic_backends/Cargo.lock", "pyproject.toml", "uv.lock", "CITATION.cff", "CHANGELOG.md", "README.md", "REFERENCES.md" ]
 exclude = [ "docs/performance/**" ]
+
+[[tool.research-repo-tools.release.rules]]
+path = "benches/diagnostic_backends/Cargo.lock"
+pattern = '^name = "markov-chain-monte-carlo"\r?\nversion = "(?P<value>[0-9]+\.[0-9]+\.[0-9]+)"'
+source = "version"
+count = 1
 
 [[tool.research-repo-tools.release.rules]]
 path = "CITATION.cff"
@@ -51,12 +57,11 @@ source = "tag"
 count = 12
 exclude = '/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?:$|[?#])|/docs/performance/'
 
-# Active guides describe this checkout, including paths and APIs absent from v0.4.2.
-# Pin them to a release only when that release contains the reviewed destinations.
+# Active guides ship with the declared release and advance with its source links.
 [[tool.research-repo-tools.release.rules]]
 path = "README.md"
 pattern = 'https://github\.com/acgetchell/markov-chain-monte-carlo/blob/(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?=$|[\s?#)\]])'
-value = "main"
+source = "tag"
 count = 11
 
 [[tool.research-repo-tools.release.rules]]

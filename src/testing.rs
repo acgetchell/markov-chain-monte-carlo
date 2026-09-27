@@ -23,7 +23,9 @@ use std::{error::Error, fmt};
 
 use rand::Rng;
 
-use crate::{DelayedProposal, Proposal, ProposalMut, Target};
+use crate::{
+    DelayedProposal, Proposal, ProposalMut, Target, chain::InPlaceRollback, numerics::count_as_f64,
+};
 
 /// Configuration for empirical detailed-balance verification.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -364,6 +366,12 @@ pub enum DetailedBalanceError<E = Infallible> {
         /// Observed log q-ratio.
         log_q_ratio: f64,
     },
+    /// Finite log weights produced arithmetic outside the representable range.
+    #[non_exhaustive]
+    NumericalResolution {
+        /// Direction being scored, or `None` when combining the two flows.
+        direction: Option<DetailedBalanceDirection>,
+    },
     /// Delayed proposal planning failed.
     #[non_exhaustive]
     Plan {
@@ -435,6 +443,16 @@ impl<E: fmt::Display> fmt::Display for DetailedBalanceError<E> {
                 f,
                 "{direction} proposal log q-ratio is {log_q_ratio}: expected finite or -infinity"
             ),
+            Self::NumericalResolution {
+                direction: Some(direction),
+            } => write!(
+                f,
+                "{direction} acceptance log probability exceeds numerical resolution"
+            ),
+            Self::NumericalResolution { direction: None } => write!(
+                f,
+                "detailed-balance log residual exceeds numerical resolution"
+            ),
             Self::Plan { direction, source } => {
                 write!(f, "{direction} delayed proposal planning failed: {source}")
             }
@@ -482,6 +500,7 @@ where
             | Self::InvalidMinHits { .. }
             | Self::InvalidTargetLogProb { .. }
             | Self::InvalidLogQRatio { .. }
+            | Self::NumericalResolution { .. }
             | Self::InsufficientHits { .. }
             | Self::Violation { .. } => None,
         }
@@ -636,8 +655,10 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
 ///
 /// Because it compares states with [`PartialEq`], this is intended for
 /// discrete, quantized, or otherwise exactly comparable state spaces.  For
-/// continuous proposals, exact hits are usually too rare; use a coarsened state
-/// representation or a domain-specific diagnostic instead.
+/// continuous proposals, use [`crate::verify_proposal_density`] and
+/// [`crate::verify_proposal_bins`] instead. Treating endpoint equality as bin
+/// membership does not estimate integrated stationary flow between regions.
+/// See the [proposal-validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/VALIDATING_PROPOSALS.md).
 ///
 /// # Examples
 ///
@@ -678,6 +699,8 @@ impl<'a, S, Plan> DetailedBalanceDelayedTransition<'a, S, Plan> {
 /// ratios are `NaN`/`+infinity`, too few exact hits are observed in either
 /// direction, or the estimated detailed-balance residual exceeds the configured
 /// tolerance.
+/// Returns [`DetailedBalanceError::NumericalResolution`] when finite log-weight
+/// arithmetic exceeds the representable range.
 pub fn verify_detailed_balance<S, T, P, R>(
     current: &S,
     proposed: &S,
@@ -692,7 +715,43 @@ where
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    verify_detailed_balance_unchecked(current, proposed, target, proposal, rng, config)
+    let endpoint_log_probs = endpoint_log_probs(current, proposed, target)?;
+    let forward_log_q_ratio = proposal.log_q_ratio(current, proposed);
+    check_log_q_ratio(DetailedBalanceDirection::Forward, forward_log_q_ratio)?;
+    let reverse_log_q_ratio = proposal.log_q_ratio(proposed, current);
+    check_log_q_ratio(DetailedBalanceDirection::Reverse, reverse_log_q_ratio)?;
+
+    let forward_acceptance = log_acceptance_probability(
+        endpoint_log_probs.current,
+        endpoint_log_probs.proposed,
+        forward_log_q_ratio,
+        DetailedBalanceDirection::Forward,
+    )?;
+    let reverse_acceptance = log_acceptance_probability(
+        endpoint_log_probs.proposed,
+        endpoint_log_probs.current,
+        reverse_log_q_ratio,
+        DetailedBalanceDirection::Reverse,
+    )?;
+
+    let forward = estimate_by_value_transition(
+        current,
+        proposed,
+        proposal,
+        rng,
+        config.samples(),
+        forward_acceptance,
+    );
+    let reverse = estimate_by_value_transition(
+        proposed,
+        current,
+        proposal,
+        rng,
+        config.samples(),
+        reverse_acceptance,
+    );
+
+    finish_report(endpoint_log_probs, forward, reverse, config)
 }
 
 /// Verify many by-value transitions and return every transition violation.
@@ -751,7 +810,7 @@ where
     let mut batch = DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
 
     for (index, (current, proposed)) in pairs.into_iter().enumerate() {
-        match verify_detailed_balance_unchecked(current, proposed, target, proposal, rng, config) {
+        match verify_detailed_balance(current, proposed, target, proposal, rng, config) {
             Ok(report) => batch.reports.push(report),
             Err(error) => batch
                 .failures
@@ -764,9 +823,9 @@ where
 
 /// Empirically verify detailed balance for one in-place transition.
 ///
-/// This helper clones each endpoint before calling [`ProposalMut::propose_mut`],
-/// so it is intended for test code and representative transitions rather than
-/// production sampling.  It estimates the full Metropolis-Hastings transition
+/// This helper clones each endpoint once, reusing the scratch state after each
+/// hypothetical move is undone. It is intended for test code and representative
+/// transitions rather than production sampling. It estimates the full Metropolis-Hastings transition
 /// probability by combining exact endpoint hits with each hit's undo-token-based
 /// log q-ratio.
 ///
@@ -820,6 +879,8 @@ where
 /// ratios are `NaN`/`+infinity`, too few exact hits are observed in either
 /// direction, or the estimated detailed-balance residual exceeds the configured
 /// tolerance.
+/// Returns [`DetailedBalanceError::NumericalResolution`] when finite log-weight
+/// arithmetic exceeds the representable range.
 pub fn verify_detailed_balance_mut<S, T, P, R>(
     current: &S,
     proposed: &S,
@@ -834,7 +895,33 @@ where
     P: ProposalMut<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    verify_detailed_balance_mut_unchecked(current, proposed, target, proposal, rng, config)
+    let endpoint_log_probs = endpoint_log_probs(current, proposed, target)?;
+    let forward = estimate_mut_transition(
+        current,
+        proposed,
+        target,
+        proposal,
+        rng,
+        TransitionRequest {
+            samples: config.samples(),
+            from_log_prob: endpoint_log_probs.current,
+            direction: DetailedBalanceDirection::Forward,
+        },
+    )?;
+    let reverse = estimate_mut_transition(
+        proposed,
+        current,
+        target,
+        proposal,
+        rng,
+        TransitionRequest {
+            samples: config.samples(),
+            from_log_prob: endpoint_log_probs.proposed,
+            direction: DetailedBalanceDirection::Reverse,
+        },
+    )?;
+
+    finish_report(endpoint_log_probs, forward, reverse, config)
 }
 
 /// Verify many in-place transitions and return every transition violation.
@@ -902,9 +989,7 @@ where
     let mut batch = DetailedBalanceBatchReport::new(Vec::new(), Vec::new());
 
     for (index, (current, proposed)) in pairs.into_iter().enumerate() {
-        match verify_detailed_balance_mut_unchecked(
-            current, proposed, target, proposal, rng, config,
-        ) {
+        match verify_detailed_balance_mut(current, proposed, target, proposal, rng, config) {
             Ok(report) => batch.reports.push(report),
             Err(error) => batch
                 .failures
@@ -929,6 +1014,8 @@ where
 /// target log-probabilities or proposal ratios are `NaN`/`+infinity`, too few
 /// matching plans are observed in either direction, or the estimated
 /// detailed-balance residual exceeds the configured tolerance.
+/// Returns [`DetailedBalanceError::NumericalResolution`] when finite log-weight
+/// arithmetic exceeds the representable range.
 ///
 /// # Examples
 ///
@@ -1133,99 +1220,6 @@ where
     batch
 }
 
-/// Run a by-value detailed-balance check with an already validated config.
-fn verify_detailed_balance_unchecked<S, T, P, R>(
-    current: &S,
-    proposed: &S,
-    target: &T,
-    proposal: &P,
-    rng: &mut R,
-    config: DetailedBalanceConfig,
-) -> Result<DetailedBalanceReport, DetailedBalanceError>
-where
-    S: PartialEq,
-    T: Target<S> + ?Sized,
-    P: Proposal<S> + ?Sized,
-    R: Rng + ?Sized,
-{
-    let endpoint_log_probs = endpoint_log_probs(current, proposed, target)?;
-    let forward_log_q_ratio = proposal.log_q_ratio(current, proposed);
-    check_log_q_ratio(DetailedBalanceDirection::Forward, forward_log_q_ratio)?;
-    let reverse_log_q_ratio = proposal.log_q_ratio(proposed, current);
-    check_log_q_ratio(DetailedBalanceDirection::Reverse, reverse_log_q_ratio)?;
-
-    let forward_acceptance = acceptance_probability(
-        endpoint_log_probs.proposed - endpoint_log_probs.current + forward_log_q_ratio,
-    );
-    let reverse_acceptance = acceptance_probability(
-        endpoint_log_probs.current - endpoint_log_probs.proposed + reverse_log_q_ratio,
-    );
-
-    let forward = estimate_by_value_transition(
-        current,
-        proposed,
-        proposal,
-        rng,
-        config.samples(),
-        forward_acceptance,
-    );
-    let reverse = estimate_by_value_transition(
-        proposed,
-        current,
-        proposal,
-        rng,
-        config.samples(),
-        reverse_acceptance,
-    );
-
-    finish_report(endpoint_log_probs, forward, reverse, config)
-}
-
-/// Run an in-place detailed-balance check with an already validated config,
-/// estimating each direction from cloned endpoint states.
-fn verify_detailed_balance_mut_unchecked<S, T, P, R>(
-    current: &S,
-    proposed: &S,
-    target: &T,
-    proposal: &mut P,
-    rng: &mut R,
-    config: DetailedBalanceConfig,
-) -> Result<DetailedBalanceReport, DetailedBalanceError>
-where
-    S: Clone + PartialEq,
-    T: Target<S> + ?Sized,
-    P: ProposalMut<S> + ?Sized,
-    R: Rng + ?Sized,
-{
-    let endpoint_log_probs = endpoint_log_probs(current, proposed, target)?;
-    let forward = estimate_mut_transition(
-        current,
-        proposed,
-        target,
-        proposal,
-        rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.current,
-            direction: DetailedBalanceDirection::Forward,
-        },
-    )?;
-    let reverse = estimate_mut_transition(
-        proposed,
-        current,
-        target,
-        proposal,
-        rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.proposed,
-            direction: DetailedBalanceDirection::Reverse,
-        },
-    )?;
-
-    finish_report(endpoint_log_probs, forward, reverse, config)
-}
-
 /// Run a delayed-proposal detailed-balance check with an already validated
 /// config, using caller-supplied predicates to identify matching concrete plans.
 fn verify_detailed_balance_delayed_unchecked<S, T, P, R, F, G>(
@@ -1351,8 +1345,10 @@ const fn check_hits<E>(
 #[derive(Debug, Clone, Copy)]
 struct TransitionEstimate {
     hits: usize,
-    weight_sum: f64,
-    weight_square_sum: f64,
+    positive_weights: usize,
+    log_weight_scale: f64,
+    scaled_mean: f64,
+    scaled_squared_deviations: f64,
 }
 
 /// Shared sampling metadata for one transition-estimation pass.
@@ -1363,23 +1359,49 @@ struct TransitionRequest {
     direction: DetailedBalanceDirection,
 }
 
+impl TransitionRequest {
+    /// Identify the sampled destination using the original endpoint roles.
+    const fn destination(self) -> DetailedBalanceState {
+        match self.direction {
+            DetailedBalanceDirection::Forward => DetailedBalanceState::Proposed,
+            DetailedBalanceDirection::Reverse => DetailedBalanceState::Current,
+        }
+    }
+}
+
 impl TransitionEstimate {
     /// Start an empty empirical transition estimate.
     const fn empty() -> Self {
         Self {
             hits: 0,
-            weight_sum: 0.0,
-            weight_square_sum: 0.0,
+            positive_weights: 0,
+            log_weight_scale: f64::NEG_INFINITY,
+            scaled_mean: 0.0,
+            scaled_squared_deviations: 0.0,
         }
     }
 
     /// Add one matching proposal hit with its Metropolis-Hastings acceptance
-    /// probability.
-    fn push(&mut self, acceptance_probability: f64) {
+    /// log probability. Welford moments are scaled by the largest observed
+    /// weight, retaining the absolute log scale even when acceptance
+    /// probabilities underflow. Constant weights have exactly zero variance.
+    fn push(&mut self, log_acceptance_probability: f64) {
         self.hits += 1;
-        self.weight_sum += acceptance_probability;
-        self.weight_square_sum =
-            acceptance_probability.mul_add(acceptance_probability, self.weight_square_sum);
+        if log_acceptance_probability == f64::NEG_INFINITY {
+            return;
+        }
+        if log_acceptance_probability > self.log_weight_scale {
+            let scale = (self.log_weight_scale - log_acceptance_probability).exp();
+            self.scaled_mean *= scale;
+            self.scaled_squared_deviations *= scale * scale;
+            self.log_weight_scale = log_acceptance_probability;
+        }
+        self.positive_weights += 1;
+        let weight = (log_acceptance_probability - self.log_weight_scale).exp();
+        let delta = weight - self.scaled_mean;
+        self.scaled_mean += delta / count_as_f64(self.positive_weights);
+        self.scaled_squared_deviations =
+            delta.mul_add(weight - self.scaled_mean, self.scaled_squared_deviations);
     }
 
     /// Estimate the log proposal probability from exact endpoint hits.
@@ -1390,21 +1412,35 @@ impl TransitionEstimate {
     /// Estimate the log accepted transition probability from accumulated
     /// acceptance weights.
     fn log_transition_probability(self, samples: usize) -> f64 {
-        log_empirical_weight(self.weight_sum, samples)
+        self.log_weight_scale + self.scaled_log_transition_probability(samples)
+    }
+
+    /// Keep the empirical factor separate from the log scale until the final
+    /// residual, where large target and acceptance offsets can cancel.
+    fn scaled_log_transition_probability(self, samples: usize) -> f64 {
+        if self.positive_weights == 0 {
+            0.0
+        } else {
+            self.scaled_mean.ln() + log_empirical_probability(self.positive_weights, samples)
+        }
     }
 
     /// Approximate the standard error of the accepted log transition estimate
     /// using the observed acceptance-weight variance.
     fn log_standard_error(self, samples: usize) -> f64 {
-        let mean = empirical_mean(self.weight_sum, samples);
-        if mean <= 0.0 {
+        if self.positive_weights == 0 {
             return f64::INFINITY;
         }
 
-        let second_moment = empirical_mean(self.weight_square_sum, samples);
-        let variance = mean.mul_add(-mean, second_moment).max(0.0);
-        let mean_standard_error = (variance / usize_to_f64(samples)).sqrt();
-        mean_standard_error / mean
+        let count = count_as_f64(self.positive_weights);
+        let relative_variance =
+            self.scaled_squared_deviations / count / (self.scaled_mean * self.scaled_mean);
+        // Merge the implicit zero weights from misses and impossible moves
+        // with the positive-weight moments without subtracting near-equal sums.
+        let zero_fraction = count_as_f64(samples - self.positive_weights) / count_as_f64(samples);
+        ((relative_variance + zero_fraction) / count)
+            .max(0.0)
+            .sqrt()
     }
 }
 
@@ -1416,7 +1452,7 @@ fn estimate_by_value_transition<S, P, R>(
     proposal: &P,
     rng: &mut R,
     samples: usize,
-    acceptance_probability: f64,
+    log_acceptance_probability: f64,
 ) -> TransitionEstimate
 where
     S: PartialEq,
@@ -1426,7 +1462,7 @@ where
     let mut estimate = TransitionEstimate::empty();
     for _ in 0..samples {
         if proposal.propose(from, rng).eq(to) {
-            estimate.push(acceptance_probability);
+            estimate.push(log_acceptance_probability);
         }
     }
     estimate
@@ -1436,8 +1472,9 @@ where
 /// with the proposal's undo-token log ratio.
 ///
 /// Every concrete proposal is hypothetical, so it is undone after scoring and
-/// before any evaluation error is propagated. This restores both the cloned
-/// endpoint and proposal-internal transition state between trials.
+/// before any evaluation error is propagated, including during callback
+/// unwinding. This restores both the cloned endpoint and proposal-internal
+/// transition state between trials.
 fn estimate_mut_transition<S, T, P, R>(
     from: &S,
     to: &S,
@@ -1453,28 +1490,35 @@ where
     R: Rng + ?Sized,
 {
     let mut estimate = TransitionEstimate::empty();
+    let mut candidate = from.clone();
     for _ in 0..request.samples {
-        let mut candidate = from.clone();
         let Some(token) = proposal.propose_mut(&mut candidate, rng) else {
             let _ = proposal.no_proposal_info();
             continue;
         };
 
-        let result = (|| -> Result<Option<f64>, DetailedBalanceError> {
-            if !candidate.eq(to) {
-                return Ok(None);
-            }
+        let result = InPlaceRollback::with_rollback(
+            &mut candidate,
+            proposal,
+            token,
+            |candidate, proposal, token| -> Result<Option<f64>, DetailedBalanceError> {
+                if !candidate.eq(to) {
+                    return Ok(None);
+                }
 
-            let proposed_log_prob = target.log_prob(&candidate);
-            check_log_prob(DetailedBalanceState::Proposed, proposed_log_prob)?;
-            let log_q_ratio = proposal.log_q_ratio(&candidate, &token);
-            check_log_q_ratio(request.direction, log_q_ratio)?;
-            Ok(Some(acceptance_probability(
-                proposed_log_prob - request.from_log_prob + log_q_ratio,
-            )))
-        })();
+                let proposed_log_prob = target.log_prob(candidate);
+                check_log_prob(request.destination(), proposed_log_prob)?;
+                let log_q_ratio = proposal.log_q_ratio(candidate, token);
+                check_log_q_ratio(request.direction, log_q_ratio)?;
+                Ok(Some(log_acceptance_probability(
+                    request.from_log_prob,
+                    proposed_log_prob,
+                    log_q_ratio,
+                    request.direction,
+                )?))
+            },
+        );
 
-        proposal.undo(&mut candidate, token);
         if let Some(weight) = result? {
             estimate.push(weight);
         }
@@ -1518,7 +1562,7 @@ where
                         direction: request.direction,
                         source,
                     })?;
-            check_log_prob(DetailedBalanceState::Proposed, proposed_log_prob)?;
+            check_log_prob(request.destination(), proposed_log_prob)?;
             let log_q_ratio = proposal.log_q_ratio(from, &plan).map_err(|source| {
                 DetailedBalanceError::LogQRatio {
                     direction: request.direction,
@@ -1526,9 +1570,12 @@ where
                 }
             })?;
             check_log_q_ratio(request.direction, log_q_ratio)?;
-            estimate.push(acceptance_probability(
-                proposed_log_prob - request.from_log_prob + log_q_ratio,
-            ));
+            estimate.push(log_acceptance_probability(
+                request.from_log_prob,
+                proposed_log_prob,
+                log_q_ratio,
+                request.direction,
+            )?);
         }
     }
     Ok(estimate)
@@ -1555,9 +1602,8 @@ fn finish_report<E>(
 
     let forward_log_transition = forward.log_transition_probability(config.samples());
     let reverse_log_transition = reverse.log_transition_probability(config.samples());
-    let forward_log_flow = endpoint_log_probs.current + forward_log_transition;
-    let reverse_log_flow = endpoint_log_probs.proposed + reverse_log_transition;
-    let log_balance_residual = log_residual(forward_log_flow, reverse_log_flow);
+    let log_balance_residual =
+        log_residual(endpoint_log_probs, forward, reverse, config.samples())?;
     let log_balance_standard_error = forward
         .log_standard_error(config.samples())
         .hypot(reverse.log_standard_error(config.samples()));
@@ -1587,57 +1633,78 @@ fn finish_report<E>(
 
 /// Compute the log-flow difference while treating two impossible flows as
 /// exactly balanced.
-fn log_residual(forward_log_flow: f64, reverse_log_flow: f64) -> f64 {
-    if forward_log_flow == f64::NEG_INFINITY && reverse_log_flow == f64::NEG_INFINITY {
-        0.0
-    } else {
-        forward_log_flow - reverse_log_flow
+fn log_residual<E>(
+    endpoints: EndpointLogProbs,
+    forward: TransitionEstimate,
+    reverse: TransitionEstimate,
+    samples: usize,
+) -> Result<f64, DetailedBalanceError<E>> {
+    let forward_impossible =
+        endpoints.current == f64::NEG_INFINITY || forward.positive_weights == 0;
+    let reverse_impossible =
+        endpoints.proposed == f64::NEG_INFINITY || reverse.positive_weights == 0;
+    match (forward_impossible, reverse_impossible) {
+        (true, true) => Ok(0.0),
+        (true, false) => Ok(f64::NEG_INFINITY),
+        (false, true) => Ok(f64::INFINITY),
+        (false, false) => {
+            let target_difference = endpoints.current - endpoints.proposed;
+            let scale_difference = forward.log_weight_scale - reverse.log_weight_scale;
+            let empirical_difference = forward.scaled_log_transition_probability(samples)
+                - reverse.scaled_log_transition_probability(samples);
+            let residual = (target_difference + scale_difference) + empirical_difference;
+            if residual.is_finite() {
+                Ok(residual)
+            } else {
+                Err(DetailedBalanceError::NumericalResolution { direction: None })
+            }
+        }
     }
 }
 
-/// Convert a log Metropolis-Hastings ratio into an acceptance probability.
+/// Convert a log Metropolis-Hastings ratio into a log acceptance probability.
 ///
 /// This mirrors the sampler's edge-case policy: ratios such as
 /// `-inf - (-inf)` become `NaN` and are treated as zero acceptance
 /// probability, while nonnegative ratios accept with probability one.
-fn acceptance_probability(log_acceptance_ratio: f64) -> f64 {
+fn log_acceptance_probability<E>(
+    from_log_prob: f64,
+    to_log_prob: f64,
+    log_q_ratio: f64,
+    direction: DetailedBalanceDirection,
+) -> Result<f64, DetailedBalanceError<E>> {
+    // A genuinely impossible reverse proposal always has zero acceptance,
+    // including the sampler's indeterminate +inf + (-inf) case.
+    if log_q_ratio == f64::NEG_INFINITY {
+        return Ok(f64::NEG_INFINITY);
+    }
+    let log_acceptance_ratio = to_log_prob - from_log_prob + log_q_ratio;
+    if from_log_prob.is_finite() && to_log_prob.is_finite() && !log_acceptance_ratio.is_finite() {
+        return Err(DetailedBalanceError::NumericalResolution {
+            direction: Some(direction),
+        });
+    }
     if log_acceptance_ratio.is_nan() {
         cold_path();
-        0.0
+        Ok(f64::NEG_INFINITY)
     } else {
-        log_acceptance_ratio.min(0.0).exp()
+        Ok(log_acceptance_ratio.min(0.0))
     }
 }
 
 /// Convert an exact hit count into an empirical log-proposal probability.
 fn log_empirical_probability(hits: usize, samples: usize) -> f64 {
-    log_empirical_weight(usize_to_f64(hits), samples)
-}
-
-/// Convert an accumulated transition weight into an empirical log probability.
-fn log_empirical_weight(weight_sum: f64, samples: usize) -> f64 {
-    empirical_mean(weight_sum, samples).ln()
-}
-
-/// Divide an accumulated empirical weight by the number of proposal samples.
-fn empirical_mean(weight_sum: f64, samples: usize) -> f64 {
-    weight_sum / usize_to_f64(samples)
-}
-
-/// Convert bounded sample counts into floating-point values for empirical
-/// probability estimates.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "empirical probabilities intentionally convert bounded sample counts to f64"
-)]
-const fn usize_to_f64(value: usize) -> f64 {
-    value as f64
+    (count_as_f64(hits) / count_as_f64(samples)).ln()
 }
 
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use std::assert_matches;
+    use std::{
+        assert_matches,
+        cell::Cell,
+        panic::{AssertUnwindSafe, catch_unwind},
+    };
 
     use approx::{assert_relative_eq, relative_eq};
     use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
@@ -1650,6 +1717,263 @@ mod tests {
     impl Target<bool> for TwoStateTarget {
         fn log_prob(&self, state: &bool) -> f64 {
             if *state { -2.0 } else { 0.0 }
+        }
+    }
+
+    struct EndpointWeights([f64; 2]);
+
+    impl Target<bool> for EndpointWeights {
+        fn log_prob(&self, state: &bool) -> f64 {
+            self.0[usize::from(*state)]
+        }
+    }
+
+    /// A four-trial pattern supplies exact hit counts without Monte Carlo noise.
+    struct ScriptedFlip {
+        trial: Cell<usize>,
+        hits: [usize; 2],
+        correct_ratio: bool,
+    }
+
+    impl ScriptedFlip {
+        fn next(&self, current: bool) -> bool {
+            let trial = self.trial.get();
+            self.trial.set(trial + 1);
+            if trial % 4 < self.hits[usize::from(current)] {
+                !current
+            } else {
+                current
+            }
+        }
+
+        fn ratio(&self, current: bool) -> f64 {
+            if self.correct_ratio {
+                (count_as_f64(self.hits[usize::from(!current)])
+                    / count_as_f64(self.hits[usize::from(current)]))
+                .ln()
+            } else {
+                0.0
+            }
+        }
+    }
+
+    impl Proposal<bool> for ScriptedFlip {
+        fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
+            self.next(*current)
+        }
+
+        fn log_q_ratio(&self, current: &bool, _: &bool) -> f64 {
+            self.ratio(*current)
+        }
+    }
+
+    impl ProposalMut<bool> for ScriptedFlip {
+        type Undo = bool;
+        type Info = ();
+
+        fn propose_mut<R: Rng + ?Sized>(&mut self, state: &mut bool, _: &mut R) -> Option<bool> {
+            let old = *state;
+            *state = self.next(old);
+            Some(old)
+        }
+
+        fn info(&self, _: &bool, _: &bool) {}
+
+        fn undo(&mut self, state: &mut bool, token: bool) {
+            *state = token;
+        }
+
+        fn log_q_ratio(&self, _: &bool, token: &bool) -> f64 {
+            self.ratio(*token)
+        }
+    }
+
+    impl DelayedProposal<bool> for ScriptedFlip {
+        type Plan = bool;
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &bool,
+            _: &mut R,
+        ) -> Result<Option<bool>, Infallible> {
+            Ok(Some(self.next(*state)))
+        }
+
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
+            &self,
+            _: &bool,
+            plan: &bool,
+            target: &T,
+        ) -> Result<f64, Infallible> {
+            Ok(target.log_prob(plan))
+        }
+
+        fn log_q_ratio(&self, state: &bool, _: &bool) -> Result<f64, Infallible> {
+            Ok(self.ratio(*state))
+        }
+
+        fn info(&self, _: &bool) {}
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _: &mut bool,
+            _: bool,
+            _: &mut R,
+        ) -> Result<(), Infallible> {
+            panic!("a verifier must never commit a hypothetical plan");
+        }
+    }
+
+    fn scripted_reports(
+        weights: [f64; 2],
+        hits: [usize; 2],
+        correct_ratio: bool,
+        config: DetailedBalanceConfig,
+    ) -> [Result<DetailedBalanceReport, DetailedBalanceError>; 3] {
+        let target = EndpointWeights(weights);
+        let mut proposal = ScriptedFlip {
+            trial: Cell::new(0),
+            hits,
+            correct_ratio,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        [
+            verify_detailed_balance(&false, &true, &target, &proposal, &mut rng, config),
+            verify_detailed_balance_mut(&false, &true, &target, &mut proposal, &mut rng, config),
+            verify_detailed_balance_delayed(
+                &false,
+                &true,
+                &target,
+                &mut proposal,
+                &mut rng,
+                config,
+                (|plan| *plan, |plan| !*plan),
+            ),
+        ]
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum CallbackStage {
+        Equality,
+        Target,
+        Ratio,
+    }
+
+    #[derive(Debug, Clone)]
+    struct HypotheticalState {
+        value: bool,
+        hypothetical: bool,
+        panic_stage: Option<CallbackStage>,
+    }
+
+    impl PartialEq for HypotheticalState {
+        fn eq(&self, other: &Self) -> bool {
+            assert_ne!(self.panic_stage, Some(CallbackStage::Equality));
+            self.value == other.value
+        }
+    }
+
+    struct HypotheticalTarget {
+        invalid: Option<(bool, f64)>,
+    }
+
+    impl Target<HypotheticalState> for HypotheticalTarget {
+        fn log_prob(&self, state: &HypotheticalState) -> f64 {
+            assert_ne!(state.panic_stage, Some(CallbackStage::Target));
+            if let Some((value, score)) = self.invalid
+                && state.hypothetical
+                && state.value == value
+            {
+                return score;
+            }
+            0.0
+        }
+    }
+
+    #[derive(Default)]
+    struct HypotheticalFlip {
+        pending: bool,
+        undo_calls: usize,
+        panic_stage: Option<CallbackStage>,
+    }
+
+    impl ProposalMut<HypotheticalState> for HypotheticalFlip {
+        type Undo = HypotheticalState;
+        type Info = ();
+
+        fn propose_mut<R: Rng + ?Sized>(
+            &mut self,
+            state: &mut HypotheticalState,
+            _: &mut R,
+        ) -> Option<HypotheticalState> {
+            assert!(!self.pending);
+            let token = state.clone();
+            state.value = !state.value;
+            state.hypothetical = true;
+            state.panic_stage = self.panic_stage;
+            self.pending = true;
+            Some(token)
+        }
+
+        fn info(&self, _: &HypotheticalState, _: &HypotheticalState) {}
+
+        fn undo(&mut self, state: &mut HypotheticalState, token: HypotheticalState) {
+            assert!(self.pending);
+            *state = token;
+            assert!(!state.hypothetical);
+            assert!(state.panic_stage.is_none());
+            self.pending = false;
+            self.undo_calls += 1;
+        }
+
+        fn log_q_ratio(&self, _: &HypotheticalState, _: &HypotheticalState) -> f64 {
+            assert_ne!(self.panic_stage, Some(CallbackStage::Ratio));
+            0.0
+        }
+    }
+
+    struct InvalidDelayedScore {
+        destination: bool,
+        score: f64,
+    }
+
+    impl DelayedProposal<bool> for InvalidDelayedScore {
+        type Plan = bool;
+        type Info = ();
+        type Error = Infallible;
+
+        fn propose_plan<R: Rng + ?Sized>(
+            &mut self,
+            state: &bool,
+            _: &mut R,
+        ) -> Result<Option<bool>, Infallible> {
+            Ok(Some(!*state))
+        }
+
+        fn proposed_log_prob<T: Target<bool> + ?Sized>(
+            &self,
+            _: &bool,
+            plan: &bool,
+            target: &T,
+        ) -> Result<f64, Infallible> {
+            Ok(if *plan == self.destination {
+                self.score
+            } else {
+                target.log_prob(plan)
+            })
+        }
+
+        fn info(&self, _: &bool) {}
+
+        fn commit<R: Rng + ?Sized>(
+            &mut self,
+            _: &mut bool,
+            _: bool,
+            _: &mut R,
+        ) -> Result<(), Infallible> {
+            panic!("a verifier must never commit a hypothetical plan");
         }
     }
 
@@ -1689,6 +2013,22 @@ mod tests {
 
         fn log_q_ratio(&self, _: &bool, _: &bool) -> f64 {
             1.0
+        }
+    }
+
+    struct FixedRatioFlip {
+        ratios: [f64; 2],
+        draws: Cell<usize>,
+    }
+
+    impl Proposal<bool> for FixedRatioFlip {
+        fn propose<R: Rng + ?Sized>(&self, current: &bool, _: &mut R) -> bool {
+            self.draws.set(self.draws.get() + 1);
+            !current
+        }
+
+        fn log_q_ratio(&self, current: &bool, _: &bool) -> f64 {
+            self.ratios[usize::from(*current)]
         }
     }
 
@@ -2362,10 +2702,482 @@ mod tests {
         assert_eq!(report.forward_hits, 128);
         assert_eq!(report.reverse_hits, 128);
         assert!(report.is_within_tolerance(1e-12));
-        let Some(score) = report.z_score() else {
-            panic!("z_score returned None (standard error == 0.0) for report: {report:?}");
+        assert_relative_eq!(report.log_balance_standard_error, 0.0, epsilon = 0.0);
+        assert_eq!(report.z_score(), None);
+    }
+
+    #[test]
+    fn target_offsets_preserve_scripted_balance_residuals() {
+        for offset in [0.0, -1e20, 1e20] {
+            for result in scripted_reports(
+                [offset; 2],
+                [3, 1],
+                false,
+                DetailedBalanceConfig::new(4, 0.0, 1).unwrap(),
+            ) {
+                let DetailedBalanceError::Violation {
+                    residual, report, ..
+                } = result.unwrap_err()
+                else {
+                    panic!("expected an omitted-Hastings-correction violation");
+                };
+                assert_relative_eq!(residual, 3.0_f64.ln(), epsilon = 1e-12);
+                assert_eq!(report.forward_hits, 3);
+                assert_eq!(report.reverse_hits, 1);
+            }
+            for result in scripted_reports(
+                [offset; 2],
+                [3, 1],
+                true,
+                DetailedBalanceConfig::new(4, 1e-12, 1).unwrap(),
+            ) {
+                assert_relative_eq!(result.unwrap().log_balance_residual, 0.0, epsilon = 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn tiny_finite_acceptance_weights_remain_balanced() {
+        for gap in [1000.0, 1e20] {
+            for result in scripted_reports([0.0, -gap], [4, 4], false, small_config()) {
+                let report = result.unwrap();
+                assert_relative_eq!(report.forward_log_transition, -gap, epsilon = 0.0);
+                assert_relative_eq!(report.reverse_log_transition, 0.0, epsilon = 0.0);
+                assert_relative_eq!(report.log_balance_residual, 0.0, epsilon = 0.0);
+                assert_relative_eq!(report.log_balance_standard_error, 0.0, epsilon = 0.0);
+                assert_eq!(report.z_score(), None);
+            }
+        }
+    }
+
+    #[test]
+    fn finite_log_weight_overflow_reports_numerical_resolution() {
+        for weights in [[f64::MAX, -f64::MAX], [-f64::MAX, f64::MAX]] {
+            for result in scripted_reports(weights, [4, 4], false, small_config()) {
+                assert_matches!(
+                    result,
+                    Err(DetailedBalanceError::NumericalResolution {
+                        direction: Some(DetailedBalanceDirection::Forward),
+                    })
+                );
+            }
+        }
+
+        let error = log_acceptance_probability::<Infallible>(
+            f64::MAX,
+            0.0,
+            -f64::MAX,
+            DetailedBalanceDirection::Reverse,
+        )
+        .unwrap_err();
+        assert_matches!(
+            error,
+            DetailedBalanceError::NumericalResolution {
+                direction: Some(DetailedBalanceDirection::Reverse),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "reverse acceptance log probability exceeds numerical resolution"
+        );
+        assert!(error.source().is_none());
+
+        for from in [0.0, f64::NEG_INFINITY] {
+            let probability = log_acceptance_probability::<Infallible>(
+                from,
+                0.0,
+                f64::NEG_INFINITY,
+                DetailedBalanceDirection::Forward,
+            )
+            .unwrap();
+            assert_eq!(probability.to_bits(), f64::NEG_INFINITY.to_bits());
+        }
+    }
+
+    #[test]
+    fn one_way_zero_acceptance_reports_signed_balance_violation() {
+        for (ratios, expected_residual) in [
+            ([f64::NEG_INFINITY, 0.0], f64::NEG_INFINITY),
+            ([0.0, f64::NEG_INFINITY], f64::INFINITY),
+        ] {
+            let proposal = FixedRatioFlip {
+                ratios,
+                draws: Cell::new(0),
+            };
+            let config = small_config();
+            let mut rng = StdRng::seed_from_u64(42);
+            let error = verify_detailed_balance(
+                &false,
+                &true,
+                &EndpointWeights([0.0; 2]),
+                &proposal,
+                &mut rng,
+                config,
+            )
+            .unwrap_err();
+            let DetailedBalanceError::Violation {
+                residual, report, ..
+            } = error
+            else {
+                panic!("one-way zero flow must violate detailed balance");
+            };
+
+            // Both endpoints are proposed every time; only acceptance blocks
+            // one direction. This must not be classified as insufficient hits
+            // or the balanced case where both flows are impossible.
+            assert_eq!(proposal.draws.get(), 2 * config.samples());
+            assert_eq!(report.forward_hits, config.samples());
+            assert_eq!(report.reverse_hits, config.samples());
+            assert_eq!(residual.to_bits(), expected_residual.to_bits());
+            assert_eq!(report.log_balance_residual.to_bits(), residual.to_bits());
+            assert_eq!(report.forward_log_transition.to_bits(), ratios[0].to_bits());
+            assert_eq!(report.reverse_log_transition.to_bits(), ratios[1].to_bits());
+            assert!(!report.is_within_tolerance(f64::MAX));
+            assert_eq!(report.z_score(), None);
+        }
+    }
+
+    #[test]
+    fn reverse_acceptance_overflow_is_reported_before_sampling() {
+        for (proposed_weight, ratios) in [
+            (-f64::MAX, [0.0, f64::MAX]),
+            (f64::MAX, [-f64::MAX, -f64::MAX]),
+        ] {
+            let proposal = FixedRatioFlip {
+                ratios,
+                draws: Cell::new(0),
+            };
+            let mut rng = StdRng::seed_from_u64(42);
+            let error = verify_detailed_balance(
+                &false,
+                &true,
+                &EndpointWeights([0.0, proposed_weight]),
+                &proposal,
+                &mut rng,
+                small_config(),
+            )
+            .unwrap_err();
+
+            // Finite inputs have a representable forward acceptance ratio, but
+            // the reverse arithmetic overflows with either sign. Validation
+            // must reject it before drawing either empirical transition sample.
+            assert_matches!(
+                error,
+                DetailedBalanceError::NumericalResolution {
+                    direction: Some(DetailedBalanceDirection::Reverse),
+                }
+            );
+            assert_eq!(proposal.draws.get(), 0);
+        }
+    }
+
+    #[test]
+    fn half_hits_have_expected_log_uncertainty_at_any_weight_scale() {
+        for weights in [[0.0; 2], [0.0, -1000.0]] {
+            for samples in [4, 16] {
+                let config = DetailedBalanceConfig::new(samples, 1e-12, 1).unwrap();
+                for result in scripted_reports(weights, [2, 2], false, config) {
+                    let report = result.unwrap();
+                    assert_eq!(report.forward_hits, samples / 2);
+                    assert_eq!(report.reverse_hits, samples / 2);
+                    assert_relative_eq!(
+                        report.reverse_log_transition,
+                        0.5_f64.ln(),
+                        epsilon = 1e-12
+                    );
+                    assert_relative_eq!(
+                        report.forward_log_transition,
+                        weights[1] + 0.5_f64.ln(),
+                        epsilon = 1e-12
+                    );
+                    assert_relative_eq!(
+                        report.log_balance_standard_error,
+                        (2.0 / count_as_f64(samples)).sqrt(),
+                        epsilon = 1e-12
+                    );
+                    assert_eq!(report.z_score(), Some(0.0));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unequal_weights_match_exact_moments_across_rescaling_and_zero_hits() {
+        // Four draws [1/4, 1/2, 1, 0] have mean 7/16 and population variance
+        // 35/256, hence SE(mean)/mean = sqrt(35)/14. Ascending weights force
+        // rescaling after nonzero squared deviations have accumulated.
+        for weights in [[0.25_f64, 0.5, 1.0], [1.0, 0.5, 0.25]] {
+            for shift in [0.0, -1000.0] {
+                for zero_is_hit in [false, true] {
+                    let mut estimate = TransitionEstimate::empty();
+                    for weight in weights {
+                        estimate.push(weight.ln() + shift);
+                    }
+                    if zero_is_hit {
+                        estimate.push(f64::NEG_INFINITY);
+                    }
+                    assert_eq!(estimate.hits, if zero_is_hit { 4 } else { 3 });
+                    assert_relative_eq!(
+                        estimate.log_proposal_probability(4),
+                        if zero_is_hit { 0.0 } else { 0.75_f64.ln() },
+                        epsilon = 1e-14
+                    );
+                    assert_relative_eq!(
+                        estimate.log_transition_probability(4),
+                        (7.0_f64 / 16.0).ln() + shift,
+                        epsilon = 1e-12
+                    );
+                    assert_relative_eq!(
+                        estimate.log_standard_error(4),
+                        35.0_f64.sqrt() / 14.0,
+                        epsilon = 1e-13
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn in_place_verifier_reuses_scratch_without_changing_results_or_rng() {
+        #[derive(PartialEq, Eq)]
+        struct ScratchState<'a> {
+            value: bool,
+            data: Vec<u8>,
+            clones: &'a Cell<usize>,
+        }
+
+        impl Clone for ScratchState<'_> {
+            fn clone(&self) -> Self {
+                self.clones.set(self.clones.get() + 1);
+                Self {
+                    value: self.value,
+                    data: self.data.clone(),
+                    clones: self.clones,
+                }
+            }
+        }
+
+        struct Flat;
+        impl Target<ScratchState<'_>> for Flat {
+            fn log_prob(&self, _: &ScratchState<'_>) -> f64 {
+                0.0
+            }
+        }
+
+        #[derive(Default)]
+        struct RandomFlip {
+            undo_calls: usize,
+        }
+
+        impl Proposal<bool> for RandomFlip {
+            fn propose<R: Rng + ?Sized>(&self, current: &bool, rng: &mut R) -> bool {
+                if rng.random_bool(0.75) {
+                    !current
+                } else {
+                    *current
+                }
+            }
+        }
+
+        impl ProposalMut<ScratchState<'_>> for RandomFlip {
+            type Undo = bool;
+            type Info = ();
+
+            fn propose_mut<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut ScratchState<'_>,
+                rng: &mut R,
+            ) -> Option<bool> {
+                if !rng.random_bool(0.75) {
+                    return None;
+                }
+                let old = state.value;
+                state.value = !old;
+                Some(old)
+            }
+
+            fn info(&self, _: &ScratchState<'_>, _: &bool) {}
+
+            fn undo(&mut self, state: &mut ScratchState<'_>, old: bool) {
+                state.value = old;
+                self.undo_calls += 1;
+            }
+        }
+
+        let clones = Cell::new(0);
+        let current = ScratchState {
+            value: false,
+            data: vec![0; 4096],
+            clones: &clones,
         };
-        assert_relative_eq!(score, 0.0, epsilon = 1e-6);
+        let proposed = ScratchState {
+            value: true,
+            data: vec![0; 4096],
+            clones: &clones,
+        };
+        let config = DetailedBalanceConfig::new(128, 1.0, 1).unwrap();
+        let mut proposal = RandomFlip::default();
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut reference_rng = StdRng::seed_from_u64(42);
+        let report = verify_detailed_balance_mut(
+            &current,
+            &proposed,
+            &Flat,
+            &mut proposal,
+            &mut rng,
+            config,
+        )
+        .unwrap();
+        let reference = verify_detailed_balance(
+            &false,
+            &true,
+            &EndpointWeights([0.0; 2]),
+            &RandomFlip::default(),
+            &mut reference_rng,
+            config,
+        )
+        .unwrap();
+        assert_eq!(report, reference);
+        assert_eq!(rng.random::<u64>(), reference_rng.random::<u64>());
+        assert_eq!(clones.get(), 2);
+        assert_eq!(
+            proposal.undo_calls,
+            report.forward_hits + report.reverse_hits
+        );
+        assert!(proposal.undo_calls > 0 && proposal.undo_calls < 2 * config.samples());
+        assert!(!current.value);
+        assert!(proposed.value);
+    }
+
+    #[test]
+    fn impossible_flows_remain_distinct_from_tiny_finite_weights() {
+        for weights in [[0.0, f64::NEG_INFINITY], [f64::NEG_INFINITY; 2]] {
+            for result in scripted_reports(weights, [4, 4], false, small_config()) {
+                let report = result.unwrap();
+                assert_eq!(
+                    report.forward_log_transition.to_bits(),
+                    f64::NEG_INFINITY.to_bits()
+                );
+                assert_eq!(
+                    report.reverse_log_transition.to_bits(),
+                    if weights[0].is_finite() {
+                        0.0_f64.to_bits()
+                    } else {
+                        f64::NEG_INFINITY.to_bits()
+                    }
+                );
+                assert_relative_eq!(report.log_balance_residual, 0.0, epsilon = 0.0);
+                assert_eq!(
+                    report.log_balance_standard_error.to_bits(),
+                    f64::INFINITY.to_bits()
+                );
+                assert_eq!(report.z_score(), None);
+            }
+        }
+    }
+
+    #[test]
+    fn in_place_verifier_restores_proposal_after_callback_panics() {
+        let current = HypotheticalState {
+            value: false,
+            hypothetical: false,
+            panic_stage: None,
+        };
+        let proposed = HypotheticalState {
+            value: true,
+            ..current
+        };
+        let target = HypotheticalTarget { invalid: None };
+        let mut rng = StdRng::seed_from_u64(42);
+        for stage in [
+            CallbackStage::Equality,
+            CallbackStage::Target,
+            CallbackStage::Ratio,
+        ] {
+            let mut proposal = HypotheticalFlip {
+                panic_stage: Some(stage),
+                ..Default::default()
+            };
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = verify_detailed_balance_mut(
+                    &current,
+                    &proposed,
+                    &target,
+                    &mut proposal,
+                    &mut rng,
+                    small_config(),
+                );
+            }));
+            assert!(result.is_err());
+            assert!(!proposal.pending);
+            assert_eq!(proposal.undo_calls, 1);
+
+            proposal.panic_stage = None;
+            let report = verify_detailed_balance_mut(
+                &current,
+                &proposed,
+                &target,
+                &mut proposal,
+                &mut rng,
+                small_config(),
+            )
+            .unwrap();
+            assert_eq!(report.forward_hits, 128);
+            assert!(!proposal.pending);
+            assert_eq!(proposal.undo_calls, 257);
+        }
+    }
+
+    #[test]
+    fn candidate_score_errors_identify_original_endpoint_roles() {
+        let current = HypotheticalState {
+            value: false,
+            hypothetical: false,
+            panic_stage: None,
+        };
+        let proposed = HypotheticalState {
+            value: true,
+            ..current
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        for destination in [false, true] {
+            let expected = if destination {
+                DetailedBalanceState::Proposed
+            } else {
+                DetailedBalanceState::Current
+            };
+            for score in [f64::NAN, f64::INFINITY] {
+                let mut proposal = HypotheticalFlip::default();
+                let in_place = verify_detailed_balance_mut(
+                    &current,
+                    &proposed,
+                    &HypotheticalTarget {
+                        invalid: Some((destination, score)),
+                    },
+                    &mut proposal,
+                    &mut rng,
+                    small_config(),
+                );
+                assert!(!proposal.pending);
+                assert_eq!(proposal.undo_calls, if destination { 1 } else { 129 });
+                let delayed = verify_detailed_balance_delayed(
+                    &false,
+                    &true,
+                    &EndpointWeights([0.0; 2]),
+                    &mut InvalidDelayedScore { destination, score },
+                    &mut rng,
+                    small_config(),
+                    (|plan| *plan, |plan| !*plan),
+                );
+                for result in [in_place, delayed] {
+                    assert_matches!(
+                        result,
+                        Err(DetailedBalanceError::InvalidTargetLogProb { state, log_prob })
+                            if state == expected && log_prob.to_bits() == score.to_bits()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

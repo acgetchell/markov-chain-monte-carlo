@@ -86,6 +86,13 @@
 //! owned `Chain`; deserialize a `ChainCheckpoint`, restore it with `Chain::from_checkpoint(checkpoint, target)`, and pass the resulting `Chain` plus the target,
 //! proposal, and RNG to `Sampler::new`.
 //!
+//! Trace observable names now reject collisions with the fixed CSV metadata columns
+//! (`chain_id`, `step`, `accepted`, `proposed`, and `log_prob`). Rename conflicting observables.
+//! `DiscreteProposalRatioError::InvalidForwardWeight` and `InvalidReverseWeight` now
+//! retain `weight_sum`; use `..` when matching only the selected weight.
+//! References to targets implement `Target`, allowing borrowed `AdditiveTarget` components;
+//! remove overlapping downstream implementations for shared references.
+//!
 //! # Additive target terms
 //!
 //! Bias potentials, umbrella-sampling weights, softened constraints, auxiliary

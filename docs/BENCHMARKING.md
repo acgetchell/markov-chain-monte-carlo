@@ -213,7 +213,7 @@ uv run --locked --group dev research-repo-tools toolchain run -- cargo bench --l
 uv run --locked --group dev research-repo-tools toolchain run -- cargo bench --locked --bench autocorrelation -- --baseline before
 ```
 
-`just bench` currently runs the same fixed-seed harness without selecting a release baseline. Filter Criterion benchmarks when investigating one path:
+`just bench` runs the fixed-seed stepping harness without selecting a release baseline. Filter Criterion benchmarks when investigating one path:
 
 ```bash
 cargo bench --locked --bench stepping chain/step_mut

@@ -22,6 +22,7 @@ just test-rust-ci     # All-feature release lib + integration tests in one nexte
 just test-rust        # Broad Rust CI tests + doctests
 just test-all         # Broad Rust + Python tooling tests
 just notebook-check   # Notebook lint + fast headless execution
+just audit            # Network audit of locked Python and Rust dependencies
 just security         # Network dependency audit + full-history secret scan
 just bench-compile    # Compile Criterion benchmarks without measuring
 just bench            # Criterion benchmarks
@@ -110,7 +111,7 @@ those runs still execute the audit gate. Online zizmor audits own remote action 
 
 ## Dependency and Secret Scanning
 
-`just security` runs two shared scanner gates. Use `just security-osv` or `just security-secrets` to run either independently.
+`just security` runs two shared scanner gates. Use `just audit` or `just security-secrets` to run either independently.
 Exact native scanner versions live in `[tool.research-repo-tools.toolchain.binaries]`; `just setup` installs verified release binaries, and
 `just update-cargo-tools` also updates these managed binary pins through the shared toolchain updater.
 
@@ -278,7 +279,7 @@ deliberate source cleanup.
 
 Benchmarks use Criterion with fixed seeds and workload-specific fixture lifecycles. Chain-step, 100-step sampler, and buffered-observation workloads create
 their state and RNG once outside `b.iter` and measure steady-state execution as those values advance. The manual accumulator, `OnlineStats`, and
-`BinningAnalysis` comparisons use `iter_batched` to provide a fresh chain and RNG outside each timed batch. Run all benchmarks with:
+`BinningAnalysis` comparisons use `iter_batched` to provide a fresh chain and RNG outside each timed batch. Run the complete stepping benchmark suite with:
 
 ```bash
 just bench
@@ -373,5 +374,7 @@ Keep these checks focused. Avoid broad community rule packs unless they prove lo
 ## Publishing
 
 Before publishing, prefer updating documentation first. Doc-only changes still require a version bump on crates.io. Release version updates should keep
-`Cargo.toml`, `Cargo.lock`, `CITATION.cff`, `pyproject.toml`, and `uv.lock` in sync through `just update-version "$TAG"`. This requires GitHub CLI for stable
-release discovery. Follow [RELEASING.md](../RELEASING.md) for the shared dependency refresh, preparation, retained-evidence publication, and post-merge order.
+`Cargo.toml`, both Cargo lockfiles, `CITATION.cff`, and active README release references in sync through
+`just release-update "$VERSION" "$PREVIOUS_TAG" "$RELEASE_DATE"`. The non-package Python placeholder version stays independent of the Rust release.
+Explicit release inputs avoid GitHub discovery during metadata updates. Follow [RELEASING.md](../RELEASING.md) for the shared dependency refresh,
+preparation, retained-evidence publication, and post-merge order.

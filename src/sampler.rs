@@ -2895,10 +2895,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         self.collect_with_thinning_core(
             steps,
             thin_interval,
-            |sampler| {
-                sampler.step_delayed_without_telemetry()?;
-                Ok(())
-            },
+            Self::step_delayed_without_telemetry,
             |sampler| Ok(sampler.chain.state().clone()),
         )
     }
@@ -3093,10 +3090,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
         self.collect_with_thinning_core(
             steps,
             thin_interval,
-            |sampler| {
-                sampler.step_delayed_without_telemetry()?;
-                Ok(())
-            },
+            Self::step_delayed_without_telemetry,
             |sampler| Ok(observable.observe(sampler.chain.state())),
         )
     }
@@ -3238,8 +3232,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
             |sampler| {
                 sampler
                     .step_delayed_without_telemetry()
-                    .map_err(ObservedStreamError::Step)?;
-                Ok(())
+                    .map_err(ObservedStreamError::Step)
             },
             |sampler| {
                 accumulator
@@ -3434,8 +3427,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
             |sampler| {
                 sampler
                     .step_delayed_without_telemetry()
-                    .map_err(ObservedStepError::Step)?;
-                Ok(())
+                    .map_err(ObservedStepError::Step)
             },
             |sampler| {
                 observable
@@ -3583,8 +3575,7 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S>, R: Rng + ?Sized> Sampler<'
             |sampler| {
                 sampler
                     .step_delayed_without_telemetry()
-                    .map_err(ObservedStreamError::Step)?;
-                Ok(())
+                    .map_err(ObservedStreamError::Step)
             },
             |sampler| {
                 let sample = observable

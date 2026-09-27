@@ -10,13 +10,28 @@ from research_repo_tools.cli import main
 ROOT = Path(__file__).resolve().parents[2]
 _DOI = "10.5281/zenodo.20033111"
 _VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+_GUIDES = (
+    "REFERENCES.md",
+    "docs/ANALYZING_CHAINS.md",
+    "docs/BENCHMARKING.md",
+    "docs/RELEASING.md",
+    "docs/VALIDATING_PROPOSALS.md",
+    "docs/benchmark_distributions.md",
+    "docs/code_organization.md",
+    "docs/dev/DEVELOPING.md",
+    "docs/reviewer_guide.md",
+    "docs/roadmap.md",
+    "docs/scientific_basis.md",
+)
 
 
 def _write_project(root: Path) -> None:
     """Exercise the actual release policy and metadata without synthetic mirrors."""
     manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     for name in ("Cargo.toml", *manifest["tool"]["research-repo-tools"]["release"]["required-files"]):
-        (root / name).write_bytes((ROOT / name).read_bytes())
+        destination = root / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / name).read_bytes())
     assert main(["--root", str(root), "release", "check", "--final-release"]) == 0
 
 
@@ -45,14 +60,16 @@ def test_published_api_references_require_the_declared_version(tmp_path: Path, r
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-def test_release_update_advances_api_references_and_preserves_main_guides(tmp_path: Path) -> None:
+def test_release_update_advances_api_guides_and_nested_package_version(tmp_path: Path) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"
     before = readme.read_text(encoding="utf-8")
     api_links = re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", before)
-    main_guides = re.findall(r"https://github\.com/acgetchell/markov-chain-monte-carlo/blob/main/[^\s)]+", before)
     assert len(api_links) == 11
-    assert len(main_guides) == 11
+    for guide in _GUIDES:
+        assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{_VERSION}/{guide}" in before
+    nested_lock = tmp_path / "benches/diagnostic_backends/Cargo.lock"
+    nested_packages = tomllib.loads(nested_lock.read_text(encoding="utf-8"))["package"]
     major, minor, patch = _VERSION.split(".")
     next_version = f"{major}.{minor}.{int(patch) + 1}"
 
@@ -80,7 +97,21 @@ def test_release_update_advances_api_references_and_preserves_main_guides(tmp_pa
         link.replace(f"/{_VERSION}/", f"/{next_version}/") for link in api_links
     ]
     assert f"published API links below target v{next_version}." in after
-    assert re.findall(r"https://github\.com/acgetchell/markov-chain-monte-carlo/blob/main/[^\s)]+", after) == main_guides
+    for guide in _GUIDES:
+        assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{next_version}/{guide}" in after
+    assert tomllib.loads(nested_lock.read_text(encoding="utf-8"))["package"] == [
+        {**package, "version": next_version} if package["name"] == "markov-chain-monte-carlo" else package for package in nested_packages
+    ]
+
+
+def test_nested_benchmark_lockfile_requires_current_package_version(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    lockfile = tmp_path / "benches/diagnostic_backends/Cargo.lock"
+    before = lockfile.read_text(encoding="utf-8")
+    stale = before.replace(f'name = "markov-chain-monte-carlo"\nversion = "{_VERSION}"', 'name = "markov-chain-monte-carlo"\nversion = "0.0.0"')
+    assert stale != before
+    lockfile.write_text(stale, encoding="utf-8", newline="\n")
+    assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
@@ -91,13 +122,13 @@ def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-@pytest.mark.parametrize("guide", ["VALIDATING_PROPOSALS.md", "ANALYZING_CHAINS.md", "dev/DEVELOPING.md"])
-def test_renamed_guides_cannot_target_an_older_release(tmp_path: Path, guide: str) -> None:
-    """The current Cargo tag predates these task-guide paths."""
+@pytest.mark.parametrize("guide", _GUIDES)
+@pytest.mark.parametrize("reference", ["main", "v0.0.0"])
+def test_active_guides_require_the_declared_release(tmp_path: Path, guide: str, reference: str) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"
     before = readme.read_text(encoding="utf-8")
-    stale = before.replace(f"/blob/main/docs/{guide}", f"/blob/v{_VERSION}/docs/{guide}")
+    stale = before.replace(f"/blob/v{_VERSION}/{guide}", f"/blob/{reference}/{guide}")
     assert stale != before
     readme.write_text(stale, encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1

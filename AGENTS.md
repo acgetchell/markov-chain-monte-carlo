@@ -142,7 +142,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 - `just zizmor` uses the declared scanner and persona through the shared CLI, discovers authentication without printing tokens, and reports an offline fallback.
   The SARIF workflow requires online audits and runs a plain findings gate before report generation; keep both steps on the same canonical recipe.
 - `just security` runs the shared OSV and Gitleaks gates. Keep scanner versions in `[tool.research-repo-tools.toolchain.binaries]`, maintained lockfile scope in
-  `security-osv`, and full-history checkout in the Gitleaks workflow. Scans fail on findings or invalid reports; use only the shared redacted secret reports.
+  `audit`, and full-history checkout in the Gitleaks workflow. Scans fail on findings or invalid reports; use only the shared redacted secret reports.
   These network/full-history checks run in separate security workflows rather than `just check` or the platform `just ci` matrix.
 
 ## Common Commands
@@ -153,12 +153,14 @@ just ci               # Final commit/push validation (checks + tests + examples)
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # Grouped lint aliases (code + docs + config)
 just setup            # Install managed tools and verify system prerequisites
+just sync             # Synchronize the locked development environment
+just audit            # Audit maintained Python and Rust lockfiles for vulnerabilities
 just update           # Update dependencies, managed Cargo tools, and tool pins
-just update-version vX.Y.Z # Prepare release metadata without dependency upgrades
+just release-update VERSION PREVIOUS_TAG RELEASE_DATE # Prepare release metadata without dependency upgrades
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
-just release-check    # Validate synchronized release metadata and references
+just release-check    # Validate the current release tag, metadata, and generated notes
 just performance-release  # Persist, validate, and promote release benchmark evidence
 just performance-doc # Rebuild the curated report from saved release evidence
 just performance-readme # Publish the README table and SVG from retained evidence
@@ -262,7 +264,8 @@ Rules:
 
 - If you publish this crate to crates.io, prefer updating documentation *before* publishing a new version (doc-only changes still require a version bump on
   crates.io).
-- Before tagging, run `just check` so README rendering, doctests, Markdown formatting, and the rest of the local validation gate pass.
+- Before tagging, require successful final `just ci` evidence for the release contents, including README rendering, doctests, and the local validation gate.
+  Reuse that evidence while its inputs remain unchanged; `just check` alone does not render documentation or execute doctests.
 
 ## Editing tools policy
 

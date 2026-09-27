@@ -167,8 +167,9 @@ exported CSV. Discard burn-in, preserve time order and a constant recording inte
 time series. The [chain-analysis guide](ANALYZING_CHAINS.md) covers selecting a trace column and checking its recording interval.
 
 The sample-mean-centered ACF uses biased autocovariances with divisor `N` at every lag, normalized by the lag-zero covariance. Direct summation costs
-`O(N * (max_lag + 1))`, with `O(N + max_lag)` memory. The inclusive lag limit bounds work. Shifted, scaled centering and compensated summation reduce numerical
-error and avoid overflow for extreme finite values, but cannot recover variation already lost when observations were rounded to `f64`.
+`O(N * (max_lag + 1))`, with `O(N + max_lag)` memory. The inclusive lag limit bounds work. Shifted, scaled centering and
+[Kahan compensated summation](../REFERENCES.md#ref-16) reduce numerical error and avoid overflow for extreme finite values, but cannot recover variation already
+lost when observations were rounded to `f64`.
 
 `integrated_time()` uses the initial monotone sequence: pair lags `(0, 1), (2, 3), ...`, discard the first nonpositive pair and everything after it, and make
 the retained pair sums nonincreasing by taking cumulative minima. The estimate is `tau = -1 + 2 * sum(retained_pairs)`, with independent-sample convention

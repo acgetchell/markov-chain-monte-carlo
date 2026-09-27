@@ -69,7 +69,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 4. **Try the examples**:
 
    ```bash
-   just examples        # Runs all six examples, including additive-target and delayed-telemetry workflows
+   just examples        # Runs all examples, including additive-target and delayed-telemetry workflows
    ```
 
 5. **Run benchmarks** (optional):
@@ -122,7 +122,8 @@ CI uses the same declarations through `.github/actions/setup-toolchain`, with OS
 Dependabot approvals and native auto-merge use the shared SHA-pinned GitHub workflow with `GITHUB_TOKEN`.
 See [Dependabot automation](docs/dev/DEVELOPING.md#dependabot-automation) for repository settings, required checks, and personal-token retirement.
 
-Run `just security` for the shared OSV dependency and Gitleaks secret scans. These separate security workflows run on PRs, pushes to `main`, and weekly;
+Run `just audit` for the shared OSV dependency scan, or `just security` to include the Gitleaks secret scan. These separate security workflows run on PRs,
+pushes to `main`, and weekly;
 the README badges link to their results. OSV requires network access, and Gitleaks requires a complete Git checkout. Both retain JSON/SARIF reports under
 `target/security`, with secret findings redacted. See [dependency and secret scanning](docs/dev/DEVELOPING.md#dependency-and-secret-scanning) for scope.
 
@@ -407,7 +408,7 @@ just bench-latest-vs-last   # rerun and compare with the saved local baseline
 just performance-local      # compare the current tree with the latest stable release
 just performance-doc   # rebuild the curated report from saved release measurements
 just performance-readme    # publish the README table and SVG from retained evidence
-just bench                  # run all benchmarks for broader profiling
+just bench                  # run the complete stepping benchmark suite
 just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
@@ -539,13 +540,14 @@ For full tool citation metadata, see the [AI-assisted development tools](REFEREN
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
-2. Set `TAG=vX.Y.Z` once, then run `just update-version "$TAG"` and `just changelog-unreleased "$TAG" "$DATE"` (set `DATE` to the prepared citation date).
+2. Set `VERSION`, `TAG`, `PREVIOUS_TAG`, and `RELEASE_DATE` using the guide's input block. Pass the same explicit date and previous tag to metadata preparation,
+   then preview and generate the changelog from committed history.
 3. For the first release after the performance reset, let the tagged workflow establish the baseline. For subsequent releases, follow
    [retained performance publication](docs/RELEASING.md#retained-performance-evidence-and-publication) to measure a real pair, create the reviewed
    `tooling/performance-readme.toml`, and publish the README table/SVG.
-4. Once a report exists, confirm it reproduces with `just performance-doc`. Run `just ci` and `cargo publish --locked --allow-dirty --dry-run`.
+4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci` and `just publish-check`.
 5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
-6. Publish to crates.io, create a draft GitHub Release, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
+6. Create a draft GitHub Release, publish to crates.io, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
    durable attachment and delete the merged release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.

@@ -1,6 +1,6 @@
 //! MCMC chain implementation.
 
-use core::{cmp::Ordering, hint::cold_path};
+use core::{cmp::Ordering, hint::cold_path, mem};
 
 use std::error::Error;
 use std::fmt;
@@ -694,13 +694,34 @@ impl<S, P: DelayedProposal<S> + ?Sized> DelayedTelemetryMode<S, P> for DiscardDe
 /// The guard begins only after [`ProposalMut::propose_mut`] returns its undo
 /// token. That trait method remains responsible for unwind atomicity before a
 /// token exists, and [`ProposalMut::undo`] must not panic.
-struct InPlaceRollback<'a, S, P: ProposalMut<S> + ?Sized> {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "keep the rollback implementation unavailable to public re-exports"
+)]
+pub(crate) struct InPlaceRollback<'a, S, P: ProposalMut<S> + ?Sized> {
     state: &'a mut S,
     proposal: &'a mut P,
     token: Option<P::Undo>,
 }
 
 impl<'a, S, P: ProposalMut<S> + ?Sized> InPlaceRollback<'a, S, P> {
+    /// Inspect a hypothetical move and always undo it, including during unwinding.
+    pub(crate) fn with_rollback<T>(
+        state: &'a mut S,
+        proposal: &'a mut P,
+        token: P::Undo,
+        inspect: impl FnOnce(&S, &P, &P::Undo) -> T,
+    ) -> T {
+        let mut rollback = Self {
+            state,
+            proposal,
+            token: None,
+        };
+        // Arm the guard and borrow its token before invoking user code.
+        let token = rollback.token.insert(token);
+        inspect(rollback.state, rollback.proposal, token)
+    }
+
     const fn new(state: &'a mut S, proposal: &'a mut P, token: P::Undo) -> Self {
         Self {
             state,
@@ -724,8 +745,9 @@ impl<'a, S, P: ProposalMut<S> + ?Sized> InPlaceRollback<'a, S, P> {
         }
     }
 
-    fn commit(mut self) {
-        self.token = None;
+    // Defer user-defined destruction until the caller publishes the accepted state.
+    fn commit(mut self) -> Option<P::Undo> {
+        self.token.take()
     }
 
     fn rollback(mut self) -> Result<(), McmcError> {
@@ -767,8 +789,9 @@ impl<'a, S> StateSnapshotRollback<'a, S> {
         self.state
     }
 
-    fn commit(mut self) {
-        self.snapshot = None;
+    // Defer user-defined destruction until the caller publishes the accepted state.
+    fn commit(mut self) -> Option<S> {
+        self.snapshot.take()
     }
 }
 
@@ -1016,9 +1039,10 @@ impl<S> Chain<S> {
         let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
-            self.state = proposed;
+            let retired_state = mem::replace(&mut self.state, proposed);
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            drop(retired_state);
             #[cfg(feature = "tracing")]
             self.trace_step("by_value", StepOutcome::Accepted);
             Ok(M::accepted(log_prob_before, log_prob_new, log_alpha))
@@ -1146,9 +1170,10 @@ impl<S> Chain<S> {
         let accept = accept_log_alpha(log_alpha, rng);
 
         if accept {
-            rollback.commit();
+            let retired_token = rollback.commit();
             self.log_prob = log_prob_new;
             self.accepted = self.accepted.saturating_add(1);
+            drop(retired_token);
             #[cfg(feature = "tracing")]
             self.trace_step("in_place", StepOutcome::Accepted);
             Ok(M::accepted(
@@ -1482,10 +1507,11 @@ impl<S> Chain<S> {
             let committed_log_prob = target.log_prob(rollback.state());
             check_committed_log_prob(log_prob_new, committed_log_prob)
                 .map_err(DelayedStepError::Mcmc)?;
-            rollback.commit();
+            let retired_snapshot = rollback.commit();
 
             self.log_prob = committed_log_prob;
             self.accepted = self.accepted.saturating_add(1);
+            drop(retired_snapshot);
             #[cfg(feature = "tracing")]
             self.trace_step("delayed_checked", StepOutcome::Accepted);
             Ok(Step::accepted_proposal(
@@ -1572,8 +1598,9 @@ impl<S> Chain<S> {
             cold_path();
             return Err(McmcError::InfiniteReplacementLogProb);
         }
-        self.state = new_state;
+        let retired_state = mem::replace(&mut self.state, new_state);
         self.log_prob = lp;
+        drop(retired_state);
         Ok(())
     }
 
@@ -2675,6 +2702,236 @@ mod tests {
         assert_eq!(chain.state(), &Scalar(1.0));
         assert_eq!(chain.log_prob().to_bits(), log_prob.to_bits());
         assert_eq!(chain.total_steps(), 0);
+    }
+
+    mod retirement {
+        use super::*;
+
+        #[derive(Clone)]
+        struct PanickingDropScalar<'a> {
+            value: f64,
+            panic_next_drop: Option<&'a Cell<bool>>,
+        }
+
+        impl Drop for PanickingDropScalar<'_> {
+            fn drop(&mut self) {
+                if let Some(panic_next_drop) = self.panic_next_drop {
+                    assert!(!panic_next_drop.replace(false), "retired value drop panic");
+                }
+            }
+        }
+
+        struct LinearTarget;
+
+        impl Target<PanickingDropScalar<'_>> for LinearTarget {
+            fn log_prob(&self, state: &PanickingDropScalar<'_>) -> f64 {
+                state.value
+            }
+        }
+
+        struct Increment;
+
+        impl<'a> Proposal<PanickingDropScalar<'a>> for Increment {
+            fn propose<R: Rng + ?Sized>(
+                &self,
+                current: &PanickingDropScalar<'a>,
+                _rng: &mut R,
+            ) -> PanickingDropScalar<'a> {
+                PanickingDropScalar {
+                    value: current.value + 1.0,
+                    panic_next_drop: None,
+                }
+            }
+        }
+
+        impl<'a> DelayedProposal<PanickingDropScalar<'a>> for Increment {
+            type Plan = f64;
+            type Info = ();
+            type Error = Infallible;
+
+            fn propose_plan<R: Rng + ?Sized>(
+                &mut self,
+                state: &PanickingDropScalar<'a>,
+                _rng: &mut R,
+            ) -> Result<Option<f64>, Self::Error> {
+                Ok(Some(state.value + 1.0))
+            }
+
+            fn proposed_log_prob<T: Target<PanickingDropScalar<'a>> + ?Sized>(
+                &self,
+                _state: &PanickingDropScalar<'a>,
+                plan: &f64,
+                target: &T,
+            ) -> Result<f64, Self::Error> {
+                Ok(target.log_prob(&PanickingDropScalar {
+                    value: *plan,
+                    panic_next_drop: None,
+                }))
+            }
+
+            fn info(&self, _plan: &f64) {}
+
+            fn commit<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut PanickingDropScalar<'a>,
+                plan: f64,
+                _rng: &mut R,
+            ) -> Result<(), Self::Error> {
+                state.value = plan;
+                Ok(())
+            }
+        }
+
+        fn assert_retained_state(
+            chain: &Chain<PanickingDropScalar<'_>>,
+            value: f64,
+            accepted: usize,
+        ) {
+            assert_eq!(chain.state().value.to_bits(), value.to_bits());
+            assert_eq!(chain.log_prob().to_bits(), value.to_bits());
+            assert_eq!(chain.accepted(), accepted);
+            assert_eq!(chain.rejected(), 7);
+        }
+
+        #[test]
+        fn by_value_publishes_acceptance_before_retired_state_drop() {
+            let panic_next_drop = Cell::new(true);
+            let state = PanickingDropScalar {
+                value: 0.0,
+                panic_next_drop: Some(&panic_next_drop),
+            };
+            let mut chain =
+                Chain::from_checkpoint(ChainCheckpoint::new(state, 3, 7), &LinearTarget).unwrap();
+            let mut rng = StdRng::seed_from_u64(42);
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = chain.step(&LinearTarget, &Increment, &mut rng);
+            }));
+
+            assert!(result.is_err());
+            assert_retained_state(&chain, 1.0, 4);
+
+            let step = chain.step(&LinearTarget, &Increment, &mut rng).unwrap();
+            assert_eq!(step.outcome(), StepOutcome::Accepted);
+            assert_retained_state(&chain, 2.0, 5);
+        }
+
+        #[test]
+        fn checked_delayed_publishes_acceptance_before_snapshot_drop() {
+            let panic_next_drop = Cell::new(true);
+            let state = PanickingDropScalar {
+                value: 0.0,
+                panic_next_drop: Some(&panic_next_drop),
+            };
+            let mut chain =
+                Chain::from_checkpoint(ChainCheckpoint::new(state, 3, 7), &LinearTarget).unwrap();
+            let mut proposal = Increment;
+            let mut rng = StdRng::seed_from_u64(42);
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = chain.step_delayed_checked(&LinearTarget, &mut proposal, &mut rng);
+            }));
+
+            assert!(result.is_err());
+            assert_retained_state(&chain, 1.0, 4);
+
+            let step = chain
+                .step_delayed_checked(&LinearTarget, &mut proposal, &mut rng)
+                .unwrap();
+            assert_eq!(step.outcome(), StepOutcome::Accepted);
+            assert_retained_state(&chain, 2.0, 5);
+        }
+
+        #[test]
+        fn replace_state_publishes_score_before_retired_state_drop() {
+            let panic_next_drop = Cell::new(true);
+            let state = PanickingDropScalar {
+                value: 0.0,
+                panic_next_drop: Some(&panic_next_drop),
+            };
+            let mut chain =
+                Chain::from_checkpoint(ChainCheckpoint::new(state, 3, 7), &LinearTarget).unwrap();
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = chain.replace_state(
+                    PanickingDropScalar {
+                        value: 1.0,
+                        panic_next_drop: None,
+                    },
+                    &LinearTarget,
+                );
+            }));
+
+            assert!(result.is_err());
+            assert_retained_state(&chain, 1.0, 3);
+
+            let mut rng = StdRng::seed_from_u64(42);
+            let step = chain.step(&LinearTarget, &Increment, &mut rng).unwrap();
+            assert_eq!(step.outcome(), StepOutcome::Accepted);
+            assert_retained_state(&chain, 2.0, 4);
+        }
+
+        #[test]
+        fn in_place_publishes_acceptance_before_undo_token_drop() {
+            struct PanickingUndoProposal<'a> {
+                panic_next_drop: &'a Cell<bool>,
+                undo_calls: usize,
+            }
+
+            impl<'a> ProposalMut<Scalar> for PanickingUndoProposal<'a> {
+                type Undo = PanickingDropScalar<'a>;
+                type Info = ();
+
+                fn propose_mut<R: Rng + ?Sized>(
+                    &mut self,
+                    state: &mut Scalar,
+                    _rng: &mut R,
+                ) -> Option<Self::Undo> {
+                    let value = state.0;
+                    state.0 -= 1.0;
+                    Some(PanickingDropScalar {
+                        value,
+                        panic_next_drop: Some(self.panic_next_drop),
+                    })
+                }
+
+                fn info(&self, _state: &Scalar, _token: &Self::Undo) {}
+
+                fn undo(&mut self, state: &mut Scalar, mut token: Self::Undo) {
+                    state.0 = token.value;
+                    token.panic_next_drop = None;
+                    self.undo_calls += 1;
+                }
+            }
+
+            let panic_next_drop = Cell::new(true);
+            let mut proposal = PanickingUndoProposal {
+                panic_next_drop: &panic_next_drop,
+                undo_calls: 0,
+            };
+            let mut chain =
+                Chain::from_checkpoint(ChainCheckpoint::new(Scalar(2.0), 3, 7), &Normal).unwrap();
+            let mut rng = StdRng::seed_from_u64(42);
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = chain.step_mut(&Normal, &mut proposal, &mut rng);
+            }));
+
+            assert!(result.is_err());
+            assert_eq!(chain.state(), &Scalar(1.0));
+            assert_eq!(chain.log_prob().to_bits(), (-0.5_f64).to_bits());
+            assert_eq!(chain.accepted(), 4);
+            assert_eq!(chain.rejected(), 7);
+            assert_eq!(proposal.undo_calls, 0);
+
+            let step = chain.step_mut(&Normal, &mut proposal, &mut rng).unwrap();
+            assert_eq!(step.outcome(), StepOutcome::Accepted);
+            assert_eq!(chain.state(), &Scalar(0.0));
+            assert_relative_eq!(chain.log_prob(), 0.0);
+            assert_eq!(chain.accepted(), 5);
+            assert_eq!(chain.rejected(), 7);
+            assert_eq!(proposal.undo_calls, 0);
+        }
     }
 
     // --- Seeded determinism ---

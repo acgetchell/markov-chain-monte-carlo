@@ -74,7 +74,7 @@ Useful checks:
 - Use `verify_detailed_balance_mut` on small representative states that implement `Clone + PartialEq`.
 - Use `verify_detailed_balance_mut_many` for batches of local moves.
 
-The detailed-balance helper clones endpoints so it can resample transitions from a clean state. After every concrete hypothetical proposal it calls `undo`,
+The detailed-balance helper clones each endpoint once and reuses that scratch state for its trials. After every concrete hypothetical proposal it calls `undo`,
 including proposals that do not match the requested destination and proposals whose density is invalid. It also consumes no-proposal telemetry. Each trial
 therefore begins from a clean endpoint and rollback-governed proposal transition state. The cloning is intentional test overhead, not a production sampling
 requirement.

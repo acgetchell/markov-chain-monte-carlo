@@ -1,6 +1,6 @@
 # Analyzing Chains
 
-The unreleased checkout provides all three diagnostics requested in [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13):
+Version 0.5.0 provides all three diagnostics requested in [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13):
 autocorrelation, effective sample size (ESS), and Gelman–Rubin R-hat using classical split chains. These APIs require no optional Cargo features.
 ACF and integrated time landed through #73; mean ESS, ESS per second, and split R-hat through #74. Parallel execution (#12) is separate:
 independently initialized chains can run sequentially and still supply R-hat inputs.
@@ -66,7 +66,7 @@ and diagnostics. Other timing scopes are possible, but must be comparable across
 - Compare the same observable, units, target, recording interval, and warmup policy across independently initialized chains.
   Slices cannot establish these assumptions; separate seeds alone do not prove independence or mixing.
 - ACF needs at least two finite observations and `max_lag < N`. It uses the sample mean and biased autocovariances with the same implicit divisor `N`
-  at every lag. Lag zero is exactly one. The direct implementation costs `O(N * max_lag)` time.
+  at every lag. Lag zero is exactly one. The direct implementation costs `O(N * (max_lag + 1))` time.
 - Integrated time pairs adjacent ACF values starting at lag zero and requires a nonpositive pair to establish truncation. It monotonizes the preceding
   positive pairs. An arbitrary lag cutoff is not treated as a valid truncation. ESS can exceed `N` for anticorrelated draws.
 - Split R-hat needs at least two original chains of equal length, each with at least four draws. Each is split into first and last halves;

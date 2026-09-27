@@ -15,6 +15,8 @@ pub enum StatisticsError {
     NanSample,
     /// A measurement sample was infinite.
     InfiniteSample,
+    /// The sample count cannot represent another observation.
+    CountOverflow,
     /// Updating the running mean produced NaN.
     NanMean,
     /// Updating the running mean produced infinity.
@@ -30,6 +32,7 @@ impl fmt::Display for StatisticsError {
         match self {
             Self::NanSample => write!(f, "statistics sample was NaN"),
             Self::InfiniteSample => write!(f, "statistics sample was infinite"),
+            Self::CountOverflow => write!(f, "statistics sample count is exhausted"),
             Self::NanMean => write!(f, "online mean became NaN while updating statistics"),
             Self::InfiniteMean => {
                 write!(f, "online mean became infinite while updating statistics")
@@ -179,7 +182,8 @@ impl OnlineStats {
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
     /// produces non-finite accumulator state.  No partially constructed
-    /// accumulator is returned on error.
+    /// accumulator is returned on error. Returns [`StatisticsError::CountOverflow`]
+    /// if the input contains more observations than the sample count can represent.
     pub fn try_from_iter(iter: impl IntoIterator<Item = f64>) -> Result<Self, StatisticsError> {
         let mut stats = Self::new();
         stats.try_extend(iter)?;
@@ -190,13 +194,17 @@ impl OnlineStats {
     ///
     /// Public callers reach this only through [`Self::try_push`], which stages
     /// the mutation and rejects non-finite arithmetic before committing it.
-    fn push_sample(&mut self, sample: FiniteSample) {
-        self.count += 1;
+    fn push_sample(&mut self, sample: FiniteSample) -> Result<(), StatisticsError> {
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or(StatisticsError::CountOverflow)?;
         let sample = sample.into_inner();
         let delta = sample - self.mean;
         self.mean += delta / count_as_f64(self.count);
         let delta_after = sample - self.mean;
         self.m2 = delta.mul_add(delta_after, self.m2);
+        Ok(())
     }
 
     /// Add one finite sample to the accumulator.
@@ -219,11 +227,12 @@ impl OnlineStats {
     /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
-    /// produces non-finite accumulator state.
+    /// produces non-finite accumulator state. Returns [`StatisticsError::CountOverflow`]
+    /// if the sample count cannot represent another observation.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
         let sample = FiniteSample::new(sample)?;
         let mut next = *self;
-        next.push_sample(sample);
+        next.push_sample(sample)?;
         check_stats(&next)?;
         *self = next;
         Ok(())
@@ -254,7 +263,8 @@ impl OnlineStats {
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if Welford's update
     /// produces non-finite accumulator state.  Samples accepted before the error
-    /// remain in the accumulator.
+    /// remain in the accumulator. Returns [`StatisticsError::CountOverflow`] if
+    /// another observation would exceed the maximum sample count.
     pub fn try_extend(
         &mut self,
         iter: impl IntoIterator<Item = f64>,
@@ -575,7 +585,7 @@ impl BinningLevel {
         &mut self,
         block_mean: FiniteSample,
     ) -> Result<Option<FiniteSample>, StatisticsError> {
-        self.stats.push_sample(block_mean);
+        self.stats.push_sample(block_mean)?;
         check_stats(&self.stats)?;
         if let Some(previous) = self.pending.take() {
             FiniteSample::new(0.5_f64.mul_add(block_mean.into_inner(), 0.5 * previous.into_inner()))
@@ -621,7 +631,7 @@ impl BinningLevel {
 pub struct BinningAnalysis {
     count: usize,
     levels: Vec<BinningLevel>,
-    staged_levels: Vec<(usize, BinningLevel)>,
+    staged_levels: Vec<BinningLevel>,
 }
 
 impl BinningAnalysis {
@@ -669,7 +679,8 @@ impl BinningAnalysis {
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if any binning-level
     /// accumulator update produces non-finite state.  No partially constructed
-    /// analysis is returned on error.
+    /// analysis is returned on error. Returns [`StatisticsError::CountOverflow`]
+    /// if the input contains more observations than the sample count can represent.
     pub fn try_from_iter(iter: impl IntoIterator<Item = f64>) -> Result<Self, StatisticsError> {
         let mut analysis = Self::new();
         analysis.try_extend(iter)?;
@@ -696,13 +707,18 @@ impl BinningAnalysis {
     /// Returns [`StatisticsError::NanMean`], [`StatisticsError::InfiniteMean`],
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if any staged
-    /// binning-level accumulator update produces non-finite state.
+    /// binning-level accumulator update produces non-finite state. Returns
+    /// [`StatisticsError::CountOverflow`] if another observation would exceed a count's maximum.
     pub fn try_push(&mut self, sample: f64) -> Result<(), StatisticsError> {
         let sample = FiniteSample::new(sample)?;
+        let next_count = self
+            .count
+            .checked_add(1)
+            .ok_or(StatisticsError::CountOverflow)?;
         self.stage_push(sample)?;
 
-        self.count += 1;
-        for (level_index, level) in self.staged_levels.drain(..) {
+        self.count = next_count;
+        for (level_index, level) in self.staged_levels.drain(..).enumerate() {
             if level_index == self.levels.len() {
                 self.levels.push(level);
             } else {
@@ -737,7 +753,8 @@ impl BinningAnalysis {
     /// [`StatisticsError::NanVarianceAccumulator`], or
     /// [`StatisticsError::InfiniteVarianceAccumulator`] if any binning-level
     /// accumulator update produces non-finite state.  Samples accepted before the
-    /// error remain in the analysis.
+    /// error remain in the analysis. Returns [`StatisticsError::CountOverflow`]
+    /// if another observation would exceed a count's maximum.
     pub fn try_extend(
         &mut self,
         iter: impl IntoIterator<Item = f64>,
@@ -911,7 +928,7 @@ impl BinningAnalysis {
                     return Err(err);
                 }
             };
-            self.staged_levels.push((level_index, level));
+            self.staged_levels.push(level);
 
             if let Some(mean) = next_block_mean {
                 block_mean = mean;
@@ -933,7 +950,7 @@ impl BinningAnalysis {
         let block_size = self
             .staged_levels
             .last()
-            .map_or(1, |(_, previous)| previous.block_size.saturating_mul(2));
+            .map_or(1, |previous| previous.block_size.saturating_mul(2));
 
         BinningLevel::new(block_size)
     }
@@ -1001,6 +1018,32 @@ mod tests {
         assert_eq!(stats.population_variance(), None);
         assert_eq!(stats.sample_variance(), None);
         assert_eq!(stats.standard_error(), None);
+    }
+
+    #[test]
+    fn exhausted_statistics_counts_preserve_state() {
+        let mut stats = OnlineStats {
+            count: usize::MAX,
+            mean: 1.0,
+            m2: 0.0,
+        };
+        let before = stats;
+        assert_eq!(stats.try_push(1.0), Err(StatisticsError::CountOverflow));
+        assert_eq!(stats, before);
+
+        let mut bins = BinningAnalysis::try_from_iter([1.0, 2.0, 3.0]).unwrap();
+        bins.count = usize::MAX;
+        let before = bins.clone();
+        assert_eq!(bins.try_push(4.0), Err(StatisticsError::CountOverflow));
+        assert_eq!(bins, before);
+
+        // A failed staged level must also preserve pending blocks and clear scratch state.
+        bins.count = 3;
+        bins.levels[0].stats.count = usize::MAX;
+        let before = bins.clone();
+        assert_eq!(bins.try_push(4.0), Err(StatisticsError::CountOverflow));
+        assert_eq!(bins, before);
+        assert!(bins.staged_levels.is_empty());
     }
 
     #[test]
