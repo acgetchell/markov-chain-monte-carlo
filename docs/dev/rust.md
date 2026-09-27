@@ -203,6 +203,10 @@ shared Python baseline into this repository without editing Python versions loca
 The registry-only release writer jobs retain separate package pins and resolution cutoffs, which must be aligned with each adopted release;
 their interpreter is selected from the package's runtime requirement without a duplicated Python minor.
 
+`just tools-clean` previews obsolete installations in the shared package-owned tool store without deleting them. Include other consumers with repeated
+`--keep-root PATH` arguments before reviewing the plan; pass `--apply` only to execute that cleanup. The shared implementation preserves declared,
+newer, and unknown installations and environments referenced by retained consumers. `just clean` remains the separate build-artifact cleanup command.
+
 The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
 the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
 
@@ -307,6 +311,7 @@ Coverage uses `cargo llvm-cov` with all crate features enabled.
 
 - Local HTML report: `just coverage`
 - CI Cobertura XML: `just coverage-ci`
+- Existing report summary: `just coverage-report` (optionally `--prefix src --limit 10`)
 
 `just coverage` generates and opens:
 
@@ -319,6 +324,9 @@ target/llvm-cov/html/index.html
 ```text
 coverage/cobertura.xml
 ```
+
+It then invokes the shared `research-repo-tools coverage report` parser, which fails on missing or malformed reports and summarizes deduplicated source
+lines. The Codecov workflow calls this same recipe. `coverage-report` can inspect an existing report without rerunning tests, or accept `--report PATH`.
 
 ## Tooling
 

@@ -266,6 +266,10 @@ The unreleased checkout also includes `examples/benchmark_distributions.rs`. Run
 `cargo run --release --features benchmarks --example benchmark_distributions` to compare seeded random walks against analytical moments and report scalar
 mean ESS and measured ESS/second. Difficult targets can yield biased moments or unavailable diagnostics; this example does not certify convergence.
 
+For the complete **unreleased** scalar diagnostics workflow, run `just example diagnostics`. It reports ACF and mean ESS for four sequential
+standard-normal chains, then classical split R-hat across them. No optional features or parallel executor are required. The checkout's
+`docs/diagnostics.md` explains input preparation, estimator limits, and typed failures; `just doc` builds the matching API reference.
+
 For proposal-specific testing patterns, see the
 [proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).
 

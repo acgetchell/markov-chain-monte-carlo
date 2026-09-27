@@ -22,9 +22,10 @@ after #164; hosted CI and the first live release-asset pair remain separate evid
 | Release workflow inline Python, packaging, draft checks, retry/upload/publish shell | Shared `performance baseline/release-draft/release-upload`; separate read-only benchmark and registry-only writer jobs |
 | Setup composite inline environment exporter | Shared `toolchain export`; uv/cache inputs remain thin workflow configuration |
 | Just file discovery, batching, prerequisites and metadata validation | Shared `files run` and `validation require/cargo-metadata` |
-| Example binary suffix detection and output loops | Shared `validation run`; six scientific output contracts in `tooling/examples.toml` |
+| Example binary suffix detection and output loops | Shared `validation run`; scientific output contracts in `tooling/examples.toml` |
 | Notebook parser, kernel/lint/execution, cleanup and provenance | Shared notebook CLI; fast/slow selection, Ising trace ordering and figure destination remain in Just |
-| SARIF and coverage | Native Semgrep, clippy-sarif, sarif-fmt and cargo-llvm-cov; no local parser or converter |
+| SARIF and coverage | Native report producers; shared `coverage report` validates and summarizes Cobertura, with no local parser or converter |
+| Obsolete managed installations | Shared `toolchain clean`; `tools-clean` previews by default and accepts other consumers' retention roots |
 | Rust test/check gates, CodeQL, audit, cache/permission policy | Native tools/actions and thin Just composition retained |
 | Dependabot approval and auto-merge | SHA-pinned shared workflow; local repository and file policy |
 | Dependency and secret scans | Shared OSV/Gitleaks commands and managed binaries; local lockfile scope, schedules, and badges |
@@ -152,6 +153,11 @@ and current tracked/nonignored files. Dedicated security workflows retain native
 JSON/SARIF reports, with Gitleaks findings redacted, and supply README badges.
 The consumer test checks lockfile coverage, full-history checkout, and failure
 propagation; scanner implementation and generic report tests remain upstream.
+
+The #13 completion audit also exposes `tools-clean` without changing the existing build cleanup command, and `coverage-report` for saved Cobertura XML.
+`coverage-ci` now calls that shared parser after generation; the workflow no longer duplicates directory setup and shell file-existence checks.
+The scalar diagnostics example joins the shared example-output inventory and final CI selection. Numerical diagnostic tests remain Rust-owned;
+consumer checks protect example inventory coverage and the actual Codecov recipe, while generic XML parsing and tool-retention tests stay upstream.
 
 ## Audit and Python policy adoption (#150 and #153)
 

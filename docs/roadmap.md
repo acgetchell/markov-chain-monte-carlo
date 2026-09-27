@@ -53,6 +53,8 @@ were accepted where they made invalid states unrepresentable or preserved valida
 - [x] [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal density and sampled-bin diagnostics
 - [x] [#73](https://github.com/acgetchell/markov-chain-monte-carlo/issues/73) - Scalar ACF and integrated autocorrelation time, with Ising notebook analysis
 - [x] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - Single-chain mean ESS, measured ESS-rate, and classical split R-hat diagnostics
+- [x] [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - ACF, ESS, and classical split R-hat umbrella; see the
+      [complete scalar diagnostics workflow](diagnostics.md). Comparable chains can run sequentially; parallel execution remains #12.
 - [x] [#20](https://github.com/acgetchell/markov-chain-monte-carlo/issues/20) - Fixed two-dimensional benchmark distributions with analytical moments and a
       seeded mixing example
 - [x] [#21](https://github.com/acgetchell/markov-chain-monte-carlo/issues/21) - Optional tracing spans and live per-step sampling metrics
@@ -66,7 +68,7 @@ scientifically trustworthy. This should happen before learned-proposal work so t
 
 - [x] [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Bounded scalar adaptive Metropolis-Hastings warmup (unreleased); production
       uses the final fixed proposal scale
-- [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and R-hat
+- [x] [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and classical split R-hat (unreleased)
 
 ### v0.6.0 Multi-Chain, Tempering, and Learned-Proposal Foundations
 

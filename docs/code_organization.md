@@ -93,6 +93,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── rust.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
+│   ├── diagnostics.md
 │   ├── performance/
 │   │   └── v1/
 │   │       ├── README.md
@@ -114,6 +115,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── benchmark_distributions.rs
 │   ├── delayed_chunked_telemetry.rs
 │   ├── detailed_balance.rs
+│   ├── diagnostics.rs
 │   ├── ising_1d.rs
 │   ├── iterator_sampling.rs
 │   └── normal_1d.rs
@@ -379,6 +381,7 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
+- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, and classical split R-hat; assumptions and errors in `docs/diagnostics.md`.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/adaptive_normal.rs` — bounded proposal-width tuning during warmup, then fixed-width production sampling.
 - `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.

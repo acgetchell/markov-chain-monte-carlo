@@ -11,6 +11,11 @@ command = [ "target/debug/examples/benchmark_distributions" ]
 expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixture", "Banana", "Cross covariance", "mean ESS", "Acceptance rate" ]
 
 [[checks]]
+name = "diagnostics"
+command = [ "target/debug/examples/diagnostics" ]
+expect = [ "Scalar diagnostics", "chain 0: ACF[1]=", "chain 1: ACF[1]=", "chain 2: ACF[1]=", "chain 3: ACF[1]=", "chain 0: mean ESS=", "chain 1: mean ESS=", "chain 2: mean ESS=", "chain 3: mean ESS=", "Classical split R-hat:" ]
+
+[[checks]]
 name = "detailed_balance"
 command = [ "target/debug/examples/detailed_balance" ]
 expect = [ "Detailed balance checks passed", "by-value residual" ]
