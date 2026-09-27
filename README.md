@@ -24,92 +24,47 @@ the tracked image above._
 Research-oriented Metropolis-Hastings tools in Rust for ordinary numeric states, large combinatorial state spaces, and proposal implementations that need
 rollback-safe mutation or delayed commits.
 
-## 📐 Introduction
-
-This library implements composable Metropolis-Hastings sampling in Rust for workflows where the state space, proposal mechanism, and measurement strategy are
-application-specific. It is designed for research code where proposal kernels, observables, and scientific validity checks live in domain code, while the
-sampler owns the transition bookkeeping.
-
-The Metropolis-Hastings contract is explicit: targets return unnormalized natural log weights, proposals describe the same concrete transition they generate,
-and proposal asymmetry stays in the Hastings correction. The crate is useful for simple numeric examples, spin systems, triangulation moves, and other large
-combinatorial state spaces where cloning, rollback, or delayed commits matter.
-
-🚧 **Pre-release (0.x)** — This is research software under active development. APIs may change before 1.0.
-
-Use this crate when you want:
-
-- a generic Metropolis-Hastings chain over user-defined state spaces
-- by-value, in-place, and delayed-commit proposal APIs
-- log-space acceptance calculations with NaN/+infinity checks
-- additive target composition for bias potentials, energy/action terms, externally supplied learned regularizers, and other log-weight modifiers
-- observable measurement APIs, streaming statistics, and binning-based uncertainty estimates for correlated samples
-- trace recording and CSV export for downstream MCMC diagnostics
-- thinning helpers for long sampler runs
-- optional `serde` checkpointing with validated resume flows
-- detailed-balance diagnostics for proposal development
-
-This crate provides the sampler mechanics; proposal correctness, ergodicity, convergence assessment, and scientific model choice remain domain-specific
-responsibilities.
-
-## 🧪 Scientific basis
-
-The acceptance rule is the standard Metropolis-Hastings correction:
-
-```text
-alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
-```
-
-`Target<S>` supplies `log pi(s)` up to an additive constant. Proposal implementations either use the default symmetric correction or supply the proposal ratio
-for the same concrete transition they generate. For asymmetric combinatorial moves, that usually means accounting for move-kind probabilities, valid-site
-counts, reverse-site counts, and invalid-move handling.
-
-Physics actions and externally supplied learned regularizer terms fit the same target interface: implement `Target::log_prob` as an unnormalized log weight, or
-as `-E(state)` when working in energy/action form. Training learned energies or learned proposal policies is outside the current crate scope.
-
-The crate checks local transition mechanics: log-space acceptance, invalid floating-point values, rollback for in-place proposals, delayed commits, counters,
-checkpoints, and empirical detailed-balance diagnostics for representative discrete transitions. It does not prove that a proposal is ergodic, that a chain has
-mixed, or that a scientific model is appropriate for a downstream study.
-
-For the detailed contract, see the
-[scientific basis and scope guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/scientific_basis.md).
-
-## ✨ Features
-
-- Generic `Chain<S>` over user-defined state spaces with explicit accepted/rejected counters.
-- Log-space Metropolis-Hastings acceptance with typed errors for NaN and positive-infinite target or proposal values.
-- `AdditiveTarget` for composing model and bias log-weight terms without mixing them into proposal-ratio corrections.
-- Three proposal workflows: by-value `Proposal`, rollback-safe in-place `ProposalMut`, and delayed-commit `DelayedProposal`.
-- `Sampler` helpers for repeated and chunked runs, iterator-style sampling, thinning, observations, and counter resets after burn-in.
-- **Unreleased:** bounded scalar proposal tuning with `AdaptiveScale` and `TunableProposal` during explicit `Sampler::warm_up*` calls; production keeps the
-  final scale fixed.
-- Streaming `OnlineStats` and `BinningAnalysis` for long correlated runs without retaining every sample.
-- `TraceRecorder` and `Trace` for numeric observable traces with chain IDs, accept/reject metadata, and CSV export.
-- **Unreleased:** `Autocorrelation` for scalar ACF estimates and integrated autocorrelation time with explicit truncation and degenerate-input errors.
-- **Unreleased:** single-chain mean ESS and measured ESS/second from integrated time; `SplitRhat` for classical multi-chain split R-hat.
-- **Unreleased:** optional `BenchmarkTarget` presets for Rosenbrock, Neal's funnel, Gaussian mixture, and banana distributions with analytical moments.
-- `ChainCheckpoint` restore APIs that recompute cached log-probabilities against the resumed target.
-- Optional `serde` support for serializing chains and samplers into the same portable checkpoint shape.
-- Detailed-balance diagnostics for proposal tests on representative discrete transitions.
-- **Unreleased:** continuous-proposal checks for independent log densities and sampled bin probabilities.
-
 ## Contents
 
-- [📐 Introduction](#-introduction)
-- [🧪 Scientific basis](#-scientific-basis)
-- [✨ Features](#-features)
-- [🚀 Quick start](#-quick-start)
-- [🧭 Choosing an API](#-choosing-an-api)
-- [📦 Cargo features](#-cargo-features)
-- [🧪 Examples](#-examples)
-- [📖 Documentation](#-documentation)
-- [Performance](#performance)
-- [👀 Reviewer guide](#-reviewer-guide)
-- [🧩 Ecosystem](#-ecosystem)
-- [🤝 Contributing](#-contributing)
-- [📚 Citation](#-citation)
-- [🔎 References](#-references)
-- [🤖 AI Agents](#-ai-agents)
-- [📜 License](#-license)
+- [Introduction](#-introduction)
+- [Use this crate when](#-use-this-crate-when)
+- [Quick start](#-quick-start)
+- [API at a glance](#-api-at-a-glance)
+- [Features](#-features)
+- [Cargo features](#-cargo-features)
+- [Scientific basis](#-scientific-basis)
+- [Validation model](#-validation-model)
+- [Documentation map](#-documentation-map)
+- [Examples](#-examples)
+- [Benchmarking](#-benchmarking)
+- [Ecosystem](#-ecosystem)
+- [Limitations and roadmap](#-limitations-and-roadmap)
+- [Contributing](#-contributing)
+- [Citation](#-citation)
+- [References](#-references)
+- [AI Agents](#-ai-agents)
+- [License](#-license)
+
+## 📐 Introduction
+
+This library implements composable Metropolis-Hastings sampling in Rust for application-specific state spaces, proposals, and observables. Domain code
+owns the model and proposal kernel; the sampler owns transition bookkeeping, acceptance decisions, and measurement workflows.
+
+Targets return unnormalized natural log weights. Proposals describe the same concrete transition they generate, with proposal asymmetry in the Hastings
+correction. Numeric examples, spin systems, and triangulation moves use this same contract.
+
+🚧 **Pre-release (0.x)** — This is research software under active development. APIs may change before 1.0.
+Items marked **unreleased** describe this checkout; published API links below target v0.4.2. Run `just doc` for the matching checkout reference.
+
+## ✅ Use this crate when
+
+- Application-specific states and proposals need reusable Metropolis-Hastings transition mechanics.
+- Composable log weights represent model, bias, energy/action, or externally supplied regularizer terms.
+- Large states benefit from in-place rollback or delayed commits.
+- Long runs need streaming statistics, numeric traces, thinning, or validated checkpoints.
+- Proposal development needs explicit Hastings ratios and empirical transition checks.
+
+Proposal correctness, irreducibility, aperiodicity, equilibration, and scientific interpretation remain application responsibilities.
 
 ## 🚀 Quick start
 
@@ -167,180 +122,131 @@ fn main() -> Result<(), McmcError> {
 }
 ```
 
-## 🧭 Choosing an API
+<a id="-choosing-an-api"></a>
 
-- Start with `Proposal` and `Chain::step` when state cloning is cheap.
-- Use `ProposalMut` and `Chain::step_mut` when cloning state is expensive and rollback is simple; its `Info` metadata is returned in structured `Step`
-  telemetry for accepted and rejected proposals. `StepOutcome::NoProposal` carries metadata only when `ProposalMut::no_proposal_info` provides it.
-- Drive `Sampler::step_mut` explicitly when every transition needs metadata. Bulk `Sampler::run_mut*` methods deliberately skip `Info` construction and
-  proposal telemetry hooks, so metadata that would be discarded is not constructed.
-- Use `DelayedProposal` and `Chain::step_delayed` when you need to plan and score a concrete move before mutating state.
-- Use `AdditiveTarget` when the target log weight is the sum of model, bias, energy, action, or externally supplied regularizer terms.
-- Use `DelayedStep` telemetry, `StepOutcome`, and `DelayedProposal::no_plan_info` when delayed proposals need domain-specific per-step records.
-- Use `Sampler` when you want ergonomic repeated runs, resumable chunks, iterator-based sampling, or observing helpers.
-- Parse raw positive thinning counts with `ThinningInterval::new`, then reuse the validated interval across `Sampler::*_with_thinning` calls.
-- Use `Sampler::run_delayed_chunk_observing` to record per-step delayed telemetry and post-step state while resuming chunked runs from a `ChainCheckpoint`.
-- Use `TraceRecorder` when you need reusable numeric traces with chain IDs, acceptance metadata, target log-probabilities, and CSV export.
-- In the unreleased checkout, select a column with `Trace::observable_values(chain_id, name)`, collect its values after burn-in, then use
-  `let time = Autocorrelation::estimate(&samples, max_lag)?.integrated_time()?;` to obtain a reusable summary.
-- Use `time.effective_sample_size()` and `time.effective_sample_size_per_second(elapsed)?` for scalar mean ESS and measured efficiency. Pass comparable,
-  equally long per-chain slices to `SplitRhat::estimate(&chains)?` for classical split R-hat; inspect the result with `value()`.
-- Use `verify_detailed_balance*` helpers in proposal tests for representative discrete transitions.
-- Use `OnlineStats` and `BinningAnalysis` when long runs should stream statistics instead of retaining every sample.
+## 🧭 API at a glance
 
-When migrating from the previous in-place API, add `ProposalMut::Info`, implement `info` (and optionally `no_proposal_info`), make proposal mutation hooks
-accept `&mut self`, and read the `Step` returned by `Chain::step_mut` or `Sampler::step_mut` instead of a boolean. Rejection must restore both the state and
-proposal-internal transition state. Keep telemetry hooks observational because bulk execution may skip them. For earlier thinning and
-delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `ThinningInterval`, handle the underlying sampler or observation error directly
-instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding `outcome()`, `info()`, `log_prob_before()`,
-`log_prob_after()`, and `log_alpha()` accessors.
+| Need | Start here |
+| --- | --- |
+| Small states returned by value | [`Proposal`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/trait.Proposal.html) and `Chain::step` |
+| Expensive state copies, with reliable rollback | [`ProposalMut`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/trait.ProposalMut.html) and `Chain::step_mut` |
+| Score a concrete move before mutation | [`DelayedProposal`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/trait.DelayedProposal.html) and `Chain::step_delayed` |
+| Model and bias log weights | [`AdditiveTarget`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.AdditiveTarget.html) |
+| Repeated runs, chunks, thinning, or observation | [`Sampler`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.Sampler.html) |
+| Resume against a checked target | [`ChainCheckpoint`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.ChainCheckpoint.html) |
+| Retained numeric observations and CSV | [`TraceRecorder`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.TraceRecorder.html) |
+| Statistics without retaining every draw | [`OnlineStats`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.OnlineStats.html) and [`BinningAnalysis`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/struct.BinningAnalysis.html) |
+| Scalar proposal tuning during warmup | **Unreleased:** `AdaptiveScale`, `TunableProposal`, and `Sampler::warm_up*` |
+| Scalar ACF, mean ESS, or classical split R-hat | **Unreleased:** `Autocorrelation`, integrated time, and `SplitRhat`; see [analyzing chains][analyzing-chains] |
+| Independent proposal validation | [`verify_detailed_balance*`](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/fn.verify_detailed_balance.html); **unreleased:** density and bin checks |
 
-By-value `Chain::step` and `Sampler::step` now return `Step<()>`, and the by-value `Sampler` iterator yields `Result<Step<()>, McmcError>`; inspect or
-explicitly discard that telemetry where older code expected `()`. Construct `DiscreteProposalRatio` with the source-to-destination and
-destination-to-source endpoint weights as well as their normalizers. With the `serde` feature, `Sampler` now uses the same canonical checkpoint shape as its
-owned `Chain`; deserialize a `ChainCheckpoint`, restore it with `Chain::from_checkpoint(checkpoint, target)`, and pass the resulting `Chain` plus the target,
-proposal, and RNG to `Sampler::new`.
+Use explicit step calls when every transition needs metadata. Bulk in-place runs skip observational telemetry hooks; delayed chunk observation can retain
+per-step telemetry and post-step state. See the [proposal testing workflow][validating-proposals] and the generated API contracts for each method.
+The checkout's crate-level **API migration** section records signature, telemetry, thinning, and checkpoint changes since earlier APIs.
+
+## ✨ Features
+
+- Additive target composition keeps model/bias weights separate from proposal corrections.
+- By-value, in-place rollback, and delayed-commit proposals share log-space acceptance with typed invalid-value errors.
+- Checkpoints recompute cached log weights against the resumed target; optional `serde` support uses a canonical portable shape.
+- Detailed-balance diagnostics compare representative discrete transition flows. **Unreleased:** continuous density-ratio and proposal-bin checks.
+- **Unreleased:** fixed two-dimensional reference distributions with analytical moments behind `benchmarks`.
+- Repeated and resumable runs support iterator sampling, observation, counter resets after burn-in, and positive validated thinning intervals.
+- **Unreleased:** scalar adaptive warmup tunes a bounded proposal scale; production keeps the final scale fixed.
+- **Unreleased:** scalar autocorrelation, mean ESS, measured ESS/second, and classical split R-hat have explicit degenerate-input failures.
+- Streaming statistics and binning summaries avoid retaining every sample.
+- Trace recording retains chain IDs, acceptance metadata, and target log weights for CSV export.
 
 ## 📦 Cargo features
 
-No Cargo features are enabled by default. The ESS, ESS/second, and split R-hat APIs added in the unreleased checkout are available without enabling a feature.
+No Cargo features are enabled by default. The unreleased scalar diagnostics need no optional feature.
 
-- `serde` — serialize `Chain` and `Sampler` as canonical checkpoints, plus serialize/deserialize `ChainCheckpoint` for validated resume flows.
-- `tracing` — **unreleased**, structured sampling spans and per-step metrics for live monitoring; see [tracing setup](#tracing-setup).
-- `benchmarks` — **unreleased**, dependency-free `BenchmarkTarget` presets implementing `Target<[f64; 2]>`, with analytical `mean()` and `covariance()`.
-  These fix two-dimensional distributions and their parameters for reproducible validation and mixing experiments.
+| Feature | Capability |
+| --- | --- |
+| `benchmarks` | **Unreleased:** fixed Rosenbrock, Neal's funnel, Gaussian mixture, and banana `BenchmarkTarget` presets |
+| `serde` | Serialize chains/samplers as checkpoints and deserialize `ChainCheckpoint` for validated resume |
+| `tracing` | **Unreleased:** DEBUG loop spans and TRACE events for completed transitions |
 
-### Tracing setup
+<a id="tracing-setup"></a>
 
-Enable the `tracing` feature in your dependency on the unreleased checkout and add
-[`tracing`](https://docs.rs/tracing/) and [`tracing-subscriber`](https://docs.rs/tracing-subscriber/) to your application. Install a subscriber before sampling:
+For `tracing`, install an application-owned subscriber before sampling. The checkout's crate-level **Tracing contract** includes setup, event fields,
+timing costs, and counter semantics. Build it with `just doc`; the library never installs a subscriber.
 
-```rust
-# #[cfg(feature = "tracing")]
-# {
-let subscriber = tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::TRACE)
-    .finish();
-let _guard = tracing::subscriber::set_default(subscriber);
-// Run your Chain or Sampler here, while the subscriber guard is alive.
-# }
+## 🧪 Scientific basis
+
+The Metropolis-Hastings acceptance probability is
+
+```text
+alpha(x, y) = min(1, exp(log pi(y) - log pi(x) + log q(x | y) - log q(y | x)))
 ```
 
-The library emits under the `markov_chain_monte_carlo` target and leaves subscriber configuration to the application. DEBUG spans surround bulk sampling,
-observation, thinning, and adaptive warmup loops. TRACE events report every completed step, including transitions skipped by observation thinning. They
-contain `kernel`, `step`, `accepted`, `proposed`, `acceptance_rate`, and the resulting state's `log_prob`. For applications using an environment filter,
-`RUST_LOG=markov_chain_monte_carlo=trace` enables these events. Attach an application span around each chain to distinguish concurrent simulations.
+`Target<S>` supplies the unnormalized log weight; the proposal supplies the reverse/forward log ratio for that same move. Additive target terms change
+the sampled distribution, while proposal corrections account for how moves are generated. See [scientific basis and scope][scientific-basis] for
+assumptions, arithmetic conventions, method definitions, and diagnostic limitations, and the [method-to-source index][method-sources] for attribution.
 
-TRACE output can be expensive for long runs; select DEBUG for loop spans alone. Disabling the Cargo feature removes all instrumentation and its runtime
-dependency. Step counts and acceptance rates follow the chain counters, including resets and checkpoint restoration. Failed transitions emit no completion
-event; an observation error after a completed transition does not remove that transition's event.
+## ✅ Validation model
+
+The crate checks local transition mechanics: invalid floating-point values, acceptance, counters, cached weights, checkpoint restoration, and proposal
+rollback/commit contracts. Deterministic and property tests exercise these contracts; representative empirical checks help proposal authors detect errors.
+
+These checks do not establish irreducibility, aperiodicity, equilibration, or convergence. Correlated uncertainty and observable-specific diagnostics need
+scientific assessment. The [reviewer guide][reviewer-guide] maps claims to evidence and reproducible checks.
+
+<a id="-documentation"></a>
+
+## 🗺️ Documentation map
+
+| Question | Owner |
+| --- | --- |
+| Which API and caller contract? | [Published API reference](https://docs.rs/markov-chain-monte-carlo/0.4.2/markov_chain_monte_carlo/); `just doc` for this checkout |
+| Which assumptions, methods, and limitations? | [Scientific basis][scientific-basis] |
+| Which literature supports each method? | [References and source index][method-sources] |
+| How do I validate a proposal? | [Validating proposals][validating-proposals] |
+| How do I analyze traces and unavailable estimates? | [Analyzing chains][analyzing-chains] |
+| How are benchmark targets defined? | [Reference distributions][benchmark-distributions] |
+| How do I assess the crate's evidence? | [Reviewer guide][reviewer-guide] |
+| Where does implementation or documentation belong? | [Code organization][code-organization] |
+| How do I develop, benchmark, or release? | [Developing][developing], [benchmarking][benchmarking], and [releasing][releasing] |
+| What changed or remains planned? | [Changelog](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CHANGELOG.md) and [roadmap][roadmap] |
+| How do I report a vulnerability? | [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/SECURITY.md) |
+
+Repository guides above follow `main` and describe the checkout, including unreleased APIs. The published API reference and released examples are
+versioned separately.
 
 ## 🧪 Examples
 
-The versioned links below show the released workflows in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.4.2/examples):
+Released workflows live in [`examples/`](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.4.2/examples):
 
-- [`examples/normal_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/normal_1d.rs) — by-value random-walk sampler for a
-  normal target
-- [`examples/ising_1d.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/ising_1d.rs) — in-place spin-flip proposals for a
-  non-`Clone` open-boundary Ising state, with energy/magnetization trace CSV export
-- [`examples/iterator_sampling.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/iterator_sampling.rs) — `Sampler` as an iterator
-- [`examples/detailed_balance.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/detailed_balance.rs) — by-value, in-place,
-  delayed, and batch detailed-balance checks
-- [`examples/delayed_chunked_telemetry.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/delayed_chunked_telemetry.rs) — per-step
-  delayed telemetry and post-step state recorded across resumable chunks
-- [`examples/additive_target_bias.rs`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/examples/additive_target_bias.rs) — model and bias
-  log-weight terms composed with `AdditiveTarget`
+| Example | Workflow |
+| --- | --- |
+| `additive_target_bias` | Compose model and bias log weights |
+| `delayed_chunked_telemetry` | Resume chunks while recording delayed-step telemetry |
+| `detailed_balance` | Check by-value, in-place, delayed, and batch transition flows |
+| `ising_1d` | In-place spin flips, energy/magnetization observations, and CSV traces |
+| `iterator_sampling` | Drive a sampler as an iterator |
+| `normal_1d` | Sample a normal target with a by-value random walk |
 
-Run them with:
+Run `just examples` for all validated examples or `just example NAME` for one. The **unreleased checkout** adds `adaptive_normal`,
+`benchmark_distributions`, and `diagnostics`, and extends `ising_1d` to four sequential chains with ACF, mean ESS, measured ESS/second, and classical
+split R-hat. The reference-distribution example requires `--features benchmarks` when run directly with Cargo.
 
-```bash
-just examples
-```
+Run `just notebook-check` to generate Ising CSV/JSON files and execute the trace-analysis notebook under `target/notebooks/`.
+See [analyzing chains][analyzing-chains] for input selection, timing scope, exports, and error handling; these demonstrations do not certify convergence.
+This crate is a library: the examples and notebook are contributor workflows, with no installed CLI.
 
-The unreleased checkout includes `examples/adaptive_normal.rs`: run `cargo run --release --example adaptive_normal` to tune a random-walk width during
-warmup, discard those draws, and sample with the fixed final width. Implement `TunableProposal` alongside any proposal workflow and import
-`AdaptiveScale` from the shared prelude. Choose a target acceptance rate and positive finite scale bounds appropriate to your proposal; reaching the target
-does not establish convergence. Reuse the tuner across warmup chunks, then use ordinary sampler methods for production.
+<a id="performance"></a>
 
-The unreleased checkout also includes `examples/benchmark_distributions.rs`. Run it with
-`cargo run --release --features benchmarks --example benchmark_distributions` to compare seeded random walks against analytical moments and report scalar
-mean ESS and measured ESS/second. Difficult targets can yield biased moments or unavailable diagnostics; this example does not certify convergence.
+## 📈 Benchmarking
 
-For the complete **unreleased** scalar diagnostics workflow, run `just example diagnostics`. It reports ACF and mean ESS for four sequential
-standard-normal chains, then classical split R-hat across them. No optional features or parallel executor are required. The checkout's
-`docs/diagnostics.md` explains input preparation, estimator limits, and typed failures; `just doc` builds the matching API reference.
-
-For proposal-specific testing patterns, see the
-[proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md).
-
-For the **unreleased** continuous-proposal diagnostics, read the checkout's `docs/proposal_validation.md` section "Continuous Proposals" and run `just doc`
-to build the matching `verify_proposal_density` and `verify_proposal_bins` API reference. These helpers are not available in the published v0.4.2 crate.
-
-The released
-[`Ising trace notebook`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/notebooks/ising_trace_analysis.ipynb)
-plots energy and magnetization traces and summarizes acceptance statistics.
-
-In the **unreleased checkout**, `examples/ising_1d.rs` runs four separately seeded chains and exports trace, ACF, and autocorrelation-time CSVs plus
-`target/ising_1d_diagnostics.json` with ESS, measured ESS/second, classical split R-hat, chain IDs, sample counts, and timing/warmup metadata.
-
-This workflow uses a Cargo example with parameters set in Rust source. Run `just example ising_1d` from the repository root to generate its files under
-`target/`; reruns replace those files. Console output is a human-readable summary; consume the CSV and JSON files for machine-readable results.
-JSON reporting uses a development dependency, and notebook dependencies belong to the contributor environment. Ordinary library use requires neither;
-the crate does not provide an installed CLI or a `cli` feature.
-
-Run `just notebook-check` to regenerate the inputs and execute `notebooks/ising_trace_analysis.ipynb` headlessly under `target/notebooks/`.
-The notebook reports these diagnostics and exports analysis tables. ESS uses Geyer's initial monotone sequence time in recorded-sample intervals.
-Split R-hat uses raw moments, assumes finite variance, and is not rank-normalized or folded. These estimates do not certify convergence or adequate
-trace length.
-
-## 📖 Documentation
-
-- [docs.rs API documentation](https://docs.rs/markov-chain-monte-carlo)
-- [Reviewer guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/reviewer_guide.md)
-- [Changelog](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/CHANGELOG.md)
-- [Scientific basis and scope](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/scientific_basis.md)
-- [Proposal validation guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/proposal_validation.md)
-- [Roadmap](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/roadmap.md)
-- [Code organization guide](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/code_organization.md)
-- [Rust development workflow](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/dev/rust.md)
-- [Release process](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/RELEASING.md)
-- [Security policy](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/SECURITY.md)
-
-## Performance
+[Benchmarking][benchmarking] owns workload contracts, reproduction commands, and the shared `research-repo-tools` publication workflow.
+Use `just bench-save-baseline NAME` to save this checkout's local stepping measurements, then compare later runs with `just bench-compare NAME`.
 
 <!-- PERFORMANCE:BEGIN -->
 
-**v0.4.2 working tree against v0.4.1**; median elapsed time, with recorded confidence bounds where available.
-
-![Release workload time ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.svg)
-
-| Workload | Baseline | Current | Relative time |
-| --- | --- | --- | --- |
-| `chain_step_by_value` | 15.80 ns (15.74 ns - 15.87 ns) | 16.91 ns (16.90 ns - 16.93 ns) | 1.07x slower |
-| `chain_step_delayed_no_plan` | 1.03 ns (1.03 ns - 1.03 ns) | 0.73 ns (0.73 ns - 0.73 ns) | 1.42x faster |
-| `chain_step_mut_accept` | 12.68 ns (12.66 ns - 12.70 ns) | 13.69 ns (13.65 ns - 13.72 ns) | 1.08x slower |
-| `chain_step_mut_reject_rollback` | 102.78 ns (102.21 ns - 103.47 ns) | 198.01 ns (197.44 ns - 198.35 ns) | 1.93x slower |
-| `observing_manual_online_sum_100` | 934.48 ns (933.26 ns - 935.27 ns) | 1.28 µs (1.27 µs - 1.28 µs) | 1.36x slower |
-| `observing_run_observing_buffer_100` | 1.56 µs (1.56 µs - 1.56 µs) | 1.78 µs (1.77 µs - 1.78 µs) | 1.14x slower |
-| `observing_run_observing_into_binning_100` | 1.97 µs (1.96 µs - 1.97 µs) | 2.23 µs (2.23 µs - 2.23 µs) | 1.13x slower |
-| `observing_run_observing_into_online_stats_100` | 1.25 µs (1.24 µs - 1.25 µs) | 1.60 µs (1.60 µs - 1.60 µs) | 1.28x slower |
-| `sampler_run_by_value_100` | 1.50 µs (1.50 µs - 1.51 µs) | 1.54 µs (1.53 µs - 1.54 µs) | 1.02x slower |
-| `sampler_run_mut_100` | 1.04 µs (1.04 µs - 1.04 µs) | 1.28 µs (1.28 µs - 1.28 µs) | 1.23x slower |
-
-Coverage: 10 comparable, 12 current-only, 3 baseline-only workloads.
-
-These workload timings do not measure mixing, convergence, or effective sample size. Ratios are point estimates, not significance tests.
-
-- [Report and measurement context](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/PERFORMANCE.md)
-- [CSV measurements](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.csv)
-- [JSON provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/archive/performance/v0.4.2-vs-v0.4.1.provenance.json)
+Release performance tracking starts with the current development version. A release comparison will appear after two new releases have comparable
+measurements; no speedup claim is available yet.
 
 <!-- PERFORMANCE:END -->
-
-## 👀 Reviewer guide
-
-For a short reading path through the repository's scientific contract, validation strategy, roadmap boundaries, and reproducible local checks, see
-[`docs/reviewer_guide.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/docs/reviewer_guide.md).
 
 ## 🧩 Ecosystem
 
@@ -355,6 +261,16 @@ The long-term architecture separates:
 - **Geometry**: triangulations and geometric predicates
 - **Sampling**: this crate
 - **Physics**: CDT actions, observables, and domain-specific dynamics
+
+<a id="-reviewer-guide"></a>
+
+## 🛣️ Limitations and roadmap
+
+The crate supplies sampling mechanics and empirical diagnostics. Domain code owns model choice, valid proposals, reproducible random streams,
+equilibration, and correlated uncertainty. Classical split R-hat is not rank-normalized or folded; mean ESS is observable-specific.
+
+Multi-chain execution, tempering, and learned-proposal foundations remain roadmap work. Externally supplied learned log weights can be composed today,
+but training energies or proposal policies is outside scope. See the [roadmap][roadmap] and [reviewer guide][reviewer-guide].
 
 ## 🤝 Contributing
 
@@ -373,7 +289,7 @@ If you use this crate in academic work or downstream research software, please c
 ## 🔎 References
 
 For canonical background references for Metropolis-Hastings, MCMC, and the example models, see
-[`REFERENCES.md`](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/REFERENCES.md).
+[bibliographic records and method-to-source index][method-sources].
 
 ## 🤖 AI Agents
 
@@ -384,3 +300,15 @@ AI-assisted development note.
 ## 📜 License
 
 This project is licensed under the [BSD 3-Clause License](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.4.2/LICENSE).
+
+[analyzing-chains]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/ANALYZING_CHAINS.md
+[benchmark-distributions]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/benchmark_distributions.md
+[benchmarking]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/BENCHMARKING.md
+[code-organization]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/code_organization.md
+[developing]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/dev/DEVELOPING.md
+[method-sources]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/REFERENCES.md
+[releasing]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/RELEASING.md
+[reviewer-guide]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/reviewer_guide.md
+[roadmap]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/roadmap.md
+[scientific-basis]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/scientific_basis.md
+[validating-proposals]: https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/docs/VALIDATING_PROPOSALS.md

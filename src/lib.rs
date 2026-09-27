@@ -46,6 +46,46 @@
 //! time. With the feature disabled, all instrumentation is compiled out.
 //! The library never installs a subscriber or changes global filters.
 //!
+//! # Tracing subscriber setup
+//!
+//! Enable the `tracing` feature in your dependency and add
+//! [`tracing`](https://docs.rs/tracing/) and [`tracing-subscriber`](https://docs.rs/tracing-subscriber/) to your application. Install a subscriber before sampling:
+//!
+//! ```rust
+//! # #[cfg(feature = "tracing")]
+//! # {
+//! let subscriber = tracing_subscriber::fmt()
+//!     .with_max_level(tracing::Level::TRACE)
+//!     .finish();
+//! let _guard = tracing::subscriber::set_default(subscriber);
+//! // Run your Chain or Sampler here, while the subscriber guard is alive.
+//! # }
+//! ```
+//!
+//! The library emits under the `markov_chain_monte_carlo` target and leaves subscriber configuration to the application. DEBUG spans surround bulk sampling,
+//! observation, thinning, and adaptive warmup loops. TRACE events report every completed step, including transitions skipped by observation thinning. They
+//! contain `kernel`, `step`, `accepted`, `proposed`, `acceptance_rate`, and the resulting state's `log_prob`. For applications using an environment filter,
+//! `RUST_LOG=markov_chain_monte_carlo=trace` enables these events. Attach an application span around each chain to distinguish concurrent simulations.
+//!
+//! TRACE output can be expensive for long runs; select DEBUG for loop spans alone. Disabling the Cargo feature removes all instrumentation and its runtime
+//! dependency. Step counts and acceptance rates follow the chain counters, including resets and checkpoint restoration. Failed transitions emit no completion
+//! event; an observation error after a completed transition does not remove that transition's event.
+//!
+//! # API migration
+//!
+//! When migrating from the previous in-place API, add `ProposalMut::Info`, implement `info` (and optionally `no_proposal_info`), make proposal mutation hooks
+//! accept `&mut self`, and read the `Step` returned by `Chain::step_mut` or `Sampler::step_mut` instead of a boolean. Rejection must restore both the state and
+//! proposal-internal transition state. Keep telemetry hooks observational because bulk execution may skip them. For earlier thinning and
+//! delayed-telemetry APIs, replace raw thinning `usize` arguments with a parsed `ThinningInterval`, handle the underlying sampler or observation error directly
+//! instead of matching `ThinningError::Run`, and replace `Step` field reads with the corresponding `outcome()`, `info()`, `log_prob_before()`,
+//! `log_prob_after()`, and `log_alpha()` accessors.
+//!
+//! By-value `Chain::step` and `Sampler::step` now return `Step<()>`, and the by-value `Sampler` iterator yields `Result<Step<()>, McmcError>`; inspect or
+//! explicitly discard that telemetry where older code expected `()`. Construct `DiscreteProposalRatio` with the source-to-destination and
+//! destination-to-source endpoint weights as well as their normalizers. With the `serde` feature, `Sampler` now uses the same canonical checkpoint shape as its
+//! owned `Chain`; deserialize a `ChainCheckpoint`, restore it with `Chain::from_checkpoint(checkpoint, target)`, and pass the resulting `Chain` plus the target,
+//! proposal, and RNG to `Sampler::new`.
+//!
 //! # Additive target terms
 //!
 //! Bias potentials, umbrella-sampling weights, softened constraints, auxiliary

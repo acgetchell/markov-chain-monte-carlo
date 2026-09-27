@@ -1,4 +1,4 @@
-# Rust Development
+# Developing in Rust
 
 This repository is a single Rust library crate using Rust 1.98.1 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
 
@@ -263,6 +263,8 @@ required.
 `just notebook-lint` selects tracked and non-ignored source notebooks and invokes shared structure, cell-ID, output, Ruff, formatting, and ty checks. The native
 checkers read original notebooks and preserve cross-cell references. `just notebook-check` generates the Ising input and executes only the configured fast set
 in fresh project kernels; slow notebooks remain explicitly selected in `slow_notebooks`.
+The shared `prohibit-installs` policy rejects literal dependency-install commands in notebook cells. Declare dependencies in the locked notebook group
+and synchronize through `just notebook-sync` instead of modifying the environment from a notebook.
 
 `just notebook-sync` synchronizes the locked dev/notebook groups and registers the project-local kernel. Shared execution writes
 `target/notebooks/notebooks/ising_trace_analysis.ipynb` and a sibling `.report.json` with source/lock hashes, interpreter/package versions, and execution
@@ -337,6 +339,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
 - `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
 - `.github/actions/setup-toolchain` caches all declared managed tools, including both SARIF converters, by OS, architecture, and declarations.
+  Its shared setup step uses the job's `GITHUB_TOKEN` for scanner release-metadata requests, with the caller's permissions and no token export to later steps.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
 - `.github/workflows/zizmor.yml` runs zizmor for GitHub Actions security analysis.
 - `.github/workflows/osv.yml` audits all maintained Python/Rust lockfiles through the shared OSV command.

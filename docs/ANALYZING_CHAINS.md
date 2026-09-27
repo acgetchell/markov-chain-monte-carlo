@@ -1,4 +1,4 @@
-# Scalar sampling diagnostics
+# Analyzing Chains
 
 The unreleased checkout provides all three diagnostics requested in [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13):
 autocorrelation, effective sample size (ESS), and Gelman–Rubin R-hat using classical split chains. These APIs require no optional Cargo features.
@@ -19,7 +19,32 @@ The fixed seeds make the demonstration reproducible within the pinned toolchain 
 For observable names, chain identifiers, CSV/JSON export, measured ESS per second, and notebook plots, use
 [`examples/ising_1d.rs`](../examples/ising_1d.rs) and `just notebook-check`. The Ising example writes under `target/`; the notebook consumes those artifacts.
 
+## Export and notebook workflow
+
+`just example ising_1d` records four sequential chains with distinct seeds and initial states. In addition to CSV traces and ACF/time estimates, it writes
+`target/ising_1d_diagnostics.json` (schema version 1). The report names the estimators and observables, identifies original chains and seeds, records sample
+counts, discarded warmup, recording interval, per-chain measured seconds, and the timing scope. ESS/rate and R-hat results carry status and nullable values;
+unavailable estimates include an error message. Successful R-hat records use the estimator's original and half lengths to report omitted-middle counts.
+On failure, half lengths and omitted-middle counts are null; the original per-chain length is also null if the inputs have unequal lengths or no chains.
+These are example-owned exports, independent of the optional checkpoint `serde` feature. R-hat chain selection does not require timing metadata.
+The `error` and `rate_error` strings are display-only diagnostics; use status and nullable values for availability, or the Rust error variants for
+failure-specific handling. Do not parse message text as a stable error category.
+
+Production timing includes sampling and observation/recording, and excludes warmup, export, and diagnostics. Rates vary with build profile and machine and
+are illustrative, not benchmark evidence. The notebook computes diagnostics from the trace and consumes companion timing only for matching full production
+samples. External traces require explicit `MCMC_DIAGNOSTICS_PATH` for rates; additional notebook warmup removal makes full-run timing unavailable. The
+notebook exports ESS and R-hat tables beside its figures, using the same availability rules for R-hat count metadata. Preserve the source JSON with those
+tables to retain the original timing and warmup scope.
+
+This workflow uses a Cargo example with parameters set in Rust source. Run it from the repository root; reruns replace the generated files under `target/`.
+Console output is a human-readable summary. Consume CSV/JSON for analysis, preserving the source report alongside exported tables. JSON reporting uses a
+development dependency, and notebook dependencies belong to the contributor environment; ordinary library use requires neither.
+
 ## Choose the quantity
+
+For a `Trace`, select one observable from one chain with `trace.observable_values(id, "energy")?.copied().collect::<Vec<_>>()`.
+Selection borrows the trace, checks the column name, and preserves insertion order. Use `records_for_chain(id)` to verify step ordering and constant
+spacing before estimating an ACF; keep rejected and no-proposal steps. Do not concatenate chains into one series.
 
 | Question | API | Meaning |
 | --- | --- | --- |

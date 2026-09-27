@@ -10,6 +10,33 @@ This document complements two related files:
 For contributor setup, test commands, and external tooling, see `CONTRIBUTING.md`. For agent-specific rules, see `AGENTS.md`. This file is the detailed
 code/file map: keep ownership and placement guidance here, and keep contributor workflow details elsewhere.
 
+## Documentation ownership and names
+
+`README.md` introduces the crate, gives an early use-case checklist and quick start, and maps capabilities to their API documentation.
+`REFERENCES.md` owns bibliographic records, stable citation identifiers, and the method-to-source index. `docs/scientific_basis.md` owns scientific scope,
+shared target/arithmetic conventions, assumptions, methods, and evidence boundaries. Put API selection and scope before detailed methods; order independent
+methods lexicographically within coherent groups, retaining prerequisite order. Keep Contents navigation and existing anchors, and link between owners.
+Programming contracts and worked API examples belong in rustdoc; proposal testing and analysis recipes belong in their task guides.
+
+Name active documents by primary purpose:
+
+- Use uppercase verbs or gerunds for execution guides: `ANALYZING_CHAINS.md`, `BENCHMARKING.md`, `RELEASING.md`, `VALIDATING_PROPOSALS.md`, and
+  `dev/DEVELOPING.md`.
+- Use lowercase descriptive names for architecture, scientific discussion, policy, reference material, analysis, and results. A few commands do not turn
+  `benchmark_distributions.md` or `reviewer_guide.md` into a task guide. Preserve the existing underscore/hyphen style within each area.
+- Keep directory `README.md` indexes, standard root filenames, and retained historical paths such as `archives/changelog/`. The maintainer retired the
+  old release-performance series during #154. New reports and indexes under `performance/v1/` belong to `just performance-doc` and are checked with
+  `just performance-check`; its first-report state is explicit until two new release baselines exist.
+
+The #154 task-guide renames are `proposal_validation.md` → `VALIDATING_PROPOSALS.md`, `diagnostics.md` → `ANALYZING_CHAINS.md`, and
+`dev/rust.md` → `dev/DEVELOPING.md`. Update references and this tree whenever paths change. Rename reports through their configured shared generator,
+preserving measurements and provenance; path changes alone do not require benchmark runs.
+
+README is also embedded in rustdoc, so repository destinations use explicit GitHub URLs and API destinations use the generated reference site. Active
+guide links follow `main` and are declared separately from release-pinned source/metadata links in the shared release policy. Never attach a renamed
+path or new anchor to an older tag where it is absent. When a release intentionally pins guide links, update that policy and verify the tagged files
+together. Maintain compatibility anchors for renamed README/scientific headings; verify Contents in GitHub-style Markdown and generated rustdoc.
+
 ## Full checkout tree
 
 This tree reflects the tracked files in a fresh GitHub checkout. Update it whenever adding, removing, renaming, or moving tracked files or directories.
@@ -70,16 +97,10 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   └── stepping.rs
 ├── clippy.toml
 ├── docs/
+│   ├── ANALYZING_CHAINS.md
 │   ├── BENCHMARKING.md
-│   ├── PERFORMANCE.md
 │   ├── RELEASING.md
-│   ├── archive/
-│   │   └── performance/
-│   │       ├── README.md
-│   │       ├── v0.4.1-vs-v0.4.0.md
-│   │       ├── v0.4.2-vs-v0.4.1.csv
-│   │       ├── v0.4.2-vs-v0.4.1.provenance.json
-│   │       └── v0.4.2-vs-v0.4.1.svg
+│   ├── VALIDATING_PROPOSALS.md
 │   ├── archives/
 │   │   └── changelog/
 │   │       ├── 0.1.md
@@ -90,21 +111,14 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── benchmark_distributions.md
 │   ├── code_organization.md
 │   ├── dev/
-│   │   ├── rust.md
+│   │   ├── DEVELOPING.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
-│   ├── diagnostics.md
 │   ├── performance/
 │   │   └── v1/
-│   │       ├── README.md
-│   │       ├── current.md
-│   │       ├── experiments/
-│   │       │   ├── diagnostic-backends.json
-│   │       │   └── diagnostic-backends.md
-│   │       ├── v0.4.2-vs-v0.4.1.comparison.json
-│   │       ├── v0.4.2-vs-v0.4.1.csv
-│   │       └── v0.4.2-vs-v0.4.1.evidence.json
-│   ├── proposal_validation.md
+│   │       └── experiments/
+│   │           ├── diagnostic-backends.json
+│   │           └── diagnostic-backends.md
 │   ├── roadmap.md
 │   ├── reviewer_guide.md
 │   └── scientific_basis.md
@@ -190,9 +204,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── tooling/
 │   ├── benchmark.toml
 │   ├── examples.toml
-│   ├── legacy-baseline.toml
 │   ├── performance-interpretation.md
-│   ├── performance-readme.toml
 │   └── performance-report.toml
 ├── ty.toml
 ├── typos.toml
@@ -206,15 +218,15 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `notebooks/` — notebook consumers for example-generated artifacts such as exported diagnostic traces.
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, observing overhead, and scalar autocorrelation diagnostics.
-- `docs/` — topic guides, release benchmark methodology and archives, and release procedures that support the public API documentation without duplicating
-  README or crate-level contract material. `docs/PERFORMANCE.md` and `docs/archive/performance/` retain immutable historical reports and evidence.
-  Shared reports, comparison/evidence JSON, CSV exports and the archive index live in `docs/performance/v1/`.
+- `docs/` — topic guides, release benchmark methodology, and release procedures supporting public API documentation without duplicating README or rustdoc.
+  Future shared reports, comparison/evidence JSON, CSV exports and the generated archive index live in `docs/performance/v1/`; `performance.md` is the
+  configured current report. The directory currently holds the diagnostic-backend experiment; the release comparison series starts with the next baseline.
   Generate them through `just performance-release` or `just performance-doc`; never hand-edit.
   `just performance-readme` owns future README sections and SVGs using an explicitly reviewed publication configuration.
 - `docs/archives/changelog/` — completed minor-series release history generated by the shared changelog workflow; never hand-edit.
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
-- `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, publication selection and scientific
-  prose. The bounded legacy asset layout has retirement conditions in [the migration record](dev/shared-maintenance-migration.md).
+- `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, and scientific prose. Add the reviewed
+  `performance-readme.toml` publication selection only when a new measured pair exists; the old legacy adapter and selection were retired.
 - `tests/tooling/` — focused consumer configuration, command wiring, workload lifecycle, release policy, evidence transition and notebook checks.
   Reusable implementation and generic regressions live in the pinned shared package. No local Python package or support module remains.
 - `.gitattributes` — prevents checkout text conversion of byte-sensitive retained reports and evidence.
@@ -381,7 +393,7 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
-- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, and classical split R-hat; assumptions and errors in `docs/diagnostics.md`.
+- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, and classical split R-hat; assumptions and errors in `docs/ANALYZING_CHAINS.md`.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/adaptive_normal.rs` — bounded proposal-width tuning during warmup, then fixed-width production sampling.
 - `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.
@@ -416,6 +428,6 @@ These focused diagnostic workloads are separate from the stepping release-signal
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup, external tools, test categories, code style, PR checklist, release process.
 - [`AGENTS.md`](../AGENTS.md) — git/edit/validation rules, documentation-generation rules.
-- [`docs/proposal_validation.md`](proposal_validation.md) — proposal-author testing patterns.
+- [`docs/VALIDATING_PROPOSALS.md`](VALIDATING_PROPOSALS.md) — proposal-author testing patterns.
 - [`docs/reviewer_guide.md`](reviewer_guide.md) — short reading path for scientific and engineering reviewers.
 - [`docs/scientific_basis.md`](scientific_basis.md) — Metropolis–Hastings contract and scope.

@@ -319,7 +319,7 @@ markdown-check:
 # Apply Markdown formatting and lint fixes.
 [group('validation')]
 markdown-fix:
-    {{ _run }} research-repo-tools files run --include '*.md' --exclude CHANGELOG.md --exclude 'docs/performance/**' --exclude 'docs/PERFORMANCE.md' --exclude 'docs/archive/performance/**' -- rumdl check --fix
+    {{ _run }} research-repo-tools files run --include '*.md' --exclude CHANGELOG.md --exclude 'docs/performance/**' -- rumdl check --fix
 
 # Alias for the canonical Markdown check.
 [group('validation')]
@@ -385,10 +385,27 @@ performance +args:
 performance-baseline tag:
     {{ _run }} research-repo-tools performance baseline tooling/benchmark.toml {{ quote(tag) }} {{ quote("markov-chain-monte-carlo-" + tag + "-criterion-baseline.tar.gz") }}
 
-# Check that the shared report and retained evidence reproduce without writes.
+# Check retained reports, allowing an empty inventory before the first comparison.
 [group('validation')]
 performance-check:
-    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s nullglob
+    artifacts=(
+        docs/performance/v1/*.comparison.json
+        docs/performance/v1/*.evidence.json
+        docs/performance/v1/*.csv
+        docs/performance/v1/*.svg
+        docs/performance/v1/v*-vs-v*.md
+    )
+    if [[ -e docs/performance/v1/performance.md || -L docs/performance/v1/performance.md ]]; then
+        uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
+    elif (( ${#artifacts[@]} )) || [[ -e tooling/performance-readme.toml || -L tooling/performance-readme.toml ]]; then
+        echo "Release evidence exists without its current report; restore or promote the report." >&2
+        exit 1
+    else
+        echo "No release comparison yet; the next tagged release establishes the baseline."
+    fi
 
 # Rebuild and promote the shared report from retained or explicitly saved evidence.
 [group('benchmarks and performance')]
@@ -400,7 +417,7 @@ performance-doc *args: python-sync
 [group('benchmarks and performance')]
 [positional-arguments]
 performance-github-assets *tags: python-sync
-    uv run --locked --group dev research-repo-tools performance assets "$@" --order published --repository acgetchell/markov-chain-monte-carlo --asset-template 'markov-chain-monte-carlo-{tag}-criterion-baseline.tar.gz' --legacy-configuration tooling/legacy-baseline.toml --payload target/bench-reports/github-assets.comparison.json --manifest target/bench-reports/github-assets.evidence.json --report target/bench-reports/github-assets.md
+    uv run --locked --group dev research-repo-tools performance assets "$@" --order published --repository acgetchell/markov-chain-monte-carlo --asset-template 'markov-chain-monte-carlo-{tag}-criterion-baseline.tar.gz' --payload target/bench-reports/github-assets.comparison.json --manifest target/bench-reports/github-assets.evidence.json --report target/bench-reports/github-assets.md
 
 # Compare the current tree with the latest stable published release locally.
 [group('benchmarks and performance')]
