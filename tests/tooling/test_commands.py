@@ -56,6 +56,36 @@ def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
         assert platform in workflow
 
 
+def test_every_example_runs_once_in_full_ci_through_shared_validation() -> None:
+    configuration = tomllib.loads((REPO_ROOT / "tooling/examples.toml").read_text(encoding="utf-8"))
+    checks = configuration["checks"]
+    examples = sorted(path.stem for path in (REPO_ROOT / "examples").glob("*.rs"))
+    assert sorted(check["name"] for check in checks) == examples
+    for check in checks:
+        assert check["command"] == [f"target/debug/examples/{check['name']}"]
+        assert check["expect"]
+    selected = []
+    for line in _run_just("--dry-run", "ci").stderr.splitlines():
+        if "research-repo-tools validation run tooling/examples.toml" in line:
+            command = shlex.split(line)
+            selected.extend(command[command.index("tooling/examples.toml") + 1 :])
+    assert sorted(selected) == examples
+
+
+def test_coverage_workflow_uses_shared_report_validation_after_generation() -> None:
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/codecov.yml").read_bytes())
+    steps = workflow["jobs"]["coverage"]["steps"]
+    run = next(step for step in steps if step.get("name") == "Run coverage")
+    assert run["run"] == "just coverage-ci"
+    assert not run.get("continue-on-error", False)
+    commands = _run_just("--dry-run", "coverage-ci").stderr
+    assert commands.index("--cobertura --output-path coverage/cobertura.xml") < commands.index("just coverage-report")
+    summary = shlex.split(_run_just("--dry-run", "coverage-report").stderr)
+    assert summary == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "coverage", "report", "$@"]
+    upload = next(step for step in steps if step.get("uses", "").startswith("codecov/codecov-action@"))
+    assert upload["with"]["files"] == "coverage/cobertura.xml"
+
+
 def test_release_credentials_and_shared_commands_are_separated() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     shared_pin = manifest["dependency-groups"]["tooling"][0]

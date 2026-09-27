@@ -31,24 +31,7 @@ jobs:
         uses: $/.github/actions/setup-toolchain
 
       - name: Run coverage
-        run: |
-          mkdir -p coverage
-          chmod 755 coverage
-
-          echo "::group::Running coverage"
-          # Single source of truth: coverage configuration lives in justfile
-          just coverage-ci
-          echo "::endgroup::"
-
-          echo "::group::Coverage verification"
-          ls -la coverage/ || true
-
-          if [ ! -f coverage/cobertura.xml ]; then
-            echo "::error::coverage/cobertura.xml not found. cargo-llvm-cov failed to generate XML output."
-            exit 2
-          fi
-          echo "::notice::Coverage report generated successfully: $(wc -l < coverage/cobertura.xml) lines"
-          echo "::endgroup::"
+        run: just coverage-ci
         env:
           RUST_BACKTRACE: 1
 

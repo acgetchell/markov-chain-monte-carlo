@@ -2,7 +2,7 @@
 
 #![cfg(feature = "tracing")]
 
-use core::cell::Cell;
+use core::{cell::Cell, mem};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -88,11 +88,30 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Capture {
 fn capture(run: impl FnOnce()) -> Records {
     let capture = Capture::default();
     tracing::subscriber::with_default(Registry::default().with(capture.clone()), run);
-    Arc::try_unwrap(capture.0)
-        .ok()
-        .unwrap()
-        .into_inner()
-        .unwrap()
+    // Callsite registration in another thread may still hold the subscriber.
+    mem::take(&mut *capture.0.lock().unwrap())
+}
+
+#[test]
+fn capture_returns_records_while_dispatch_is_retained() {
+    let mut retained_dispatch = None;
+    let records = capture(|| {
+        // Concurrent callsite registration may also retain the subscriber.
+        retained_dispatch = Some(tracing::dispatcher::get_default(Clone::clone));
+        tracing::debug_span!(target: "markov_chain_monte_carlo", "retained_dispatch").in_scope(
+            || {
+                tracing::trace!(target: "markov_chain_monte_carlo", value = 42);
+            },
+        );
+    });
+
+    assert_eq!(records.spans.len(), 1);
+    assert_eq!(records.spans[0].name, "retained_dispatch");
+    assert_eq!(records.closed, 1);
+    assert_eq!(records.events.len(), 1);
+    assert_eq!(records.events[0].fields.0["value"], "42");
+    assert_eq!(records.events[0].scope, ["retained_dispatch"]);
+    drop(retained_dispatch);
 }
 
 #[derive(Default)]

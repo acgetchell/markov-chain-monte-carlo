@@ -180,6 +180,13 @@ coverage-ci:
 
     mkdir -p coverage
     {{ _run }} cargo llvm-cov {{ _coverage_base_args }} --cobertura --output-path coverage/cobertura.xml
+    just coverage-report
+
+# Summarize existing Cobertura data without rerunning instrumented tests.
+[group('tests and coverage')]
+[positional-arguments]
+coverage-report *args:
+    uv run --locked --group dev research-repo-tools coverage report "$@"
 
 # Show curated workflows when Just is invoked without a recipe.
 [default]
@@ -231,6 +238,7 @@ help-workflows:
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
     @echo "  just release-check  # Validate synchronized release metadata and references"
     @echo "  just setup          # Install managed tools and verify system prerequisites"
+    @echo "  just tools-clean    # Preview obsolete shared managed-tool installations"
     @echo "  just tools-check    # Inspect the declared toolchain without installing anything"
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
@@ -263,6 +271,7 @@ help-workflows:
     @echo "  just bench-save-last # Save the conventional local 'last' baseline"
     @echo "  just coverage       # Generate and open HTML coverage report"
     @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
+    @echo "  just coverage-report # Summarize existing Cobertura XML; accepts --prefix and --limit"
     @echo "  just example <name> # Run one example, e.g. just example ising_1d"
     @echo "  just examples       # Run all examples"
     @echo "  just performance-doc # Rebuild the shared report from retained measurements"
@@ -591,6 +600,12 @@ toml-lint:
 tools-check: _ensure-jq
     uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain check
 
+# Preview obsolete shared tool installs; --apply removes them, --keep-root retains other consumers' pins.
+[group('build and setup')]
+[positional-arguments]
+tools-clean *args:
+    uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain clean "$@"
+
 # Upgrade tools, then Cargo and Python dependencies.
 [group('build and setup')]
 update: update-tools update-dependencies
@@ -639,7 +654,7 @@ update-version tag *args: python-sync
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
 validate-examples: _build-examples validate-ising-example
-    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal
+    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal diagnostics
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]
