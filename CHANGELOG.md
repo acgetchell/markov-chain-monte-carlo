@@ -134,6 +134,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Require an explicit stable tag backed by a mutable draft release.
   - Upload the durable Criterion baseline before publishing the draft.
   - Align release guidance and rollout boundaries with immutable releases.
+- Preserve README hero image across release updates
+  [`2783be9`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/2783be965643819647a44c726df7c031f82b3ce7)
+
+  - Pin the Ising trace image to an existing commit so it renders before the release tag exists.
+  - Preserve documentation asset links during release metadata updates.
+  - Clarify why the quick-start example requires a direct rand dependency and how callers create and seed the sampler's generator.
+- Keep documentation links stable and simplify Just workflows
+  [`7e2946f`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/7e2946f6c7fc81bca4a9d4d0984d969475b75dbf)
+
+  - Keep active repository links on main and API links on docs.rs latest, preserving those destinations across release updates.
+  - Generate complete recipe help from bare just and remove redundant help, setup, formatting, testing, and benchmark entry points.
+  - Add just publish and just release-verify to simplify release instructions.
+  - Show runnable examples and command discovery in Quick start, with contributor validation and security requirements in CONTRIBUTING.
+  - Update benchmark guidance to use canonical commands and repair the UC Davis community principles link.
 
 ### Maintenance
 

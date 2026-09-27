@@ -283,8 +283,9 @@ The long-term architecture separates:
 The crate supplies sampling mechanics and empirical diagnostics. Domain code owns model choice, valid proposals, reproducible random streams,
 equilibration, and correlated uncertainty. Classical split R-hat is not rank-normalized or folded; mean ESS is observable-specific.
 
-Multi-chain execution, tempering, and learned-proposal foundations remain roadmap work. Externally supplied learned log weights can be composed today,
-but training energies or proposal policies is outside scope. See the [roadmap][roadmap] and [reviewer guide][reviewer-guide].
+Sequential multi-chain workflows and cross-chain diagnostics are available today. Built-in parallel-chain orchestration, tempering, and dedicated
+learned-proposal integrations remain roadmap work. Externally supplied learned log weights can already be composed as target terms; training energy models
+or proposal policies remains outside this crate's scope. See the [roadmap][roadmap] and [reviewer guide][reviewer-guide].
 
 ## 🤝 Contributing
 
