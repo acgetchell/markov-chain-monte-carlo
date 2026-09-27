@@ -147,6 +147,6 @@ the entire UC Davis community. We thank UC Davis for providing this thoughtful f
 
 [mcmc-lib]: https://github.com/acgetchell/markov-chain-monte-carlo
 [private-report]: https://github.com/acgetchell/markov-chain-monte-carlo/security/advisories/new
-[uc-davis-principles]: https://principles.ucdavis.edu/
+[uc-davis-principles]: https://excellence.ucdavis.edu/principles-community-statement
 
 Last updated: May 2026

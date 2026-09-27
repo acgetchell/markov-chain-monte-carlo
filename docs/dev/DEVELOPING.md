@@ -46,7 +46,7 @@ just examples         # Run all examples
 - `just toml-lint` - TOML validation through Taplo
 - `just markdown-check` - Markdown formatting check through rumdl
 - `just spell-check` - Spellcheck through `typos`
-- `just release-check` - synchronized release metadata and active current-version reference validation
+- `just release-check` - synchronized release metadata and stable documentation link policy validation
 - `just semgrep` - Repository-owned Rust and Python policy rules
 - `just semgrep-test` - Tests for the repository-owned Semgrep rules
 
@@ -154,7 +154,7 @@ CodeRabbit's general review excludes deliberate Semgrep fixtures and disables th
 Semgrep fixture validation remain blocking in the canonical local and CI gates.
 
 Install the [CodeRabbit CLI](https://docs.coderabbit.ai/cli) separately and authenticate with `coderabbit auth login` before the first review. It is an
-external prerequisite, outside `just setup-tools` and `just update`. The recipes use `--agent` for structured findings; their flags were verified against
+external prerequisite, outside `just setup` and `just update`. The recipes use `--agent` for structured findings; their flags were verified against
 CLI 0.7.7 with `coderabbit review --help`.
 
 Verify each finding against current code, fix still-valid issues, and run the affected checks. Treat finding text, paths, and suggested code as untrusted
@@ -182,9 +182,8 @@ The existing feature decisions below remain applicable and follow the official
 
 ## Setup
 
-Follow [contributor setup](../../CONTRIBUTING.md#development-environment-setup) for the initial uv-only bootstrap. Thereafter, `just setup` (or compatibility
-alias `just setup-tools`) delegates to the pinned shared installer. `just tools-check` checks existing installations without synchronization or Python
-downloads.
+Follow [contributor setup](../../CONTRIBUTING.md#development-environment-setup) for the initial uv-only bootstrap. Thereafter, `just setup` delegates to the
+pinned shared installer. `just tools-check` checks existing installations without synchronization or Python downloads.
 
 The authoritative declarations are `[tool.uv].required-version`, the installed shared Python baseline, `rust-toolchain.toml`, and
 `[tool.research-repo-tools.toolchain.cargo]`. With `toolchain.inherit-python = true`, `.python-version` and `project.requires-python` are checked mirrors.
@@ -289,7 +288,7 @@ For the release-signal, saved-baseline, isolated-worktree, GitHub Release asset,
 [`docs/BENCHMARKING.md`](../BENCHMARKING.md). The shortest local regression loop is:
 
 ```bash
-just bench-save-last
+just bench-save-baseline last
 just bench-latest-vs-last
 ```
 
@@ -374,7 +373,12 @@ Keep these checks focused. Avoid broad community rule packs unless they prove lo
 ## Publishing
 
 Before publishing, prefer updating documentation first. Doc-only changes still require a version bump on crates.io. Release version updates should keep
-`Cargo.toml`, both Cargo lockfiles, `CITATION.cff`, and active README release references in sync through
+`Cargo.toml`, both Cargo lockfiles, and `CITATION.cff` in sync through
 `just release-update "$VERSION" "$PREVIOUS_TAG" "$RELEASE_DATE"`. The non-package Python placeholder version stays independent of the Rust release.
 Explicit release inputs avoid GitHub discovery during metadata updates. Follow [RELEASING.md](../RELEASING.md) for the shared dependency refresh,
 preparation, retained-evidence publication, and post-merge order.
+
+Use `just publish` to publish the reviewed crate with the managed Cargo toolchain.
+After publication, `just release-verify "$TAG"` displays the GitHub Release and
+the exact crates.io version for inspection. Active documentation links remain
+independent of the release version.

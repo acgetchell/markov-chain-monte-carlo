@@ -75,7 +75,8 @@ just changelog-release "$TAG" "$RELEASE_DATE"
 ```
 
 `release-update` synchronizes Cargo versions and lock metadata, citation
-version/date, installation examples, and configured active links. Supplying the
+version/date, and installation examples. Active repository links remain on `main`
+and API links remain on docs.rs `latest`. Supplying the
 previous tag avoids GitHub release discovery. The dependency-only Python
 environment keeps its independent placeholder version. The stable Zenodo concept
 DOI remains `10.5281/zenodo.20033111`; the updater validates its references.
@@ -248,7 +249,7 @@ publishes it.
 ### Publish the crate
 
 ```bash
-uv run --locked --group dev research-repo-tools toolchain run -- cargo publish --locked
+just publish
 ```
 
 Wait for successful publication before proceeding. If it fails, leave the GitHub
@@ -270,11 +271,11 @@ and publishes the draft. Do not publish the draft manually while this runs.
 ### Verify publication
 
 ```bash
-gh release view "$TAG" --json tagName,isDraft,isPrerelease,body,assets
-uv run --locked --group dev research-repo-tools toolchain run -- cargo info "markov-chain-monte-carlo@$VERSION" --registry crates-io
+just release-verify "$TAG"
 ```
 
-Confirm the GitHub Release has the expected tag and notes, is no longer a draft,
+The recipe displays GitHub Release details and the exact crates.io package
+version through the managed Cargo toolchain. Confirm the GitHub Release has the expected tag and notes, is no longer a draft,
 and contains the named baseline archive. Confirm crates.io reports the exact
 published version. A published crate alone does not establish that the GitHub
 Release or baseline upload succeeded.

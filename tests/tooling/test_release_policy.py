@@ -35,32 +35,31 @@ def _write_project(root: Path) -> None:
     assert main(["--root", str(root), "release", "check", "--final-release"]) == 0
 
 
-def test_configured_checker_requires_current_source_links(tmp_path: Path) -> None:
+def test_configured_checker_requires_main_source_links(tmp_path: Path) -> None:
     _write_project(tmp_path)
     path = tmp_path / "README.md"
-    path.write_text(path.read_text(encoding="utf-8").replace(f"/blob/v{_VERSION}/", "/blob/v0.0.0/"), encoding="utf-8", newline="\n")
+    before = path.read_text(encoding="utf-8")
+    stale = before.replace("/blob/main/", f"/blob/v{_VERSION}/")
+    assert stale != before
+    path.write_text(stale, encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
 @pytest.mark.parametrize(
-    ("reference", "replacement"),
-    [
-        (f"docs.rs/markov-chain-monte-carlo/{_VERSION}/", "docs.rs/markov-chain-monte-carlo/0.0.0/"),
-        (f"docs.rs/markov-chain-monte-carlo/{_VERSION}/", "docs.rs/markov-chain-monte-carlo/latest/"),
-        (f"published API links below target v{_VERSION}.", "published API links below target v0.0.0."),
-    ],
+    "replacement",
+    [_VERSION, "0.0.0"],
 )
-def test_published_api_references_require_the_declared_version(tmp_path: Path, reference: str, replacement: str) -> None:
+def test_published_api_references_require_latest(tmp_path: Path, replacement: str) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"
     before = readme.read_text(encoding="utf-8")
-    stale = before.replace(reference, replacement, 1)
+    stale = before.replace("docs.rs/markov-chain-monte-carlo/latest/", f"docs.rs/markov-chain-monte-carlo/{replacement}/", 1)
     assert stale != before
     readme.write_text(stale, encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-def test_release_update_advances_api_guides_and_nested_package_version(tmp_path: Path) -> None:
+def test_release_update_preserves_links_and_advances_nested_package_version(tmp_path: Path) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"
     before = readme.read_text(encoding="utf-8")
@@ -73,7 +72,7 @@ def test_release_update_advances_api_guides_and_nested_package_version(tmp_path:
         image_links[0],
     )
     for guide in _GUIDES:
-        assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{_VERSION}/{guide}" in before
+        assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/{guide}" in before
     nested_lock = tmp_path / "benches/diagnostic_backends/Cargo.lock"
     nested_packages = tomllib.loads(nested_lock.read_text(encoding="utf-8"))["package"]
     major, minor, patch = _VERSION.split(".")
@@ -100,12 +99,8 @@ def test_release_update_advances_api_guides_and_nested_package_version(tmp_path:
     after = readme.read_text(encoding="utf-8")
     assert re.findall(r"!\[[^\]]*\]\((https://raw\.githubusercontent\.com/[^)]+)\)", after) == image_links
     assert tomllib.loads((tmp_path / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"] == next_version
-    assert re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", after) == [
-        link.replace(f"/{_VERSION}/", f"/{next_version}/") for link in api_links
-    ]
-    assert f"published API links below target v{next_version}." in after
-    for guide in _GUIDES:
-        assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/v{next_version}/{guide}" in after
+    assert re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", after) == api_links
+    assert after == before
     assert tomllib.loads(nested_lock.read_text(encoding="utf-8"))["package"] == [
         {**package, "version": next_version} if package["name"] == "markov-chain-monte-carlo" else package for package in nested_packages
     ]
@@ -130,12 +125,12 @@ def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("guide", _GUIDES)
-@pytest.mark.parametrize("reference", ["main", "v0.0.0"])
-def test_active_guides_require_the_declared_release(tmp_path: Path, guide: str, reference: str) -> None:
+@pytest.mark.parametrize("reference", [f"v{_VERSION}", "a" * 40])
+def test_active_guides_require_main(tmp_path: Path, guide: str, reference: str) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"
     before = readme.read_text(encoding="utf-8")
-    stale = before.replace(f"/blob/v{_VERSION}/{guide}", f"/blob/{reference}/{guide}")
+    stale = before.replace(f"/blob/main/{guide}", f"/blob/{reference}/{guide}")
     assert stale != before
     readme.write_text(stale, encoding="utf-8", newline="\n")
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1

@@ -59,6 +59,8 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
    uv run --locked --managed-python --only-group tooling research-repo-tools setup
    ```
 
+   Run bare `just` to list every public recipe with its arguments and description.
+
 3. **Run tests**:
 
    ```bash
@@ -152,8 +154,8 @@ architectural placement question.
 ### Just Command Runner
 
 This project uses [Just] as the primary task automation tool. The justfile defines every dev workflow.
-Run bare `just` for the curated workflow guide and `just --list` for the complete grouped recipe reference. Public recipes are documented, grouped, and kept
-in lexicographic source order so both views remain easy to scan.
+Run bare `just` (equivalent to `just --list`) for the complete grouped recipe reference, including arguments and descriptions.
+Help is generated from the documented recipes, which are kept in lexicographic source order.
 
 **Essential Just commands:**
 
@@ -180,13 +182,6 @@ successfully. Just and the shared package retain their explicit package pins. Un
 Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates retain
 ranged and included tooling requirements, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations before committing.
 Upgrading user-level uv also affects other checkouts with exact uv pins.
-
-**Workflow help:**
-
-```bash
-just --list          # All available commands
-just help-workflows  # Detailed workflow guidance
-```
 
 ### Typical Development Cycle
 
@@ -403,17 +398,16 @@ Long-form discussion lives under `docs/`. Update these alongside code changes th
 Benchmarks live in [`benches/`](benches/) and use [Criterion](https://docs.rs/criterion).
 
 ```bash
-just bench-latest           # run the fixed-seed release-signal set
+just bench                  # run the fixed-seed stepping benchmark suite
 just bench-latest-vs-last   # rerun and compare with the saved local baseline
 just performance-local      # compare the current tree with the latest stable release
 just performance-doc   # rebuild the curated report from saved release measurements
 just performance-readme    # publish the README table and SVG from retained evidence
-just bench                  # run the complete stepping benchmark suite
 just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-last` before the first `bench-latest-vs-last` run. Release tracking starts with this development version: the next tagged release
+Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. Release tracking starts with this development version: the next tagged release
 establishes the baseline, and its successor enables the first comparison. Release maintainers then use `just performance-release` to retain shared JSON/CSV
 under `docs/performance/v1/`, `just performance-doc` to reproduce `performance.md`, and `just performance-readme` to publish a reviewed selection created from
 actual evidence in `tooling/performance-readme.toml`. `just performance-github-assets CURRENT BASELINE` compares two native shared release assets. See
@@ -487,6 +481,7 @@ descriptions or review notes instead.
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
 - [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`,
       `justfile-fmt-check`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `release-check`, `semgrep`, `semgrep-test`)
+- [ ] `just security` passes (OSV dependency audit and Gitleaks secret scan); resolve all findings before submitting the PR
 - [ ] Commit message follows the Conventional Commits format above
 
 ## Types of Contributions
@@ -568,7 +563,7 @@ After v1.0.0, this project follows [Semantic Versioning](https://semver.org/):
 - **`docs/`** — topic guides
 - **`REFERENCES.md`** — academic references and AI-assisted-development tool citations
 - **`AGENTS.md`** — canonical rules for AI assistants (mirrors a subset here)
-- **`just help-workflows`** — local workflow guidance
+- **`just`** — all public recipes, arguments, and descriptions
 
 For mathematical / statistical questions about the underlying algorithms (Metropolis–Hastings, detailed balance, autocorrelation analysis), see the references
 cited from [`docs/scientific_basis.md`](docs/scientific_basis.md) and [`REFERENCES.md`](REFERENCES.md).

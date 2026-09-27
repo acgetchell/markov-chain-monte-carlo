@@ -41,7 +41,7 @@ def test_offline_reporting_and_explicit_measurement_boundary() -> None:
         assert "cargo bench" not in result.stderr
     for name in ("performance-local", "performance-release"):
         assert "--allow-git-mutations" in _run_just("--dry-run", name).stderr
-    for gate in ("check", "ci", "setup-tools", "update"):
+    for gate in ("check", "ci", "setup", "update"):
         assert "research-repo-tools review " not in _run_just("--dry-run", gate).stderr
 
 

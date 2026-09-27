@@ -32,10 +32,10 @@ The #154 task-guide renames are `proposal_validation.md` → `VALIDATING_PROPOSA
 `dev/rust.md` → `dev/DEVELOPING.md`. Update references and this tree whenever paths change. Rename reports through their configured shared generator,
 preserving measurements and provenance; path changes alone do not require benchmark runs.
 
-README is also embedded in rustdoc, so repository destinations use explicit GitHub URLs and API destinations use the generated reference site. Active
-guide links advance with source/metadata links to the declared release tag through the shared release policy. Never attach a renamed path or new anchor
-to an older tag where it is absent. Verify guide destinations when preparing each release. Maintain compatibility anchors for renamed
-README/scientific headings; verify Contents in GitHub-style Markdown and generated rustdoc.
+README is also embedded in rustdoc, so repository destinations use explicit GitHub URLs on `main` and API destinations use `latest` on docs.rs.
+Active documentation links stay independent of the library version; release updates preserve these destinations. Other repository guides use relative
+links where they resolve within the checkout. Image commit pins and historical release or benchmark evidence links retain their provenance.
+Maintain compatibility anchors for renamed README/scientific headings; verify Contents in GitHub-style Markdown and generated rustdoc.
 
 ## Full checkout tree
 

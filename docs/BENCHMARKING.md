@@ -8,9 +8,8 @@ the pinned shared package owns execution, evidence, release assets, and publicat
 
 | Command | Purpose |
 | --- | --- |
-| `just bench-latest` | Measure the stepping suite into `target/criterion/` |
-| `just bench-save-last` | Save the conventional local baseline |
-| `just bench-save-baseline NAME` | Save an explicitly named local baseline |
+| `just bench` | Measure the stepping suite into `target/criterion/` |
+| `just bench-save-baseline NAME` | Save a named local baseline; use `last` for the conventional baseline |
 | `just bench-compare [NAME]` | Compare saved samples; default baseline is `last` |
 | `just bench-latest-vs-last [NAME]` | Measure, then compare the saved baseline |
 | `just performance-local` | Measure the working tree against the latest published stable release |
@@ -20,7 +19,6 @@ the pinned shared package owns execution, evidence, release assets, and publicat
 | `just performance-readme [--check or --preview]` | Publish the explicitly configured README selection |
 | `just performance-baseline TAG` | Measure a clean tagged checkout and package a shared release asset |
 | `just performance OPERATION ...` | Forward an explicit operation to the shared performance CLI |
-| `just bench` | Run the complete stepping harness |
 
 Saved comparison Markdown is written to `target/bench-reports/performance.md`.
 Local and asset comparisons write `local` and `github-assets` files with
@@ -64,7 +62,7 @@ source may need to change to follow a compatible API. When hashes differ, review
 ## Saved Samples and Local Measurement
 
 ```bash
-just bench-save-last
+just bench-save-baseline last
 # Make a change, then measure and compare.
 just bench-latest-vs-last
 just bench-compare last

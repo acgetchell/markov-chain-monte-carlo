@@ -53,29 +53,16 @@ value = "10.5281/zenodo.20033111"
 [[tool.research-repo-tools.release.rules]]
 path = "README.md"
 pattern = 'https://(?:github\.com/acgetchell/markov-chain-monte-carlo/(?:blob|raw|tree)/|raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/)(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/[^\s)\]>"?#]+'
-source = "tag"
-count = 11
+value = "main"
+count = 22
 # Preserve image commit pins so the README renders before the release tag exists.
-exclude = '/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?:$|[?#])|/docs/(?:assets|performance)/'
-
-# Active guides ship with the declared release and advance with its source links.
-[[tool.research-repo-tools.release.rules]]
-path = "README.md"
-pattern = 'https://github\.com/acgetchell/markov-chain-monte-carlo/blob/(?P<value>main|[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)/(?:REFERENCES\.md|docs/(?:ANALYZING_CHAINS\.md|BENCHMARKING\.md|RELEASING\.md|VALIDATING_PROPOSALS\.md|benchmark_distributions\.md|code_organization\.md|dev/DEVELOPING\.md|reviewer_guide\.md|roadmap\.md|scientific_basis\.md))(?=$|[\s?#)\]])'
-source = "tag"
-count = 11
+exclude = '/docs/(?:assets|performance)/'
 
 [[tool.research-repo-tools.release.rules]]
 path = "README.md"
 pattern = 'https://docs\.rs/markov-chain-monte-carlo/(?P<value>[^/\s)]+)(?=/markov_chain_monte_carlo/)'
-source = "version"
+value = "latest"
 count = 11
-
-[[tool.research-repo-tools.release.rules]]
-path = "README.md"
-pattern = 'published API links below target v(?P<value>[0-9]+\.[0-9]+\.[0-9]+)\.'
-source = "version"
-count = 1
 
 [tool.research-repo-tools.toolchain]
 inherit-python = true

@@ -149,7 +149,8 @@ consumer checks protect example inventory coverage and the actual Codecov recipe
 
 The documentation ownership refactor retains the exact v0.1.7 pins and shared performance workflow; the maintainer-requested performance reset is described
 above. At that point, active README guide links followed `main` through a fixed-value release rule, while source, image, and metadata links used the current
-tag. The v0.5.0 release preparation superseded that guide-link policy: active guides now follow the declared release tag. See the current
+tag. The v0.5.0 release preparation briefly changed active guides to the declared release tag, breaking navigation before that tag existed.
+Active repository links now follow `main`, and API links use docs.rs `latest`, independently of release metadata. See the current
 [documentation ownership and public-link policy](../code_organization.md#documentation-ownership-and-names).
 
 Notebook linting now opts into shared `notebooks.prohibit-installs`, so literal dependency-install cells fail the locked-environment policy. The setup

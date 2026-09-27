@@ -41,7 +41,7 @@ action-lint:
 audit:
     uv run --locked --group dev research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
 
-# Run the Criterion benchmark suite.
+# Run the fixed-seed stepping benchmark suite.
 [group('benchmarks and performance')]
 bench:
     {{ _run }} cargo bench --locked --bench stepping
@@ -56,23 +56,14 @@ bench-compare baseline="last": sync
 bench-compile:
     {{ _run }} cargo bench --locked --all-features --no-run
 
-# Run the fixed-seed MCMC release-signal benchmark set.
-[group('benchmarks and performance')]
-bench-latest: bench
-
 # Run latest measurements and compare them with a saved Criterion baseline.
 [group('benchmarks and performance')]
-bench-latest-vs-last baseline="last": bench-latest (bench-compare baseline)
+bench-latest-vs-last baseline="last": bench (bench-compare baseline)
 
 # Save the complete MCMC release-signal set under a Criterion baseline name.
 [group('benchmarks and performance')]
 bench-save-baseline tag:
     {{ _run }} cargo bench --locked --bench stepping -- --save-baseline {{ quote(tag) }}
-
-# Save the current release signal under the conventional local `last` name.
-[group('benchmarks and performance')]
-bench-save-last:
-    just bench-save-baseline last
 
 # Build the library.
 [group('build and setup')]
@@ -127,8 +118,7 @@ check-rust: fmt-check clippy
 
 # Runnable Rust unit and integration tests share one release-profile nextest pass;
 # rustdoc doctests remain separate because nextest does not execute them.
-# Run the flat union of GitHub-equivalent validators and tests, including the
-# same all-target Clippy scope uploaded by the SARIF workflow.
+# Run repository validators, all-target Clippy, tests, docs, examples, and benchmark compilation.
 [group('workflows')]
 ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
@@ -191,10 +181,11 @@ coverage-ci:
 coverage-report *args:
     uv run --locked --group dev research-repo-tools coverage report "$@"
 
-# Show curated workflows when Just is invoked without a recipe.
+# List all public recipes when Just is invoked without a recipe.
 [default]
 [private]
-default: help-workflows
+default:
+    @just --justfile {{ quote(justfile()) }} --list
 
 # Build rustdoc for the library.
 [group('validation')]
@@ -225,70 +216,6 @@ fmt:
 [group('validation')]
 fmt-check:
     {{ _run }} cargo fmt --all -- --check
-
-# Show the curated entry points for common repository workflows.
-[group('workflows')]
-help-workflows:
-    @echo "Common Just workflows:"
-    @echo "  just audit          # Audit locked Python and Rust dependencies for vulnerabilities"
-    @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
-    @echo "  just changelog-release <tag> <date> # Generate notes with an explicit ISO date"
-    @echo "  just check          # Run lint/validators (non-mutating)"
-    @echo "  just check-fast     # Fast compile check (cargo check)"
-    @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
-    @echo "  just ci-portability # Portability subset for CI-shape timing"
-    @echo "  just ci-repository-tooling # Repository tooling subset for CI-shape timing"
-    @echo "  just ci-rust        # Rust correctness subset for CI-shape timing"
-    @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
-    @echo "  just release-check [tag] # Validate the release tag, metadata, and generated notes"
-    @echo "  just release-update <version> <previous-tag> <date> # Prepare release metadata with explicit inputs"
-    @echo "  just setup          # Install managed tools and verify system prerequisites"
-    @echo "  just sync           # Synchronize the locked development environment"
-    @echo "  just tools-clean    # Preview obsolete shared managed-tool installations"
-    @echo "  just tools-check    # Inspect the declared toolchain without installing anything"
-    @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
-    @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
-    @echo ""
-    @echo "Local CodeRabbit review:"
-    @echo "  just review [base]      # Review the branch and local edits; base defaults to origin/main"
-    @echo "  just review-uncommitted # Review only local edits, including new files"
-    @echo ""
-    @echo "Quality groups:"
-    @echo "  just justfile-fmt-check # Validate canonical Justfile formatting"
-    @echo "  just lint           # All linting (code + docs + config)"
-    @echo "  just lint-code      # Rust + Python + Semgrep checks"
-    @echo "  just lint-config    # JSON, TOML, YAML, GitHub Actions, and Actions security checks"
-    @echo "  just lint-docs      # Markdown and spelling checks"
-    @echo "  just notebook-check # Lint all notebooks and execute the fast notebook set"
-    @echo "  just notebook-check-slow # Include explicitly configured heavy notebooks"
-    @echo "  just notebook-ising-figure # Regenerate the tracked Ising trace figure"
-    @echo "  just notebook-lint  # Validate structure, output hygiene, and native notebook Python"
-    @echo "  just python-check   # Ruff + Ty checks for Python tooling"
-    @echo "  just zizmor         # GitHub Actions security analysis"
-    @echo ""
-    @echo "Testing:"
-    @echo "  just bench          # Run Criterion benchmarks"
-    @echo "  just bench-compare [baseline] # Render existing measurements against a baseline"
-    @echo "  just bench-compile  # Compile benchmarks without measuring"
-    @echo "  just bench-latest   # Run the fixed-seed release-signal set"
-    @echo "  just bench-latest-vs-last # Measure and compare against the saved 'last' baseline"
-    @echo "  just bench-save-baseline <tag> # Save a named local Criterion baseline"
-    @echo "  just bench-save-last # Save the conventional local 'last' baseline"
-    @echo "  just coverage       # Generate and open HTML coverage report"
-    @echo "  just coverage-ci    # Generate Cobertura XML coverage report"
-    @echo "  just coverage-report # Summarize existing Cobertura XML; accepts --prefix and --limit"
-    @echo "  just example <name> # Run one example, e.g. just example ising_1d"
-    @echo "  just examples       # Run all examples"
-    @echo "  just performance-doc # Rebuild the shared report from retained measurements"
-    @echo "  just performance-github-assets # Compare durable GitHub Release assets"
-    @echo "  just performance-local # Compare the current tree with the latest stable release"
-    @echo "  just performance-readme # Publish the README table and SVG from retained evidence"
-    @echo "  just performance-release # Promote/archive the release-to-release report"
-    @echo "  just test           # Focused unit + doctest buckets"
-    @echo "  just test-all       # Broad Rust + Python tooling tests"
-    @echo "  just test-rust      # Broad release Rust tests + doctests"
-    @echo ""
-    @echo "Use 'just --list' for the complete grouped recipe reference."
 
 # Format the Just command layer canonically.
 [group('validation')]
@@ -325,10 +252,6 @@ markdown-check:
 [group('validation')]
 markdown-fix:
     {{ _run }} research-repo-tools files run --include '*.md' --exclude CHANGELOG.md --exclude 'docs/performance/**' -- rumdl check --fix
-
-# Alias for the canonical Markdown check.
-[group('validation')]
-markdown-lint: markdown-check
 
 # Lint and execute the configured fast notebook set.
 [group('notebooks')]
@@ -442,6 +365,11 @@ performance-release *tags: sync
     {{ _run }} research-repo-tools performance measure tooling/benchmark.toml "$@" --order published --allow-git-mutations --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
 
+# Publish the reviewed crate to crates.io using the managed Cargo toolchain.
+[group('release')]
+publish:
+    {{ _run }} cargo publish --locked
+
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
 publish-check:
@@ -459,10 +387,6 @@ python-check: python-typecheck
 python-fix: sync
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --fix --no-force-exclude
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --no-force-exclude
-
-# Alias for the canonical Python check.
-[group('validation')]
-python-lint: python-check
 
 # Type-check every discovered Python file and fixture with Ty.
 [group('validation')]
@@ -501,6 +425,13 @@ release-notes tag: sync
 release-update version previous date *args: sync
     uv run --locked --group dev research-repo-tools release update "v${1#v}" --previous-release "$2" --date "$3" "${@:4}"
 
+# Inspect the GitHub Release and the exact published crates.io version.
+[group('release')]
+[positional-arguments]
+release-verify tag:
+    gh release view "$1" --json tagName,isDraft,isPrerelease,body,assets
+    {{ _run }} cargo info "markov-chain-monte-carlo@${1#v}" --registry crates-io
+
 # Review committed and local changes against the PR base with CodeRabbit.
 [group('review')]
 review base="origin/main":
@@ -534,10 +465,6 @@ semgrep-test:
 [group('build and setup')]
 setup: _ensure-jq
     uv run --locked --managed-python --only-group tooling research-repo-tools setup
-
-# Compatibility entry point for shared setup.
-[group('build and setup')]
-setup-tools: setup
 
 # Preview a shared-package/Python migration outside the current environment.
 [group('build and setup')]
@@ -590,10 +517,6 @@ test-doc:
 test-integration:
     {{ _run }} cargo nextest run --locked --all-features --test '*' --verbose
 
-# Backward-compatible alias for the former recipe name.
-[group('tests and coverage')]
-test-lib: test-unit
-
 # Run Python consumer integration tests.
 [group('tests and coverage')]
 test-python: sync
@@ -616,11 +539,7 @@ test-unit:
 
 # Apply canonical TOML formatting.
 [group('validation')]
-toml-fix: toml-fmt
-
-# Format tracked TOML files.
-[group('validation')]
-toml-fmt:
+toml-fix:
     {{ _run }} research-repo-tools files run --include '*.toml' -- taplo fmt
 
 # Check tracked TOML formatting without modifying files.
@@ -671,8 +590,6 @@ update-python-dependencies: _ensure-uv-stable
     uv lock --upgrade
     uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain run -- uv sync --locked --managed-python --group dev
 
-alias update-python-deps := update-python-dependencies
-
 # Upgrade uv and declared Cargo tools, then synchronize the declared environment.
 [group('build and setup')]
 update-tools: update-uv update-cargo-tools setup
@@ -707,10 +624,6 @@ yaml-check:
 [group('validation')]
 yaml-fix:
     {{ _run }} research-repo-tools files run --include '*.yml' --include '*.yaml' -- dprint fmt
-
-# Alias for the canonical YAML check.
-[group('validation')]
-yaml-lint: yaml-check
 
 # GitHub Actions security analysis
 [group('validation')]
