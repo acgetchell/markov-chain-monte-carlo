@@ -14,6 +14,8 @@ ISING_NOTEBOOK = REPO_ROOT / "notebooks" / "ising_trace_analysis.ipynb"
 
 def notebook_project(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Borrow the locked test interpreter without creating another environment."""
+    for name in ("MCMC_TRACE_PATH", "MCMC_REPO_ROOT", "MCMC_NOTEBOOK_OUTPUT_DIR", "MCMC_DIAGNOSTICS_PATH"):
+        monkeypatch.delenv(name, raising=False)
     notebook = root / "notebooks" / ISING_NOTEBOOK.name
     notebook.parent.mkdir(parents=True)
     notebook.write_bytes(ISING_NOTEBOOK.read_bytes())
@@ -86,6 +88,7 @@ def test_explicit_repository_root_never_falls_back_to_ambient_trace(tmp_path: Pa
 
 def test_explicit_trace_preserves_source_and_writes_only_selected_figure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "runtime"
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(tmp_path / "ambient-missing.json"))
     notebook = notebook_project(root, monkeypatch)
     trace_path = tmp_path / "mounted-input" / "trace.csv"
     figure_root = tmp_path / "figure-output"
@@ -181,10 +184,27 @@ for bad in ([], [left], [left, [1, 2]], [left, left + [1]], [left, [1] * 4], [le
     assert notebook.read_bytes() == before
 
 
-@pytest.mark.parametrize("timing_case", [(4, 0.5, 0, 0), (5, 0.5, 0, 1), (4, -1.0, 0, 1), (4, 0.0, 0, 0), (4, 0.5, 1, 0)])
-def test_ess_timing_requires_matching_analyzed_samples(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing_case: tuple[int, float, int, int]) -> None:
+_PRODUCTION_SCOPE = "production_including_observation_excluding_warmup_export_and_analysis"
+
+
+@pytest.mark.parametrize(
+    "timing_case",
+    [
+        (4, 0.5, 0, None, _PRODUCTION_SCOPE, 16 / 3, "measured production"),
+        (5, 0.5, 0, "Timing sample counts do not match the analyzed trace.", _PRODUCTION_SCOPE, None, "unavailable for analyzed samples"),
+        (4, -1.0, 0, "Elapsed seconds must be a finite nonnegative number.", _PRODUCTION_SCOPE, None, "unavailable for analyzed samples"),
+        (4, 0.0, 0, None, _PRODUCTION_SCOPE, None, "unavailable for analyzed samples"),
+        (4, 0.5, 1, None, _PRODUCTION_SCOPE, None, "unavailable for analyzed samples"),
+        (4, 0.5, 0, None, None, None, "unavailable for analyzed samples"),
+        (4, 0.5, 0, None, "including_warmup", None, "unavailable for analyzed samples"),
+        (4, 5e-324, 0, None, _PRODUCTION_SCOPE, None, "unrepresentable rate"),
+    ],
+)
+def test_ess_timing_requires_matching_analyzed_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing_case: tuple[int, float, int, str | None, str | None, float | None, str]
+) -> None:
     """Measured rates are available only for the complete matching workload."""
-    samples, elapsed, discard, expected_exit = timing_case
+    samples, elapsed, discard, expected_error, scope, expected_rate, expected_status = timing_case
     notebook = notebook_project(tmp_path, monkeypatch)
     trace_path = tmp_path / "trace.csv"
     trace_path.write_text(
@@ -206,34 +226,50 @@ def test_ess_timing_requires_matching_analyzed_samples(tmp_path: Path, monkeypat
             for chain in range(2)
         ],
     }
+    if scope is not None:
+        report["timing_scope"] = scope
     report_path.write_text(json.dumps(report), encoding="utf-8", newline="\n")
     payload = json.loads(notebook.read_bytes())
     for cell in payload["cells"]:
         if cell["id"] == "analyze-autocorrelation-by-chain":
             cell["source"][0] = f"analysis_discard = {discard}\n"
-    checks = """
+    checks = f"""
 if analysis_discard == 0:
     assert all(math.isclose(row["rhat"], math.sqrt(35 / 6), abs_tol=1e-14) for row in rhat_rows)
-if elapsed_by_chain:
-    assert all(math.isclose(row["ess_per_second"], 16 / 3, abs_tol=1e-14) for row in ess_rows)
-else:
-    assert all(row["ess_per_second"] is None for row in ess_rows)
+assert sorted((row["chain_id"], row["observable"]) for row in ess_rows) == [
+    (0, "energy"), (0, "magnetization"), (1, "energy"), (1, "magnetization"),
+]
+expected_rate = {expected_rate!r}
+for row in ess_rows:
+    assert row["timing_status"] == {expected_status!r}
+    if expected_rate is None:
+        assert row["ess_per_second"] is None
+    else:
+        assert math.isclose(row["ess_per_second"], expected_rate, abs_tol=1e-14)
 """
-    payload["cells"].append(
-        {
-            "cell_type": "code",
-            "execution_count": None,
-            "id": "verify-measured-ess-rate",
-            "metadata": {},
-            "outputs": [],
-            "source": checks.strip().splitlines(keepends=True),
-        }
-    )
+    if expected_error is None:
+        payload["cells"].append(
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "id": "verify-measured-ess-rate",
+                "metadata": {},
+                "outputs": [],
+                "source": checks.strip().splitlines(keepends=True),
+            }
+        )
     notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
     monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(tmp_path / "figures"))
-    assert execute(tmp_path, notebook) == expected_exit
+    assert execute(tmp_path, notebook) == (0 if expected_error is None else 1)
+    if expected_error is not None:
+        execution_report = json.loads((tmp_path / "target/notebooks/notebooks/ising_trace_analysis.report.json").read_bytes())
+        assert execution_report["status"] == "failed"
+        assert execution_report["failed_cell"]["id"] == "compute-effective-sample-sizes"
+        assert execution_report["error"]["type"] == "CellExecutionError"
+        assert "ValueError" in execution_report["error"]["message"]
+        assert expected_error in execution_report["error"]["message"]
 
 
 @pytest.mark.parametrize(

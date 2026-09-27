@@ -35,7 +35,8 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Statistics and diagnostics | [ESS and efficiency](docs/scientific_basis.md#ess-and-wall-clock-efficiency) | [8](#ref-8), [13](#ref-13), integrated-time relation; Stan's pooled multi-chain ESS is a different estimator |
 | Statistics and diagnostics | [Online statistics](docs/scientific_basis.md#online-statistics) | [6](#ref-6), Welford accumulation |
 | Statistics and diagnostics | [Proposal validation](docs/scientific_basis.md#proposal-validation) | [1](#ref-1), [2](#ref-2), transition-flow identity; [11](#ref-11), independent-bin tolerance bound |
-| Example models | Neal's funnel | [10](#ref-10), conditional scale convention |
+| Numerical arithmetic | [Compensated summation](docs/scientific_basis.md#autocorrelation-estimator-contract) | [16](#ref-16), Kahan accumulation used by scalar diagnostics |
+| Example models | Neal's funnel | [17](#ref-17), original model; [10](#ref-10), conditional scale convention |
 | Example models | Rosenbrock target | [9](#ref-9), normalized conditional-normal construction |
 | General background | MCMC and statistical physics | [3](#ref-3), [4](#ref-4), [5](#ref-5), textbooks and surveys |
 
@@ -82,6 +83,11 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
 15. <a name="ref-15"></a> Foreman-Mackey, Dan, and contributors. "Autocorrelation Analysis & Convergence." *emcee documentation*.
     [Trace-length discussion](https://emcee.readthedocs.io/en/stable/tutorials/autocorr/).
     Context for the example notebook's heuristic short-trace caution; the crate uses Geyer's estimator, not emcee's window selection.
+16. <a name="ref-16"></a> Kahan, W. "Pracniques: Further Remarks on Reducing Truncation Errors." *Communications of the ACM* 8, no. 1 (1965): 40.
+    DOI: [10.1145/363707.363723](https://doi.org/10.1145/363707.363723).
+17. <a name="ref-17"></a> Neal, Radford M. "Slice Sampling." *The Annals of Statistics* 31, no. 3 (2003): 705-767.
+    DOI: [10.1214/aos/1056562461](https://doi.org/10.1214/aos/1056562461). [arXiv:physics/0009028](https://arxiv.org/abs/physics/0009028).
+    Section 8 introduces the funnel model; this crate adopts its two-dimensional marginal, not the slice-sampling algorithm.
 
 ## Related crates
 

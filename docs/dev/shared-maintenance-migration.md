@@ -50,7 +50,7 @@ The notebook group directly selects the shared notebook extra plus Matplotlib an
 
 Release checks remain offline. Three fixed DOI assertions, required publication files,
 active README source links, and historical artifact exclusions remain declared in
-`pyproject.toml`. `just update-version TAG --previous-release PREVIOUS --date DATE --dry-run`
+`pyproject.toml`. The current command, `just release-update VERSION PREVIOUS_TAG RELEASE_DATE --dry-run`,
 previews the complete release plan offline. No callback advances benchmark examples.
 
 ## Performance series reset
@@ -148,9 +148,9 @@ consumer checks protect example inventory coverage and the actual Codecov recipe
 ## Documentation and remaining v0.1.7 wiring (#154)
 
 The documentation ownership refactor retains the exact v0.1.7 pins and shared performance workflow; the maintainer-requested performance reset is described
-above. Active README guide links follow `main` through an explicit fixed-value release rule; source, image, and metadata links retain the separate current-tag
-rule. A renamed guide cannot accidentally link to the older Cargo tag. The release process must deliberately review the guide-link policy when pinning those
-paths in a future release.
+above. At that point, active README guide links followed `main` through a fixed-value release rule, while source, image, and metadata links used the current
+tag. The v0.5.0 release preparation superseded that guide-link policy: active guides now follow the declared release tag. See the current
+[documentation ownership and public-link policy](../code_organization.md#documentation-ownership-and-names).
 
 Notebook linting now opts into shared `notebooks.prohibit-installs`, so literal dependency-install cells fail the locked-environment policy. The setup
 composite supplies the job's GitHub token only to shared setup for authenticated scanner release-metadata reads; it retains the caller's permissions.

@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -109,6 +110,22 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step is not installer)
 
 
+@pytest.mark.parametrize("explicit_tag", [False, True])
+def test_release_check_accepts_current_version_with_or_without_tag(*, explicit_tag: bool) -> None:
+    version = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+    arguments = (f"v{version}",) if explicit_tag else ()
+    result = _run_just("release-check", *arguments)
+    assert f"Release preflight passed for v{version}." in result.stdout
+
+
+@pytest.mark.parametrize("tag", ["v0.4.2", "0.5.0", "v0.5.0-rc.1", "v0.5.0+build.1", "v00.5.0", "v0.5.0\n"])
+def test_release_check_rejects_wrong_or_noncanonical_tag(tag: str) -> None:
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _run_just("release-check", tag)
+    assert "Release preflight failed:" in error.value.stderr
+    assert "Release preflight passed" not in error.value.stdout
+
+
 def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> None:
     from research_repo_tools.selection import select_files
 
@@ -169,11 +186,11 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
 def test_security_workflows_cover_owned_inputs_and_fail_on_findings() -> None:
     from research_repo_tools.selection import select_files
 
-    osv = shlex.split(_run_just("--dry-run", "security-osv").stderr)
+    osv = shlex.split(_run_just("--dry-run", "audit").stderr)
     lockfiles = osv[osv.index("osv") + 1 :]
     assert set(lockfiles) == set(select_files(REPO_ROOT, include=("Cargo.lock", "**/Cargo.lock", "uv.lock")))
     assert shlex.split(_run_just("--dry-run", "security-secrets").stderr)[-2:] == ["security", "secrets"]
-    for scanner, recipe in (("osv", "security-osv"), ("gitleaks", "security-secrets")):
+    for scanner, recipe in (("osv", "audit"), ("gitleaks", "security-secrets")):
         workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{scanner}.yml").read_bytes())
         events = workflow.get("on", workflow.get(True))
         assert {"pull_request", "push", "schedule", "workflow_dispatch"} <= set(events)
@@ -246,3 +263,40 @@ def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> No
     assert "tests/tooling/test_commands.py" in selected
     assert not any(name.startswith("tests/semgrep/") for name in selected)
     assert not any(name.startswith("docs/performance/") for name in selected)
+
+
+def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/semgrep-sarif.yml").read_bytes())
+    steps = workflow["jobs"]["semgrep-sarif"]["steps"]
+    scan = next(step for step in steps if step.get("id") == "semgrep")
+    script = scan["run"]
+    commands = [shlex.split(line) for line in script.replace("\\\n", " ").splitlines()]
+    inventory = next(command for command in commands if "files" in command)
+    canonical = shlex.split(_run_just("--dry-run", "semgrep").stderr)
+    canonical_selection = canonical[: canonical.index("--")]
+    assert inventory[:8] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "research-repo-tools", "files"]
+    assert inventory[8] == "list"
+    assert tuple(inventory[index + 1] for index, argument in enumerate(inventory) if argument == "--exclude") == tuple(
+        canonical_selection[index + 1] for index, argument in enumerate(canonical_selection) if argument == "--exclude"
+    )
+    assert "--include" not in inventory
+    assert inventory[-3:] == ["--null", ">", "$RUNNER_TEMP/semgrep-inputs"]
+    assert ["mapfile", "-d", "", "-t", "scan_paths", "<", "$RUNNER_TEMP/semgrep-inputs"] in commands
+    assert script.index("files list") < script.index("mapfile") < script.index("set +e")
+    native = [command for command in commands if "semgrep" in command]
+    assert len(native) == 1
+    assert native[0][6:] == [
+        *canonical[canonical.index("--") + 1 :],
+        "--sarif",
+        "--output",
+        "semgrep-results.sarif",
+        "--",
+        "${scan_paths[@]}",
+    ]
+    assert script.index('"${scan_paths[@]}"') < script.index("status=$?") < script.index('echo "exit_code=$status"')
+    upload = next(step for step in steps if step.get("uses", "").startswith("github/codeql-action/upload-sarif@"))
+    assert upload["with"]["sarif_file"] == "semgrep-results.sarif"
+    assert "always()" in upload["if"]
+    gate = next(step for step in steps if step.get("name") == "Fail on repository rule findings")
+    assert gate["if"] == "steps.semgrep.outputs.exit_code != '0'"
+    assert gate["run"] == "exit 1"

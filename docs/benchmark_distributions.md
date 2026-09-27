@@ -1,13 +1,13 @@
 # Reference benchmark distributions
 
-The unreleased `benchmarks` feature provides `BenchmarkTarget` at the crate root. It implements `Target<[f64; 2]>` for four fixed reference distributions and
+The `benchmarks` feature in v0.5.0 provides `BenchmarkTarget` at the crate root. It implements `Target<[f64; 2]>` for four fixed reference distributions and
 exposes their analytical population `mean()` and `covariance()`. No additional dependencies are enabled. Coordinates are always `[x, y]`; dimensions and
 parameters are fixed so experiments can identify the exact target by its variant. Custom parameters or higher-dimensional extensions belong in a separate
 `Target` implementation.
 
 These targets exercise curved ridges, changing conditional scale, separated modes, and nonlinear dependence. They support model checks and mixing
 comparisons; they do not supply a tuned proposal or certify convergence. The funnel here is a two-dimensional marginal of the original ten-dimensional
-example, so results are not interchangeable with ten-dimensional funnel benchmarks.
+example in [Neal’s original presentation](../REFERENCES.md#ref-17), so results are not interchangeable with ten-dimensional funnel benchmarks.
 
 ## Definitions and ground truth
 

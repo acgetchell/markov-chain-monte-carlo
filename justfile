@@ -36,6 +36,11 @@ action-lint:
     # actionlint 1.7.12 predates $/ syntax; remove this exception when issue #711 is released.
     uv run --locked --group dev research-repo-tools files run --include '.github/workflows/*.yml' --include '.github/workflows/*.yaml' -- actionlint -ignore '^specifying action "\$/\.github/actions/setup-toolchain" in invalid format because ref is missing\.'
 
+# Audit every maintained Python and Rust lockfile without executing dependency code.
+[group('security')]
+audit:
+    uv run --locked --group dev research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+
 # Run the Criterion benchmark suite.
 [group('benchmarks and performance')]
 bench:
@@ -43,7 +48,7 @@ bench:
 
 # Render existing Criterion measurements against an explicit saved baseline.
 [group('benchmarks and performance')]
-bench-compare baseline="last": python-sync
+bench-compare baseline="last": sync
     uv run --locked --group dev research-repo-tools performance compare target/criterion target/criterion --baseline-sample {{ quote(baseline) }} --format markdown --output target/bench-reports/performance.md
 
 # Compile benchmark harnesses without running Criterion measurements.
@@ -76,31 +81,29 @@ build:
 
 # Changelog generation (git-cliff + post-processing)
 [group('release')]
-changelog: python-sync
+changelog: sync
     {{ _run }} research-repo-tools changelog generate
 
 # Rotate completed minor series without regenerating history
 [group('release')]
-changelog-archive: python-sync
+changelog-archive: sync
     uv run --locked --group dev research-repo-tools changelog archive
 
 # Strictly validate the root changelog and every archive
 [group('release')]
-changelog-check: python-sync
+changelog-check: sync
     uv run --locked --group dev research-repo-tools changelog check
 
 # Preview generated history without publishing root or archive files
 [group('release')]
 [positional-arguments]
-changelog-preview *args: python-sync
+changelog-preview *args: sync
     {{ _run }} research-repo-tools changelog generate --dry-run "$@"
 
 # Generate a prospective release with an explicit ISO date
 [group('release')]
-changelog-release tag date: python-sync
+changelog-release tag date: sync
     {{ _run }} research-repo-tools changelog generate --tag {{ quote(tag) }} --date {{ quote(date) }}
-
-alias changelog-unreleased := changelog-release
 
 # Non-mutating validation gate
 [group('workflows')]
@@ -227,8 +230,9 @@ fmt-check:
 [group('workflows')]
 help-workflows:
     @echo "Common Just workflows:"
+    @echo "  just audit          # Audit locked Python and Rust dependencies for vulnerabilities"
     @echo "  just changelog      # Regenerate CHANGELOG.md from local git history"
-    @echo "  just changelog-unreleased <tag> <date> # Generate notes with an explicit ISO date"
+    @echo "  just changelog-release <tag> <date> # Generate notes with an explicit ISO date"
     @echo "  just check          # Run lint/validators (non-mutating)"
     @echo "  just check-fast     # Fast compile check (cargo check)"
     @echo "  just ci             # Full CI simulation, including zizmor and benchmark compile"
@@ -236,13 +240,14 @@ help-workflows:
     @echo "  just ci-repository-tooling # Repository tooling subset for CI-shape timing"
     @echo "  just ci-rust        # Rust correctness subset for CI-shape timing"
     @echo "  just fix            # Apply formatters/auto-fixes (mutating)"
-    @echo "  just release-check  # Validate synchronized release metadata and references"
+    @echo "  just release-check [tag] # Validate the release tag, metadata, and generated notes"
+    @echo "  just release-update <version> <previous-tag> <date> # Prepare release metadata with explicit inputs"
     @echo "  just setup          # Install managed tools and verify system prerequisites"
+    @echo "  just sync           # Synchronize the locked development environment"
     @echo "  just tools-clean    # Preview obsolete shared managed-tool installations"
     @echo "  just tools-check    # Inspect the declared toolchain without installing anything"
     @echo "  just tag <ver>      # Create annotated release tag from CHANGELOG.md"
     @echo "  just update         # Update dependencies, managed Cargo tools, and tool pins"
-    @echo "  just update-version <tag> # Prepare release metadata from one stable tag"
     @echo ""
     @echo "Local CodeRabbit review:"
     @echo "  just review [base]      # Review the branch and local edits; base defaults to origin/main"
@@ -410,30 +415,30 @@ performance-check:
 # Rebuild and promote the shared report from retained or explicitly saved evidence.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-doc *args: python-sync
+performance-doc *args: sync
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml "$@"
 
 # Compare stored GitHub Release benchmark assets without local benchmark runs.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-github-assets *tags: python-sync
+performance-github-assets *tags: sync
     uv run --locked --group dev research-repo-tools performance assets "$@" --order published --repository acgetchell/markov-chain-monte-carlo --asset-template 'markov-chain-monte-carlo-{tag}-criterion-baseline.tar.gz' --payload target/bench-reports/github-assets.comparison.json --manifest target/bench-reports/github-assets.evidence.json --report target/bench-reports/github-assets.md
 
 # Compare the current tree with the latest stable published release locally.
 [group('benchmarks and performance')]
-performance-local: python-sync
+performance-local: sync
     {{ _run }} research-repo-tools performance measure tooling/benchmark.toml --mode current-vs-latest --order published --allow-git-mutations --payload target/bench-reports/local.comparison.json --manifest target/bench-reports/local.evidence.json --report target/bench-reports/local.md
 
 # Publish the README table, SVG, and pinned links from validated retained release evidence.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-readme *args: python-sync
+performance-readme *args: sync
     uv run --locked --group dev research-repo-tools performance publish tooling/performance-readme.toml "$@"
 
 # Generate a release-to-release report, promote it, and archive the previous report.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-release *tags: python-sync
+performance-release *tags: sync
     {{ _run }} research-repo-tools performance measure tooling/benchmark.toml "$@" --order published --allow-git-mutations --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
 
@@ -451,7 +456,7 @@ python-check: python-typecheck
 
 # Apply configured Ruff fixes and formatting to all Python files and fixtures.
 [group('validation')]
-python-fix: python-sync
+python-fix: sync
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --fix --no-force-exclude
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --no-force-exclude
 
@@ -459,26 +464,42 @@ python-fix: python-sync
 [group('validation')]
 python-lint: python-check
 
-# Synchronize the locked development environment with the declared toolchain.
-[group('build and setup')]
-python-sync:
-    {{ _run }} uv sync --locked --managed-python --group dev
-
 # Type-check every discovered Python file and fixture with Ty.
 [group('validation')]
-python-typecheck: python-sync
+python-typecheck: sync
     uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain python-check
     uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ty check --no-force-exclude
 
-# Validate synchronized release metadata and active version references.
+# Validate a stable release tag, package metadata, and generated notes without publishing.
 [group('release')]
-release-check: python-sync
+release-check tag="": sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    package_version="$({{ _run }} cargo read-manifest | jq -er 'if .name == "markov-chain-monte-carlo" then .version else error("expected package.name = markov-chain-monte-carlo") end')"
+    release_tag={{ quote(tag) }}
+    release_tag="${release_tag:-v$package_version}"
+    if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        printf 'Release preflight failed: expected a stable vX.Y.Z tag, got %s\n' "$release_tag" >&2
+        exit 1
+    fi
+    if [[ "$release_tag" != "v$package_version" ]]; then
+        printf 'Release preflight failed: tag %s does not match package version %s\n' "$release_tag" "$package_version" >&2
+        exit 1
+    fi
     uv run --locked --group dev research-repo-tools release check --final-release
+    uv run --locked --group dev research-repo-tools changelog notes "$release_tag" > /dev/null
+    printf 'Release preflight passed for %s.\n' "$release_tag"
 
 # Extract release notes from the root changelog or its archives
 [group('release')]
-release-notes tag: python-sync
+release-notes tag: sync
     uv run --locked --group dev research-repo-tools changelog notes {{ quote(tag) }}
+
+# Update release metadata using an explicit version, previous tag, and date.
+[group('release')]
+[positional-arguments]
+release-update version previous date *args: sync
+    uv run --locked --group dev research-repo-tools release update "v${1#v}" --previous-release "$2" --date "$3" "${@:4}"
 
 # Review committed and local changes against the PR base with CodeRabbit.
 [group('review')]
@@ -492,12 +513,7 @@ review-uncommitted:
 
 # Run the network-dependent vulnerability and full-history secret gates.
 [group('security')]
-security: security-osv security-secrets
-
-# Audit every maintained Python and Rust lockfile without executing dependency code.
-[group('security')]
-security-osv:
-    uv run --locked --group dev research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+security: audit security-secrets
 
 # Scan all reachable Git history and current tracked/nonignored files with redacted reports.
 [group('security')]
@@ -540,14 +556,19 @@ shared-python-update version:
 spell-check:
     {{ _run }} typos --config typos.toml --force-exclude .
 
+# Synchronize the locked development environment with the declared toolchain.
+[group('build and setup')]
+sync:
+    {{ _run }} uv sync --locked --managed-python --group dev
+
 # Create an annotated git tag from the CHANGELOG.md section for the given version
 [group('release')]
-tag version: python-sync
+tag version: sync
     uv run --locked --group dev research-repo-tools changelog tag {{ quote(version) }}
 
 # Recreate an existing tag from the CHANGELOG.md section for the given version
 [group('release')]
-tag-force version: python-sync
+tag-force version: sync
     uv run --locked --group dev research-repo-tools changelog tag {{ quote(version) }} --force
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
@@ -575,7 +596,7 @@ test-lib: test-unit
 
 # Run Python consumer integration tests.
 [group('tests and coverage')]
-test-python: python-sync
+test-python: sync
     uv run --locked --group dev pytest -q
 
 # Broad Rust test workflow; doctests remain a separate cargo-test bucket.
@@ -660,12 +681,6 @@ update-tools: update-uv update-cargo-tools setup
 [group('build and setup')]
 update-uv:
     uv run --no-config --no-sync --no-python-downloads research-repo-tools deps update-uv
-
-# Prepare versions, dates, and active references from a stable tag without upgrading dependencies.
-[group('release')]
-[positional-arguments]
-update-version tag *args: python-sync
-    uv run --locked --group dev research-repo-tools release update "$@"
 
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)

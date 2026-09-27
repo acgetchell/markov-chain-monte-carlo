@@ -42,6 +42,11 @@ jobs:
       - name: Run repository Semgrep rules
         id: semgrep
         run: |
+          uv run --locked --managed-python --group dev research-repo-tools files list \
+            --exclude 'tests/semgrep/**' \
+            --exclude 'docs/performance/**' \
+            --null > "$RUNNER_TEMP/semgrep-inputs"
+          mapfile -d '' -t scan_paths < "$RUNNER_TEMP/semgrep-inputs"
           set +e
           uv run --locked --managed-python --group dev semgrep \
             --metrics off \
@@ -51,7 +56,7 @@ jobs:
             --config semgrep.yaml \
             --sarif \
             --output semgrep-results.sarif \
-            .
+            -- "${scan_paths[@]}"
           status=$?
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0

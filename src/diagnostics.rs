@@ -279,6 +279,12 @@ pub enum TraceError {
         /// Duplicated observable name.
         name: String,
     },
+    /// An observable name collides with a fixed CSV metadata column.
+    #[non_exhaustive]
+    ReservedObservableName {
+        /// Reserved metadata column name.
+        name: String,
+    },
     /// A requested observable name was not present in the trace header.
     #[non_exhaustive]
     UnknownObservable {
@@ -312,6 +318,9 @@ impl fmt::Display for TraceError {
             Self::DuplicateObservableName { name, .. } => {
                 write!(f, "observable name {name:?} appears more than once")
             }
+            Self::ReservedObservableName { name, .. } => {
+                write!(f, "observable name {name:?} is reserved for trace metadata")
+            }
             Self::UnknownObservable { name, .. } => {
                 write!(f, "trace has no observable named {name:?}")
             }
@@ -335,8 +344,9 @@ impl Error for TraceError {}
 
 /// Multi-chain numeric trace with shared observable columns.
 ///
-/// Column names are nonempty, unique, and fixed at construction. Every stored
-/// row has exactly one value per column, in header order. Appending rows or
+/// Column names are nonempty, unique, and fixed at construction. The metadata
+/// names `chain_id`, `step`, `accepted`, `proposed`, and `log_prob` are reserved.
+/// Every stored row has exactly one value per column, in header order. Appending rows or
 /// merging traces validates this alignment before changing the stored records.
 /// Numeric values and step ordering are preserved without validation.
 #[derive(Debug, Clone, PartialEq)]
@@ -361,7 +371,8 @@ impl Trace {
     ///
     /// # Errors
     ///
-    /// Returns [`TraceError`] if an observable name is empty or duplicated.
+    /// Returns [`TraceError`] if an observable name is empty, duplicated, or a
+    /// reserved metadata column (`chain_id`, `step`, `accepted`, `proposed`, `log_prob`).
     pub fn new(
         observable_names: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<Self, TraceError> {
@@ -689,7 +700,8 @@ impl TraceRecorder {
     ///
     /// # Errors
     ///
-    /// Returns [`TraceError`] if an observable name is empty or duplicated.
+    /// Returns [`TraceError`] if an observable name is empty, duplicated, or a
+    /// reserved metadata column (`chain_id`, `step`, `accepted`, `proposed`, `log_prob`).
     pub fn new(
         chain_id: ChainId,
         observable_names: impl IntoIterator<Item = impl Into<String>>,
@@ -788,6 +800,12 @@ fn validate_observable_names(
         if name.is_empty() {
             return Err(TraceError::EmptyObservableName { index });
         }
+        if matches!(
+            name.as_str(),
+            "chain_id" | "step" | "accepted" | "proposed" | "log_prob"
+        ) {
+            return Err(TraceError::ReservedObservableName { name: name.clone() });
+        }
         if !seen.insert(name.as_str()) {
             return Err(TraceError::DuplicateObservableName { name: name.clone() });
         }
@@ -818,7 +836,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use super::*;
-    use crate::{McmcError, Target};
+    use crate::Target;
 
     struct Flat;
 
@@ -1208,18 +1226,23 @@ mod tests {
     }
 
     #[test]
-    fn chain_construction_still_reports_mcmc_errors() {
-        struct NanTarget;
-
-        impl Target<i32> for NanTarget {
-            fn log_prob(&self, _: &i32) -> f64 {
-                f64::NAN
-            }
+    fn trace_names_cannot_shadow_csv_metadata() {
+        for name in ["chain_id", "step", "accepted", "proposed", "log_prob"] {
+            let expected = TraceError::ReservedObservableName {
+                name: name.to_owned(),
+            };
+            assert_eq!(Trace::new([name]).unwrap_err(), expected);
+            assert_eq!(
+                TraceRecorder::new(ChainId::new(0), [name]).unwrap_err(),
+                expected
+            );
         }
-
+        let trace = Trace::new(["energy", "Step"]).unwrap();
+        let mut csv = Vec::new();
+        trace.write_csv(&mut csv).unwrap();
         assert_eq!(
-            Chain::new(0, &NanTarget).unwrap_err(),
-            McmcError::NanInitialLogProb
+            csv,
+            b"chain_id,step,accepted,proposed,log_prob,energy,Step\n"
         );
     }
 }

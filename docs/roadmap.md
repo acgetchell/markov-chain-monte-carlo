@@ -44,12 +44,13 @@ were accepted where they made invalid states unrepresentable or preserved valida
 - [x] [#84](https://github.com/acgetchell/markov-chain-monte-carlo/issues/84) - Update Python tooling to 3.14 and parse scripts at boundaries
 - [x] [#104](https://github.com/acgetchell/markov-chain-monte-carlo/issues/104) - Update Rust toolchain and MSRV to 1.97.1
 
-## Unreleased Maintenance
+## v0.5.0 Adaptive Diagnostics (Completed)
 
-- [x] [#142](https://github.com/acgetchell/markov-chain-monte-carlo/issues/142) - Update Rust to 1.98.0 and forbid relaxed algebraic `f64` operations
+Bounded scalar warmup and classical diagnostics provide practical baselines for assessing runs before multi-chain execution, tempering, and
+learned-proposal experiments. The current Rust toolchain and MSRV are 1.98.1.
 
-## Unreleased Diagnostics
-
+- [x] [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Bounded scalar adaptive Metropolis-Hastings warmup; production uses the
+      final fixed proposal scale
 - [x] [#42](https://github.com/acgetchell/markov-chain-monte-carlo/issues/42) - Continuous proposal density and sampled-bin diagnostics
 - [x] [#73](https://github.com/acgetchell/markov-chain-monte-carlo/issues/73) - Scalar ACF and integrated autocorrelation time, with Ising notebook analysis
 - [x] [#74](https://github.com/acgetchell/markov-chain-monte-carlo/issues/74) - Single-chain mean ESS, measured ESS-rate, and classical split R-hat diagnostics
@@ -58,17 +59,9 @@ were accepted where they made invalid states unrepresentable or preserved valida
 - [x] [#20](https://github.com/acgetchell/markov-chain-monte-carlo/issues/20) - Fixed two-dimensional benchmark distributions with analytical moments and a
       seeded mixing example
 - [x] [#21](https://github.com/acgetchell/markov-chain-monte-carlo/issues/21) - Optional tracing spans and live per-step sampling metrics
+- [x] [#142](https://github.com/acgetchell/markov-chain-monte-carlo/issues/142) - Adopt Rust 1.98 and forbid relaxed algebraic `f64` operations
 
 ## Planned Milestones
-
-### v0.5.0 Adaptive Diagnostics
-
-After the CDT-facing continuation and acceptance APIs settle, invest in classical adaptive sampling and diagnostics that help users decide whether a run is
-scientifically trustworthy. This should happen before learned-proposal work so there is a baseline to compare against.
-
-- [x] [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Bounded scalar adaptive Metropolis-Hastings warmup (unreleased); production
-      uses the final fixed proposal scale
-- [x] [#13](https://github.com/acgetchell/markov-chain-monte-carlo/issues/13) - Diagnostics: ESS, autocorrelation, and classical split R-hat (unreleased)
 
 ### v0.6.0 Multi-Chain, Tempering, and Learned-Proposal Foundations
 

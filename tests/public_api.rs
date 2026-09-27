@@ -35,6 +35,60 @@ fn continuous_diagnostics_share_root_and_testing_types() {
 
 struct Smoke;
 
+#[test]
+fn additive_targets_borrow_non_clone_and_dynamic_components() {
+    struct Offset(f64);
+    impl Target<f64> for Offset {
+        fn log_prob(&self, state: &f64) -> f64 {
+            self.0 + state
+        }
+    }
+    let model = Offset(2.0);
+    let bias = Offset(3.0);
+    {
+        let dynamic: &dyn Target<f64> = &bias;
+        let combined = AdditiveTarget::new(&model, dynamic);
+        assert_relative_eq!(combined.log_prob(&4.0), 13.0);
+        assert!(core::ptr::eq(*combined.primary(), &raw const model));
+    }
+    assert_relative_eq!(model.log_prob(&1.0), 3.0);
+    assert_relative_eq!(bias.log_prob(&1.0), 4.0);
+}
+
+#[test]
+fn invalid_selected_weights_retain_the_endpoint_sum() {
+    for reverse in [false, true] {
+        let valid = DiscreteProposalEndpoint::new(1.0, 2.0, 1);
+        let invalid = DiscreteProposalEndpoint::new(4.0, 3.0, 1);
+        let error = if reverse {
+            by_value::DiscreteProposalRatio::from_endpoints(valid, invalid)
+        } else {
+            by_value::DiscreteProposalRatio::from_endpoints(invalid, valid)
+        }
+        .unwrap_err();
+        match error {
+            by_value::DiscreteProposalRatioError::InvalidForwardWeight {
+                weight,
+                weight_sum,
+                ..
+            } if !reverse => {
+                assert_relative_eq!(weight, 4.0);
+                assert_relative_eq!(weight_sum, 3.0);
+            }
+            by_value::DiscreteProposalRatioError::InvalidReverseWeight {
+                weight,
+                weight_sum,
+                ..
+            } if reverse => {
+                assert_relative_eq!(weight, 4.0);
+                assert_relative_eq!(weight_sum, 3.0);
+            }
+            other => panic!("wrong endpoint error: {other:?}"),
+        }
+        assert!(error.to_string().contains("endpoint weight sum 3"));
+    }
+}
+
 impl Target<f64> for Smoke {
     fn log_prob(&self, _: &f64) -> f64 {
         0.0

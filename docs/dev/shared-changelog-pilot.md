@@ -17,10 +17,12 @@ retains included tooling constraints and does not automatically upgrade this pin
 | `just changelog` | Generate, normalize, and archive completed minor series |
 | `just changelog-preview` | Validate and print the candidate without publishing files |
 | `just changelog-release TAG DATE` | Generate a prospective release with an explicit ISO date |
-| `just changelog-unreleased TAG DATE` | Alias for `changelog-release` |
 | `just changelog-archive` | Archive existing notes without regenerating history |
 | `just changelog-check` | Strictly validate the root changelog and every archive |
 | `just release-notes TAG` | Extract notes and required links from root or archive |
+
+The pilot also exposed a `changelog-unreleased` alias. Release preparation now
+uses `changelog-release` directly, and the redundant alias has been removed.
 
 Preview accepts generation arguments, for example
 `just changelog-preview --tag v0.5.0 --date 2026-09-19`.
@@ -113,11 +115,14 @@ and PR review; #157 can close when the adoption is merged.
 
 ## Upgrading the shared package
 
-1. Install the candidate exact published version in a disposable uv environment.
-2. Repeat preview, generation, repeated generation, prospective-date, failure
-   preservation, and root/archive extraction comparisons.
-3. Update the `tooling` pin and matching consumer assertion, then run `uv lock`
-   and `uv sync --locked`. Review package policy changes and generated history.
-4. Run focused consumer checks, `just check`, and `just ci`; record the actual
-   platform. Local macOS results do not establish native Windows or Linux results.
+1. Run `just shared-python-plan VERSION` for the candidate exact published version.
+2. Review the plan, then run `just shared-python-update VERSION`. This updates both
+   shared-package pins, Python mirrors, lockfile, environment, and notebook kernel.
+   Align the registry-only release workflow's package pin and resolution cutoff.
+3. Repeat preview, generation, repeated generation, prospective-date, failure
+   preservation, and root/archive extraction comparisons. Review package policy
+   changes and generated history.
+4. Run focused consumer checks during iteration and `just ci` for final readiness;
+   record the actual platform. Local macOS results do not establish native Windows
+   or Linux results.
 5. Update the checkout inventory whenever generation adds or removes archives.

@@ -31,7 +31,7 @@ jobs:
 
       - name: Audit maintained lockfiles
         id: scan
-        run: just security-osv
+        run: just audit
 
       - name: Retain dependency scan reports
         if: ${{ !cancelled() && steps.scan.outcome != 'skipped' }}

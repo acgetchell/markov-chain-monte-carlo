@@ -10,6 +10,7 @@ extend-exclude = [
     "build/**",
     ".venv/**",
     "CHANGELOG.md",
+    "docs/archives/changelog/**",
 ]
 
 [default.extend-words]
