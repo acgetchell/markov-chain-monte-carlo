@@ -4,7 +4,7 @@ type: software
 title: "markov-chain-monte-carlo: A composable MCMC framework for Rust"
 version: "0.5.0"
 doi: 10.5281/zenodo.20033111
-date-released: 2026-09-27
+date-released: 2026-09-28
 url: "https://github.com/acgetchell/markov-chain-monte-carlo"
 repository-code: "https://github.com/acgetchell/markov-chain-monte-carlo"
 authors:

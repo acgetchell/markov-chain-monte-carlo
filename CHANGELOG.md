@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-09-27
+## [0.5.0] - 2026-09-28
 
 ### ⚠️ Breaking Changes
 
@@ -125,6 +125,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Synchronize published API links with releases, keep current guide links on main, and preserve unique rustdoc tracing anchors.
   - Enable research-repo-tools v0.1.7 notebook install restrictions and authenticated shared setup.
   - Retire historical performance reports and legacy adapters, establishing the next release as the baseline for a new shared performance series.
+- Clarify multi-chain support and refresh v0.5.0 notes
+  [`ce52eb2`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/ce52eb2c2966c63bc84d0203582acf5f9b2691bb)
+
+  - Distinguish available sequential-chain workflows and diagnostics from planned parallel orchestration, tempering, and learned-proposal integrations.
+  - Clarify support for supplied learned target terms while keeping model and proposal-policy training outside the crate's scope.
+  - Regenerate release notes to include the latest documentation and workflow fixes.
+- Clarify release verification and tagging workflow
+  [`e7d104c`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/e7d104cad42936675dad2ef1cf8bfcca5298ad59)
+
+  - Separate post-merge release steps into runnable blocks with recovery guidance.
+  - Require verification of the reviewed commit and final CI before tagging.
+  - Add tag-preview and replace just tag with the explicit tag-release recipe.
+  - Use an explicit release date and include changelog validation.
 
 ### Fixed
 
