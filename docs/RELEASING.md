@@ -9,7 +9,7 @@ maintainer actions; assistants follow the restrictions in [AGENTS.md](../AGENTS.
 
 1. Prepare a release PR containing synchronized metadata, generated notes, and any
    reviewed performance publication files. Validate it and merge it into `main`.
-2. Tag the reviewed merge and create a draft GitHub Release from the tag annotation.
+2. Tag the reviewed release commit and create a draft GitHub Release from the tag annotation.
 3. Publish the crate to crates.io.
 4. Dispatch **Release Benchmarks**. It attaches the benchmark baseline and publishes
    the draft only after the attachment succeeds.
@@ -22,19 +22,19 @@ Complete [contributor setup](../CONTRIBUTING.md#development-environment-setup).
 GitHub CLI must be installed and authenticated, and your Cargo credentials must
 permit publishing this crate to crates.io.
 
-Set the release inputs once. This example prepares `0.5.0` after `v0.4.2`:
+Set the release inputs once. This example prepares `0.5.0` after `v0.4.2` for
+September 28, 2026:
 
 ```bash
 VERSION=0.5.0
 TAG="v$VERSION"
 PREVIOUS_TAG=v0.4.2
-RELEASE_DATE="$(date -u +%F)"
+RELEASE_DATE=2026-09-28
 ```
 
-For later releases, replace `VERSION` and `PREVIOUS_TAG` with the target version
-and actual previous published stable tag. The `date` command fills `RELEASE_DATE`
-with today's UTC date; you can instead assign an intended ISO date explicitly.
-Both metadata preparation and changelog generation receive this same value.
+Replace the example values with the target version, actual previous published
+stable tag, and intended UTC release date. Both metadata preparation and changelog
+generation receive the same explicit date.
 
 Commit and merge substantive implementation changes before starting release
 preparation. Start with a clean working tree, then verify authentication and the
@@ -138,12 +138,14 @@ contracts belong in [BENCHMARKING.md](BENCHMARKING.md).
 ### Validate the release artifacts
 
 ```bash
+just changelog-check
 just release-check "$TAG"
 just ci
 just publish-check
 just security
 ```
 
+`just changelog-check` validates the root changelog and archives.
 `just release-check "$TAG"` requires a canonical stable tag matching the Cargo
 package version, synchronized release metadata, and dated, nonempty generated
 notes with valid references. It creates no tag and publishes nothing. The
@@ -196,44 +198,76 @@ Use a clean checkout and keep the release variables from preparation. In a new
 shell, restore the same version, previous tag, and declared release date.
 
 ```bash
-RELEASE_COMMIT="$(gh pr view "release/$TAG" --json state,mergeCommit --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
 git switch main
 git pull --ff-only
-test -n "$RELEASE_COMMIT" &&
-test "$(git --no-pager rev-parse HEAD)" = "$RELEASE_COMMIT" &&
-test -z "$(git --no-pager status --porcelain)" &&
-just sync &&
-just check &&
-just release-check "$TAG" &&
-just release-notes "$TAG"
+git --no-pager status --short
+just sync
 ```
 
-`RELEASE_COMMIT` is populated from the merged release PR. The checks require a
-clean checkout at that exact commit. If the PR has not merged, or `main` has
-advanced beyond its merge, stop. Selecting a newer commit requires reviewing its
-changes and successful final `just ci` validation for those release contents
-before tagging. `just check` alone is insufficient, and earlier CI results can
-only be reused while their inputs remain unchanged.
+The status output must be empty. If switching or pulling fails, or local changes
+remain, stop and resolve them before continuing. Do not discard unreviewed work
+to obtain a clean checkout.
 
-Confirm the extracted notes are the reviewed notes. The configured `declared`
-date policy preserves the prepared date; crossing midnight does not require
-changing it.
+### Verify the release commit
 
-### Create and push the annotated tag
+Display the current commit:
 
 ```bash
-test -n "$RELEASE_COMMIT" &&
-test "$(git --no-pager rev-parse HEAD)" = "$RELEASE_COMMIT" &&
-test -z "$(git --no-pager status --porcelain)" &&
-just tag "$TAG" &&
-git --no-pager show --no-patch "$TAG" &&
-test "$(git --no-pager rev-parse "$TAG^{commit}")" = "$RELEASE_COMMIT" &&
+git --no-pager log -1 --format=fuller
+```
+
+Compare its full SHA with the merged release PR and the successful CI run in
+GitHub. Record the selected SHA in the release PR or tracking issue. Stop if the
+PR has not merged, CI is pending or failed, or the commit differs from the one
+reviewed and validated.
+
+If `main` includes fixes after the release PR, review those changes and refresh
+the generated notes from committed history. Validate the final contents with
+`just ci` and require passing GitHub CI for the final commit. Record that newer
+SHA as the release commit before continuing. `just check` alone is insufficient;
+reuse earlier checks only while their relevant inputs remain unchanged.
+
+### Preview the release notes and tag
+
+```bash
+just release-check "$TAG"
+just release-notes "$TAG"
+just tag-preview "$TAG"
+```
+
+Confirm the version, declared date, release notes, and proposed annotation are
+correct. `tag-preview` runs the shared tag validation without creating a tag.
+
+If metadata or notes are stale, return to
+[metadata and changelog preparation](#update-metadata-and-generate-the-changelog),
+commit the regenerated artifacts, and repeat the affected validation. If the
+intended release date has changed, update `RELEASE_DATE` and rerun both metadata
+preparation and changelog generation. The configured `declared` date policy
+preserves the chosen date until you change it explicitly.
+
+### Create and inspect the annotated tag
+
+```bash
+just tag-release "$TAG"
+git --no-pager show --no-patch "$TAG"
+```
+
+`tag-release` creates a local annotated tag at the current commit; it does not
+push or publish. Confirm the displayed commit matches the SHA recorded above
+and the annotation matches the preview. Stop on a mismatch.
+
+If the tag already exists, stop and inspect it with the same `git show` command.
+Check the remote tag, GitHub Release, and crates.io state before deciding how to
+recover. Never force an existing published tag to a different commit.
+
+### Push the verified tag
+
+```bash
 git push origin "$TAG"
 ```
 
-Verify the tag identifies the reviewed release commit. If it already exists or
-the push is rejected, stop and inspect the local tag, remote tag, GitHub Release,
-and crates.io state. Do not force an existing published tag to a new commit.
+If the push is rejected, stop and inspect the remote tag and release state.
+Resolve the cause without force-pushing before continuing.
 
 ### Create the draft GitHub Release
 

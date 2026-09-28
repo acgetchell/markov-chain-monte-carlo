@@ -541,7 +541,8 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
    [retained performance publication](docs/RELEASING.md#retained-performance-evidence-and-publication) to measure a real pair, create the reviewed
    `tooling/performance-readme.toml`, and publish the README table/SVG.
 4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci` and `just publish-check`.
-5. Commit and push the release PR. After merge, sync `main`, create and verify the annotated tag with `just tag "$TAG"`, then push it.
+5. Commit and push the release PR. After merge, sync and verify the reviewed `main` commit. Inspect `just tag-preview "$TAG"`, create the annotated tag with
+   `just tag-release "$TAG"`, verify it, then push it.
 6. Create a draft GitHub Release, publish to crates.io, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
    durable attachment and delete the merged release branch.
 

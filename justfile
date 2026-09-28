@@ -488,15 +488,20 @@ spell-check:
 sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
-# Create an annotated git tag from the CHANGELOG.md section for the given version
-[group('release')]
-tag version: sync
-    uv run --locked --group dev research-repo-tools changelog tag {{ quote(version) }}
-
 # Recreate an existing tag from the CHANGELOG.md section for the given version
 [group('release')]
 tag-force version: sync
     uv run --locked --group dev research-repo-tools changelog tag {{ quote(version) }} --force
+
+# Preview the annotated release tag without changing Git state.
+[group('release')]
+tag-preview tag: sync
+    uv run --locked --group dev research-repo-tools changelog tag {{ quote(tag) }} --dry-run
+
+# Create a local annotated tag from validated release notes.
+[group('release')]
+tag-release tag: sync
+    uv run --locked --group dev research-repo-tools changelog tag {{ quote(tag) }}
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
 [group('tests and coverage')]
