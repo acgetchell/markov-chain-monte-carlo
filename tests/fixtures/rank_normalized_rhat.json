@@ -1,0 +1,47 @@
+{
+  "reference": {
+    "package": "arviz",
+    "version": "0.22.0",
+    "source": "https://github.com/arviz-devs/arviz/blob/v0.22.0/arviz/stats/diagnostics.py",
+    "method": "arviz.rhat(chains, method='z_scale')",
+    "scipy_version": "1.16.2",
+    "numpy_version": "2.2.6",
+    "python_version": "3.13.7",
+    "platform": "macOS aarch64",
+    "generation_command": "See docs/scientific_basis.md#rank-normalized-split-r-hat",
+    "relative_tolerance": 5e-13
+  },
+  "cases": [
+    {
+      "name": "pooled_ties",
+      "chains": [[3, 2, 1, 2], [4, -0.0, 0.0, 2]],
+      "expected": 0.8120871824522167
+    },
+    {
+      "name": "discrete_counts",
+      "chains": [[0, 1, 1, 2, 1, 0, 3, 2], [1, 2, 4, 2, 3, 1, 1, 0], [3, 2, 1, 1, 0, 2, 2, 4]],
+      "expected": 0.9456058563171188
+    },
+    {
+      "name": "odd_middle",
+      "chains": [[3, 2, 1e300, 1, 2], [4, -0.0, -1e300, 0.0, 2]],
+      "expected": 0.8120871824522167
+    },
+    {
+      "name": "separated",
+      "chains": [[0, 1, 2, 1, 0, 2], [10, 11, 12, 11, 10, 12]],
+      "expected": 1.7025856148097021
+    },
+    {
+      "name": "scale_only",
+      "chains": [[-1, 1, -2, 2, -1, 1, -2, 2], [-10, 10, -20, 20, -10, 10, -20, 20]],
+      "expected": 0.8660254037844386,
+      "combined_reference": 1.9750237970270523
+    },
+    {
+      "name": "asymmetric",
+      "chains": [[-4, -1, 0, 0.25, 1, 6], [2, -3, 8, 0.5, -0.5, 3], [1, 2, -2, 9, 4, 0]],
+      "expected": 1.0398425696495588
+    }
+  ]
+}

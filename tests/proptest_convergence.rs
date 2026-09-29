@@ -1,7 +1,7 @@
-//! Exact integer moments and metamorphic oracles for classical split R-hat.
+//! Exact integer moments and metamorphic oracles for both split R-hat estimators.
 
 use approx::assert_relative_eq;
-use markov_chain_monte_carlo::SplitRhat;
+use markov_chain_monte_carlo::{RankNormalizedSplitRhat, SplitRhat};
 use proptest::prelude::*;
 
 /// Generate equal-length chains with independently guaranteed variation in
@@ -78,6 +78,81 @@ fn unequal_half_variances_match_hand_calculated_ratio() {
 }
 
 proptest! {
+    #[test]
+    fn rank_normalized_binary_chains_match_exact_integer_moments(raw in comparable_chains()) {
+        // Adjacent integers in each half map to distinct binary values. Thus
+        // every admitted half varies, without consulting the production result.
+        let binary: Vec<Vec<_>> = raw.iter().map(|chain| {
+            chain.iter().map(|value| value.rem_euclid(2)).collect()
+        }).collect();
+        // Pooled normal scores have exactly two distinct levels. They are an
+        // affine transform of these binary inputs, so the integer-moment oracle
+        // remains exact without reimplementing ranks or inverse-normal scores.
+        let expected = exact_split_rhat(&binary);
+        let samples: Vec<Vec<_>> = binary.iter().map(|chain| {
+            chain.iter().map(|&value| f64::from(value)).collect()
+        }).collect();
+        let slices: Vec<_> = samples.iter().map(Vec::as_slice).collect();
+        let actual = RankNormalizedSplitRhat::estimate(&slices).map_err(|error| {
+            TestCaseError::fail(format!("binary={binary:?}, unexpected error={error:?}"))
+        })?;
+        prop_assert!(
+            (actual.value() / expected - 1.0).abs() <= 1e-12,
+            "binary={:?}, actual={}, exact={}", binary, actual.value(), expected,
+        );
+    }
+
+    #[test]
+    fn rank_normalized_chains_preserve_order_ties_and_omitted_middles(raw in comparable_chains()) {
+        let samples: Vec<Vec<_>> = raw.iter().map(|chain| {
+            chain.iter().map(|&value| f64::from(value)).collect()
+        }).collect();
+        let slices: Vec<_> = samples.iter().map(Vec::as_slice).collect();
+        let expected = RankNormalizedSplitRhat::estimate(&slices).map_err(|error| {
+            TestCaseError::fail(format!("original raw={raw:?}, unexpected error={error:?}"))
+        })?.value();
+        // Cubing these small integers is exactly representable and strictly
+        // increasing. Negation reverses order while retaining every tie.
+        let cubic: Vec<Vec<_>> = samples.iter().map(|chain| {
+            chain.iter().map(|value| value.powi(3)).collect()
+        }).collect();
+        let decreasing: Vec<Vec<_>> = cubic.iter().map(|chain| {
+            chain.iter().map(|value| -value).collect()
+        }).collect();
+        let reordered: Vec<Vec<_>> = samples.iter().rev().enumerate().map(|(index, chain)| {
+            let mut chain = chain.clone();
+            // Reverse only some chains so preservation cannot depend on a
+            // single reversal of the flattened pooled sequence.
+            if index % 2 == 0 {
+                chain.reverse();
+            }
+            chain
+        }).collect();
+        let odd: Vec<Vec<_>> = samples.iter().enumerate().map(|(index, chain)| {
+            let mut chain = chain.clone();
+            chain.insert(chain.len() / 2, if index % 2 == 0 { f64::MAX } else { -f64::MAX });
+            chain
+        }).collect();
+        for (label, input) in [
+            ("increasing cubic", &cubic),
+            ("decreasing cubic", &decreasing),
+            ("reordered chains and selected time reversals", &reordered),
+            ("odd middle omitted", &odd),
+        ] {
+            let slices: Vec<_> = input.iter().map(Vec::as_slice).collect();
+            let actual = RankNormalizedSplitRhat::estimate(&slices).map_err(|error| {
+                TestCaseError::fail(format!("{label}: raw={raw:?}, unexpected error={error:?}"))
+            })?;
+            prop_assert_eq!(actual.chain_count(), raw.len());
+            prop_assert_eq!(actual.samples_per_chain(), input[0].len());
+            prop_assert_eq!(actual.samples_per_split_chain(), raw[0].len() / 2);
+            prop_assert!(
+                (actual.value() / expected - 1.0).abs() <= 1e-12,
+                "{}: raw={:?}, actual={}, expected={}", label, raw, actual.value(), expected,
+            );
+        }
+    }
+
     #[test]
     fn split_rhat_matches_integer_moments_and_invariances(
         raw in comparable_chains(),

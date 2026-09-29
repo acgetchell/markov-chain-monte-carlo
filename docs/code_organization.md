@@ -165,6 +165,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── continuous_testing.rs
 │   ├── convergence.rs
 │   ├── public_api.rs
+│   ├── rank_normalized_rhat.rs
+│   ├── fixtures/
+│   │   └── rank_normalized_rhat.json
 │   ├── proptest_autocorrelation.rs
 │   ├── proptest_chain.rs
 │   ├── proptest_convergence.rs
@@ -284,16 +287,23 @@ chain selection, and regular sample spacing. Independent arithmetic, numerical-b
 
 ### `src/convergence.rs`
 
-Defines `SplitRhat` and `SplitRhatError` for classical split R-hat on borrowed scalar chains. This module owns equal-length and finite-input checks, splitting,
-within/between variance estimation, and explicit degeneracy errors. It does not own warmup selection, chain execution, rank normalization, or plotting.
+Defines `SplitRhat`, `RankNormalizedSplitRhat`, and their shared `SplitRhatError` for classical and rank-normalized split R-hat on borrowed scalar chains.
+This module owns equal-length and finite-input checks, splitting, pooled average ranks, within/between variance estimation, and explicit degeneracy errors.
+It does not own warmup selection, chain execution, folded diagnostics, or plotting.
 `tests/convergence.rs` checks exact R-hat and ESS values, numerical boundaries, separated/drifting chains, and seeded independent and AR(1) traces.
-`tests/proptest_convergence.rs` checks R-hat against exact integer moments across chain counts and lengths, affine transforms, chain/time reversal, and
-omitted middle draws.
+`tests/proptest_convergence.rs` checks classical R-hat against exact integer moments across chain counts and lengths, affine transforms, chain/time reversal,
+and omitted middle draws. Rank-normalized properties use an exact integer oracle for binary chains and check nonlinear monotone transforms, ties,
+chain/time reordering, and omitted middle draws.
+`tests/rank_normalized_rhat.rs` checks the rank-normalized component against pinned independent ArviZ fixtures in `tests/fixtures/rank_normalized_rhat.json`,
+plus monotone transforms, discrete ties, heavy-tail location shifts, and numerical/input boundaries. Private tests verify pooled ranks, chain reconstruction,
+and rank-count rejection before allocation.
+`tests/public_api.rs` checks both estimators through crate-root and prelude paths, including use after borrowed trace columns are dropped.
 
 ### `src/numerics.rs`
 
 Owns crate-private compensated summation and count-to-float conversion shared by autocorrelation, convergence, continuous-proposal checks, and streaming
-statistics. These arithmetic primitives introduce no public API or statistical policy. Each calling module owns validation and bounds; the ACF retains
+statistics, plus the AS 241 inverse-normal approximation for rank normalization. These arithmetic primitives introduce no public API or statistical policy.
+Each calling module owns validation and bounds; the ACF retains
 its specialized multi-lag traversal while sharing the same ordered accumulator. Numerical helper tests live with this module.
 
 ### `src/observable.rs`
@@ -396,7 +406,8 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
-- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, and classical split R-hat; assumptions and errors in `docs/ANALYZING_CHAINS.md`.
+- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, and classical and rank-normalized split R-hat;
+  assumptions and errors in `docs/ANALYZING_CHAINS.md`.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/adaptive_normal.rs` — bounded proposal-width tuning during warmup, then fixed-width production sampling.
 - `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.

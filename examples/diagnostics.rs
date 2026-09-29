@@ -1,11 +1,11 @@
-//! ACF, mean ESS, and classical split R-hat for four standard-normal chains.
+//! ACF, mean ESS, and classical and rank-normalized split R-hat for four chains.
 //!
 //! Run with: `cargo run --release --example diagnostics`
 //! Chains run sequentially with distinct seeds and dispersed starts. Diagnostics
 //! need comparable traces, not parallel execution. No optional feature is needed.
 
 use markov_chain_monte_carlo::prelude::by_value::*;
-use markov_chain_monte_carlo::{Autocorrelation, SplitRhat};
+use markov_chain_monte_carlo::prelude::{Autocorrelation, RankNormalizedSplitRhat, SplitRhat};
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 struct StandardNormal;
@@ -78,9 +78,14 @@ fn main() -> Result<(), McmcError> {
         Ok(rhat) => println!("Classical split R-hat: {:.4}", rhat.value()),
         Err(error) => println!("Classical split R-hat unavailable: {error}"),
     }
+    match RankNormalizedSplitRhat::estimate(&chains) {
+        Ok(rhat) => println!("Rank-normalized split R-hat component: {:.4}", rhat.value()),
+        Err(error) => println!("Rank-normalized split R-hat component unavailable: {error}"),
+    }
     println!(
-        "Mean ESS is per chain; R-hat uses raw moments, without rank normalization or folding."
+        "Mean ESS is per chain; classical R-hat uses raw moments; rank-normalized R-hat uses pooled ranks."
     );
+    println!("Neither R-hat estimator here includes the folded component or combined maximum.");
     println!("These estimates do not certify convergence or exploration of all modes.");
     Ok(())
 }
