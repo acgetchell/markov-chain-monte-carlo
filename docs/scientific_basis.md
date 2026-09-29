@@ -20,6 +20,7 @@ distribution, proposal kernel, state representation, and analysis choices.
   - [ESS and wall-clock efficiency](#ess-and-wall-clock-efficiency)
   - [Online statistics](#online-statistics)
   - [Proposal validation](#proposal-validation)
+  - [Rank-normalized split R-hat](#rank-normalized-split-r-hat)
 - [Export and notebook workflow](#export-and-notebook-workflow)
 - [User responsibilities](#user-responsibilities)
 - [References](#references)
@@ -228,7 +229,7 @@ centering preserves small within-half changes; enormous scale disparities can st
 and half whose varying samples lost resolvable variance. `NumericalFailure` is reserved for an unrepresentable final estimate after all half variances pass.
 
 This is a raw-moment diagnostic with finite marginal mean/variance assumptions. Splitting helps expose within-chain drift, but classical R-hat can miss scale
-differences and heavy-tail problems. It does not implement the rank-normalized and folded improvements described by
+differences and heavy-tail problems. This classical estimator does not apply the rank-normalized and folded improvements described by
 [Vehtari et al.](../REFERENCES.md#ref-14). A value near one does not establish convergence or exploration of all modes; combine it with ESS, trace
 inspection, dispersed starts, and longer runs. Do not apply modern rank-normalized thresholds as a guarantee for this estimator.
 
@@ -282,6 +283,60 @@ represent a fixed kernel: freeze online adaptation before validation, and keep t
 exhaustive bins, and reference probabilities derived independently of the generator. They are not calibrated for correlated chain output.
 Neither continuous helper is a continuous detailed-balance or convergence test. The
 [continuous-proposal workflow](VALIDATING_PROPOSALS.md#continuous-proposals) owns the tolerance formula, error budget, and limits of coarsened flow comparisons.
+
+### Rank-normalized split R-hat
+
+`RankNormalizedSplitRhat::estimate(&chains)` implements the rank-normalized split component from
+[Vehtari et al., Sections 3.1 and 4.1, equation (14)](../REFERENCES.md#ref-14). It shares the classical estimator's borrowed `f64` input, comparability
+requirements, minimum counts, and first/last-half splitting convention. Validate all original draws before omitting odd middle draws. Pool only retained
+draws across all chains, assign one-based average ranks to equal values, and restore each score to its original chain and half before computing the ratio.
+For pooled retained count `S` and average rank `r`, the normal score is `Phi^-1((r - 3/8) / (S + 1/4))`.
+
+Signed zeros tie, and discrete observations retain their ties without random jitter. Only ordering matters: extreme finite input magnitudes need no
+subtraction or squaring. Strictly monotone transformations preserve the result, up to rounding, when they preserve represented ties and ordering.
+Converting integers beyond `2^53` to `f64` can merge distinct observations; this API cannot recover distinctions already lost by the caller.
+
+Rank positions use integer indices. Retained counts above `2^50` (or overflowing `usize`) return `SplitRhatError::TooManyRankedSamples` before allocation,
+keeping average ranks and fractional offsets exactly representable. The error preserves the original chain count, retained half length, and effective
+limit `min(2^50, usize::MAX)`, including when the pooled count overflows. Normal quantiles use [Wichura's AS 241](../REFERENCES.md#ref-18), evaluated in the
+lower tail and reflected to avoid subtracting probabilities near one. Scores feed the existing scaled, compensated variance calculation. As with the classical
+estimator, any constant half returns `ConstantSplitChain`, nonconstant but unresolvable variance returns `UnresolvedVariance`, and an unrepresentable final
+ratio returns `NumericalFailure`. This conservative constant-half policy is stricter than references that only reject a zero pooled within-chain variance.
+Borrowed inputs are unchanged. Sorting costs `O(S log S)` time with `O(S)` auxiliary memory.
+
+The distinct result type identifies the component. Metadata reports original chain count, original length, and retained half length, including original
+odd lengths. Neither estimator clips values below one. Normal-score moments avoid the finite marginal moment assumption of raw-moment R-hat, but this
+component **omits Section 4.2's folded scale-sensitive component and the combined maximum**. It can miss scale disagreement and does not certify convergence.
+Warmup, cadence checks, sufficient-information policies, and decision thresholds remain with callers. Single-chain mean ESS remains unchanged.
+
+The [retained reference fixtures](../tests/fixtures/rank_normalized_rhat.json) pin ArviZ 0.22.0, SciPy 1.16.2, NumPy 2.2.6, and all input draws.
+They use [`rhat(method="z_scale")`](../REFERENCES.md#ref-19), which splits before ranking and computes this component alone. A scale-only fixture also records
+the combined `method="rank"` value to catch accidental substitution of the maximum. Relative tolerance `5e-13` allows rounding from independent quantile
+approximations, summation, and half traversal order while remaining much smaller than fixture differences between estimators. Private inverse-normal tests
+compare central, tail, and branch-boundary quantiles to SciPy's independent Cephes implementation with absolute and relative tolerances `2e-14`.
+These tolerances describe measured agreement, not a proof of correct rounding on every platform.
+
+Recompute the component fixtures from the repository root (prints results without changing retained evidence):
+
+```bash
+uv run --no-project --python 3.13.7 \
+  --with arviz==0.22.0 --with scipy==1.16.2 --with numpy==2.2.6 python - <<'PY'
+import json
+from pathlib import Path
+import arviz as az
+import numpy as np
+
+fixture = json.loads(Path("tests/fixtures/rank_normalized_rhat.json").read_bytes())
+for case in fixture["cases"]:
+    draws = np.asarray(case["chains"], dtype=float)
+    print(case["name"], format(float(az.rhat(draws, method="z_scale")), ".17g"))
+    if "combined_reference" in case:
+        print("combined", format(float(az.rhat(draws, method="rank")), ".17g"))
+PY
+```
+
+Deterministic tests additionally compare shifted Cauchy quantile grids with same-distribution controls. These expose the raw-moment estimator's heavy-tail
+weakness without stochastic pass/fail assertions; they are synthetic sensitivity examples, not evidence that a sampler converges.
 
 ## Export and notebook workflow
 

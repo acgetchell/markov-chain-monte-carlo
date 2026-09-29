@@ -1,14 +1,15 @@
-//! Classical split R-hat for comparable, finite scalar chains.
+//! Classical and rank-normalized split R-hat for comparable, finite scalar chains.
 //!
 //! [`SplitRhat`] compares within-half and between-half variation, while
-//! [`SplitRhatError`] keeps invalid and unresolved inputs explicit. Its types are
+//! [`RankNormalizedSplitRhat`] applies the same ratio to pooled normal scores.
+//! [`SplitRhatError`] keeps invalid and unresolved inputs explicit. These types are
 //! re-exported at the crate root and in [`crate::prelude`].
 
 use std::{error::Error, fmt};
 
-use crate::numerics::{compensated_sum, count_as_f64};
+use crate::numerics::{compensated_sum, count_as_f64, inverse_normal_lower_tail};
 
-/// Invalid or numerically unresolved input to [`SplitRhat::estimate`].
+/// Invalid or numerically unresolved input to either split R-hat estimator.
 ///
 /// Every `chain_index` is a zero-based position in the supplied slice, not a
 /// [`crate::ChainId`]. Keep the identifiers alongside those slices when reporting
@@ -72,6 +73,21 @@ pub enum SplitRhatError {
     ///
     /// Every half passed the individual variance checks before this failure.
     NumericalFailure,
+    /// Rank normalization would pool more than `2^50` retained draws, or the
+    /// pooled count overflows `usize`. This bound keeps average ranks and the
+    /// fractional offsets in the normal-score transform exactly representable.
+    ///
+    /// Only [`RankNormalizedSplitRhat::estimate`] returns this variant;
+    /// [`SplitRhat::estimate`] does not rank observations.
+    #[non_exhaustive]
+    TooManyRankedSamples {
+        /// Number of original chains whose retained samples would be pooled.
+        chain_count: usize,
+        /// Retained draws per half; each original chain contributes two halves.
+        samples_per_split_chain: usize,
+        /// Maximum pooled retained count: the smaller of `2^50` and `usize::MAX`.
+        max_retained_samples: usize,
+    },
 }
 
 impl fmt::Display for SplitRhatError {
@@ -115,6 +131,14 @@ impl fmt::Display for SplitRhatError {
             Self::NumericalFailure => {
                 f.write_str("final split R-hat estimate is not positive and finite")
             }
+            Self::TooManyRankedSamples {
+                chain_count,
+                samples_per_split_chain,
+                max_retained_samples,
+            } => write!(
+                f,
+                "rank normalization of {chain_count} chains with {samples_per_split_chain} samples per half exceeds the limit of {max_retained_samples} retained draws"
+            ),
         }
     }
 }
@@ -145,8 +169,9 @@ impl Error for SplitRhatError {}
 /// This raw-moment estimator assumes finite marginal mean and variance. It is
 /// **not rank-normalized or folded R-hat** and can miss scale or tail differences.
 /// A value near one is not proof of convergence, adequate length, or exploration
-/// of all modes. Use longer runs, dispersed starts, ESS, and trace inspection;
-/// consider rank-normalized diagnostics for heavy tails or scale differences.
+/// of all modes. Use longer runs, dispersed starts, ESS, and trace inspection.
+/// [`RankNormalizedSplitRhat`] helps detect location disagreement with heavy
+/// tails. Neither estimator includes folded diagnostics for scale sensitivity.
 ///
 /// # Examples
 ///
@@ -351,6 +376,139 @@ impl SplitRhat {
     }
 }
 
+/// Rank-normalized split R-hat component for one scalar observable.
+///
+/// Use [`Self::estimate`] with borrowed scalar chains, then read the component
+/// with [`Self::value`] and inspect the original and retained sample counts.
+///
+/// This distinct type identifies the estimator; [`SplitRhat`] remains the
+/// classical raw-moment estimator. Supply comparable post-warmup chains under
+/// the sampling assumptions documented on [`SplitRhat`]. Callers own warmup,
+/// recording cadence, chain independence, and any decision thresholds.
+///
+/// Split first, pool all retained draws, assign one-based average ranks to ties,
+/// then transform each rank `r` to `Phi^-1((r - 3/8) / (S + 1/4))`, where `S`
+/// counts retained draws across all chains. Apply the split variance ratio to
+/// these normal scores, preserving chain and half identity. Signed zeros tie;
+/// integer/count observations represented as `f64` need no jitter. Strictly
+/// monotone transformations that preserve represented ties and ordering preserve
+/// this diagnostic up to floating-point rounding, including order reversal.
+/// Conversion to `f64` can merge distinct integers beyond `2^53`; preserve the
+/// observable's relevant distinctions before supplying these scalar slices.
+///
+/// See Vehtari et al. (2021), [Sections 3.1 and 4.1, equation (14)](https://arxiv.org/html/1903.08008v5#S4.SS1).
+/// Rank normalization avoids requiring finite marginal moments of the original
+/// distribution, but every supplied draw must still be finite. This component
+/// **omits folding and the combined maximum** from Section 4.2. It can miss
+/// scale disagreement and does not certify convergence or adequate sampling.
+///
+/// # Examples
+///
+/// These short synthetic count traces demonstrate estimation and count metadata,
+/// not adequate sampling. Real post-warmup traces must satisfy the comparability
+/// assumptions above. With five draws per chain, each middle draw is omitted
+/// before ranking and each retained half contains two draws.
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::{RankNormalizedSplitRhat, SplitRhatError};
+///
+/// let counts_a = [2.0, 4.0, 3.0, 4.0, 6.0];
+/// let counts_b = [3.0, 5.0, 4.0, 5.0, 7.0];
+/// let result = RankNormalizedSplitRhat::estimate(&[&counts_a, &counts_b])?;
+/// println!("Rank-normalized split R-hat component: {}", result.value());
+/// assert_eq!(result.chain_count(), 2);
+/// assert_eq!(result.samples_per_chain(), 5);
+/// assert_eq!(result.samples_per_split_chain(), 2);
+/// # Ok::<(), SplitRhatError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[must_use]
+pub struct RankNormalizedSplitRhat {
+    /// Variance ratio of normal scores, with original input counts restored.
+    summary: SplitRhat,
+}
+
+impl RankNormalizedSplitRhat {
+    /// Estimate the rank-normalized split component from borrowed scalar chains.
+    ///
+    /// Requires two or more equal-length original chains of at least four draws.
+    /// Each contributes its first and last `floor(N/2)` draws, in that order;
+    /// an odd middle draw is checked for finiteness but omitted before ranking.
+    /// These minima define the formula, not its statistical reliability.
+    /// Inputs remain unchanged and the result retains no borrow of them.
+    /// Sorting costs `O(S log S)` time and `O(S)` auxiliary memory.
+    ///
+    /// Normal scores use Wichura's AS 241 inverse-normal approximation, with
+    /// lower-tail evaluation and symmetry to avoid upper-tail cancellation.
+    /// Independent fixtures check inverse-normal absolute error within `2e-14`
+    /// and diagnostic relative error within `5e-13`; these are tested tolerances,
+    /// not a correctly-rounded guarantee for every platform.
+    ///
+    /// # Errors
+    ///
+    /// Checks original chain count, lengths, then finiteness in the same order
+    /// as [`SplitRhat::estimate`]. Next, [`SplitRhatError::TooManyRankedSamples`]
+    /// rejects pooled retained counts above `2^50` or overflowing `usize`, before
+    /// allocation. Its fields preserve the chain count, retained half length,
+    /// and effective limit even when the pooled count cannot fit in `usize`.
+    ///
+    /// Moment errors from [`SplitRhat::estimate`] retain the original chain and
+    /// half indices. Each half is checked for constancy, then unresolved score
+    /// variance, in original chain order. Any constant half is rejected, including
+    /// when other halves vary; signed zeros compare equal. A varying half with
+    /// unresolvable score variance yields [`SplitRhatError::UnresolvedVariance`].
+    /// [`SplitRhatError::NumericalFailure`] applies only after all halves pass
+    /// these checks and the final ratio is not positive and finite.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markov_chain_monte_carlo::prelude::{RankNormalizedSplitRhat, SplitRhatError};
+    ///
+    /// let a = [0.0, 1.0, 0.0, 1.0];
+    /// let b = [2.0, 3.0, 2.0, 3.0];
+    /// let result = RankNormalizedSplitRhat::estimate(&[&a, &b])?;
+    /// assert!(result.value() > 1.0);
+    /// assert_eq!(result.chain_count(), 2);
+    /// assert_eq!(result.samples_per_chain(), 4);
+    /// assert_eq!(result.samples_per_split_chain(), 2);
+    /// # Ok::<(), SplitRhatError>(())
+    /// ```
+    pub fn estimate(chains: &[&[f64]]) -> Result<Self, SplitRhatError> {
+        let input = SplitRhatInput::parse(chains)?;
+        let scores = input.normal_scores()?;
+        let retained_per_chain = 2 * (input.samples_per_chain / 2);
+        let ranked_chains: Vec<_> = scores.chunks_exact(retained_per_chain).collect();
+        let mut summary = SplitRhat::estimate(&ranked_chains)?;
+        summary.samples_per_chain = input.samples_per_chain;
+        Ok(Self { summary })
+    }
+
+    /// Positive finite rank-normalized split component, without a floor at one.
+    #[must_use]
+    pub const fn value(self) -> f64 {
+        self.summary.value()
+    }
+
+    /// Number of original chains, before splitting.
+    #[must_use]
+    pub const fn chain_count(self) -> usize {
+        self.summary.chain_count()
+    }
+
+    /// Original draws per chain, including any omitted middle draw.
+    #[must_use]
+    pub const fn samples_per_chain(self) -> usize {
+        self.summary.samples_per_chain()
+    }
+
+    /// Retained draws per half; each original chain contributes two halves.
+    #[must_use]
+    pub const fn samples_per_split_chain(self) -> usize {
+        self.summary.samples_per_split_chain()
+    }
+}
+
 /// Borrowed chains with the shape and finite-input preconditions for R-hat moments.
 ///
 /// Checking two or more chains and equal lengths of at least four makes the
@@ -364,6 +522,60 @@ struct SplitRhatInput<'a> {
 }
 
 impl<'a> SplitRhatInput<'a> {
+    /// Rank only retained draws, then scatter scores back into original
+    /// chain/first-half/last-half order. No raw-value arithmetic is needed.
+    #[expect(
+        clippy::float_cmp,
+        reason = "ties mean exact represented equality, including signed zero"
+    )]
+    fn normal_scores(&self) -> Result<Vec<f64>, SplitRhatError> {
+        let half_length = self.samples_per_chain / 2;
+        let max_retained_samples = usize::try_from(1_u64 << 50).unwrap_or(usize::MAX);
+        let count = self
+            .chains
+            .len()
+            .checked_mul(2 * half_length)
+            .filter(|&count| count <= max_retained_samples)
+            .ok_or(SplitRhatError::TooManyRankedSamples {
+                chain_count: self.chains.len(),
+                samples_per_split_chain: half_length,
+                max_retained_samples,
+            })?;
+        let mut ordered = Vec::with_capacity(count);
+        ordered.extend(
+            self.chains
+                .iter()
+                .flat_map(|chain| {
+                    chain[..half_length]
+                        .iter()
+                        .chain(&chain[self.samples_per_chain - half_length..])
+                })
+                .copied()
+                .enumerate(),
+        );
+        ordered.sort_unstable_by(|(_, left), (_, right)| left.total_cmp(right));
+        let mut scores = vec![0.0; count];
+        let total = count_as_f64(count);
+        let mut start = 0;
+        while start < count {
+            let mut end = start + 1;
+            while end < count && ordered[end].1 == ordered[start].1 {
+                end += 1;
+            }
+            // Positions start..end have one-based average rank (start+1+end)/2.
+            let rank = (count_as_f64(start) + count_as_f64(end) + 1.0) * 0.5;
+            let lower = rank - 0.375;
+            let upper = total - rank + 0.625;
+            let score = inverse_normal_lower_tail(lower.min(upper) / (total + 0.25));
+            let score = if lower <= upper { score } else { -score };
+            for &(index, _) in &ordered[start..end] {
+                scores[index] = score;
+            }
+            start = end;
+        }
+        Ok(scores)
+    }
+
     /// Check lengths before values, with shortness before unequal length within
     /// each original chain. Check all samples, including omitted middle draws.
     fn parse(chains: &'a [&'a [f64]]) -> Result<Self, SplitRhatError> {
@@ -399,5 +611,99 @@ impl<'a> SplitRhatInput<'a> {
             chains,
             samples_per_chain: chains[0].len(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use approx::assert_abs_diff_eq;
+
+    use super::{SplitRhatError, SplitRhatInput};
+
+    #[test]
+    fn rank_count_overflow_precedes_sample_access() {
+        // Synthetic private count metadata exercises an otherwise infeasible
+        // allocation boundary. Empty backing slices deliberately fail if the
+        // guard starts reading samples before rejecting the count.
+        let chains: [&[f64]; 2] = [&[], &[]];
+        let input = SplitRhatInput {
+            chains: &chains,
+            samples_per_chain: usize::MAX,
+        };
+        let error = input.normal_scores().unwrap_err();
+        let SplitRhatError::TooManyRankedSamples {
+            chain_count,
+            samples_per_split_chain,
+            max_retained_samples,
+        } = error
+        else {
+            panic!("expected a rank-count error, got {error:?}");
+        };
+        assert_eq!(chain_count, 2);
+        assert_eq!(samples_per_split_chain, usize::MAX / 2);
+        assert_eq!(
+            max_retained_samples as u128,
+            (usize::MAX as u128).min(1_u128 << 50)
+        );
+        let message = error.to_string();
+        for detail in [
+            "2 chains".to_owned(),
+            format!("{} samples per half", usize::MAX / 2),
+            format!("{max_retained_samples} retained draws"),
+        ] {
+            assert!(message.contains(&detail), "missing {detail:?}: {message}");
+        }
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn rank_count_limit_precedes_sample_access() {
+        // Pooling 2 * (2^49 + 2) retained draws fits usize but exceeds 2^50.
+        // As above, exercise only the count preflight with synthetic metadata.
+        // On 32-bit targets the precision bound is above usize::MAX.
+        let chains: [&[f64]; 2] = [&[], &[]];
+        let input = SplitRhatInput {
+            chains: &chains,
+            samples_per_chain: (1_usize << 49) + 2,
+        };
+        assert_eq!(
+            input.normal_scores().unwrap_err(),
+            SplitRhatError::TooManyRankedSamples {
+                chain_count: 2,
+                samples_per_split_chain: (1_usize << 48) + 1,
+                max_retained_samples: 1_usize << 50,
+            }
+        );
+    }
+
+    #[test]
+    fn pooled_average_ranks_restore_original_chain_and_half_order() {
+        let a = [3.0, 2.0, f64::MAX, 1.0, 2.0];
+        let b = [4.0, -0.0, -f64::MAX, 0.0, 2.0];
+        let chains = [&a[..], &b[..]];
+        let scores = SplitRhatInput::parse(&chains)
+            .unwrap()
+            .normal_scores()
+            .unwrap();
+        // Retained draws: [3,2,1,2,4,-0,+0,2]. Average pooled ranks:
+        // [7,5,3,5,8,1.5,1.5,5]. In particular, signed zeros tie across halves.
+        // scipy.special.ndtri((rank - 0.375) / 8.25), SciPy 1.16.2.
+        let expected = [
+            0.852_495_034_274_693_9,
+            0.152_505_974_246_244_24,
+            -0.472_789_120_992_267_4,
+            0.152_505_974_246_244_24,
+            1.434_200_159_686_379_4,
+            -1.096_803_562_093_512_8,
+            -1.096_803_562_093_512_8,
+            0.152_505_974_246_244_24,
+        ];
+        assert_eq!(scores.len(), expected.len());
+        for (score, reference) in scores.iter().zip(expected) {
+            assert_abs_diff_eq!(*score, reference, epsilon = 2e-14);
+        }
+        assert_eq!(scores[5].to_bits(), scores[6].to_bits());
+        assert_eq!(scores[1].to_bits(), scores[3].to_bits());
+        assert_eq!(scores[1].to_bits(), scores[7].to_bits());
     }
 }

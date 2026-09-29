@@ -11,10 +11,10 @@ use markov_chain_monte_carlo::{
     DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
     DetailedBalanceState, DiscreteProposalEndpoint, EssRateError, IntegratedAutocorrelationTime,
     InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
-    OnlineStats, Proposal, ProposalBinsReport, ProposalDensityReport, ProposalMut, SampleBuffer,
-    Sampler, SplitRhat, SplitRhatError, StatisticsError, Step, StepOutcome, StepRejectionReason,
-    Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
-    TryObservedMutStepResult,
+    OnlineStats, Proposal, ProposalBinsReport, ProposalDensityReport, ProposalMut,
+    RankNormalizedSplitRhat, SampleBuffer, Sampler, SplitRhat, SplitRhatError, StatisticsError,
+    Step, StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace, TraceError,
+    TraceRecord, TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 #[cfg(feature = "serde")]
@@ -187,6 +187,7 @@ fn downstream_exports_compile() {
     // Both public paths must expose the same diagnostic types.
     let _: Option<EssRateError> = None::<prelude::EssRateError>;
     let _: Option<SplitRhat> = None::<prelude::SplitRhat>;
+    let _: Option<RankNormalizedSplitRhat> = None::<prelude::RankNormalizedSplitRhat>;
     let _: Option<SplitRhatError> = None::<prelude::SplitRhatError>;
     let _: Option<McmcError> = None;
     let _: Option<DelayedCommitLogProbMismatch> = None;
@@ -237,7 +238,7 @@ fn downstream_exports_compile() {
 
 #[test]
 fn trace_diagnostics_keep_chain_boundaries_and_outlive_input_storage() {
-    let (time, rhat) = {
+    let (time, rhat, ranked_rhat) = {
         let mut trace = Trace::new(["energy"]).unwrap();
         // Nonconsecutive IDs in deliberately nonnumeric order ensure selection
         // follows caller identity. Interleaved rows must never become one ACF.
@@ -281,8 +282,10 @@ fn trace_diagnostics_keep_chain_boundaries_and_outlive_input_storage() {
             .unwrap();
         let chains: Vec<_> = columns.iter().map(Vec::as_slice).collect();
         let rhat = prelude::SplitRhat::estimate(&chains).unwrap();
-        (time, rhat)
-    }; // Both summaries remain usable after the trace and scratch columns drop.
+        let ranked_rhat: RankNormalizedSplitRhat =
+            prelude::RankNormalizedSplitRhat::estimate(&chains).unwrap();
+        (time, rhat, ranked_rhat)
+    }; // All summaries remain usable after the trace and scratch columns drop.
 
     // Independently derived finite fixtures: tau=3/2, and split-half means
     // [1.5,3.5,3.5,5.5] give W=1/2 and B/n=8/3, hence Rhat^2=35/6.
@@ -292,6 +295,13 @@ fn trace_diagnostics_keep_chain_boundaries_and_outlive_input_storage() {
     assert_eq!(rhat.samples_per_chain(), 4);
     assert_eq!(rhat.samples_per_split_chain(), 2);
     assert_relative_eq!(rhat.value(), (35.0_f64 / 6.0).sqrt(), epsilon = 1e-14);
+    // The rank-normalized summary uses the same original chain/count contract
+    // and remains a distinct owned result. Independent numeric fixtures live
+    // in tests/rank_normalized_rhat.rs; this is the downstream storage contract.
+    assert_eq!(ranked_rhat.chain_count(), 2);
+    assert_eq!(ranked_rhat.samples_per_chain(), 4);
+    assert_eq!(ranked_rhat.samples_per_split_chain(), 2);
+    assert!(ranked_rhat.value().is_finite());
 }
 
 #[test]

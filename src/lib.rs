@@ -514,14 +514,16 @@
 //! [`effective_sample_size_per_second`](IntegratedAutocorrelationTime::effective_sample_size_per_second)
 //! divides by a caller-measured duration covering the analyzed workload.
 //! Keep independent chains separate for ACF and ESS; pass borrowed per-chain
-//! slices to [`SplitRhat::estimate`] for classical split R-hat instead.
+//! slices to [`SplitRhat::estimate`] for classical split R-hat or
+//! [`RankNormalizedSplitRhat::estimate`] for its rank-normalized component.
 //!
 //! These estimators and their error types are available in the shared [`prelude`]
 //! with default features. They do not depend on the optional `serde` checkpoint
 //! feature. Read the linked estimator contracts for minimum lengths, truncation,
 //! degenerate inputs, and finite-variance assumptions. A successful estimate is
 //! not a convergence certificate; classical split R-hat is not rank-normalized
-//! or folded, and single-chain mean ESS is not bulk or tail ESS.
+//! or folded. The rank-normalized component also omits folding and the combined
+//! maximum; single-chain mean ESS is not bulk or tail ESS.
 //!
 //! # Streaming statistics
 //!
@@ -600,7 +602,7 @@ pub use continuous_testing::{
     ProposalBinsError, ProposalBinsReport, ProposalDensityError, ProposalDensityReport,
     verify_proposal_bins, verify_proposal_density,
 };
-pub use convergence::{SplitRhat, SplitRhatError};
+pub use convergence::{RankNormalizedSplitRhat, SplitRhat, SplitRhatError};
 pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
 pub use error::{DelayedCommitLogProbMismatch, McmcError};
 pub use observable::{
@@ -630,7 +632,8 @@ pub use traits::{
 ///
 /// The top-level prelude contains the shared sampling foundation, observable
 /// statistics, and reusable trace diagnostics, including [`TraceRecorder`],
-/// [`Autocorrelation`], and [`SplitRhat`]. Integrated-time summaries also expose
+/// [`Autocorrelation`], [`SplitRhat`], and [`RankNormalizedSplitRhat`].
+/// Integrated-time summaries also expose
 /// [ESS](IntegratedAutocorrelationTime::effective_sample_size) and
 /// [measured ESS rates](IntegratedAutocorrelationTime::effective_sample_size_per_second):
 ///
@@ -684,10 +687,10 @@ pub mod prelude {
         BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId,
         DelayedCommitLogProbMismatch, EssRateError, IntegratedAutocorrelationTime,
         InvalidThinningInterval, McmcError, Observable, ObservedIntoRunResult, ObservedStepError,
-        ObservedStreamError, OnlineStats, SampleBuffer, Sampler, SplitRhat, SplitRhatError,
-        StatisticsError, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
-        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-        TryThinnedObservedRunResult, TunableProposal,
+        ObservedStreamError, OnlineStats, RankNormalizedSplitRhat, SampleBuffer, Sampler,
+        SplitRhat, SplitRhatError, StatisticsError, Target, ThinningInterval, Trace, TraceError,
+        TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
+        TryObservedIntoRunResult, TryThinnedObservedRunResult, TunableProposal,
     };
 
     /// Prelude for by-value proposals.
