@@ -119,6 +119,11 @@ OSV-Scanner audits `uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_bac
 isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
 The existing Cargo audit workflow continues to check RustSec advisories separately.
 
+Semgrep 1.178.0 requires PyJWT `~=2.13.0`, excluding the patched releases needed for the reported PyJWT advisories, including
+[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The project's `[tool.uv].override-dependencies` selects PyJWT `>=2.15.1,<3`
+with its `crypto` extra. Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
+Remove the override when the pinned Semgrep release accepts the patched series.
+
 Gitleaks scans all reachable Git history plus a private snapshot of tracked and nonignored working files, including uncommitted files. CI fetches complete
 history (`fetch-depth: 0`). Shared defaults exclude environment/build directories; ignored untracked files, unreachable objects, binary blobs, archives, and
 nested repositories are outside this scan. The shared command disables inline and ambient-ignore bypasses and redacts secret values and adjacent match text.
