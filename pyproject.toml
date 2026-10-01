@@ -219,3 +219,6 @@ python_functions = [ "test_*" ]
 required-version = "==0.12.21"
 package = false
 default-groups = [ "dev", "notebook" ]
+# Semgrep 1.178.0 caps PyJWT below 2.14; 2.15.1 includes the OSV fixes.
+# Preserve the crypto extra while replacing that cap until upstream updates it.
+override-dependencies = [ "pyjwt[crypto]>=2.15.1,<3" ]
