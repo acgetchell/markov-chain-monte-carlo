@@ -268,12 +268,20 @@ also records posterior's computable result with only one constant folded half; t
 The report preserves original chain count, original length, retained half length, and both component successes/failures. Missing components never become
 a passing sentinel or the other component's value. Mean ESS remains a separate single-chain quantity, not bulk or tail ESS.
 
-[Stored inputs and expected results](../tests/fixtures/combined_rhat.json) pin posterior 1.7.0, R 4.5.1, jsonlite 2.0.0, and matrixStats 1.5.0.
-The [generation script](../tests/fixtures/generate_combined_rhat.R) calls posterior's internal component functions and public `rhat`, prints results and
-session versions, and never overwrites evidence. Run `Rscript tests/fixtures/generate_combined_rhat.R` from the repository root in that R environment.
-Install the pinned packages from their CRAN source tarballs (using `src/contrib/Archive/<package>/` if no longer current), then check the asserted versions.
-The recorded run used the `rocker/r-ver:4.5.1` image, digest
+[Stored inputs and expected results](../tests/fixtures/combined_rhat.json) retain the original posterior 1.7.0 reference values and provenance:
+R 4.5.1, jsonlite 2.0.0, and matrixStats 1.5.0. That recorded run used the `rocker/r-ver:4.5.1` image, digest
 `sha256:03b023fbf7b1b24ac1bb8b2ac5fd7e15a767e67b40ff50c155e328110981c2aa`, on Linux aarch64 via Docker on macOS.
+
+The [Python reproduction script](../tests/fixtures/generate_combined_rhat.py) uses pinned ArviZ 0.22.0, NumPy 2.2.6, SciPy 1.16.2, and Python 3.13.7
+in an isolated uv environment, separate from the repository's Python tooling baseline. It applies ArviZ's `rhat(method="z_scale")` to the original
+chains and to absolute deviations from the median of all original draws, then takes the maximum only when both components are finite. This explicitly
+preserves posterior's fold-before-split convention; ArviZ's direct `method="rank"` and `method="folded"` fold after splitting and can differ for odd lengths.
+It checks all retained reference values, including nulls and the constant-half policy difference, prints results and runtime versions, and never
+overwrites evidence. No R installation is needed. Run from the repository root:
+
+```bash
+uv run --script tests/fixtures/generate_combined_rhat.py
+```
 
 Relative tolerance `5e-13` covers independent quantile implementations, summation, and half traversal order; it is much smaller than the estimator
 differences in these fixtures. Cases cover scale-only disagreement, location shifts, heavy tails, a same-distribution control, counts, odd lengths,

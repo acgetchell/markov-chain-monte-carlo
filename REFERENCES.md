@@ -104,6 +104,8 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     Independent `posterior::rhat` oracle for both rank-based components and their maximum, with R 4.5.1 and matrixStats 1.5.0.
     Folding uses all original draws for the pooled median before first/last-half splitting, including odd middle draws.
     The crate retains its stricter policy of rejecting any constant split half; posterior 1.7.0 can compute a value when only one half is constant.
+    The [Python reproduction script](tests/fixtures/generate_combined_rhat.py) checks these retained values using [19](#ref-19)'s `z_scale` component
+    on original and median-folded chains, preserving posterior's fold-before-split convention without an R runtime.
 
 ## Related crates
 

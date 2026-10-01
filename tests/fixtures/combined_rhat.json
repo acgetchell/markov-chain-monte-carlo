@@ -7,8 +7,19 @@
     "matrixStats_version": "1.5.0",
     "platform": "aarch64-unknown-linux-gnu, Ubuntu 24.04.3, Docker on macOS",
     "source": "https://github.com/stan-dev/posterior/blob/v1.7.0/R/convergence.R",
-    "generation_command": "Rscript tests/fixtures/generate_combined_rhat.R",
+    "generation_method": "posterior::rhat and internal component functions",
     "relative_tolerance": 5e-13
+  },
+  "reproduction": {
+    "package": "arviz",
+    "version": "0.22.0",
+    "python_version": "3.13.7",
+    "numpy_version": "2.2.6",
+    "scipy_version": "1.16.2",
+    "source": "https://github.com/arviz-devs/arviz/blob/v0.22.0/arviz/stats/diagnostics.py",
+    "method": "arviz.rhat(method='z_scale') on original and median-folded draws",
+    "median_scope": "all_original_draws_before_splitting",
+    "command": "uv run --script tests/fixtures/generate_combined_rhat.py"
   },
   "cases": [
     {
