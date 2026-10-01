@@ -6,15 +6,16 @@ use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::{self, by_value, delayed, in_place, testing};
 use markov_chain_monte_carlo::{
     AdditiveTarget, Autocorrelation, AutocorrelationError, BinningAnalysis, BinningEstimate, Chain,
-    ChainCheckpoint, ChainId, DelayedCommitLogProbMismatch, DelayedStep,
+    ChainCheckpoint, ChainId, CombinedRhat, DelayedCommitLogProbMismatch, DelayedStep,
     DetailedBalanceBatchReport, DetailedBalanceConfig, DetailedBalanceDelayedTransition,
     DetailedBalanceDirection, DetailedBalanceError, DetailedBalanceFailure, DetailedBalanceReport,
-    DetailedBalanceState, DiscreteProposalEndpoint, EssRateError, IntegratedAutocorrelationTime,
-    InvalidThinningInterval, McmcError, Observable, ObservedDelayedStep, ObservedMutStep,
-    OnlineStats, Proposal, ProposalBinsReport, ProposalDensityReport, ProposalMut,
-    RankNormalizedSplitRhat, SampleBuffer, Sampler, SplitRhat, SplitRhatError, StatisticsError,
-    Step, StepOutcome, StepRejectionReason, Target, ThinningInterval, Trace, TraceError,
-    TraceRecord, TraceRecorder, TraceStepOutcome, TryObservedMutStepResult,
+    DetailedBalanceState, DiscreteProposalEndpoint, EssRateError, FoldedRankNormalizedSplitRhat,
+    IntegratedAutocorrelationTime, InvalidThinningInterval, McmcError, Observable,
+    ObservedDelayedStep, ObservedMutStep, OnlineStats, Proposal, ProposalBinsReport,
+    ProposalDensityReport, ProposalMut, RankNormalizedSplitRhat, SampleBuffer, Sampler, SplitRhat,
+    SplitRhatError, StatisticsError, Step, StepOutcome, StepRejectionReason, Target,
+    ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
+    TryObservedMutStepResult,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 #[cfg(feature = "serde")]
@@ -302,6 +303,19 @@ fn trace_diagnostics_keep_chain_boundaries_and_outlive_input_storage() {
     assert_eq!(ranked_rhat.samples_per_chain(), 4);
     assert_eq!(ranked_rhat.samples_per_split_chain(), 2);
     assert!(ranked_rhat.value().is_finite());
+}
+
+#[test]
+fn combined_diagnostic_survives_borrowed_input_buffers() {
+    let report: CombinedRhat = {
+        let a = vec![-1.0, 1.0, -2.0, 2.0, -1.0, 1.0, -2.0, 2.0];
+        let b = vec![-10.0, 10.0, -20.0, 20.0, -10.0, 10.0, -20.0, 20.0];
+        prelude::CombinedRhat::estimate(&[&a, &b]).unwrap()
+    };
+    let folded: FoldedRankNormalizedSplitRhat = report.folded().unwrap();
+    let _: prelude::FoldedRankNormalizedSplitRhat = folded;
+    assert_eq!(report.value(), Some(folded.value()));
+    assert_eq!(report.samples_per_chain(), 8);
 }
 
 #[test]

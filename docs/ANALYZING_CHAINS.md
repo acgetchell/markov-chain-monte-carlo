@@ -12,8 +12,10 @@ just example diagnostics
 ```
 
 [`examples/diagnostics.rs`](../examples/diagnostics.rs) samples four standard-normal chains with distinct seeds and dispersed starts, discards warmup,
-and retains every production step. It prints lag-one ACF and mean ESS for each chain, then classical and rank-normalized split R-hat across the four chains.
-The same borrowed chain slices feed both estimators. Neither includes the folded component or combined maximum.
+and retains every production step. It prints lag-one ACF and mean ESS for each chain, then classical, rank-normalized, folded, and combined R-hat.
+The same borrowed chain slices feed the estimators. It writes `target/diagnostics_trace.csv` and `target/diagnostics.json`, including chain IDs, seeds,
+starts, target, proposal, RNG, crate version, warmup, cadence, splitting/median conventions, sample counts, named estimators, and component availability.
+Each rerun replaces those artifacts. Component errors are display strings; use the Rust variants for failure-specific handling.
 The fixed seeds make the demonstration reproducible within the pinned toolchain and dependencies. Its output is an illustration, not a convergence gate.
 `just examples` and `just ci` check its successful diagnostic output through the shared `tooling/examples.toml` validator.
 
@@ -55,6 +57,8 @@ spacing before estimating an ACF; keep rejected and no-proposal steps. Do not co
 | How efficiently did the measured run produce that information? | `time.effective_sample_size_per_second(elapsed)?` | Mean ESS divided by measured seconds |
 | Do within-chain and between-chain variations agree? | `SplitRhat::estimate(&chains)?.value()` | Classical split R-hat from equally long borrowed scalar slices |
 | Do the chains' ranked locations agree? | `RankNormalizedSplitRhat::estimate(&chains)?.value()` | Pooled rank-normalized split component, without folding |
+| Do the chains' scales agree? | `FoldedRankNormalizedSplitRhat::estimate(&chains)?.value()` | Ranked absolute deviations from the pooled median |
+| Do both rank-based components agree? | `CombinedRhat::estimate(&chains)?.value()` | Maximum, or `None` if either component is unavailable |
 
 Keep chains separate for ACF and ESS. Concatenation introduces artificial transitions between chains, and summing per-chain ESS does not produce a
 diagnostic that accounts for disagreement between chains. ESS is observable-specific; mean ESS is not bulk or tail ESS.
@@ -79,6 +83,9 @@ and diagnostics. Other timing scopes are possible, but must be comparable across
   Signed zeros tie. Its distinct result type identifies the estimator, while `chain_count()`, `samples_per_chain()`, and `samples_per_split_chain()`
   report original chains, original length, and retained half length. It omits the folded scale-sensitive component and combined maximum.
   See the [scientific contract and pinned reference fixtures](scientific_basis.md#rank-normalized-split-r-hat).
+- `CombinedRhat` preserves both the location and folded components. Folding uses the median of all original draws before splitting, including odd middle
+  draws. Use `rank_normalized()` and `folded()` to inspect typed component results and `value()` for their optional maximum.
+  See [folding arithmetic, conventions, and reference evidence](scientific_basis.md#folded-and-combined-r-hat).
 
 The [Stan reference on ESS](https://mc-stan.org/docs/2_29/reference-manual/effective-sample-size.html) describes the integrated-time relationship and
 initial monotone sequence method. Stan's combined multi-chain ESS is distinct from this crate's single-chain mean ESS.
@@ -93,10 +100,15 @@ establish the integrated-time truncation: increase the lag budget or collect a l
 `EssRateError` rejects a zero measured duration.
 
 `SplitRhatError` identifies too few chains or samples, unequal lengths, nonfinite observations, constant halves, numerically unresolved within-half
-variances, and a nonrepresentable final estimate. Both R-hat estimators reject even one constant half. Rank normalization additionally rejects retained
+variances, and a nonrepresentable final estimate. All R-hat components reject even one constant half. Rank normalization additionally rejects retained
 counts above `2^50` or overflowing `usize` with `TooManyRankedSamples` to preserve exact rank offsets. This error reports the chain count, retained half
 length, and effective count limit as typed fields. Preserve errors with chain/observable context; do not replace them with zero ESS or R-hat one.
 The example prints unavailable diagnostics explicitly, while its fixed demonstration inputs are expected to produce successful estimates in CI.
+
+`CombinedRhat::estimate` returns `Err` for invalid input or unsupported counts. Otherwise it returns a report with both component `Result`s, original
+counts, and an optional combined value. A binary/count observable may be valid yet have constant folded deviations, making its combined value `None`.
+`UnresolvedFolding` reports overflow-avoidance scaling that would lose subnormal precision. Preserve the successful component for interpretation, but
+never substitute it for the missing maximum. Deciding whether a structurally constant observable belongs in a consumer gate remains caller policy.
 
 ## Validation evidence
 
@@ -108,3 +120,6 @@ The Ising notebook is an additional end-to-end consumer, not an independent nume
 `tests/rank_normalized_rhat.rs` adds pinned ArviZ component fixtures, deterministic Cauchy location shifts, same-distribution controls, preserved ties and
 ordering under monotone transforms, signed zeros, extreme finite inputs, and borrowed-input checks. Its scale-only fixture deliberately distinguishes
 the rank-normalized split component from the combined rank/folded maximum.
+
+`tests/combined_rhat.rs` checks both components and their maximum against pinned posterior fixtures, with explicit folded degeneracy and odd-length
+conventions. Release availability is separate from source implementation: v0.5.1 publication and a clean registry consumer build remain release checks.

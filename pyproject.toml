@@ -77,9 +77,9 @@ cargo-edit = "0.13.13"
 cargo-llvm-cov = "0.9.1"
 cargo-nextest = "0.9.146"
 clippy-sarif = "0.8.0"
-dprint = "0.57.4"
+dprint = "0.58.0"
 git-cliff = "2.14.2"
-rumdl = "0.2.77"
+rumdl = "0.2.78"
 sarif-fmt = "0.8.0"
 taplo-cli = "0.10.0"
 typos-cli = "1.50.3"
@@ -216,6 +216,6 @@ python_classes = [ "Test*" ]
 python_functions = [ "test_*" ]
 
 [tool.uv]
-required-version = "==0.12.19"
+required-version = "==0.12.21"
 package = false
 default-groups = [ "dev", "notebook" ]

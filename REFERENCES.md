@@ -32,6 +32,7 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Statistics and diagnostics | [Autocorrelation and integrated time](docs/scientific_basis.md#autocorrelation-estimator-contract) | [8](#ref-8), initial sequence estimators; [15](#ref-15), trace-length caution only |
 | Statistics and diagnostics | [Binning](docs/scientific_basis.md#binning-analysis) | [7](#ref-7), blocking for correlated uncertainty |
 | Statistics and diagnostics | [Classical split R-hat](docs/scientific_basis.md#classical-split-r-hat) | [13](#ref-13), the implemented variance-ratio definition; [14](#ref-14), limitations and rank/folded improvements |
+| Statistics and diagnostics | [Folded and combined R-hat](docs/scientific_basis.md#folded-and-combined-r-hat) | [14](#ref-14), Section 4.2, equation (15); [20](#ref-20), independent component and maximum fixtures |
 | Statistics and diagnostics | [ESS and efficiency](docs/scientific_basis.md#ess-and-wall-clock-efficiency) | [8](#ref-8), [13](#ref-13), integrated-time relation; Stan's pooled multi-chain ESS is a different estimator |
 | Statistics and diagnostics | [Online statistics](docs/scientific_basis.md#online-statistics) | [6](#ref-6), Welford accumulation |
 | Statistics and diagnostics | [Proposal validation](docs/scientific_basis.md#proposal-validation) | [1](#ref-1), [2](#ref-2), transition-flow identity; [11](#ref-11), independent-bin tolerance bound |
@@ -80,8 +81,8 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
 14. <a name="ref-14"></a> Vehtari, Aki, Andrew Gelman, Daniel Simpson, Bob Carpenter, and Paul-Christian Bürkner.
     "Rank-Normalization, Folding, and Localization: An Improved R-hat for Assessing Convergence of MCMC." *Bayesian Analysis* 16, no. 2 (2021): 667-718.
     DOI: [10.1214/20-BA1221](https://doi.org/10.1214/20-BA1221). [arXiv:1903.08008v5](https://arxiv.org/abs/1903.08008v5).
-    Sections 3.1 and 4.1, equation (14), define the implemented rank-normalized split component. Section 4.2's folded component and combined maximum
-    remain unimplemented. Sections 1.2 and 5.1 and Appendix A motivate the diagnostic's heavy-tail and location sensitivity.
+    Sections 3.1 and 4.1, equation (14), define the implemented rank-normalized split component. Section 4.2, equation (15), defines folding and the
+    combined maximum. Sections 1.2 and 5.1 and Appendix A motivate the diagnostic's heavy-tail and location sensitivity.
 15. <a name="ref-15"></a> Foreman-Mackey, Dan, and contributors. "Autocorrelation Analysis & Convergence." *emcee documentation*.
     [Trace-length discussion](https://emcee.readthedocs.io/en/stable/tutorials/autocorr/).
     Context for the example notebook's heuristic short-trace caution; the crate uses Geyer's estimator, not emcee's window selection.
@@ -98,6 +99,11 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     [diagnostics implementation](https://github.com/arviz-devs/arviz/blob/v0.22.0/arviz/stats/diagnostics.py).
     Independent `rhat(method="z_scale")` reference for the rank-normalized split component, using SciPy 1.16.2 and NumPy 2.2.6.
     `method="rank"` instead returns the combined rank/folded maximum and is not the component oracle.
+20. <a name="ref-20"></a> Stan Development Team. *posterior* 1.7.0,
+    [R-hat implementation](https://github.com/stan-dev/posterior/blob/v1.7.0/R/convergence.R).
+    Independent `posterior::rhat` oracle for both rank-based components and their maximum, with R 4.5.1 and matrixStats 1.5.0.
+    Folding uses all original draws for the pooled median before first/last-half splitting, including odd middle draws.
+    The crate retains its stricter policy of rejecting any constant split half; posterior 1.7.0 can compute a value when only one half is constant.
 
 ## Related crates
 
