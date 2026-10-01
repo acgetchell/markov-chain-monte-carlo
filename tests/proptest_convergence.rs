@@ -1,7 +1,9 @@
-//! Exact integer moments and metamorphic oracles for both split R-hat estimators.
+//! Exact integer moments and metamorphic oracles for scalar R-hat diagnostics.
 
 use approx::assert_relative_eq;
-use markov_chain_monte_carlo::{RankNormalizedSplitRhat, SplitRhat};
+use markov_chain_monte_carlo::{
+    CombinedRhat, FoldedRankNormalizedSplitRhat, RankNormalizedSplitRhat, SplitRhat, SplitRhatError,
+};
 use proptest::prelude::*;
 
 /// Generate equal-length chains with independently guaranteed variation in
@@ -79,7 +81,7 @@ fn unequal_half_variances_match_hand_calculated_ratio() {
 
 proptest! {
     #[test]
-    fn rank_normalized_binary_chains_match_exact_integer_moments(raw in comparable_chains()) {
+    fn rank_based_binary_components_match_exact_moments_and_availability(raw in comparable_chains()) {
         // Adjacent integers in each half map to distinct binary values. Thus
         // every admitted half varies, without consulting the production result.
         let binary: Vec<Vec<_>> = raw.iter().map(|chain| {
@@ -100,6 +102,33 @@ proptest! {
             (actual.value() / expected - 1.0).abs() <= 1e-12,
             "binary={:?}, actual={}, exact={}", binary, actual.value(), expected,
         );
+        let report = CombinedRhat::estimate(&slices).map_err(|error| {
+            TestCaseError::fail(format!("binary={binary:?}, combined input error={error:?}"))
+        })?;
+        prop_assert_eq!(report.rank_normalized(), Ok(actual));
+        prop_assert_eq!(report.folded(), FoldedRankNormalizedSplitRhat::estimate(&slices));
+        let ones = binary.iter().flatten().filter(|&&value| value == 1).count();
+        let count = binary.len() * binary[0].len();
+        // Availability is predicted only from raw integer counts. A balanced
+        // pool has median 1/2 and constant deviations. Otherwise the median is
+        // 0 or 1, so folding preserves or complements the original binary data.
+        if 2 * ones == count {
+            prop_assert!(matches!(report.folded(), Err(SplitRhatError::ConstantSplitChain {
+                chain_index: 0, half: 0, ..
+            })), "balanced binary={:?}: expected constant folded half", binary);
+            prop_assert_eq!(report.value(), None);
+        } else {
+            let folded = report.folded().map_err(|error| {
+                TestCaseError::fail(format!("unbalanced binary={binary:?}, folded error={error:?}"))
+            })?;
+            let combined = report.value().ok_or_else(|| {
+                TestCaseError::fail(format!("unbalanced binary={binary:?}, missing combined value"))
+            })?;
+            for (label, value) in [("folded", folded.value()), ("combined", combined)] {
+                prop_assert!((value / expected - 1.0).abs() <= 1e-12,
+                    "{}: binary={:?}, actual={}, exact={}", label, binary, value, expected);
+            }
+        }
     }
 
     #[test]

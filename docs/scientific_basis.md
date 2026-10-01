@@ -18,6 +18,7 @@ distribution, proposal kernel, state representation, and analysis choices.
   - [Binning analysis](#binning-analysis)
   - [Classical split R-hat](#classical-split-r-hat)
   - [ESS and wall-clock efficiency](#ess-and-wall-clock-efficiency)
+  - [Folded and combined R-hat](#folded-and-combined-r-hat)
   - [Online statistics](#online-statistics)
   - [Proposal validation](#proposal-validation)
   - [Rank-normalized split R-hat](#rank-normalized-split-r-hat)
@@ -247,6 +248,40 @@ necessary for this initial-sequence estimate, but never sufficient to trust it.
 remain unavailable; sample indices are not a clock. Measure the exact production workload supplying the analyzed draws, including intervening transitions
 when thinning. Document whether warmup, observation, I/O, and analysis are included. Never reuse a full-run duration for a selected subset of draws.
 Per-chain rates do not automatically describe aggregate parallel throughput, which requires the wall time of the complete concurrent workload.
+
+### Folded and combined R-hat
+
+`FoldedRankNormalizedSplitRhat` implements [Vehtari et al., Section 4.2, equation (15)](../REFERENCES.md#ref-14): absolute deviations from the pooled median,
+followed by the [rank-normalized split calculation](#rank-normalized-split-r-hat). `CombinedRhat` retains both typed component results and reports their
+maximum only when both succeed. A successful input parse can therefore yield an unavailable combined diagnostic. This distinguishes invalid shape or
+nonfinite input from valid observations whose diagnostic cannot be computed. Constant observables can be structurally expected; excluding them from a
+consumer's gate is an explicit observable policy, not evidence of mixing. Neither the maximum nor its components certify convergence or target correctness.
+
+The median includes **all original draws before splitting**, matching [posterior 1.7.0](../REFERENCES.md#ref-20). The first and last `floor(N/2)` draws
+then supply both components; an odd middle draw affects the folding median but not the location ranks or either component's moments. Median midpoint
+arithmetic avoids overflow. Absolute deviations use ordinary IEEE-754 subtraction, with common halving when a deviation would overflow. If halving loses
+subnormal bits, `UnresolvedFolding` leaves the folded component unavailable. Rounded deviations may tie even when exact real deviations differ; this is
+floating-point folding, not exact arithmetic. The rank, tie, count, and variance contracts remain those of the location component.
+
+Any constant folded half returns `ConstantSplitChain`, even when the original half varies. Balanced binary data can fold entirely to one value. A fixture
+also records posterior's computable result with only one constant folded half; this crate deliberately retains #183's stricter unavailable-result policy.
+The report preserves original chain count, original length, retained half length, and both component successes/failures. Missing components never become
+a passing sentinel or the other component's value. Mean ESS remains a separate single-chain quantity, not bulk or tail ESS.
+
+[Stored inputs and expected results](../tests/fixtures/combined_rhat.json) pin posterior 1.7.0, R 4.5.1, jsonlite 2.0.0, and matrixStats 1.5.0.
+The [generation script](../tests/fixtures/generate_combined_rhat.R) calls posterior's internal component functions and public `rhat`, prints results and
+session versions, and never overwrites evidence. Run `Rscript tests/fixtures/generate_combined_rhat.R` from the repository root in that R environment.
+Install the pinned packages from their CRAN source tarballs (using `src/contrib/Archive/<package>/` if no longer current), then check the asserted versions.
+The recorded run used the `rocker/r-ver:4.5.1` image, digest
+`sha256:03b023fbf7b1b24ac1bb8b2ac5fd7e15a767e67b40ff50c155e328110981c2aa`, on Linux aarch64 via Docker on macOS.
+
+Relative tolerance `5e-13` covers independent quantile implementations, summation, and half traversal order; it is much smaller than the estimator
+differences in these fixtures. Cases cover scale-only disagreement, location shifts, heavy tails, a same-distribution control, counts, odd lengths,
+and folded degeneracy. The scale-only example gives location R-hat about 0.866 and folded/combined R-hat about 1.975, exposing what location alone misses.
+Additional Rust regressions exercise extreme finite values, subnormal arithmetic, invalid inputs, and input immutability.
+
+Implementation and release availability are separate: these APIs are implemented in the working source for #184. The v0.5.1 registry release and a
+clean registry consumer build remain release-time checks; local source validation does not establish that the published package exposes them.
 
 ### Online statistics
 

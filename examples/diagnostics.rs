@@ -1,12 +1,79 @@
-//! ACF, mean ESS, and classical and rank-normalized split R-hat for four chains.
+//! ACF, mean ESS, and classical, ranked, folded, and combined R-hat for four chains.
 //!
 //! Run with: `cargo run --release --example diagnostics`
 //! Chains run sequentially with distinct seeds and dispersed starts. Diagnostics
 //! need comparable traces, not parallel execution. No optional feature is needed.
 
+use std::{
+    error::Error,
+    fmt,
+    fs::{self, File},
+    io::{self, BufWriter, Write},
+};
+
 use markov_chain_monte_carlo::prelude::by_value::*;
-use markov_chain_monte_carlo::prelude::{Autocorrelation, RankNormalizedSplitRhat, SplitRhat};
+use markov_chain_monte_carlo::prelude::{
+    Autocorrelation, CombinedRhat, FoldedRankNormalizedSplitRhat, RankNormalizedSplitRhat,
+    SplitRhat, SplitRhatError,
+};
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+use serde_json::{Value, json};
+
+const WARMUP: usize = 2_000;
+
+#[derive(Debug)]
+enum DiagnosticsError {
+    Mcmc(McmcError),
+    Rhat(SplitRhatError),
+    Io(io::Error),
+    Json(serde_json::Error),
+}
+
+impl fmt::Display for DiagnosticsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Mcmc(error) => error.fmt(f),
+            Self::Rhat(error) => error.fmt(f),
+            Self::Io(error) => error.fmt(f),
+            Self::Json(error) => error.fmt(f),
+        }
+    }
+}
+
+impl Error for DiagnosticsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Mcmc(error) => Some(error),
+            Self::Rhat(error) => Some(error),
+            Self::Io(error) => Some(error),
+            Self::Json(error) => Some(error),
+        }
+    }
+}
+
+impl From<McmcError> for DiagnosticsError {
+    fn from(error: McmcError) -> Self {
+        Self::Mcmc(error)
+    }
+}
+
+impl From<SplitRhatError> for DiagnosticsError {
+    fn from(error: SplitRhatError) -> Self {
+        Self::Rhat(error)
+    }
+}
+
+impl From<io::Error> for DiagnosticsError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for DiagnosticsError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
 
 struct StandardNormal;
 
@@ -24,8 +91,7 @@ impl Proposal<f64> for RandomWalk {
     }
 }
 
-fn main() -> Result<(), McmcError> {
-    const WARMUP: usize = 2_000;
+fn main() -> Result<(), DiagnosticsError> {
     const DRAWS: usize = 10_000;
     const MAX_LAG: usize = 511;
 
@@ -74,18 +140,87 @@ fn main() -> Result<(), McmcError> {
 
     // Borrow separate chains: concatenating them would corrupt ACF/ESS ordering.
     let chains: Vec<&[f64]> = traces.iter().map(Vec::as_slice).collect();
-    match SplitRhat::estimate(&chains) {
+    let classical = SplitRhat::estimate(&chains);
+    match classical {
         Ok(rhat) => println!("Classical split R-hat: {:.4}", rhat.value()),
         Err(error) => println!("Classical split R-hat unavailable: {error}"),
     }
-    match RankNormalizedSplitRhat::estimate(&chains) {
+    let report = CombinedRhat::estimate(&chains)?;
+    match report.rank_normalized() {
         Ok(rhat) => println!("Rank-normalized split R-hat component: {:.4}", rhat.value()),
         Err(error) => println!("Rank-normalized split R-hat component unavailable: {error}"),
     }
+    match report.folded() {
+        Ok(rhat) => println!(
+            "Folded rank-normalized split R-hat component: {:.4}",
+            rhat.value()
+        ),
+        Err(error) => println!("Folded rank-normalized split R-hat component unavailable: {error}"),
+    }
+    match report.value() {
+        Some(value) => println!("Combined R-hat: {value:.4}"),
+        None => println!("Combined R-hat unavailable: inspect both component results"),
+    }
+    export_diagnostics(&traces, classical, &report)?;
     println!(
         "Mean ESS is per chain; classical R-hat uses raw moments; rank-normalized R-hat uses pooled ranks."
     );
-    println!("Neither R-hat estimator here includes the folded component or combined maximum.");
+    println!("Combined R-hat is available only when both rank-based components are available.");
     println!("These estimates do not certify convergence or exploration of all modes.");
     Ok(())
+}
+
+fn export_diagnostics(
+    traces: &[Vec<f64>],
+    classical: Result<SplitRhat, SplitRhatError>,
+    report: &CombinedRhat,
+) -> Result<(), DiagnosticsError> {
+    fs::create_dir_all("target")?;
+    let mut csv = BufWriter::new(File::create("target/diagnostics_trace.csv")?);
+    writeln!(csv, "chain_id,step,position")?;
+    for (id, draws) in traces.iter().enumerate() {
+        for (step, value) in draws.iter().enumerate() {
+            writeln!(csv, "{id},{},{value}", step + 1)?;
+        }
+    }
+    csv.flush()?;
+    let output = json!({
+        "schema_version": 1,
+        "crate_version": env!("CARGO_PKG_VERSION"),
+        "observable": "position",
+        "target": "standard_normal",
+        "proposal": "uniform_random_walk_half_width_2",
+        "rng": "rand::rngs::StdRng",
+        "chain_ids": [0, 1, 2, 3],
+        "seeds": [40, 41, 42, 43],
+        "starts": [-6, -2, 2, 6],
+        "warmup_per_chain": WARMUP,
+        "recording_interval": 1,
+        "chain_count": report.chain_count(),
+        "samples_per_chain": report.samples_per_chain(),
+        "samples_per_split_chain": report.samples_per_split_chain(),
+        "median_scope": "all_original_draws_before_splitting",
+        "split": "first_and_last_floor_N_over_2",
+        "trace": "diagnostics_trace.csv",
+        "classical_split": component_json(classical.map(SplitRhat::value)),
+        "rank_normalized_split": component_json(report.rank_normalized().map(RankNormalizedSplitRhat::value)),
+        "folded_rank_normalized_split": component_json(report.folded().map(FoldedRankNormalizedSplitRhat::value)),
+        "combined_rank_normalized_maximum": {
+            "status": if report.value().is_some() { "estimated" } else { "unavailable" },
+            "value": report.value()
+        }
+    });
+    let mut file = BufWriter::new(File::create("target/diagnostics.json")?);
+    serde_json::to_writer_pretty(&mut file, &output)?;
+    writeln!(file)?;
+    file.flush()?;
+    println!("diagnostics JSON: target/diagnostics.json; trace CSV: target/diagnostics_trace.csv");
+    Ok(())
+}
+
+fn component_json(result: Result<f64, SplitRhatError>) -> Value {
+    match result {
+        Ok(value) => json!({"status": "estimated", "value": value}),
+        Err(error) => json!({"status": "unavailable", "value": null, "error": error.to_string()}),
+    }
 }

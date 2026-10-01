@@ -1,0 +1,81 @@
+{
+  "reference": {
+    "package": "posterior",
+    "version": "1.7.0",
+    "r_version": "4.5.1",
+    "jsonlite_version": "2.0.0",
+    "matrixStats_version": "1.5.0",
+    "platform": "aarch64-unknown-linux-gnu, Ubuntu 24.04.3, Docker on macOS",
+    "source": "https://github.com/stan-dev/posterior/blob/v1.7.0/R/convergence.R",
+    "generation_command": "Rscript tests/fixtures/generate_combined_rhat.R",
+    "relative_tolerance": 5e-13
+  },
+  "cases": [
+    {
+      "name": "scale_only",
+      "location": 0.8660254037844386,
+      "folded": 1.9750237970270528,
+      "combined": 1.9750237970270528,
+      "chains": [[-1, 1, -2, 2, -1, 1, -2, 2], [-10, 10, -20, 20, -10, 10, -20, 20]]
+    },
+    {
+      "name": "location",
+      "location": 1.7025856148097021,
+      "folded": 0.81649658092772603,
+      "combined": 1.7025856148097021,
+      "chains": [[0, 1, 2, 1, 0, 2], [10, 11, 12, 11, 10, 12]]
+    },
+    {
+      "name": "heavy_tails",
+      "location": 0.95690993090313592,
+      "folded": 0.9002674460554897,
+      "combined": 0.95690993090313592,
+      "chains": [[-1000000, -3, 0, 1, 7, 100000, -8, 2], [90000, -1, 3, -17, 1, 8000000, -5, -2]]
+    },
+    {
+      "name": "well_mixed_control",
+      "location": 0.9388133573158568,
+      "folded": 0.94388295187979854,
+      "combined": 0.94388295187979854,
+      "chains": [[-2, 0, 1, -1, 2, 1, -1, 0, -2, 2, 0, 1, 2, -1, 0, -2], [1, -2, 0, 2, -1, 0, 2, -1, 0, 1, 2, -2, 1, 0, -1, -2]]
+    },
+    {
+      "name": "discrete_counts",
+      "location": 0.9456058563171188,
+      "folded": 0.9022769184611561,
+      "combined": 0.9456058563171188,
+      "chains": [[0, 1, 1, 2, 1, 0, 3, 2], [1, 2, 4, 2, 3, 1, 1, 0], [3, 2, 1, 1, 0, 2, 2, 4]]
+    },
+    {
+      "name": "odd_median",
+      "location": 1.5039419311835858,
+      "folded": 0.80755295392208204,
+      "combined": 1.5039419311835858,
+      "chains": [[-3, 0, 100, 1, 4], [-2, 1, 200, 3, 8]]
+    },
+    {
+      "name": "binary_folded_degeneracy",
+      "location": 0.8660254037844386,
+      "folded": null,
+      "combined": null,
+      "unavailable": true,
+      "chains": [[0, 1, 0, 1, 1, 0, 1, 0], [1, 0, 1, 0, 0, 1, 0, 1]]
+    },
+    {
+      "name": "odd_pooled_count",
+      "location": 1.5460093910168633,
+      "folded": 0.91574128946121602,
+      "combined": 1.5460093910168633,
+      "chains": [[-3, 0, 100, 1, 4], [-2, 1, 200, 3, 8], [0, 2, -100, 4, 9]]
+    },
+    {
+      "name": "one_folded_half_constant",
+      "policy_difference": "posterior permits a constant half; this crate retains the stricter ConstantSplitChain policy",
+      "location": 0.8660254037844386,
+      "folded": 1.7454047310449829,
+      "combined": 1.7454047310449829,
+      "unavailable": true,
+      "chains": [[-1, 1, -1, 1, -2, 2, -3, 3], [-4, 4, -5, 5, -2, 2, -6, 6]]
+    }
+  ]
+}

@@ -150,7 +150,7 @@ just                  # List all public recipes, arguments, and descriptions
 | Retained numeric observations and CSV | [`TraceRecorder`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.TraceRecorder.html) |
 | Statistics without retaining every draw | [`OnlineStats`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.OnlineStats.html) and [`BinningAnalysis`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.BinningAnalysis.html) |
 | Scalar proposal tuning during warmup | `AdaptiveScale`, `TunableProposal`, and `Sampler::warm_up*` |
-| Scalar ACF, mean ESS, or split R-hat | `Autocorrelation`, integrated time, `SplitRhat` (classical), and `RankNormalizedSplitRhat` (without folding); see [analyzing chains][analyzing-chains] |
+| Scalar ACF, mean ESS, or R-hat | `Autocorrelation`, integrated time, `SplitRhat` (classical), and `CombinedRhat` (rank-normalized/folded maximum with both components); see [analyzing chains][analyzing-chains] |
 | Independent proposal validation | [`verify_detailed_balance*`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/fn.verify_detailed_balance.html), density, and bin checks |
 
 Use explicit step calls when every transition needs metadata. Bulk in-place runs skip observational telemetry hooks; delayed chunk observation can retain
@@ -236,7 +236,7 @@ Example workflows live in [`examples/`](https://github.com/acgetchell/markov-cha
 | `benchmark_distributions` | Compare seeded sampling against reference distributions with analytical moments |
 | `delayed_chunked_telemetry` | Resume chunks while recording delayed-step telemetry |
 | `detailed_balance` | Check by-value, in-place, delayed, and batch transition flows |
-| `diagnostics` | Estimate scalar ACF, integrated time, mean ESS, and classical and rank-normalized split R-hat |
+| `diagnostics` | Export scalar traces and classical, rank-normalized, folded, and combined R-hat; estimate ACF and mean ESS |
 | `ising_1d` | Run four sequential spin chains with CSV traces, ACF, mean ESS, measured ESS/second, and split R-hat |
 | `iterator_sampling` | Drive a sampler as an iterator |
 | `normal_1d` | Sample a normal target with a by-value random walk |
