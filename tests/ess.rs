@@ -19,6 +19,23 @@ fn error_name(error: MonteCarloError) -> &'static str {
     }
 }
 
+/// Exported diagnostics retain a useful reason as well as the typed failure.
+fn assert_precision_error(error: MonteCarloError, expected: MonteCarloError, message: &str) {
+    assert_eq!(error, expected);
+    assert_eq!(error.to_string(), message);
+    assert!(error.source().is_none());
+}
+
+fn assert_timing_error(
+    error: DiagnosticTimingError,
+    expected: DiagnosticTimingError,
+    message: &str,
+) {
+    assert_eq!(error, expected);
+    assert_eq!(error.to_string(), message);
+    assert!(error.source().is_none());
+}
+
 fn check_reference(case: &Value, metric: &str, actual: Result<f64, MonteCarloError>) {
     let name = case["name"].as_str().unwrap();
     if let Some(expected) = case["unavailable"][metric].as_str() {
@@ -280,13 +297,15 @@ fn inputs_probabilities_and_degenerate_results_have_typed_outcomes() {
         f64::NEG_INFINITY,
     ] {
         // Probability errors precede malformed chains, including empty input.
-        assert_eq!(
-            EssEstimate::estimate(&[], EssEstimator::Quantile(probability)),
-            Err(MonteCarloError::InvalidProbability)
+        assert_precision_error(
+            EssEstimate::estimate(&[], EssEstimator::Quantile(probability)).unwrap_err(),
+            MonteCarloError::InvalidProbability,
+            "quantile probability must be finite and in (0, 1)",
         );
-        assert_eq!(
-            QuantileMcse::estimate(&[], probability),
-            Err(MonteCarloError::InvalidProbability)
+        assert_precision_error(
+            QuantileMcse::estimate(&[], probability).unwrap_err(),
+            MonteCarloError::InvalidProbability,
+            "quantile probability must be finite and in (0, 1)",
         );
     }
     assert!(matches!(
@@ -321,21 +340,30 @@ fn inputs_probabilities_and_degenerate_results_have_typed_outcomes() {
     }
     let zeros = [-0.0, 0.0, -0.0, 0.0];
     let unavailable = EssEstimate::estimate(&[&zeros, &zeros], EssEstimator::Mean).unwrap_err();
-    assert_eq!(unavailable, MonteCarloError::ConstantSamples);
-    assert!(unavailable.source().is_none());
+    assert_precision_error(
+        unavailable,
+        MonteCarloError::ConstantSamples,
+        "ESS is unavailable for constant retained samples",
+    );
     let stuck = [0.0, 0.0, 1.0, 1.0];
-    assert_eq!(
-        EssEstimate::estimate(&[&stuck, &stuck], EssEstimator::Mean),
-        Err(MonteCarloError::NoWithinChainVariation)
+    assert_precision_error(
+        EssEstimate::estimate(&[&stuck, &stuck], EssEstimator::Mean).unwrap_err(),
+        MonteCarloError::NoWithinChainVariation,
+        "ESS is unavailable without variation in any split half",
     );
     let binary = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
-    assert_eq!(
-        QuantileMcse::estimate(&[&binary, &binary], 0.05),
-        Err(MonteCarloError::CollapsedQuantileInterval)
+    assert_precision_error(
+        QuantileMcse::estimate(&[&binary, &binary], 0.05).unwrap_err(),
+        MonteCarloError::CollapsedQuantileInterval,
+        "quantile MCSE interval collapsed; uncertainty is unavailable",
     );
     let tail = TailEss::estimate(&[&binary, &binary]).unwrap();
     assert!(tail.lower().is_ok());
-    assert_eq!(tail.upper(), Err(MonteCarloError::DegenerateIndicator));
+    assert_precision_error(
+        tail.upper().unwrap_err(),
+        MonteCarloError::DegenerateIndicator,
+        "quantile ESS is unavailable for constant retained indicators",
+    );
     assert_eq!(tail.value(), None);
 }
 
@@ -343,21 +371,25 @@ fn inputs_probabilities_and_degenerate_results_have_typed_outcomes() {
 fn timing_requires_present_positive_matching_workload() {
     let values = [0., 1., 3., 2., 1., 0., 2., 3.];
     let ess = EssEstimate::estimate(&[&values, &values], EssEstimator::Bulk).unwrap();
-    assert_eq!(
-        ess.per_second(None),
-        Err(DiagnosticTimingError::MissingTiming)
+    assert_timing_error(
+        ess.per_second(None).unwrap_err(),
+        DiagnosticTimingError::MissingTiming,
+        "ESS rate requires timing of the analyzed workload",
     );
-    assert_eq!(
-        DiagnosticTiming::try_new(Duration::ZERO, 2, 8),
-        Err(DiagnosticTimingError::ZeroDuration)
+    assert_timing_error(
+        DiagnosticTiming::try_new(Duration::ZERO, 2, 8).unwrap_err(),
+        DiagnosticTimingError::ZeroDuration,
+        "ESS rate requires a nonzero duration",
     );
-    assert_eq!(
-        DiagnosticTiming::try_new(Duration::from_secs(1), 0, 8),
-        Err(DiagnosticTimingError::InvalidCounts)
+    assert_timing_error(
+        DiagnosticTiming::try_new(Duration::from_secs(1), 0, 8).unwrap_err(),
+        DiagnosticTimingError::InvalidCounts,
+        "timed chain and draw counts must be positive",
     );
-    assert_eq!(
-        DiagnosticTiming::try_new(Duration::from_secs(1), 2, 0),
-        Err(DiagnosticTimingError::InvalidCounts)
+    assert_timing_error(
+        DiagnosticTiming::try_new(Duration::from_secs(1), 2, 0).unwrap_err(),
+        DiagnosticTimingError::InvalidCounts,
+        "timed chain and draw counts must be positive",
     );
     let full_run = DiagnosticTiming::try_new(Duration::from_secs(2), 2, 16).unwrap();
     assert!(matches!(
@@ -433,6 +465,12 @@ fn odd_length_ess_rates_require_timing_of_all_original_draws() {
                     ..
                 } if actual_chains == chains && actual_samples_per_chain == samples
             ));
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "timing covers {chains} chains of {samples} draws; estimator uses 2 chains of 9 draws"
+                )
+            );
         }
     }
 }
@@ -517,6 +555,35 @@ fn finite_range_and_original_units_survive_power_of_two_rescaling() {
 }
 
 #[test]
+fn unresolved_variance_preserves_original_chain_and_half_in_ess_and_mcse() {
+    for chain_index in 0..3 {
+        for half in 0..2 {
+            let mut chains = [[0., 1., 2., 3., 0., 1., 2., 3.]; 3];
+            // The half varies, but its variance underflows at the common scale.
+            // This must not be reported as constant data or assigned a finite ESS.
+            let tiny = [0., 1., 2., 3.].map(|x| x * f64::MIN_POSITIVE);
+            chains[chain_index][half * 4..(half + 1) * 4].copy_from_slice(&tiny);
+            let borrowed: Vec<_> = chains.iter().map(<[f64; 8]>::as_slice).collect();
+            let ess_error = EssEstimate::estimate(&borrowed, EssEstimator::Mean).unwrap_err();
+            assert!(matches!(
+                ess_error,
+                MonteCarloError::UnresolvedVariance {
+                    chain_index: actual_chain,
+                    half: actual_half,
+                    ..
+                } if actual_chain == chain_index && actual_half == half
+            ));
+            assert_eq!(MeanMcse::estimate(&borrowed).unwrap_err(), ess_error);
+            assert_eq!(
+                ess_error.to_string(),
+                format!("ESS variance is unresolved in chain {chain_index}, half {half}")
+            );
+            assert!(ess_error.source().is_none());
+        }
+    }
+}
+
+#[test]
 fn odd_middle_draws_affect_original_variance_and_cutoffs_but_not_raw_ess() {
     let a = [0., 1., 3., 2., 100., 1., 0., 2., 3.];
     let b = [2., 0., 1., 3., -100., 0., 2., 3., 1.];
@@ -551,19 +618,22 @@ fn unresolved_aggregate_variance_and_final_mcse_underflow_are_not_structural_con
     // averaging with constant halves loses it. The original pool is varying.
     let tiny_half = [0., 4.5e-162, 4.5e-162, 0., 0., 0., 0., 0.];
     let other = [1.; 8];
-    assert_eq!(
-        EssEstimate::estimate(&[&tiny_half, &other], EssEstimator::Mean),
-        Err(MonteCarloError::NumericalFailure)
+    assert_precision_error(
+        EssEstimate::estimate(&[&tiny_half, &other], EssEstimator::Mean).unwrap_err(),
+        MonteCarloError::NumericalFailure,
+        "ESS or MCSE arithmetic is numerically unresolved",
     );
     let least = f64::from_bits(1);
     let alternating = [0., least, 0., least, 0., least, 0., least];
     assert!(EssEstimate::estimate(&[&alternating, &alternating], EssEstimator::Mean).is_ok());
-    assert_eq!(
-        MeanMcse::estimate(&[&alternating, &alternating]),
-        Err(MonteCarloError::NumericalFailure)
+    assert_precision_error(
+        MeanMcse::estimate(&[&alternating, &alternating]).unwrap_err(),
+        MonteCarloError::NumericalFailure,
+        "ESS or MCSE arithmetic is numerically unresolved",
     );
-    assert_eq!(
-        QuantileMcse::estimate(&[&alternating, &alternating], 0.5),
-        Err(MonteCarloError::NumericalFailure)
+    assert_precision_error(
+        QuantileMcse::estimate(&[&alternating, &alternating], 0.5).unwrap_err(),
+        MonteCarloError::NumericalFailure,
+        "ESS or MCSE arithmetic is numerically unresolved",
     );
 }
