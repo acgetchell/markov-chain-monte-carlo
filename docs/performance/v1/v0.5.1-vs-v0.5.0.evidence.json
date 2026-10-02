@@ -1,0 +1,47 @@
+{
+  "payload_schema": "research-repo-tools/criterion-comparison/v1",
+  "payload_sha256": "0a8b91c4866ce4428808924da512ce54ccc3d2359fbb0b0971506c98ac7f761f",
+  "schema": "research-repo-tools/evidence/v1",
+  "sources": {
+    "baseline": {
+      "context": {
+        "architecture": "arm64",
+        "command": "[\"cargo\", \"bench\", \"--locked\", \"--bench\", \"stepping\"]",
+        "cpu": "Apple M4 Max (arm64)",
+        "dependency.criterion": "0.8.2",
+        "fingerprint-schema": "research-repo-tools/files/v1",
+        "harness-inventory": "[\"benches/stepping.rs\"]",
+        "mode": "tag",
+        "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "release": "v0.5.0",
+        "scope": "release-signal",
+        "source-inventory": "[\"Cargo.lock\", \"Cargo.toml\", \"benches/stepping.rs\", \"rust-toolchain.toml\", \"src/adaptive.rs\", \"src/autocorrelation.rs\", \"src/benchmarks.rs\", \"src/chain.rs\", \"src/continuous_testing.rs\", \"src/convergence.rs\", \"src/diagnostics.rs\", \"src/error.rs\", \"src/lib.rs\", \"src/numerics.rs\", \"src/observable.rs\", \"src/sampler.rs\", \"src/statistics.rs\", \"src/testing.rs\", \"src/traits.rs\"]",
+        "suite": "stepping",
+        "tool.rustc": "\"rustc 1.98.1 (48a229cea 2026-09-01)\\nbinary: rustc\\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\\ncommit-date: 2026-09-01\\nhost: aarch64-apple-darwin\\nrelease: 1.98.1\\nLLVM version: 22.1.8\""
+      },
+      "harness_sha256": "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c",
+      "revision": "83f729c62dd959dc9afa2ca9c4146b0515465fae",
+      "source_sha256": "6979500b7e7e8b0d9d174654c8f118cbfddc1acbd30efa5957b69566adfca104"
+    },
+    "current": {
+      "context": {
+        "architecture": "arm64",
+        "command": "[\"cargo\", \"bench\", \"--locked\", \"--bench\", \"stepping\"]",
+        "cpu": "Apple M4 Max (arm64)",
+        "dependency.criterion": "0.8.2",
+        "fingerprint-schema": "research-repo-tools/files/v1",
+        "harness-inventory": "[\"benches/stepping.rs\"]",
+        "mode": "working-tree",
+        "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "release": "v0.5.1",
+        "scope": "release-signal",
+        "source-inventory": "[\"Cargo.lock\", \"Cargo.toml\", \"benches/stepping.rs\", \"rust-toolchain.toml\", \"src/adaptive.rs\", \"src/autocorrelation.rs\", \"src/benchmarks.rs\", \"src/chain.rs\", \"src/continuous_testing.rs\", \"src/convergence.rs\", \"src/diagnostics.rs\", \"src/error.rs\", \"src/ess.rs\", \"src/lib.rs\", \"src/numerics.rs\", \"src/observable.rs\", \"src/ranks.rs\", \"src/sampler.rs\", \"src/statistics.rs\", \"src/testing.rs\", \"src/traits.rs\"]",
+        "suite": "stepping",
+        "tool.rustc": "\"rustc 1.98.1 (48a229cea 2026-09-01)\\nbinary: rustc\\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\\ncommit-date: 2026-09-01\\nhost: aarch64-apple-darwin\\nrelease: 1.98.1\\nLLVM version: 22.1.8\""
+      },
+      "harness_sha256": "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c",
+      "revision": "9fc2479167aaa47c7bbe3ef5e43eb76393c9dc89",
+      "source_sha256": "43bcf4fd3e302cb234ad2327c83340c5ea648a3e9bbc784e772625f1979c8e27"
+    }
+  }
+}
