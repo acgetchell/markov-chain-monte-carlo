@@ -266,8 +266,47 @@ Use `just bench-save-baseline NAME` to save this checkout's local stepping measu
 
 <!-- PERFORMANCE:BEGIN -->
 
-Release performance tracking starts with the current development version. A release comparison will appear after two new releases have comparable
-measurements; no speedup claim is available yet.
+![Baseline/current timing point ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.svg)
+
+Statistic: median. Unit: ns.
+
+| Benchmark | v0.5.0 | v0.5.1 (prepared tree) | Baseline/current | Time reduction (%) |
+| --- | --- | --- | --- | --- |
+| By-value step | 16.841 ns [16.8248, 16.8776] (0.95 confidence) | 18.1579 ns [17.6604, 18.426] (0.95 confidence) | 0.927479 | -7.8192 |
+| In-place accepted step | 13.7307 ns [13.6853, 13.7789] (0.95 confidence) | 14.8717 ns [14.3751, 15.1055] (0.95 confidence) | 0.923274 | -8.31024 |
+| In-place rollback step | 211.765 ns [207.992, 214.468] (0.95 confidence) | 217.209 ns [211.211, 220.952] (0.95 confidence) | 0.974937 | -2.57077 |
+| Delayed accepted step | 11.3523 ns [11.1183, 11.4854] (0.95 confidence) | 11.1298 ns [10.9418, 11.2921] (0.95 confidence) | 1.01999 | 1.96005 |
+| Delayed rejected step | 11.358 ns [11.2565, 11.625] (0.95 confidence) | 11.4297 ns [11.1473, 11.5677] (0.95 confidence) | 0.993729 | -0.631097 |
+| Delayed no-plan step | 0.778675 ns [0.768478, 0.800562] (0.95 confidence) | 0.779942 ns [0.765882, 0.793459] (0.95 confidence) | 0.998375 | -0.162723 |
+| By-value sampling (100 steps) | 1649.59 ns [1610.45, 1695.04] (0.95 confidence) | 1662.36 ns [1632.45, 1689.78] (0.95 confidence) | 0.99232 | -0.773988 |
+| In-place sampling (100 steps) | 1355.18 ns [1340.85, 1384.39] (0.95 confidence) | 1298 ns [1292.99, 1306.54] (0.95 confidence) | 1.04405 | 4.21942 |
+| Delayed sampling (100 steps) | 944.39 ns [922.456, 960.272] (0.95 confidence) | 902.976 ns [884.981, 917.641] (0.95 confidence) | 1.04586 | 4.38523 |
+| Buffered observation (100 steps) | 1905.93 ns [1879.32, 1935.43] (0.95 confidence) | 1902.02 ns [1868.84, 1938.52] (0.95 confidence) | 1.00206 | 0.20542 |
+| Manual online sum (100 steps) | 1382.36 ns [1363.68, 1401.71] (0.95 confidence) | 1363.82 ns [1334.29, 1400.46] (0.95 confidence) | 1.01359 | 1.34074 |
+| Online statistics (100 steps) | 1693.05 ns [1658.57, 1730.43] (0.95 confidence) | 1643.84 ns [1638.81, 1653.2] (0.95 confidence) | 1.02994 | 2.90687 |
+| Binning analysis (100 steps) | 2481.99 ns [2424.85, 2531.32] (0.95 confidence) | 2420.43 ns [2367.64, 2478.18] (0.95 confidence) | 1.02543 | 2.48007 |
+
+Coverage: 13 selected of 22 comparable; 0 current-only; 0 baseline-only benchmarks.
+
+Ratios are point estimates, not significance tests or scientific acceptance.
+
+<!-- rumdl-disable MD041 -->
+
+These fixed-seed `stepping` workloads measure transition and observation overhead.
+They do not establish convergence, mixing, effective sample size, or scientific efficiency.
+Ratios are baseline time divided by current time; values above one mean lower current time.
+Marginal timing bounds do not establish a paired ratio interval or statistical significance.
+
+Review common names against the lifecycle contracts in `docs/BENCHMARKING.md`, especially
+when harness fingerprints differ. Added and removed names are coverage changes.
+Local measurements require matching known host identities. Release-asset comparisons
+need separate hardware and workload review; GitHub runners can change between releases.
+Source and harness fingerprints come from the shared measurement workflow.
+
+- [Full timing report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/performance.md)
+- [Comparison evidence](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.comparison.json)
+- [Provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.evidence.json)
+- [CSV export](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.csv)
 
 <!-- PERFORMANCE:END -->
 

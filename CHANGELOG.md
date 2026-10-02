@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-02
+
+### ⚠️ Breaking Changes
+
+- The diagnostics example now exports schema-2 JSON and a
+  multi-run CSV layout. Consumers of its previous exports must update readers.
+
+### Merged Pull Requests
+
+- Add pooled ranks and diagnostic plot workflow [#192](https://github.com/acgetchell/markov-chain-monte-carlo/pull/192)
+- Add multi-chain ESS and mean/quantile MCSE [#191](https://github.com/acgetchell/markov-chain-monte-carlo/pull/191)
+- Replace R-hat fixture script with Python [#190](https://github.com/acgetchell/markov-chain-monte-carlo/pull/190)
+- Add folded and combined R-hat diagnostics [#187](https://github.com/acgetchell/markov-chain-monte-carlo/pull/187)
+- Bump the github-actions group with 4 updates [#186](https://github.com/acgetchell/markov-chain-monte-carlo/pull/186)
+- Add rank-normalized split R-hat diagnostics [#185](https://github.com/acgetchell/markov-chain-monte-carlo/pull/185)
+
+### Added
+
+- Add rank-normalized split R-hat diagnostics [#185](https://github.com/acgetchell/markov-chain-monte-carlo/pull/185)
+  [`69c7fee`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/69c7fee9025194ebf8862df0e95a2e46b4110ca6)
+
+  - Add RankNormalizedSplitRhat for borrowed scalar chains with pooled average ranks, normal scores, and original and retained sample counts.
+  - Preserve classical SplitRhat behavior and report typed failures for invalid inputs, numerical degeneracy, and excessive rank counts.
+  - Document scientific sources and limitations, including the omission of folding and the combined diagnostic.
+  - Align README citations with the ecosystem's Zenodo DOI and BibTeX style.
+- Add folded and combined R-hat diagnostics [#187](https://github.com/acgetchell/markov-chain-monte-carlo/pull/187)
+  [`1737398`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/17373983bc1234709c8c42103f7eff6508ed8cff)
+
+  - Add FoldedRankNormalizedSplitRhat and CombinedRhat with borrowed inputs, typed component results, and sample metadata.
+  - Return the combined maximum only when both components succeed, preserving explicit failures for folded degeneracy and precision loss.
+  - Document folding conventions and estimator limits, and export reproducible CSV traces and JSON reports from the diagnostics example.
+  - Update uv, dprint, and rumdl pins and refresh locked Python dependencies.
+- Add multi-chain ESS and mean/quantile MCSE [#191](https://github.com/acgetchell/markov-chain-monte-carlo/pull/191)
+  [`c3513b1`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/c3513b148f7e5e95f62278dc8025d750474f3595)
+
+  - Expose mean, bulk, quantile, and tail ESS through borrowed-chain APIs
+    that account for between-chain disagreement.
+  - Add mean and quantile Monte Carlo standard errors in observable units.
+  - Report original and retained sample counts, relative ESS, and measured
+    ESS rates with workload timing checks.
+  - Preserve typed unavailable outcomes for degenerate inputs and
+    numerically unresolved estimates.
+  - Document ArviZ estimator conventions and extend the diagnostics
+    example with precision and efficiency summaries.
+- [**breaking**] Add pooled ranks and diagnostic plot workflow [#192](https://github.com/acgetchell/markov-chain-monte-carlo/pull/192)
+  [`9fc2479`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/9fc2479167aaa47c7bbe3ef5e43eb76393c9dc89)
+
+#### feat!: add pooled ranks and diagnostic plot workflow
+
+- Expose pooled average ranks with original chain identity and borrowed views.
+- Add reproducible rank and prefix ESS plots, MCSE reports, and numeric exports
+  with explicit availability, timing scope, and provenance.
+- Document independent ArviZ/SciPy checks and expand ESS/MCSE coverage.
+- Remove redundant Semgrep rules and refresh managed dependencies while
+  retaining the Windows-compatible Semgrep pin.
+
+### Dependencies
+
+- Bump the github-actions group with 4 updates [#186](https://github.com/acgetchell/markov-chain-monte-carlo/pull/186)
+  [`acb593c`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/acb593cc2b1a9ba32118dfa3a4f0b589d5ba0e84)
+
+### Fixed
+
+- Replace R-hat fixture script with Python [#190](https://github.com/acgetchell/markov-chain-monte-carlo/pull/190)
+  [`eecdf65`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/eecdf65eead0097adf8788d151598fa99da7e7b4)
+
 ## [0.5.0] - 2026-09-28
 
 ### ⚠️ Breaking Changes
@@ -219,6 +285,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add managed OSV and Gitleaks scans with scheduled workflows, redacted reports, and README status badges.
   - Align release tooling pins and remove duplicated Python selectors.
   - Remove redundant tooling tests and obsolete CSV migration policy while retaining scientific checks and historical evidence.
+- Synchronize v0.5.0 release artifacts for September 28
+  [`83f729c`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/83f729c62dd959dc9afa2ca9c4146b0515465fae)
+
+  - Set the changelog and citation release dates to 2026-09-28.
+  - Refresh generated notes with multi-chain scope clarifications and the updated release verification and tagging workflow.
 
 ## Archives
 
@@ -229,4 +300,5 @@ Older releases are archived by minor series:
 - [0.2.x](docs/archives/changelog/0.2.md)
 - [0.1.x](docs/archives/changelog/0.1.md)
 
+[0.5.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.4.2...v0.5.0

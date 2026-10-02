@@ -163,23 +163,40 @@ fn constants_single_draws_and_extreme_finite_values_remain_plot_data() {
 
 #[test]
 fn malformed_plot_inputs_have_original_chain_and_draw_locations() {
+    let missing = PooledRanks::from_chains(&[]).unwrap_err();
+    assert_eq!(missing, PooledRankError::NoChains);
     assert_eq!(
-        PooledRanks::from_chains(&[]),
-        Err(PooledRankError::NoChains)
+        missing.to_string(),
+        "pooled ranks require at least one chain"
     );
+
+    // Shape errors take precedence over nonfinite values, and identify the
+    // first empty original chain even when more than one is malformed.
+    let empty = PooledRanks::from_chains(&[&[f64::NAN], &[], &[]]).unwrap_err();
     assert!(matches!(
-        PooledRanks::from_chains(&[&[f64::NAN], &[]]),
-        Err(PooledRankError::EmptyChain { chain_index: 1, .. })
+        empty,
+        PooledRankError::EmptyChain { chain_index: 1, .. }
     ));
+    assert_eq!(empty.to_string(), "chain 1 has no draws to rank");
+
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        // Distinct chain/draw indices detect swapped coordinates. Later bad
+        // samples must not replace the first failure in original input order.
+        let error = PooledRanks::from_chains(&[
+            &[20., 10.],
+            &[4., 3., 2., bad, f64::NEG_INFINITY],
+            &[f64::NAN],
+        ])
+        .unwrap_err();
         assert!(matches!(
-            PooledRanks::from_chains(&[&[0.], &[1., bad, 2.]]),
-            Err(PooledRankError::NonFiniteSample {
+            error,
+            PooledRankError::NonFiniteSample {
                 chain_index: 1,
-                sample_index: 1,
+                sample_index: 3,
                 ..
-            })
+            }
         ));
+        assert_eq!(error.to_string(), "chain 1 sample 3 is not finite");
     }
 }
 

@@ -104,9 +104,9 @@ After making an implementation change, run `just bench-latest-vs-last current-ch
 Criterion baselines, not tagged release evidence. Keep the raw samples and record the host/toolchain and working-tree changes if using them in research.
 The shared release-baseline command requires a clean checkout at an existing stable tag; it cannot certify this untagged checkout as that release.
 
-The next tagged release establishes the first shared baseline. Its successor supplies the first comparison in the new series. Do not measure an older
-release just to fill the empty report slot. Until a pair exists, the README states that no comparison is available and `just performance-check` reports
-the pending baseline. That check fails if release evidence or a publication selection exists without its current report.
+The shared release series starts at v0.5.0. The first retained comparison measures the prepared v0.5.1 working tree against that tagged baseline;
+the README labels the current timings as a prepared tree. Do not backfill retired releases. `just performance-check` accepts an empty inventory before
+the first comparison and rejects release evidence or a publication selection without its current report.
 
 New reports use `docs/performance/v1/performance.md`; retained pairs and the generated archive index live beside it. Evidence uses
 `research-repo-tools/criterion-comparison/v1` inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
@@ -136,8 +136,9 @@ pass both tags explicitly to `just performance-release CURRENT BASELINE`, choosi
 does not know this repository's reset boundary. An unpublished newer Cargo version can use the working tree against the latest published baseline with
 `just performance-release` once that latest release belongs to the new series. Same-label development comparisons cannot be promoted.
 
-After reviewing a real pair, create `tooling/performance-readme.toml` for the shared `performance publish` command. No selection with placeholder
-revisions is checked in. Configure:
+After reviewing a real pair, update `tooling/performance-readme.toml` for the shared `performance publish` command. The current selection includes all
+13 unthinned stepping, sampler, and observation workloads, regardless of timing direction; the full report also retains the nine thinning cases.
+Use verified revisions and measured fingerprints. Configure:
 
 - `schema = 1`, `document = "README.md"`, `unit = "ns"`, and the existing `<!-- PERFORMANCE:BEGIN -->` / `<!-- PERFORMANCE:END -->` markers.
 - Retained comparison `payload` and evidence `manifest`, a pair-specific `svg`, `repository = "acgetchell/markov-chain-monte-carlo"`, and
