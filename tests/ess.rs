@@ -140,6 +140,96 @@ fn pinned_reference_corpus_and_input_immutability() {
 }
 
 #[test]
+fn chain_order_and_time_reversal_match_reference_corpus() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/ess.json")).unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let chains: Vec<Vec<f64>> = serde_json::from_value(case["chains"].clone()).unwrap();
+        for (reverse_chains, reverse_time) in [(true, false), (false, true), (true, true)] {
+            let mut reordered = chains.clone();
+            if reverse_chains {
+                reordered.reverse();
+            }
+            if reverse_time {
+                for chain in reordered.iter_mut().step_by(2) {
+                    chain.reverse();
+                }
+            }
+            let borrowed: Vec<_> = reordered.iter().map(Vec::as_slice).collect();
+            for (metric, estimator) in [
+                ("mean_ess", EssEstimator::Mean),
+                ("bulk_ess", EssEstimator::Bulk),
+                ("q05_ess", EssEstimator::Quantile(0.05)),
+                ("q50_ess", EssEstimator::Quantile(0.5)),
+                ("q95_ess", EssEstimator::Quantile(0.95)),
+            ] {
+                check_reference(
+                    case,
+                    metric,
+                    EssEstimate::estimate(&borrowed, estimator).map(EssEstimate::value),
+                );
+            }
+            check_reference(
+                case,
+                "mean_mcse",
+                MeanMcse::estimate(&borrowed).map(MeanMcse::value),
+            );
+            for (label, probability) in [("q05", 0.05), ("q50", 0.5), ("q95", 0.95)] {
+                let mcse = QuantileMcse::estimate(&borrowed, probability);
+                check_reference(
+                    case,
+                    &format!("{label}_mcse"),
+                    mcse.map(QuantileMcse::value),
+                );
+                if let Ok(mcse) = mcse {
+                    check_reference(case, &format!("{label}_value"), Ok(mcse.quantile()));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn median_indicator_zero_pair_has_only_the_two_reference_rounding_limits() {
+    // CI counterexample: the exact median is -1. With eight five-draw halves,
+    // indicator W=9/40 and V+=13/50 give rho[1]=1/10, rho[2]=-3/260,
+    // rho[3]=3/260. Their second pair is exactly zero. Floating reductions may
+    // retain or discard it under ArviZ's >= 0 rule; at this finite-lag boundary
+    // tau is respectively 309/260 or 6/5. Tight reordering invariance is false,
+    // but each result must agree with one of these independently derived limits.
+    let chains = [
+        [0., 1., -2., -2., 0., -3., -2., -2., 0., -2.],
+        [-3., -2., 0., 0., 0., 0., 1., 0., -2., -2.],
+        [0., 1., 0., 0., 0., -2., -1., 0., -1., -1.],
+        [0., 1., -1., 0., -1., -2., -1., -1., 0., -1.],
+    ];
+    let borrowed: Vec<_> = chains.iter().map(<[f64; 10]>::as_slice).collect();
+    let reordered: Vec<Vec<_>> = chains
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(index, chain)| {
+            let mut values = chain.to_vec();
+            if index % 2 == 0 {
+                values.reverse();
+            }
+            values
+        })
+        .collect();
+    let reordered: Vec<_> = reordered.iter().map(Vec::as_slice).collect();
+    for draws in [&borrowed, &reordered] {
+        let ess = EssEstimate::estimate(draws, EssEstimator::Quantile(0.5)).unwrap();
+        assert!(!ess.is_regularized());
+        assert!(
+            [10400.0 / 309.0, 100.0 / 3.0]
+                .into_iter()
+                .any(|limit| (ess.value() - limit).abs() < 2e-12),
+            "unexpected zero-pair ESS: {}",
+            ess.value()
+        );
+    }
+}
+
+#[test]
 fn between_chain_disagreement_and_antithetic_regularization_are_visible() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/ess.json")).unwrap();
     let cases = fixture["cases"].as_array().unwrap();
