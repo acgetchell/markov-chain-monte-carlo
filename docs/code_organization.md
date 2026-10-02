@@ -151,6 +151,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── convergence.rs
 │   ├── diagnostics.rs
 │   ├── error.rs
+│   ├── ess.rs
 │   ├── lib.rs
 │   ├── numerics.rs
 │   ├── observable.rs
@@ -165,21 +166,26 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── combined_rhat.rs
 │   ├── continuous_testing.rs
 │   ├── convergence.rs
+│   ├── ess.rs
 │   ├── public_api.rs
 │   ├── rank_normalized_rhat.rs
 │   ├── fixtures/
 │   │   ├── combined_rhat.json
+│   │   ├── ess.json
 │   │   ├── generate_combined_rhat.py
+│   │   ├── generate_ess.py
 │   │   └── rank_normalized_rhat.json
 │   ├── proptest_autocorrelation.rs
 │   ├── proptest_chain.rs
 │   ├── proptest_convergence.rs
+│   ├── proptest_ess.rs
 │   ├── proptest_validators.rs
 │   ├── tracing.rs
 │   ├── tooling/
 │   │   ├── __init__.py
 │   │   ├── test_benchmark_contracts.py
 │   │   ├── test_commands.py
+│   │   ├── test_ess_fixture.py
 │   │   ├── test_notebooks.py
 │   │   ├── test_performance_evidence.py
 │   │   └── test_release_policy.py
@@ -304,12 +310,23 @@ plus monotone transforms, discrete ties, heavy-tail location shifts, and numeric
 and rank-count rejection before allocation.
 `tests/public_api.rs` checks the estimators through crate-root and prelude paths, including use after borrowed trace columns are dropped.
 
+### `src/ess.rs`
+
+Defines `EssEstimate`, `EssEstimator`, `TailEss`, `MeanMcse`, `QuantileMcse`, `MonteCarloError`, `DiagnosticTiming`, and `DiagnosticTimingError`. Owns split
+multi-chain autocovariances, raw/ranked/indicator ESS, original-unit mean/quantile uncertainty, retained-count ratios, and checked workload rates. Reuses
+`convergence.rs`'s private accepted-input and pooled-rank infrastructure. Constant individual halves are allowed for ESS; R-hat policy is unchanged. Quantile
+MCSE uses statrs' regularized beta CDF with bounded, checked inversion; default statrs features are disabled. `tests/ess.rs` checks pinned ArviZ fixtures in
+`tests/fixtures/ess.json`, reproduced by the isolated `generate_ess.py`, plus numerical ranges and typed failures. `tests/proptest_ess.rs` checks affine unit
+changes, chain/time reordering, ties, and nonlinear monotone rank transforms. `tests/public_api.rs` checks crate-root/prelude imports and owned results after
+borrowed storage drops. `tests/tooling/test_ess_fixture.py` protects fixture provenance, tolerances, case/metric inventories, and drift rejection.
+Plotting and scientific stopping policies belong to callers.
+
 ### `src/numerics.rs`
 
-Owns crate-private compensated summation and count-to-float conversion shared by autocorrelation, convergence, continuous-proposal checks, and streaming
-statistics, plus the AS 241 inverse-normal approximation for rank normalization. These arithmetic primitives introduce no public API or statistical policy.
-Each calling module owns validation and bounds; the ACF retains
-its specialized multi-lag traversal while sharing the same ordered accumulator. Numerical helper tests live with this module.
+Owns crate-private compensated summation and count-to-float conversion shared by autocorrelation, convergence, ESS/MCSE, continuous-proposal checks, and
+streaming statistics, plus the AS 241 inverse-normal approximation for rank normalization. These arithmetic primitives introduce no public API or statistical
+policy. Each calling module owns validation and bounds; the ACF retains its specialized multi-lag traversal while sharing the same ordered accumulator.
+Numerical helper tests live with this module.
 
 ### `src/observable.rs`
 
@@ -411,7 +428,8 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
-- `examples/diagnostics.rs` — four sequential scalar chains with ACF, mean ESS, classical/ranked/folded/combined R-hat, CSV traces, and JSON reports;
+- `examples/diagnostics.rs` — four sequential scalar chains with ACF, single/multi-chain ESS, original-unit mean/quantile MCSE, measured production rates,
+  classical/ranked/folded/combined R-hat, CSV traces, and JSON reports;
   assumptions and errors in `docs/ANALYZING_CHAINS.md`.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/adaptive_normal.rs` — bounded proposal-width tuning during warmup, then fixed-width production sampling.

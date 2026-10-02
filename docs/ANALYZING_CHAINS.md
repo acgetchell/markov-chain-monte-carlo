@@ -4,6 +4,8 @@ Version 0.5.0 provides all three diagnostics requested in [#13](https://github.c
 autocorrelation, effective sample size (ESS), and Gelman–Rubin R-hat using classical split chains. These APIs require no optional Cargo features.
 ACF and integrated time landed through #73; mean ESS, ESS per second, and split R-hat through #74. Parallel execution (#12) is separate:
 independently initialized chains can run sequentially and still supply R-hat inputs.
+The working source also adds rank-based R-hat, multi-chain mean/bulk/tail/quantile ESS, and original-unit mean/quantile MCSE for v0.5.1.
+These capabilities require no optional features; source validation and registry publication are separate.
 
 ## Run the complete workflow
 
@@ -12,10 +14,14 @@ just example diagnostics
 ```
 
 [`examples/diagnostics.rs`](../examples/diagnostics.rs) samples four standard-normal chains with distinct seeds and dispersed starts, discards warmup,
-and retains every production step. It prints lag-one ACF and mean ESS for each chain, then classical, rank-normalized, folded, and combined R-hat.
+and retains every production step. It prints lag-one ACF and single-chain mean ESS, then multi-chain mean/bulk/tail ESS, quantile ESS and MCSE at
+0.05/0.5/0.95, mean MCSE, and classical, rank-normalized, folded, and combined R-hat. MCSE uses position units; the standard-normal target's spread is one.
+ESS rates divide by measured sequential production wall-clock segments, including transitions and recording but excluding allocation, warmup,
+diagnostics, and export. They illustrate timing contracts and are not benchmark evidence.
 The same borrowed chain slices feed the estimators. It writes `target/diagnostics_trace.csv` and `target/diagnostics.json`, including chain IDs, seeds,
 starts, target, proposal, RNG, crate version, warmup, cadence, splitting/median conventions, sample counts, named estimators, and component availability.
 Each rerun replaces those artifacts. Component errors are display strings; use the Rust variants for failure-specific handling.
+The new precision summaries are console output; the existing JSON schema retains its R-hat fields. Plot/report integration is separate work in #189.
 The fixed seeds make the demonstration reproducible within the pinned toolchain and dependencies. Its output is an illustration, not a convergence gate.
 `just examples` and `just ci` check its successful diagnostic output through the shared `tooling/examples.toml` validator.
 
@@ -55,6 +61,12 @@ spacing before estimating an ACF; keep rejected and no-proposal steps. Do not co
 | How much serial correlation affects a scalar mean? | `acf.integrated_time()?` | Geyer's initial monotone sequence estimate in recorded-sample intervals |
 | How much information does this chain provide about that mean? | `time.effective_sample_size()` | `N / tau`, for this observable and chain |
 | How efficiently did the measured run produce that information? | `time.effective_sample_size_per_second(elapsed)?` | Mean ESS divided by measured seconds |
+| How much mean information do comparable chains provide together? | `EssEstimate::estimate(&chains, EssEstimator::Mean)?` | Raw-scale split ESS incorporating between-half disagreement |
+| How much bulk or quantile information do those chains provide? | `EssEstimator::Bulk` or `EssEstimator::Quantile(p)` | Rank-normalized or quantile-indicator split ESS |
+| How much tail information is available? | `TailEss::estimate(&chains)?` | Both 0.05/0.95 components and their available minimum |
+| What is the relative information and measured throughput? | `ess.relative()`, `ess.per_second(timing)?` | ESS/retained count and ESS/workload wall seconds |
+| How precise is the estimated mean? | `MeanMcse::estimate(&chains)?` | Original-unit pooled standard deviation / sqrt(raw mean ESS) |
+| How precise is an estimated quantile? | `QuantileMcse::estimate(&chains, p)?` | Original-unit beta/order-statistic MCSE and uncertainty bounds |
 | Do within-chain and between-chain variations agree? | `SplitRhat::estimate(&chains)?.value()` | Classical split R-hat from equally long borrowed scalar slices |
 | Do the chains' ranked locations agree? | `RankNormalizedSplitRhat::estimate(&chains)?.value()` | Pooled rank-normalized split component, without folding |
 | Do the chains' scales agree? | `FoldedRankNormalizedSplitRhat::estimate(&chains)?.value()` | Ranked absolute deviations from the pooled median |
@@ -63,8 +75,32 @@ spacing before estimating an ACF; keep rejected and no-proposal steps. Do not co
 Keep chains separate for ACF and ESS. Concatenation introduces artificial transitions between chains, and summing per-chain ESS does not produce a
 diagnostic that accounts for disagreement between chains. ESS is observable-specific; mean ESS is not bulk or tail ESS.
 
+For original-unit precision, use the new APIs directly:
+
+```rust
+use markov_chain_monte_carlo::{EssEstimate, EssEstimator, MeanMcse, MonteCarloError, QuantileMcse, TailEss};
+
+fn precision(chains: &[&[f64]]) -> Result<(), MonteCarloError> {
+    let mean_ess = EssEstimate::estimate(chains, EssEstimator::Mean)?;
+    let mean_error = MeanMcse::estimate(chains)?;
+    let median_error = QuantileMcse::estimate(chains, 0.5)?;
+    let tails = TailEss::estimate(chains)?;
+    println!("Mean ESS={}, ESS/S={}, mean MCSE={}", mean_ess.value(), mean_ess.relative(), mean_error.value());
+    println!("Median={}, MCSE={}, bounds={:?}", median_error.quantile(), median_error.value(), median_error.interval());
+    println!("Tail minimum={:?}, lower={:?}, upper={:?}", tails.value(), tails.lower(), tails.upper());
+    Ok(())
+}
+```
+
+Mean MCSE measures error in the mean estimate, rather than posterior standard deviation; it requires finite population moments.
+Quantile MCSE approximates uncertainty in the selected quantile. Tied/discrete observations can leave that method unavailable even with computable
+indicator ESS. [Binning](scientific_basis.md#binning-analysis) remains a separate blocked mean-error method.
+
 For a scientific efficiency comparison, record what timing includes. The Ising workflow times production transitions and recording, excluding warmup
 and diagnostics. Other timing scopes are possible, but must be comparable across the runs being compared.
+For multi-chain rates, construct `DiagnosticTiming::try_new(elapsed, original_chain_count, original_draws_per_chain)` from the measured workload and pass
+`Some(&timing)`. `None`, zero time, or mismatched counts leave rates unavailable. Matching counts do not prove trace identity. Parallel runs require actual
+concurrent wall time; never sum their chain durations. A selected prefix needs its own measurement.
 
 ## Input and estimator contracts
 
@@ -86,9 +122,15 @@ and diagnostics. Other timing scopes are possible, but must be comparable across
 - `CombinedRhat` preserves both the location and folded components. Folding uses the median of all original draws before splitting, including odd middle
   draws. Use `rank_normalized()` and `folded()` to inspect typed component results and `value()` for their optional maximum.
   See [folding arithmetic, conventions, and reference evidence](scientific_basis.md#folded-and-combined-r-hat).
+- Multi-chain ESS shares those shape/count checks, but allows constant individual halves. It uses biased within-half autocovariances and between-half
+  variation. Bulk uses retained pooled ranks; quantile cutoffs include original odd middle draws. Relative ESS uses only retained draws, and can exceed
+  one under antithetic sampling. The reference regularizes time at `1/log10(S)`; `is_regularized()` reports whether that bound changed the result.
+  See [splitting, truncation, regularization, and fixtures](scientific_basis.md#multi-chain-effective-sample-size).
+- Mean MCSE uses all-original-draw variance and raw mean ESS. Quantile MCSE uses beta/order-statistic bounds with a linear type-7 point estimate and
+  probabilities strictly in `(0,1)`. See [numerical conventions and interpretation limits](scientific_basis.md#monte-carlo-standard-errors).
 
 The [Stan reference on ESS](https://mc-stan.org/docs/2_29/reference-manual/effective-sample-size.html) describes the integrated-time relationship and
-initial monotone sequence method. Stan's combined multi-chain ESS is distinct from this crate's single-chain mean ESS.
+initial monotone sequence method. The crate exposes both single-chain and split multi-chain ESS with separately documented finite-lag contracts.
 The [classical split R-hat reference](https://mc-stan.org/docs/2_29/reference-manual/notation-for-samples-chains-and-draws.html) gives the variance ratio.
 Neither a large ESS nor R-hat near one establishes convergence or exploration of every mode. Inspect traces, use dispersed starts, and assess multiple
 observables; consider rank-normalized and folded diagnostics when raw moments are insufficient.
@@ -110,6 +152,11 @@ counts, and an optional combined value. A binary/count observable may be valid y
 `UnresolvedFolding` reports overflow-avoidance scaling that would lose subnormal precision. Preserve the successful component for interpretation, but
 never substitute it for the missing maximum. Deciding whether a structurally constant observable belongs in a consumer gate remains caller policy.
 
+`MonteCarloError::Input` preserves shared shape/finite/count failures, while `InvalidProbability` rejects unsupported quantile requests.
+`ConstantSamples`, `NoWithinChainVariation`, `DegenerateIndicator`, `UnresolvedVariance`, and `NumericalFailure` describe unavailable ESS or MCSE.
+`CollapsedQuantileInterval` does not establish exactness or zero uncertainty. `TailEss` preserves successful components even when the other fails;
+its minimum/relative/rate remain unavailable. Keep original and retained count metadata and typed reasons alongside observable/chain identity.
+
 ## Validation evidence
 
 `tests/autocorrelation.rs` and `tests/convergence.rs` cover hand-calculated estimates, independent and correlated synthetic draws, separated locations,
@@ -123,3 +170,8 @@ the rank-normalized split component from the combined rank/folded maximum.
 
 `tests/combined_rhat.rs` checks both components and their maximum against pinned posterior fixtures, with explicit folded degeneracy and odd-length
 conventions. Release availability is separate from source implementation: v0.5.1 publication and a clean registry consumer build remain release checks.
+
+`tests/ess.rs` compares all new numerical methods against thirteen pinned ArviZ regimes, retaining intentional sentinel-policy differences.
+`tests/proptest_ess.rs` checks affine units, chain/time reordering, and tied ranks under nonlinear monotone transforms. `tests/public_api.rs` and doctests
+exercise public imports, components, ratios, rates, and use after borrowed input storage drops. Reproduce the independent corpus with
+`uv run --script tests/fixtures/generate_ess.py`; versions, input draws, tolerances, and provenance are retained beside it.

@@ -31,6 +31,7 @@ categories = [ "science", "mathematics", "algorithms" ]
 
 [dependencies]
 rand = "0.10.3"
+statrs = { version = "0.19.1", default-features = false, features = [ "std" ] }
 serde = { version = "1.0.229", features = [ "derive" ], optional = true }
 tracing = { version = "0.1.44", default-features = false, features = [ "std" ], optional = true }
 
