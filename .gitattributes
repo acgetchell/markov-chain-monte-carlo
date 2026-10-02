@@ -1,2 +1,4 @@
 # Retained measurements and tagged reports are exact bytes on every platform.
 docs/performance/** -text
+# Scientific fixture provenance hashes must survive checkout line-ending settings.
+tests/fixtures/*.json -text

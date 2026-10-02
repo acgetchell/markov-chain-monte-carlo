@@ -13,7 +13,7 @@ expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixt
 [[checks]]
 name = "diagnostics"
 command = [ "target/debug/examples/diagnostics" ]
-expect = [ "Scalar diagnostics", "chain 0: ACF[1]=", "chain 1: ACF[1]=", "chain 2: ACF[1]=", "chain 3: ACF[1]=", "chain 0: mean ESS=", "chain 1: mean ESS=", "chain 2: mean ESS=", "chain 3: mean ESS=", "Multi-chain mean ESS:", "Multi-chain bulk ESS:", "Tail ESS:", "Mean MCSE:", "Quantile p=0.05:", "Quantile p=0.5:", "Quantile p=0.95:", "ESS/second=", "Classical split R-hat:", "Rank-normalized split R-hat component:", "Folded rank-normalized split R-hat component:", "Combined R-hat:", "diagnostics JSON:" ]
+expect = [ "Scalar diagnostics", "chain 0: ACF[1]=", "chain 1: ACF[1]=", "chain 2: ACF[1]=", "chain 3: ACF[1]=", "chain 0: mean ESS=", "chain 1: mean ESS=", "chain 2: mean ESS=", "chain 3: mean ESS=", "Multi-chain mean ESS:", "Multi-chain bulk ESS:", "Tail ESS:", "Mean MCSE:", "Quantile p=0.05:", "Quantile p=0.5:", "Quantile p=0.95:", "ESS/second=", "Classical split R-hat:", "Rank-normalized split R-hat component:", "Folded rank-normalized split R-hat component:", "Combined R-hat:", "diagnostics JSON:", "Rank/ESS-efficiency data:" ]
 
 [[checks]]
 name = "detailed_balance"

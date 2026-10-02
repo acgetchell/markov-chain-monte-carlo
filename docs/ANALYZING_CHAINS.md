@@ -10,7 +10,7 @@ These capabilities require no optional features; source validation and registry 
 ## Run the complete workflow
 
 ```bash
-just example diagnostics
+just diagnostic-plots
 ```
 
 [`examples/diagnostics.rs`](../examples/diagnostics.rs) samples four standard-normal chains with distinct seeds and dispersed starts, discards warmup,
@@ -18,15 +18,76 @@ and retains every production step. It prints lag-one ACF and single-chain mean E
 0.05/0.5/0.95, mean MCSE, and classical, rank-normalized, folded, and combined R-hat. MCSE uses position units; the standard-normal target's spread is one.
 ESS rates divide by measured sequential production wall-clock segments, including transitions and recording but excluding allocation, warmup,
 diagnostics, and export. They illustrate timing contracts and are not benchmark evidence.
-The same borrowed chain slices feed the estimators. It writes `target/diagnostics_trace.csv` and `target/diagnostics.json`, including chain IDs, seeds,
-starts, target, proposal, RNG, crate version, warmup, cadence, splitting/median conventions, sample counts, named estimators, and component availability.
-Each rerun replaces those artifacts. Component errors are display strings; use the Rust variants for failure-specific handling.
-The new precision summaries are console output; the existing JSON schema retains its R-hat fields. Plot/report integration is separate work in #189.
+The same borrowed chain slices feed the estimators. Its schema-2 `target/diagnostics.json` contains exact draws, ranks, and all diagnostic results for five
+scenarios: ordinary sampling, shifted or rescaled chain 3, slow mixing with a narrow proposal, and the discrete observable `floor(abs(position))`.
+The transformations create deliberate comparison cases; shifted/rescaled chains no longer share a target. Run/observable/chain IDs, seeds, starts,
+proposal widths, RNG and crate versions, estimator reference, warmup, cadence, and original/used counts travel with the results.
+The named recipe captures the build's source revision and dirty state; the report embeds the Cargo lockfile and records the declared Rust baseline.
+Retain the source checkout/diff for dirty builds; a version/revision alone does not
+reconstruct local edits. Direct Cargo builds without those environment values report null source provenance.
+The example-owned CSV now uses `run_id,observable,chain_id,draw,value`; the self-contained JSON supersedes the earlier R-hat-only schema 1.
+Each rerun replaces these artifacts. `status`, nullable values, and reasons preserve unavailable results; message/debug strings are versioned evidence,
+not a stable error-matching API. Use the Rust variants for failure-specific handling.
 The fixed seeds make the demonstration reproducible within the pinned toolchain and dependencies. Its output is an illustration, not a convergence gate.
 `just examples` and `just ci` check its successful diagnostic output through the shared `tooling/examples.toml` validator.
 
-For observable names, chain identifiers, CSV/JSON export, measured ESS per second, and notebook plots, use
-[`examples/ising_1d.rs`](../examples/ising_1d.rs) and `just notebook-check`. The Ising example writes under `target/`; the notebook consumes those artifacts.
+`just diagnostic-plots-data` regenerates only Rust CSV/JSON. `just example diagnostics` also runs the consumer without plotting.
+The separate [`examples/ising_1d.rs`](../examples/ising_1d.rs) remains the physical-model trace example. `just notebook-check` executes both notebooks.
+
+## Original-chain ranks and prefix efficiency
+
+`PooledRanks::from_chains(&chains)` returns owned plot data with borrowed `chain(index)` slices in the original draw order. Pair input positions with
+application `ChainId`s; the API does not invent new identifiers. Ranks are one-based pooled averages for exact ties, including signed zeros. Constant,
+single, or unequal-length finite chains are valid plot inputs. Empty inputs/chains and nonfinite draws are rejected with `PooledRankError`; pooled counts
+must fit `usize` and the shared `2^50` rank bound. No graphics or Python dependency enters the library.
+
+Plot ranks include **all supplied production draws**, including an odd middle draw. Split R-hat/ESS omit that draw before their internal ranking.
+An explicit half-chain plot must select and label the halves itself. Prefixes of 64, 127, 256, 512, and 1,024 original draws per chain are analyzed afresh:
+each prefix gets its own pooled ranks, original-pool quantile cutoffs, and estimates. Reusing full-run ranks or quantile cutoffs would change the question.
+Efficiency plots use `S = 2 M floor(N/2)`, the total retained split count, on the horizontal axis; CSVs also preserve original `N` and `M N`.
+
+[`notebooks/diagnostic_plots.ipynb`](../notebooks/diagnostic_plots.ipynb) consumes only exported Rust results. It saves `rank_overlays.png`,
+`ess_efficiency.png`, and `traces_acf.png` under `target/notebooks/diagnostics/`, alongside `rank_bins.csv`, `efficiency.csv`, `summary.csv`, and
+`blocked_errors.csv`. The exact input JSON is copied there, and `manifest.json` records its SHA-256 and plotting-package versions. The shared executor
+also records notebook and environment provenance. Plots never substitute favorable numbers for unavailable results; CSV status/reason columns and the
+JSON preserve them. Quantile point/interval fields are unavailable together when quantile MCSE cannot be estimated; their ESS result remains separate.
+
+Rank overlays compare each original chain's bin proportions with the **pooled bin reference**, using common edges. Deterministic ties can make this
+reference nonuniform for discrete data even when chains agree. Neither uniform-looking continuous ranks nor agreement with discrete pooled bins proves
+convergence. See [Vehtari et al., Section 4.5](../REFERENCES.md#ref-14) for rank and efficiency plots.
+
+![Original-chain rank proportions for ordinary sampling, location and scale disagreement, slow mixing, and a tied discrete observable.](assets/diagnostic_rank_overlays.png)
+
+Each row uses the full 1,024-draw prefix from four original chains. Colored lines identify the chains; the dashed black line is the pooled reference.
+Location and scale changes alter chain 3's rank distribution. The discrete row illustrates why agreement with the pooled reference matters more than
+flat bins when values tie.
+
+Relative ESS is ESS/S, not ESS/second; it can exceed one for antithetic observations. Only full, directly sampled runs have measured production timing.
+Shorter prefixes and post-sampling transforms carry explicit unavailable timing; whole-run seconds are never attached to them. Original-unit mean and
+quantile MCSE are reported separately from pooled sample standard deviation. Blocked errors preserve each chain's block size, block count, and used draws;
+the coarsest level is not automatically a reliable uncertainty estimate.
+
+![Bulk and tail ESS and relative ESS across independently recomputed prefixes of the five diagnostic scenarios.](assets/diagnostic_ess_efficiency.png)
+
+Each point recomputes diagnostics for that prefix. The left column shows bulk/tail ESS; the right divides each by the retained split count `S`.
+These curves compare information as draws accumulate, not wall-clock throughput. They are seeded demonstrations, not release performance measurements.
+Regenerate both tracked figures with `just diagnostic-plots-figures`; the matching JSON, CSVs, and provenance remain in `target/notebooks/diagnostics/`.
+
+For an already exported report, run the shared notebook executor from the repository root, with `MCMC_DIAGNOSTICS_PATH` selecting that JSON and
+`MCMC_NOTEBOOK_OUTPUT_DIR` selecting a separate output directory if desired. `MCMC_REPO_ROOT` controls default paths. Explicit paths never fall back to
+another report. Change the notebook's `rank_prefix` selection to another exported prefix to inspect its independently recomputed ranks.
+
+To render a saved report without regenerating the sampled data:
+
+```bash
+just notebook-sync
+MCMC_DIAGNOSTICS_PATH=/path/to/diagnostics.json \
+MCMC_NOTEBOOK_OUTPUT_DIR=target/notebooks/saved-diagnostics \
+uv run --locked --group dev --group notebook research-repo-tools notebooks execute notebooks/diagnostic_plots.ipynb
+```
+
+Trace axes use recorded-draw indices and label the report's positive recording interval. Unavailable ACF chains remain in the legend, and
+`blocked_errors.csv` retains an explicit status/reason row when a chain has no blocked-error estimate.
 
 ## Export and notebook workflow
 
@@ -57,6 +118,7 @@ spacing before estimating an ACF; keep rejected and no-proposal steps. Do not co
 
 | Question | API | Meaning |
 | --- | --- | --- |
+| Do original chains occupy similar parts of the pooled distribution? | `PooledRanks::from_chains(&chains)?.chain(index)` | One-based average ranks in original draw order, including odd middle draws |
 | How correlated are draws at a given lag? | `Autocorrelation::estimate(samples, max_lag)?.values()` | ACF from lag zero through the inclusive maximum lag |
 | How much serial correlation affects a scalar mean? | `acf.integrated_time()?` | Geyer's initial monotone sequence estimate in recorded-sample intervals |
 | How much information does this chain provide about that mean? | `time.effective_sample_size()` | `N / tau`, for this observable and chain |
@@ -163,6 +225,18 @@ its minimum/relative/rate remain unavailable. Keep original and retained count m
 within-chain drift, degenerate inputs, and numerical extremes. `tests/proptest_autocorrelation.rs` and `tests/proptest_convergence.rs` check algebraic
 invariants through the public APIs. `just test-integration` runs these with the other integration tests; `just test-doc` checks the API examples.
 The Ising notebook is an additional end-to-end consumer, not an independent numerical oracle.
+
+`tests/pooled_ranks.rs` covers ordering, ties, signed zeros, original identity, odd middles, unequal lengths, constant and invalid inputs, immutability,
+and owned results through root/prelude imports. `tests/fixtures/diagnostic_plots.json` retains five regimes at three prefixes, independently calculated
+with SciPy 1.16.2 and ArviZ 0.22.0 from the exact ESS fixture inputs. Reproduce and cross-check exported results with:
+
+```bash
+uv run --script tests/fixtures/generate_diagnostic_plots.py
+uv run --script tests/fixtures/generate_diagnostic_plots.py --report target/diagnostics.json
+```
+
+The isolated generator pins Python 3.13.7 and NumPy 2.2.6 as well. It verifies provenance, rank arrays, availability, and numeric tolerances without
+rewriting retained evidence. Notebook execution is evidence of artifact consumption and rendering; it does not replace these independent numerical checks.
 
 `tests/rank_normalized_rhat.rs` adds pinned ArviZ component fixtures, deterministic Cauchy location shifts, same-distribution controls, preserved ties and
 ordering under monotone transforms, signed zeros, extreme finite inputs, and borrowed-input checks. Its scale-only fixture deliberately distinguishes

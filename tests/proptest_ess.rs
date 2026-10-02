@@ -26,21 +26,22 @@ fn varying_chains() -> impl Strategy<Value = Vec<Vec<f64>>> {
 
 proptest! {
     #[test]
-    fn affine_units_and_chain_time_reordering_preserve_information(chains in varying_chains()) {
+    fn affine_units_preserve_information(chains in varying_chains()) {
         let borrowed: Vec<_> = chains.iter().map(Vec::as_slice).collect();
-        // These transforms are exact for the small integer inputs. Reverse
-        // selected chains, preserving cadence without flattening boundaries.
-        let transformed: Vec<Vec<_>> = chains.iter().rev().enumerate().map(|(index, chain)| {
-            let mut values: Vec<_> = chain.iter().map(|&x| 16.0_f64.mul_add(x, 512.0)).collect();
-            if index % 2 == 0 { values.reverse(); }
-            values
+        // This unit change is exact for the small integer inputs and preserves
+        // reduction order. Reordering can round a zero autocorrelation pair to
+        // either side of the stopping boundary; tests/ess.rs checks reordering
+        // against the reference corpus and retains that boundary counterexample.
+        let transformed: Vec<Vec<_>> = chains.iter().map(|chain| {
+            chain.iter().map(|&x| 16.0_f64.mul_add(x, 512.0)).collect()
         }).collect();
         let transformed: Vec<_> = transformed.iter().map(Vec::as_slice).collect();
         for method in [EssEstimator::Mean, EssEstimator::Bulk, EssEstimator::Quantile(0.5)] {
             let original = EssEstimate::estimate(&borrowed, method);
             let changed = EssEstimate::estimate(&transformed, method);
             match (original, changed) {
-                (Ok(a), Ok(b)) => prop_assert!((a.value() / b.value() - 1.0).abs() < 2e-10),
+                (Ok(a), Ok(b)) => prop_assert!((a.value() / b.value() - 1.0).abs() < 2e-10,
+                    "{method:?}: original={}, transformed={}", a.value(), b.value()),
                 (Err(a), Err(b)) => {
                     prop_assert!(matches!(method, EssEstimator::Quantile(_)),
                         "varying halves must support {method:?}: {a:?}, {b:?}");

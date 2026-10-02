@@ -6,22 +6,25 @@
 
 use std::{
     error::Error,
-    fmt,
-    fs::{self, File},
-    io::{self, BufWriter, Write},
+    fmt, io,
     time::{Duration, Instant},
 };
 
 use markov_chain_monte_carlo::prelude::by_value::*;
 use markov_chain_monte_carlo::prelude::{
     Autocorrelation, CombinedRhat, DiagnosticTiming, DiagnosticTimingError, EssEstimate,
-    EssEstimator, FoldedRankNormalizedSplitRhat, MeanMcse, MonteCarloError, QuantileMcse,
-    RankNormalizedSplitRhat, SplitRhat, SplitRhatError, TailEss,
+    EssEstimator, MeanMcse, MonteCarloError, PooledRankError, QuantileMcse, SplitRhat,
+    SplitRhatError, TailEss,
 };
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
-use serde_json::{Value, json};
+
+#[path = "diagnostics/plot_data.rs"]
+mod plot_data;
 
 const WARMUP: usize = 2_000;
+const DRAWS: usize = 1_024;
+const STARTS: [f64; 4] = [-6., -2., 2., 6.];
+const SEEDS: [u64; 4] = [40, 41, 42, 43];
 
 #[derive(Debug)]
 enum DiagnosticsError {
@@ -31,6 +34,7 @@ enum DiagnosticsError {
     Json(serde_json::Error),
     Timing(DiagnosticTimingError),
     Precision(MonteCarloError),
+    Ranks(PooledRankError),
 }
 
 impl fmt::Display for DiagnosticsError {
@@ -42,6 +46,7 @@ impl fmt::Display for DiagnosticsError {
             Self::Json(error) => error.fmt(f),
             Self::Timing(error) => error.fmt(f),
             Self::Precision(error) => error.fmt(f),
+            Self::Ranks(error) => error.fmt(f),
         }
     }
 }
@@ -55,6 +60,7 @@ impl Error for DiagnosticsError {
             Self::Json(error) => Some(error),
             Self::Timing(error) => Some(error),
             Self::Precision(error) => Some(error),
+            Self::Ranks(error) => Some(error),
         }
     }
 }
@@ -83,6 +89,12 @@ impl From<MonteCarloError> for DiagnosticsError {
     }
 }
 
+impl From<PooledRankError> for DiagnosticsError {
+    fn from(error: PooledRankError) -> Self {
+        Self::Ranks(error)
+    }
+}
+
 impl From<io::Error> for DiagnosticsError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
@@ -103,16 +115,15 @@ impl Target<f64> for StandardNormal {
     }
 }
 
-struct RandomWalk;
+struct RandomWalk(f64);
 
 impl Proposal<f64> for RandomWalk {
     fn propose<R: Rng + ?Sized>(&self, current: &f64, rng: &mut R) -> f64 {
-        current + rng.random_range(-2.0..2.0)
+        current + rng.random_range(-self.0..self.0)
     }
 }
 
 fn main() -> Result<(), DiagnosticsError> {
-    const DRAWS: usize = 10_000;
     const MAX_LAG: usize = 511;
 
     println!("Scalar diagnostics: four sequential N(0,1) chains");
@@ -120,12 +131,10 @@ fn main() -> Result<(), DiagnosticsError> {
     println!("Observable: position; fixed uniform random-walk half-width=2.");
     let mut traces = Vec::with_capacity(4);
     let mut production_time = Duration::ZERO;
-    for (id, (start, seed)) in [(-6.0, 40), (-2.0, 41), (2.0, 42), (6.0, 43)]
-        .into_iter()
-        .enumerate()
-    {
+    let mut chain_times = Vec::with_capacity(4);
+    for (id, (start, seed)) in STARTS.into_iter().zip(SEEDS).enumerate() {
         let target = StandardNormal;
-        let proposal = RandomWalk;
+        let proposal = RandomWalk(2.0);
         let mut rng = StdRng::seed_from_u64(seed);
         let chain = Chain::new(start, &target)?;
         let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
@@ -140,7 +149,9 @@ fn main() -> Result<(), DiagnosticsError> {
         }
         // Sum nonoverlapping wall-clock segments because these chains run
         // sequentially. Parallel chains require the concurrent workload's wall time.
-        production_time += started.elapsed();
+        let elapsed = started.elapsed();
+        production_time += elapsed;
+        chain_times.push(elapsed);
         println!(
             "chain {id}: seed={seed}, start={start:+.1}, acceptance={:.3}",
             sampler.chain_ref().acceptance_rate()
@@ -188,13 +199,36 @@ fn main() -> Result<(), DiagnosticsError> {
         Some(value) => println!("Combined R-hat: {value:.4}"),
         None => println!("Combined R-hat unavailable: inspect both component results"),
     }
-    export_diagnostics(&traces, classical, &report)?;
+    let (slow, slow_times) = slow_chains()?;
+    plot_data::export(&traces, &chain_times, &slow, &slow_times)?;
     println!(
         "Single-chain mean ESS and multi-chain mean/bulk/tail ESS have distinct estimator contracts."
     );
     println!("Combined R-hat is available only when both rank-based components are available.");
     println!("These estimates do not certify convergence or exploration of all modes.");
     Ok(())
+}
+
+fn slow_chains() -> Result<(Vec<Vec<f64>>, Vec<Duration>), DiagnosticsError> {
+    let mut traces = Vec::with_capacity(4);
+    let mut elapsed = Vec::with_capacity(4);
+    for (start, seed) in STARTS.into_iter().zip(SEEDS) {
+        let target = StandardNormal;
+        let proposal = RandomWalk(0.1);
+        let mut rng = StdRng::seed_from_u64(seed);
+        let chain = Chain::new(start, &target)?;
+        let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
+        sampler.run(WARMUP)?;
+        let mut draws = Vec::with_capacity(DRAWS);
+        let started = Instant::now();
+        for _ in 0..DRAWS {
+            let _ = sampler.step()?;
+            draws.push(*sampler.chain_ref().state());
+        }
+        elapsed.push(started.elapsed());
+        traces.push(draws);
+    }
+    Ok((traces, elapsed))
 }
 
 fn print_precision(chains: &[&[f64]], timing: &DiagnosticTiming) -> Result<(), DiagnosticsError> {
@@ -238,59 +272,4 @@ fn print_precision(chains: &[&[f64]], timing: &DiagnosticTiming) -> Result<(), D
         "Timing: sequential production sampling and recording; excludes allocation, warmup, diagnostics, and export."
     );
     Ok(())
-}
-
-fn export_diagnostics(
-    traces: &[Vec<f64>],
-    classical: Result<SplitRhat, SplitRhatError>,
-    report: &CombinedRhat,
-) -> Result<(), DiagnosticsError> {
-    fs::create_dir_all("target")?;
-    let mut csv = BufWriter::new(File::create("target/diagnostics_trace.csv")?);
-    writeln!(csv, "chain_id,step,position")?;
-    for (id, draws) in traces.iter().enumerate() {
-        for (step, value) in draws.iter().enumerate() {
-            writeln!(csv, "{id},{},{value}", step + 1)?;
-        }
-    }
-    csv.flush()?;
-    let output = json!({
-        "schema_version": 1,
-        "crate_version": env!("CARGO_PKG_VERSION"),
-        "observable": "position",
-        "target": "standard_normal",
-        "proposal": "uniform_random_walk_half_width_2",
-        "rng": "rand::rngs::StdRng",
-        "chain_ids": [0, 1, 2, 3],
-        "seeds": [40, 41, 42, 43],
-        "starts": [-6, -2, 2, 6],
-        "warmup_per_chain": WARMUP,
-        "recording_interval": 1,
-        "chain_count": report.chain_count(),
-        "samples_per_chain": report.samples_per_chain(),
-        "samples_per_split_chain": report.samples_per_split_chain(),
-        "median_scope": "all_original_draws_before_splitting",
-        "split": "first_and_last_floor_N_over_2",
-        "trace": "diagnostics_trace.csv",
-        "classical_split": component_json(classical.map(SplitRhat::value)),
-        "rank_normalized_split": component_json(report.rank_normalized().map(RankNormalizedSplitRhat::value)),
-        "folded_rank_normalized_split": component_json(report.folded().map(FoldedRankNormalizedSplitRhat::value)),
-        "combined_rank_normalized_maximum": {
-            "status": if report.value().is_some() { "estimated" } else { "unavailable" },
-            "value": report.value()
-        }
-    });
-    let mut file = BufWriter::new(File::create("target/diagnostics.json")?);
-    serde_json::to_writer_pretty(&mut file, &output)?;
-    writeln!(file)?;
-    file.flush()?;
-    println!("diagnostics JSON: target/diagnostics.json; trace CSV: target/diagnostics_trace.csv");
-    Ok(())
-}
-
-fn component_json(result: Result<f64, SplitRhatError>) -> Value {
-    match result {
-        Ok(value) => json!({"status": "estimated", "value": value}),
-        Err(error) => json!({"status": "unavailable", "value": null, "error": error.to_string()}),
-    }
 }

@@ -594,6 +594,7 @@ mod error;
 mod ess;
 mod numerics;
 mod observable;
+mod ranks;
 mod sampler;
 mod statistics;
 mod testing;
@@ -624,6 +625,7 @@ pub use ess::{
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
+pub use ranks::{PooledRankError, PooledRanks};
 pub use sampler::{
     InvalidThinningInterval, ObservedDelayedIntoRunResult, ObservedDelayedStep,
     ObservedDelayedStepResult, ObservedIntoRunResult, ObservedMutStep, ObservedStep, Sampler,
@@ -650,7 +652,7 @@ pub use traits::{
 /// statistics, and reusable trace diagnostics, including [`TraceRecorder`],
 /// [`Autocorrelation`], [`SplitRhat`], [`RankNormalizedSplitRhat`],
 /// [`FoldedRankNormalizedSplitRhat`], [`CombinedRhat`], [`EssEstimate`],
-/// [`TailEss`], [`MeanMcse`], [`QuantileMcse`], and [`DiagnosticTiming`].
+/// [`TailEss`], [`MeanMcse`], [`QuantileMcse`], [`DiagnosticTiming`], and [`PooledRanks`].
 /// Integrated-time summaries also expose
 /// [ESS](IntegratedAutocorrelationTime::effective_sample_size) and
 /// [measured ESS rates](IntegratedAutocorrelationTime::effective_sample_size_per_second):
@@ -706,11 +708,11 @@ pub mod prelude {
         DelayedCommitLogProbMismatch, DiagnosticTiming, DiagnosticTimingError, EssEstimate,
         EssEstimator, EssRateError, FoldedRankNormalizedSplitRhat, IntegratedAutocorrelationTime,
         InvalidThinningInterval, McmcError, MeanMcse, MonteCarloError, Observable,
-        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, QuantileMcse,
-        RankNormalizedSplitRhat, SampleBuffer, Sampler, SplitRhat, SplitRhatError, StatisticsError,
-        TailEss, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
-        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
-        TryThinnedObservedRunResult, TunableProposal,
+        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+        PooledRankError, PooledRanks, QuantileMcse, RankNormalizedSplitRhat, SampleBuffer, Sampler,
+        SplitRhat, SplitRhatError, StatisticsError, TailEss, Target, ThinningInterval, Trace,
+        TraceError, TraceRecord, TraceRecorder, TraceStepOutcome, TryAccumulator, TryObservable,
+        TryObservedIntoRunResult, TryThinnedObservedRunResult, TunableProposal,
     };
 
     /// Prelude for by-value proposals.

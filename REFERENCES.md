@@ -39,6 +39,7 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Statistics and diagnostics | [Online statistics](docs/scientific_basis.md#online-statistics) | [6](#ref-6), Welford accumulation |
 | Statistics and diagnostics | [Proposal validation](docs/scientific_basis.md#proposal-validation) | [1](#ref-1), [2](#ref-2), transition-flow identity; [11](#ref-11), independent-bin tolerance bound |
 | Statistics and diagnostics | [Rank-normalized split R-hat](docs/scientific_basis.md#rank-normalized-split-r-hat) | [14](#ref-14), Sections 3.1 and 4.1, equation (14); [18](#ref-18), normal quantiles; [19](#ref-19), independent component fixtures |
+| Statistics and diagnostics | [Rank plots and prefix efficiency](docs/ANALYZING_CHAINS.md#original-chain-ranks-and-prefix-efficiency) | [14](#ref-14), Section 4.5, visualization motivation; [19](#ref-19), pinned SciPy ranks and ArviZ prefix references |
 | Numerical arithmetic | [Compensated summation](docs/scientific_basis.md#autocorrelation-estimator-contract) | [16](#ref-16), Kahan accumulation used by scalar diagnostics |
 | Example models | Neal's funnel | [17](#ref-17), original model; [10](#ref-10), conditional scale convention |
 | Example models | Rosenbrock target | [9](#ref-9), normalized conditional-normal construction |
@@ -85,6 +86,8 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     DOI: [10.1214/20-BA1221](https://doi.org/10.1214/20-BA1221). [arXiv:1903.08008v5](https://arxiv.org/abs/1903.08008v5).
     Sections 3.1 and 4.1, equation (14), define the implemented rank-normalized split component. Section 4.2, equation (15), defines folding and the
     combined maximum. Sections 1.2 and 5.1 and Appendix A motivate the diagnostic's heavy-tail and location sensitivity.
+    Section 4.5 motivates pooled-rank plots and efficiency curves for increasing draw prefixes. The example's discrete pooled-bin reference preserves
+    average-rank ties instead of imposing a continuous-uniform heuristic.
 15. <a name="ref-15"></a> Foreman-Mackey, Dan, and contributors. "Autocorrelation Analysis & Convergence." *emcee documentation*.
     [Trace-length discussion](https://emcee.readthedocs.io/en/stable/tutorials/autocorr/).
     Context for the example notebook's heuristic short-trace caution; the crate uses Geyer's estimator, not emcee's window selection.
@@ -105,6 +108,9 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     [retained fixtures](tests/fixtures/ess.json), reproduced by [the pinned generator](tests/fixtures/generate_ess.py).
     ArviZ's constant-data ESS sentinels and zero collapsed quantile MCSE are retained as reference evidence but deliberately unavailable in this crate.
     Its raw ESS span-below-`1e-15` sentinel is also deliberately omitted to preserve computable variation across changes of units.
+    The [prefix generator](tests/fixtures/generate_diagnostic_plots.py) pairs these public estimators with SciPy 1.16.2's
+    [`rankdata(method="average")`](https://docs.scipy.org/doc/scipy-1.16.2/reference/generated/scipy.stats.rankdata.html) for independently reranked
+    [plot fixtures](tests/fixtures/diagnostic_plots.json). Plot ranks include all original prefix draws; estimator ranks follow their split convention.
 20. <a name="ref-20"></a> Stan Development Team. *posterior* 1.7.0,
     [R-hat implementation](https://github.com/stan-dev/posterior/blob/v1.7.0/R/convergence.R).
     Independent `posterior::rhat` oracle for both rank-based components and their maximum, with R 4.5.1 and matrixStats 1.5.0.

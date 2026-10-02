@@ -351,6 +351,11 @@ changes the estimate. This finite-lag/regularization contract differs from the u
 observed nonpositive pair and has no ESS cap. Direct autocovariances stop on demand, costing `O(S*K)` time and `O(S)` space for `K` inspected lags;
 the worst case inspects order `floor(N/2)` lags.
 
+At a zero autocorrelation-pair sum, rounding can change the stopping or pair-retention decision. Reordering chains or reversing their draws can therefore
+change finite-precision ESS even though exact autocovariances are invariant. The extra even-lag rule can make the resulting difference exceed ordinary
+roundoff tolerances. Reordering checks use the independent reference corpus; a deterministic zero-pair regression checks the two analytically derived
+branch limits. Affine-unit property tests preserve reduction order rather than assuming unconditional invariance at these boundaries.
+
 `TailEss` preserves the 0.05 and 0.95 indicator results independently. Its minimum, relative ESS, and rate are available only when both components
 succeed. Constant individual halves remain allowed for sparse indicators; an entirely constant pool, no variation in any half, or degenerate indicators
 are unavailable. This differs from ArviZ's constant-data sentinel and from R-hat's stricter rejection of any constant half. No passing sentinel is

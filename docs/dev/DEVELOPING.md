@@ -95,8 +95,12 @@ of `just ci` and the tooling part of `just check`, so fixture validation cannot 
 
 Ruff requires parameter and return annotations (ANN001/002/003/201/202/204/205/206), strict `TC` import handling, and `UP` modernization including UP037.
 Use precise bare annotations with Python 3.14's native deferred evaluation; put imports used only for annotations under `if TYPE_CHECKING`.
-Do not add future annotations solely for lint compliance. The exception Semgrep fixture retains exact per-file rule exceptions for deliberate violations.
+Do not add future annotations solely for lint compliance. The subprocess-mock Semgrep fixture exempts only harness comments and package layout.
 Source notebooks use the same configured policy through `just notebook-lint`.
+
+Ruff owns broad-exception handling (`BLE001`), raw `Exception` raises (`TRY002`), and missing annotations; Semgrep does not duplicate these checks.
+Rust compilation enforces private-module import boundaries. Semgrep retains repository-specific checks such as typed subprocess results, scientific
+floating-point restrictions, and error-contract policy.
 
 ### GitHub Actions security audits
 
@@ -266,14 +270,19 @@ required.
 ## Notebooks
 
 `just notebook-lint` selects tracked and non-ignored source notebooks and invokes shared structure, cell-ID, output, Ruff, formatting, and ty checks. The native
-checkers read original notebooks and preserve cross-cell references. `just notebook-check` generates the Ising input and executes only the configured fast set
-in fresh project kernels; slow notebooks remain explicitly selected in `slow_notebooks`.
+checkers read original notebooks and preserve cross-cell references. `just notebook-check` generates the Ising and rank/efficiency inputs and executes
+the configured fast set in fresh project kernels; slow notebooks remain explicitly selected in `slow_notebooks`.
 The shared `prohibit-installs` policy rejects literal dependency-install commands in notebook cells. Declare dependencies in the locked notebook group
 and synchronize through `just notebook-sync` instead of modifying the environment from a notebook.
 
 `just notebook-sync` synchronizes the locked dev/notebook groups and registers the project-local kernel. Shared execution writes
 `target/notebooks/notebooks/ising_trace_analysis.ipynb` and a sibling `.report.json` with source/lock hashes, interpreter/package versions, and execution
 status. Temporary Jupyter and Matplotlib state is private to each run. Source notebooks stay unchanged.
+
+`just diagnostic-plots` builds the public Rust diagnostics consumer, validates its output, and executes only `notebooks/diagnostic_plots.ipynb`.
+`just diagnostic-plots-data` exports its self-contained schema-2 JSON and CSV without notebook execution. The example build records the source revision
+and dirty state. Both examples execute once in `just ci` through shared validation, before notebook consumption. The new notebook retains a byte-exact
+report copy, hash manifest, numeric CSVs, and three figures under `target/notebooks/diagnostics/`; see [the analysis guide](../ANALYZING_CHAINS.md).
 
 `just notebook-ising-figure` promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. MCMC retains its input validation, acceptance
 statistics, plot content, and explicit `MCMC_TRACE_PATH`, `MCMC_REPO_ROOT`, and `MCMC_NOTEBOOK_OUTPUT_DIR` semantics. Use `just notebook-clear-outputs-all` for
