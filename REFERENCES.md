@@ -34,6 +34,8 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Statistics and diagnostics | [Classical split R-hat](docs/scientific_basis.md#classical-split-r-hat) | [13](#ref-13), the implemented variance-ratio definition; [14](#ref-14), limitations and rank/folded improvements |
 | Statistics and diagnostics | [Folded and combined R-hat](docs/scientific_basis.md#folded-and-combined-r-hat) | [14](#ref-14), Section 4.2, equation (15); [20](#ref-20), independent component and maximum fixtures |
 | Statistics and diagnostics | [ESS and efficiency](docs/scientific_basis.md#ess-and-wall-clock-efficiency) | [8](#ref-8), [13](#ref-13), integrated-time relation; Stan's pooled multi-chain ESS is a different estimator |
+| Statistics and diagnostics | [Monte Carlo standard errors](docs/scientific_basis.md#monte-carlo-standard-errors) | [14](#ref-14), Section 4.4, beta/order-statistic quantile uncertainty; [19](#ref-19), pinned mean and quantile MCSE conventions |
+| Statistics and diagnostics | [Multi-chain ESS](docs/scientific_basis.md#multi-chain-effective-sample-size) | [8](#ref-8), initial sequence; [14](#ref-14), Sections 3.2, 4.1, 4.3, bulk/tail/quantile methods; [19](#ref-19), pinned lag boundary and regularization |
 | Statistics and diagnostics | [Online statistics](docs/scientific_basis.md#online-statistics) | [6](#ref-6), Welford accumulation |
 | Statistics and diagnostics | [Proposal validation](docs/scientific_basis.md#proposal-validation) | [1](#ref-1), [2](#ref-2), transition-flow identity; [11](#ref-11), independent-bin tolerance bound |
 | Statistics and diagnostics | [Rank-normalized split R-hat](docs/scientific_basis.md#rank-normalized-split-r-hat) | [14](#ref-14), Sections 3.1 and 4.1, equation (14); [18](#ref-18), normal quantiles; [19](#ref-19), independent component fixtures |
@@ -99,6 +101,10 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     [diagnostics implementation](https://github.com/arviz-devs/arviz/blob/v0.22.0/arviz/stats/diagnostics.py).
     Independent `rhat(method="z_scale")` reference for the rank-normalized split component, using SciPy 1.16.2 and NumPy 2.2.6.
     `method="rank"` instead returns the combined rank/folded maximum and is not the component oracle.
+    Also the independent oracle for multi-chain mean/bulk/tail/quantile ESS and mean/quantile MCSE in
+    [retained fixtures](tests/fixtures/ess.json), reproduced by [the pinned generator](tests/fixtures/generate_ess.py).
+    ArviZ's constant-data ESS sentinels and zero collapsed quantile MCSE are retained as reference evidence but deliberately unavailable in this crate.
+    Its raw ESS span-below-`1e-15` sentinel is also deliberately omitted to preserve computable variation across changes of units.
 20. <a name="ref-20"></a> Stan Development Team. *posterior* 1.7.0,
     [R-hat implementation](https://github.com/stan-dev/posterior/blob/v1.7.0/R/convergence.R).
     Independent `posterior::rhat` oracle for both rank-based components and their maximum, with R 4.5.1 and matrixStats 1.5.0.

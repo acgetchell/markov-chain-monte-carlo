@@ -19,6 +19,8 @@ distribution, proposal kernel, state representation, and analysis choices.
   - [Classical split R-hat](#classical-split-r-hat)
   - [ESS and wall-clock efficiency](#ess-and-wall-clock-efficiency)
   - [Folded and combined R-hat](#folded-and-combined-r-hat)
+  - [Monte Carlo standard errors](#monte-carlo-standard-errors)
+  - [Multi-chain effective sample size](#multi-chain-effective-sample-size)
   - [Online statistics](#online-statistics)
   - [Proposal validation](#proposal-validation)
   - [Rank-normalized split R-hat](#rank-normalized-split-r-hat)
@@ -266,7 +268,8 @@ floating-point folding, not exact arithmetic. The rank, tie, count, and variance
 Any constant folded half returns `ConstantSplitChain`, even when the original half varies. Balanced binary data can fold entirely to one value. A fixture
 also records posterior's computable result with only one constant folded half; this crate deliberately retains #183's stricter unavailable-result policy.
 The report preserves original chain count, original length, retained half length, and both component successes/failures. Missing components never become
-a passing sentinel or the other component's value. Mean ESS remains a separate single-chain quantity, not bulk or tail ESS.
+a passing sentinel or the other component's value. The existing integrated-time mean ESS remains separate from
+[multi-chain mean/bulk/tail ESS](#multi-chain-effective-sample-size).
 
 [Stored inputs and expected results](../tests/fixtures/combined_rhat.json) retain the original posterior 1.7.0 reference values and provenance:
 R 4.5.1, jsonlite 2.0.0, and matrixStats 1.5.0. That recorded run used the `rocker/r-ver:4.5.1` image, digest
@@ -290,6 +293,93 @@ Additional Rust regressions exercise extreme finite values, subnormal arithmetic
 
 Implementation and release availability are separate: these APIs are implemented in the working source for #184. The v0.5.1 registry release and a
 clean registry consumer build remain release-time checks; local source validation does not establish that the published package exposes them.
+
+### Monte Carlo standard errors
+
+`MeanMcse` follows [ArviZ 0.22.0](../REFERENCES.md#ref-19): the pooled sample standard deviation of **all original draws** divided by
+`sqrt(raw_mean_ESS)`, with variance divisor `T-1` for original count `T`. An odd middle draw affects the variance, although split ESS omits it.
+Bulk ESS must not replace raw mean ESS in this formula. Bessel correction alone does not make a correlated-data variance estimate unbiased.
+The output is uncertainty in the estimated scalar mean, in observable units. It is distinct from target/posterior standard deviation and from the
+[blocked mean-error estimate](#binning-analysis). Interpretation requires finite population mean/variance, a stationary chain, summable correlations,
+and a suitable central limit theorem; finite estimates from Cauchy or other heavy-tailed inputs do not establish those assumptions.
+
+`QuantileMcse` follows [Vehtari et al., Section 4.4](../REFERENCES.md#ref-14), with ArviZ's beta/order-statistic implementation conventions.
+For finite `p` strictly in `(0,1)`, it estimates indicator ESS, then beta quantiles at `0.1586553` and `0.8413447` with shapes
+`a = ESS*p + 1`, `b = ESS*(1-p) + 1`. If those beta probabilities are `a_low` and `a_high`, select one-based original pooled order statistics
+`max(floor(T*a_low),1)` and `min(ceil(T*a_high),T)`, where `T` includes odd middle draws. Half their separation is MCSE in original units.
+`quantile()` reports the pooled linear type-7 point estimate; `interval()` preserves the selected uncertainty bounds and `effective_sample_size()`
+identifies the indicator probability and both sample counts. These bounds approximate uncertainty in the estimated quantile, not posterior spread,
+simultaneous coverage, or MCSE for arbitrary nonlinear functionals.
+
+Quantile interpretation needs adequate local information and, conventionally, positive continuous density near the requested quantile.
+Counts/ties lack that ordinary density interpretation: constant indicators are unavailable, and coinciding order-statistic bounds return
+`CollapsedQuantileInterval`, never zero uncertainty. Mean and quantile results retain typed ESS/input failures. Scaled centering restores physical
+units for mean MCSE; overflow or underflow of the final positive error is unavailable. Quantile differences use half-scaled subtraction when necessary.
+The regularized beta CDF comes from statrs 0.19.1; inversion uses 80 bisection steps and requires finite CDF residual at most `1e-8`.
+Unresolved inversion returns `NumericalFailure`, rather than entering an unbounded Newton loop or accepting a finite-looking endpoint.
+
+[`examples/diagnostics.rs`](../examples/diagnostics.rs) demonstrates mean and 0.05/0.5/0.95 quantile MCSE in position units for a standard-normal
+target. Its known target standard deviation is one; MCSE estimates precision of the summaries. The pinned reference corpus below verifies those
+methods independently, including explicit policy differences for tied and degenerate data.
+
+### Multi-chain effective sample size
+
+`EssEstimate` combines within-half autocovariances and between-half mean variation following
+[Vehtari et al., Sections 3.2, 4.1, and 4.3](../REFERENCES.md#ref-14), [Geyer's sequence estimators](../REFERENCES.md#ref-8), and
+[ArviZ 0.22.0's implementation](../REFERENCES.md#ref-19). It accepts borrowed, equal-length finite chains: at least two original chains and four
+draws each. These minima make the calculation defined, not reliable. Shared parsing checks every original draw, including omitted middle draws,
+and rejects unsupported pooled counts before allocation (`2^50` retained precision bound, with original and retained lengths also fitting `usize`).
+Warmup removal, independent initialization, cadence, units, observable selection, and precision thresholds remain caller responsibilities.
+
+Each original chain contributes its first and last `floor(N/2)` halves. With `m` halves of `n` draws, biased autocovariance uses divisor `n` at every lag;
+`W` is the average unbiased half variance and `V+` is average biased half variance plus unbiased variance of half means. For positive lags,
+`rho[t] = 1 - (W - mean_autocov[t]) / V+`, with `rho[0] = 1`. Between-chain disagreement can therefore reduce ESS even with small individual-chain
+autocorrelation. Concatenating chains or summing single-chain estimates does not implement this estimator.
+
+The three estimator identities transform draws before those moments:
+
+- `EssEstimator::Mean` uses retained raw values for scalar-mean ESS.
+- `EssEstimator::Bulk` pools retained ranks and uses the shared average-tie, signed-zero, and normal-score conventions of
+  [rank-normalized R-hat](#rank-normalized-split-r-hat).
+- `EssEstimator::Quantile(p)` uses `x <= cutoff` indicators; the linear type-7 cutoff includes **all original draws before splitting**.
+  Reject nonfinite probabilities and endpoints; it is not an ESS of a filtered tail subset.
+
+The initial positive sequence starts with `rho[0]+rho[1]`. Subsequent pairs follow ArviZ's strict `t < n-3` loop boundary, retain an extra positive
+even lag after the last accepted pair, and enforce a nonincreasing initial monotone sequence. The resulting time is bounded below by `1/log10(S)`
+for retained count `S`; ESS is `S/tau`, capped at `S*log10(S)`. Antithetic relative ESS can exceed one; `is_regularized()` reports when the time bound
+changes the estimate. This finite-lag/regularization contract differs from the unchanged single-chain integrated-time method, which requires an
+observed nonpositive pair and has no ESS cap. Direct autocovariances stop on demand, costing `O(S*K)` time and `O(S)` space for `K` inspected lags;
+the worst case inspects order `floor(N/2)` lags.
+
+`TailEss` preserves the 0.05 and 0.95 indicator results independently. Its minimum, relative ESS, and rate are available only when both components
+succeed. Constant individual halves remain allowed for sparse indicators; an entirely constant pool, no variation in any half, or degenerate indicators
+are unavailable. This differs from ArviZ's constant-data sentinel and from R-hat's stricter rejection of any constant half. No passing sentinel is
+substituted. Scaled local centering and compensated sums handle wide finite ranges; unresolved within-half variance and nonrepresentable results
+return typed errors. There is no absolute near-constant cutoff.
+ArviZ's raw ESS also returns its sample-count sentinel for spans below `1e-15`; this crate deliberately preserves representable variation through
+rescaling instead. Extreme-range metamorphic tests verify that difference without treating the reference's absolute tolerance as scientific evidence.
+
+`sample_count()` and relative ESS use `S = 2*M*floor(N/2)`. `original_sample_count()` includes all `M*N` supplied draws; original and split lengths
+are exposed separately, including when tail components fail. `DiagnosticTiming` requires positive wall time and declared original chain/draw counts.
+`per_second(Some(&timing))` rejects mismatches; `None` rejects missing timing. Matching counts cannot establish workload identity: callers must measure
+the exact analyzed production run, include intervening transitions under thinning, and preserve scope/provenance. Parallel rates require actual workload
+wall time, not summed chain durations. Untimed prefixes require their own measurement; a full-run time cannot be silently reused.
+
+[Retained inputs, outputs, policy differences, and provenance](../tests/fixtures/ess.json) use independently evaluated public ArviZ methods.
+ArviZ is selected as the independent reference because it implements the published ESS and beta/order-statistic methods and permits an isolated,
+version-pinned Python reproduction alongside the existing R-hat fixtures. Python 3.13.7, ArviZ 0.22.0, NumPy 2.2.6, and SciPy 1.16.2 are pinned
+in [the stdout-only generator](../tests/fixtures/generate_ess.py), separate from the repository tooling baseline:
+
+```bash
+uv run --script tests/fixtures/generate_ess.py
+```
+
+Relative tolerance `2e-11` plus absolute `2e-13` covers compensated direct versus FFT autocovariance and independent beta inversion away from stopping
+boundaries; selected MCSE order statistics must agree. Thirteen regimes cover independent, correlated, antithetic, separated-location, differing-scale,
+heavy-tail, tied/count, binary, odd, constant, stuck-half, minimum-length, and partially constant-half draws. Reference sentinels remain recorded even
+when this crate's declared policy rejects them. Rust regressions add extreme finite/subnormal arithmetic, input immutability, invalid requests, timing,
+borrowed API ownership, affine changes of units, and chain/time reordering. Finite ESS or MCSE never establishes convergence, exploration of every mode,
+target correctness, or existence of moments. Source implementation, release publication, and downstream integration remain separate evidence.
 
 ### Online statistics
 

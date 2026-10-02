@@ -319,6 +319,57 @@ fn combined_diagnostic_survives_borrowed_input_buffers() {
 }
 
 #[test]
+fn precision_diagnostics_share_public_paths_and_outlive_borrowed_storage() {
+    use markov_chain_monte_carlo::{
+        DiagnosticTiming, DiagnosticTimingError, EssEstimate, EssEstimator, MeanMcse,
+        MonteCarloError, QuantileMcse, TailEss,
+    };
+    use std::time::Duration;
+
+    let (mean, bulk, quantile, tail, mean_error, quantile_error) = {
+        let a = vec![0., 1., 3., 2., 1., 0., 2., 3.];
+        let b = vec![2., 0., 1., 3., 0., 2., 3., 1.];
+        let chains: [&[f64]; 2] = [&a, &b];
+        let method: EssEstimator = prelude::EssEstimator::Mean;
+        let mean: EssEstimate = prelude::EssEstimate::estimate(&chains, method).unwrap();
+        let bulk = EssEstimate::estimate(&chains, prelude::EssEstimator::Bulk).unwrap();
+        let quantile = EssEstimate::estimate(&chains, EssEstimator::Quantile(0.5)).unwrap();
+        let tail: TailEss = prelude::TailEss::estimate(&chains).unwrap();
+        let mean_error: MeanMcse = prelude::MeanMcse::estimate(&chains).unwrap();
+        let quantile_error: QuantileMcse = prelude::QuantileMcse::estimate(&chains, 0.5).unwrap();
+        (mean, bulk, quantile, tail, mean_error, quantile_error)
+    };
+    let timing: DiagnosticTiming =
+        prelude::DiagnosticTiming::try_new(Duration::from_secs(2), 2, 8).unwrap();
+    for estimate in [mean, bulk, quantile] {
+        let _: prelude::EssEstimate = estimate;
+        assert_eq!(estimate.original_sample_count(), 16);
+        assert_eq!(estimate.sample_count(), 16);
+        assert_relative_eq!(estimate.relative(), estimate.value() / 16.0);
+        assert_relative_eq!(
+            estimate.per_second(Some(&timing)).unwrap(),
+            estimate.value() / 2.0
+        );
+    }
+    let _: prelude::TailEss = tail;
+    let _: prelude::MeanMcse = mean_error;
+    let _: prelude::QuantileMcse = quantile_error;
+    assert_eq!(mean_error.effective_sample_size(), &mean);
+    assert_eq!(quantile_error.effective_sample_size(), &quantile);
+    assert!(mean_error.value() > 0.0);
+    assert!(quantile_error.value() > 0.0);
+    assert_eq!(tail.original_sample_count(), 16);
+    assert_eq!(tail.samples_per_split_chain(), 4);
+    assert_eq!(tail.upper(), Err(MonteCarloError::DegenerateIndicator));
+    assert_eq!(tail.per_second(Some(&timing)).unwrap(), None);
+    let error: DiagnosticTimingError = bulk.per_second(None).unwrap_err();
+    let _: prelude::DiagnosticTimingError = error;
+    assert_eq!(error, DiagnosticTimingError::MissingTiming);
+    let error: MonteCarloError = tail.upper().unwrap_err();
+    let _: prelude::MonteCarloError = error;
+}
+
+#[test]
 fn dynamically_dispatched_targets_work_across_public_workflows() {
     let target_impl = Smoke;
     let target: &dyn Target<f64> = &target_impl;

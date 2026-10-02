@@ -518,6 +518,13 @@
 //! [`RankNormalizedSplitRhat::estimate`] for its rank-normalized component.
 //! [`CombinedRhat::estimate`] preserves both rank-normalized and folded components
 //! and returns their maximum only when both are available.
+//! [`EssEstimate::estimate`] incorporates between-half information for raw mean,
+//! rank-normalized bulk, or quantile-indicator ESS. [`TailEss`] retains both
+//! 0.05/0.95 components and their available minimum. Relative ESS uses retained
+//! split counts; [`DiagnosticTiming`] checks original workload counts for rates.
+//! [`MeanMcse`] uses raw mean ESS and original-draw variance; [`QuantileMcse`]
+//! uses beta/order-statistic bounds. Both report original-unit uncertainty in
+//! estimated summaries, distinct from target spread and blocked binning errors.
 //!
 //! These estimators and their error types are available in the shared [`prelude`]
 //! with default features. They do not depend on the optional `serde` checkpoint
@@ -584,6 +591,7 @@ mod continuous_testing;
 mod convergence;
 mod diagnostics;
 mod error;
+mod ess;
 mod numerics;
 mod observable;
 mod sampler;
@@ -609,6 +617,10 @@ pub use convergence::{
 };
 pub use diagnostics::{ChainId, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome};
 pub use error::{DelayedCommitLogProbMismatch, McmcError};
+pub use ess::{
+    DiagnosticTiming, DiagnosticTimingError, EssEstimate, EssEstimator, MeanMcse, MonteCarloError,
+    QuantileMcse, TailEss,
+};
 pub use observable::{
     Observable, ObservedStepError, ObservedStreamError, SampleBuffer, TryAccumulator, TryObservable,
 };
@@ -637,7 +649,8 @@ pub use traits::{
 /// The top-level prelude contains the shared sampling foundation, observable
 /// statistics, and reusable trace diagnostics, including [`TraceRecorder`],
 /// [`Autocorrelation`], [`SplitRhat`], [`RankNormalizedSplitRhat`],
-/// [`FoldedRankNormalizedSplitRhat`], and [`CombinedRhat`].
+/// [`FoldedRankNormalizedSplitRhat`], [`CombinedRhat`], [`EssEstimate`],
+/// [`TailEss`], [`MeanMcse`], [`QuantileMcse`], and [`DiagnosticTiming`].
 /// Integrated-time summaries also expose
 /// [ESS](IntegratedAutocorrelationTime::effective_sample_size) and
 /// [measured ESS rates](IntegratedAutocorrelationTime::effective_sample_size_per_second):
@@ -690,13 +703,14 @@ pub mod prelude {
     pub use crate::{
         AdaptiveScale, AdaptiveScaleError, AdditiveTarget, Autocorrelation, AutocorrelationError,
         BinningAnalysis, BinningEstimate, Chain, ChainCheckpoint, ChainId, CombinedRhat,
-        DelayedCommitLogProbMismatch, EssRateError, FoldedRankNormalizedSplitRhat,
-        IntegratedAutocorrelationTime, InvalidThinningInterval, McmcError, Observable,
-        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats,
+        DelayedCommitLogProbMismatch, DiagnosticTiming, DiagnosticTimingError, EssEstimate,
+        EssEstimator, EssRateError, FoldedRankNormalizedSplitRhat, IntegratedAutocorrelationTime,
+        InvalidThinningInterval, McmcError, MeanMcse, MonteCarloError, Observable,
+        ObservedIntoRunResult, ObservedStepError, ObservedStreamError, OnlineStats, QuantileMcse,
         RankNormalizedSplitRhat, SampleBuffer, Sampler, SplitRhat, SplitRhatError, StatisticsError,
-        Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder, TraceStepOutcome,
-        TryAccumulator, TryObservable, TryObservedIntoRunResult, TryThinnedObservedRunResult,
-        TunableProposal,
+        TailEss, Target, ThinningInterval, Trace, TraceError, TraceRecord, TraceRecorder,
+        TraceStepOutcome, TryAccumulator, TryObservable, TryObservedIntoRunResult,
+        TryThinnedObservedRunResult, TunableProposal,
     };
 
     /// Prelude for by-value proposals.

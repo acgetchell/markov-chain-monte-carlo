@@ -812,7 +812,11 @@ impl CombinedRhat {
 /// establish independence, stationarity, or a common target. Constant halves
 /// and numerical failures are classified later during moment calculation.
 #[derive(Debug)]
-struct SplitRhatInput<'a> {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "keep accepted-input proofs internal to sibling diagnostic modules"
+)]
+pub(super) struct SplitRhatInput<'a> {
     chains: &'a [&'a [f64]],
     samples_per_chain: usize,
 }
@@ -822,12 +826,31 @@ struct SplitRhatInput<'a> {
 /// Construction preserves the input borrow and checks both original storage and
 /// retained rank precision before ranking or folding can allocate.
 #[derive(Debug)]
-struct RankedRhatInput<'a> {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "keep accepted-input proofs internal to sibling diagnostic modules"
+)]
+pub(super) struct RankedRhatInput<'a> {
     input: SplitRhatInput<'a>,
     retained_count: usize,
 }
 
 impl RankedRhatInput<'_> {
+    /// Borrow the accepted original chains without exposing mutable proof state.
+    pub(super) const fn chains(&self) -> &[&[f64]] {
+        self.input.chains
+    }
+
+    /// Equal original length established by the shared parser.
+    pub(super) const fn samples_per_chain(&self) -> usize {
+        self.input.samples_per_chain
+    }
+
+    /// Retained split count checked for storage and exact rank arithmetic.
+    pub(super) const fn retained_count(&self) -> usize {
+        self.retained_count
+    }
+
     /// Estimate from accepted input without reparsing the original observations.
     fn rank_normalized(&self) -> Result<RankNormalizedSplitRhat, SplitRhatError> {
         let scores = self.normal_scores();
@@ -900,7 +923,7 @@ impl RankedRhatInput<'_> {
         clippy::float_cmp,
         reason = "ties mean exact represented equality, including signed zero"
     )]
-    fn normal_scores(&self) -> Vec<f64> {
+    pub(super) fn normal_scores(&self) -> Vec<f64> {
         let half_length = self.input.samples_per_chain / 2;
         let count = self.retained_count;
         let mut ordered = Vec::with_capacity(count);
@@ -948,7 +971,7 @@ impl<'a> SplitRhatInput<'a> {
     /// fit `usize`. The original-count guard also protects the folding median's
     /// unsplit pool. This shared check keeps standalone components and combined
     /// reports consistent about count failures before component estimation begins.
-    fn ranked(self) -> Result<RankedRhatInput<'a>, SplitRhatError> {
+    pub(super) fn ranked(self) -> Result<RankedRhatInput<'a>, SplitRhatError> {
         let half_length = self.samples_per_chain / 2;
         let max_retained_samples = usize::try_from(1_u64 << 50).unwrap_or(usize::MAX);
         let retained_count = self
@@ -975,7 +998,7 @@ impl<'a> SplitRhatInput<'a> {
 
     /// Check lengths before values, with shortness before unequal length within
     /// each original chain. Check all samples, including omitted middle draws.
-    fn parse(chains: &'a [&'a [f64]]) -> Result<Self, SplitRhatError> {
+    pub(super) fn parse(chains: &'a [&'a [f64]]) -> Result<Self, SplitRhatError> {
         if chains.len() < 2 {
             return Err(SplitRhatError::InsufficientChains {
                 count: chains.len(),

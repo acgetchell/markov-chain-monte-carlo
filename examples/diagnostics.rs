@@ -1,4 +1,4 @@
-//! ACF, mean ESS, and classical, ranked, folded, and combined R-hat for four chains.
+//! ACF, multi-chain precision, and classical/rank-based R-hat for four chains.
 //!
 //! Run with: `cargo run --release --example diagnostics`
 //! Chains run sequentially with distinct seeds and dispersed starts. Diagnostics
@@ -9,12 +9,14 @@ use std::{
     fmt,
     fs::{self, File},
     io::{self, BufWriter, Write},
+    time::{Duration, Instant},
 };
 
 use markov_chain_monte_carlo::prelude::by_value::*;
 use markov_chain_monte_carlo::prelude::{
-    Autocorrelation, CombinedRhat, FoldedRankNormalizedSplitRhat, RankNormalizedSplitRhat,
-    SplitRhat, SplitRhatError,
+    Autocorrelation, CombinedRhat, DiagnosticTiming, DiagnosticTimingError, EssEstimate,
+    EssEstimator, FoldedRankNormalizedSplitRhat, MeanMcse, MonteCarloError, QuantileMcse,
+    RankNormalizedSplitRhat, SplitRhat, SplitRhatError, TailEss,
 };
 use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 use serde_json::{Value, json};
@@ -27,6 +29,8 @@ enum DiagnosticsError {
     Rhat(SplitRhatError),
     Io(io::Error),
     Json(serde_json::Error),
+    Timing(DiagnosticTimingError),
+    Precision(MonteCarloError),
 }
 
 impl fmt::Display for DiagnosticsError {
@@ -36,6 +40,8 @@ impl fmt::Display for DiagnosticsError {
             Self::Rhat(error) => error.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Json(error) => error.fmt(f),
+            Self::Timing(error) => error.fmt(f),
+            Self::Precision(error) => error.fmt(f),
         }
     }
 }
@@ -47,6 +53,8 @@ impl Error for DiagnosticsError {
             Self::Rhat(error) => Some(error),
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
+            Self::Timing(error) => Some(error),
+            Self::Precision(error) => Some(error),
         }
     }
 }
@@ -60,6 +68,18 @@ impl From<McmcError> for DiagnosticsError {
 impl From<SplitRhatError> for DiagnosticsError {
     fn from(error: SplitRhatError) -> Self {
         Self::Rhat(error)
+    }
+}
+
+impl From<DiagnosticTimingError> for DiagnosticsError {
+    fn from(error: DiagnosticTimingError) -> Self {
+        Self::Timing(error)
+    }
+}
+
+impl From<MonteCarloError> for DiagnosticsError {
+    fn from(error: MonteCarloError) -> Self {
+        Self::Precision(error)
     }
 }
 
@@ -99,6 +119,7 @@ fn main() -> Result<(), DiagnosticsError> {
     println!("warmup={WARMUP}, draws per chain={DRAWS}, recording interval=1, max lag={MAX_LAG}");
     println!("Observable: position; fixed uniform random-walk half-width=2.");
     let mut traces = Vec::with_capacity(4);
+    let mut production_time = Duration::ZERO;
     for (id, (start, seed)) in [(-6.0, 40), (-2.0, 41), (2.0, 42), (6.0, 43)]
         .into_iter()
         .enumerate()
@@ -111,11 +132,15 @@ fn main() -> Result<(), DiagnosticsError> {
         sampler.run(WARMUP)?;
         sampler.reset_counters();
         let mut draws = Vec::with_capacity(DRAWS);
+        let started = Instant::now();
         for _ in 0..DRAWS {
             let _ = sampler.step()?;
             // Record every post-step state, including repeated rejected states.
             draws.push(*sampler.chain_ref().state());
         }
+        // Sum nonoverlapping wall-clock segments because these chains run
+        // sequentially. Parallel chains require the concurrent workload's wall time.
+        production_time += started.elapsed();
         println!(
             "chain {id}: seed={seed}, start={start:+.1}, acceptance={:.3}",
             sampler.chain_ref().acceptance_rate()
@@ -140,6 +165,8 @@ fn main() -> Result<(), DiagnosticsError> {
 
     // Borrow separate chains: concatenating them would corrupt ACF/ESS ordering.
     let chains: Vec<&[f64]> = traces.iter().map(Vec::as_slice).collect();
+    let timing = DiagnosticTiming::try_new(production_time, chains.len(), DRAWS)?;
+    print_precision(&chains, &timing)?;
     let classical = SplitRhat::estimate(&chains);
     match classical {
         Ok(rhat) => println!("Classical split R-hat: {:.4}", rhat.value()),
@@ -163,10 +190,53 @@ fn main() -> Result<(), DiagnosticsError> {
     }
     export_diagnostics(&traces, classical, &report)?;
     println!(
-        "Mean ESS is per chain; classical R-hat uses raw moments; rank-normalized R-hat uses pooled ranks."
+        "Single-chain mean ESS and multi-chain mean/bulk/tail ESS have distinct estimator contracts."
     );
     println!("Combined R-hat is available only when both rank-based components are available.");
     println!("These estimates do not certify convergence or exploration of all modes.");
+    Ok(())
+}
+
+fn print_precision(chains: &[&[f64]], timing: &DiagnosticTiming) -> Result<(), DiagnosticsError> {
+    for (label, method) in [("mean", EssEstimator::Mean), ("bulk", EssEstimator::Bulk)] {
+        let ess = EssEstimate::estimate(chains, method)?;
+        println!(
+            "Multi-chain {label} ESS: {:.1}, ESS/S={:.3}, ESS/second={:.1}, regularized={}",
+            ess.value(),
+            ess.relative(),
+            ess.per_second(Some(timing))?,
+            ess.is_regularized()
+        );
+    }
+    let tail = TailEss::estimate(chains)?;
+    let lower = tail.lower()?;
+    let upper = tail.upper()?;
+    println!(
+        "Tail ESS: {:?}, q05={:.1}, q95={:.1}, ESS/S={:?}, ESS/second={:?}",
+        tail.value(),
+        lower.value(),
+        upper.value(),
+        tail.relative(),
+        tail.per_second(Some(timing))?
+    );
+    let mean = MeanMcse::estimate(chains)?;
+    println!("Mean MCSE: {:.5} position units", mean.value());
+    for p in [0.05, 0.5, 0.95] {
+        let error = QuantileMcse::estimate(chains, p)?;
+        println!(
+            "Quantile p={p}: estimate={:.4}, MCSE={:.5} position units, uncertainty bounds={:?}, ESS={:.1}",
+            error.quantile(),
+            error.value(),
+            error.interval(),
+            error.effective_sample_size().value()
+        );
+    }
+    println!(
+        "Target standard deviation is 1 position unit; MCSE measures error in estimated summaries, not target spread."
+    );
+    println!(
+        "Timing: sequential production sampling and recording; excludes allocation, warmup, diagnostics, and export."
+    );
     Ok(())
 }
 

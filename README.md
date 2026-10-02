@@ -150,7 +150,7 @@ just                  # List all public recipes, arguments, and descriptions
 | Retained numeric observations and CSV | [`TraceRecorder`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.TraceRecorder.html) |
 | Statistics without retaining every draw | [`OnlineStats`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.OnlineStats.html) and [`BinningAnalysis`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.BinningAnalysis.html) |
 | Scalar proposal tuning during warmup | `AdaptiveScale`, `TunableProposal`, and `Sampler::warm_up*` |
-| Scalar ACF, mean ESS, or R-hat | `Autocorrelation`, integrated time, `SplitRhat` (classical), and `CombinedRhat` (rank-normalized/folded maximum with both components); see [analyzing chains][analyzing-chains] |
+| Scalar correlation, precision, or R-hat | `Autocorrelation`, `EssEstimate` (multi-chain mean/bulk/quantile), `TailEss`, `MeanMcse`, `QuantileMcse`, and `CombinedRhat`; see [analyzing chains][analyzing-chains] |
 | Independent proposal validation | [`verify_detailed_balance*`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/fn.verify_detailed_balance.html), density, and bin checks |
 
 Use explicit step calls when every transition needs metadata. Bulk in-place runs skip observational telemetry hooks; delayed chunk observation can retain
@@ -166,7 +166,8 @@ The checkout's crate-level **API migration** section records signature, telemetr
 - Fixed two-dimensional reference distributions with analytical moments are available behind `benchmarks`.
 - Repeated and resumable runs support iterator sampling, observation, counter resets after burn-in, and positive validated thinning intervals.
 - Scalar adaptive warmup tunes a bounded proposal scale; production keeps the final scale fixed.
-- Scalar autocorrelation, mean ESS, measured ESS/second, and classical split R-hat have explicit degenerate-input failures.
+- Scalar autocorrelation, single-chain and multi-chain ESS, measured ESS/second, mean/quantile MCSE, and R-hat have typed unavailable results.
+  Multi-chain ESS accounts for between-chain disagreement; MCSE reports uncertainty in estimated summaries in original observable units.
 - Streaming statistics and binning summaries avoid retaining every sample.
 - Trace recording retains chain IDs, acceptance metadata, and target log weights for CSV export.
 
@@ -236,7 +237,7 @@ Example workflows live in [`examples/`](https://github.com/acgetchell/markov-cha
 | `benchmark_distributions` | Compare seeded sampling against reference distributions with analytical moments |
 | `delayed_chunked_telemetry` | Resume chunks while recording delayed-step telemetry |
 | `detailed_balance` | Check by-value, in-place, delayed, and batch transition flows |
-| `diagnostics` | Export scalar traces and classical, rank-normalized, folded, and combined R-hat; estimate ACF and mean ESS |
+| `diagnostics` | Export scalar traces and R-hat; estimate ACF, mean/bulk/tail/quantile ESS, measured rates, and original-unit mean/quantile MCSE |
 | `ising_1d` | Run four sequential spin chains with CSV traces, ACF, mean ESS, measured ESS/second, and split R-hat |
 | `iterator_sampling` | Drive a sampler as an iterator |
 | `normal_1d` | Sample a normal target with a by-value random walk |
@@ -281,7 +282,8 @@ The long-term architecture separates:
 ## 🛣️ Limitations and roadmap
 
 The crate supplies sampling mechanics and empirical diagnostics. Domain code owns model choice, valid proposals, reproducible random streams,
-equilibration, and correlated uncertainty. Classical split R-hat is not rank-normalized or folded; mean ESS is observable-specific.
+equilibration, and precision thresholds. Classical split R-hat is not rank-normalized or folded; ESS and MCSE are observable-specific.
+Mean MCSE requires finite population moments; finite heavy-tail output does not establish their existence. Tied quantiles can leave MCSE unavailable.
 
 Sequential multi-chain workflows and cross-chain diagnostics are available today. Built-in parallel-chain orchestration, tempering, and dedicated
 learned-proposal integrations remain roadmap work. Externally supplied learned log weights can already be composed as target terms; training energy models
