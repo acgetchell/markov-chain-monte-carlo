@@ -151,6 +151,7 @@ just                  # List all public recipes, arguments, and descriptions
 | Statistics without retaining every draw | [`OnlineStats`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.OnlineStats.html) and [`BinningAnalysis`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/struct.BinningAnalysis.html) |
 | Scalar proposal tuning during warmup | `AdaptiveScale`, `TunableProposal`, and `Sampler::warm_up*` |
 | Scalar correlation, precision, or R-hat | `Autocorrelation`, `EssEstimate` (multi-chain mean/bulk/quantile), `TailEss`, `MeanMcse`, `QuantileMcse`, and `CombinedRhat`; see [analyzing chains][analyzing-chains] |
+| Original-chain rank plots | `PooledRanks::from_chains` and borrowed per-chain rank slices; deterministic average ties, with all supplied draws retained |
 | Independent proposal validation | [`verify_detailed_balance*`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/fn.verify_detailed_balance.html), density, and bin checks |
 
 Use explicit step calls when every transition needs metadata. Bulk in-place runs skip observational telemetry hooks; delayed chunk observation can retain
@@ -169,6 +170,7 @@ The checkout's crate-level **API migration** section records signature, telemetr
 - Scalar autocorrelation, single-chain and multi-chain ESS, measured ESS/second, mean/quantile MCSE, and R-hat have typed unavailable results.
   Multi-chain ESS accounts for between-chain disagreement; MCSE reports uncertainty in estimated summaries in original observable units.
 - Streaming statistics and binning summaries avoid retaining every sample.
+- Pooled rank data preserve original chain and draw order for downstream plots without a rendering dependency.
 - Trace recording retains chain IDs, acceptance metadata, and target log weights for CSV export.
 
 ## 📦 Cargo features
@@ -202,6 +204,10 @@ assumptions, arithmetic conventions, method definitions, and diagnostic limitati
 
 The crate checks local transition mechanics: invalid floating-point values, acceptance, counters, cached weights, checkpoint restoration, and proposal
 rollback/commit contracts. Deterministic and property tests exercise these contracts; representative empirical checks help proposal authors detect errors.
+
+Independent fixtures cross-check rank-normalized R-hat, multi-chain ESS, and MCSE against pinned ArviZ results, and pooled ranks against SciPy.
+The [analysis guide][analyzing-chains] documents versions, numerical conventions, and commands to verify exported Rust results. The plotting notebook
+renders those results; ArviZ and SciPy are isolated validation dependencies, not Rust library dependencies.
 
 These checks do not establish irreducibility, aperiodicity, equilibration, or convergence. Correlated uncertainty and observable-specific diagnostics need
 scientific assessment. The [reviewer guide][reviewer-guide] maps claims to evidence and reproducible checks.
@@ -237,7 +243,7 @@ Example workflows live in [`examples/`](https://github.com/acgetchell/markov-cha
 | `benchmark_distributions` | Compare seeded sampling against reference distributions with analytical moments |
 | `delayed_chunked_telemetry` | Resume chunks while recording delayed-step telemetry |
 | `detailed_balance` | Check by-value, in-place, delayed, and batch transition flows |
-| `diagnostics` | Export scalar traces and R-hat; estimate ACF, mean/bulk/tail/quantile ESS, measured rates, and original-unit mean/quantile MCSE |
+| `diagnostics` | Export traces, pooled ranks, R-hat, ACF, mean/bulk/tail/quantile ESS, measured rates, blocked errors, and MCSE across five scenarios and reranked prefixes |
 | `ising_1d` | Run four sequential spin chains with CSV traces, ACF, mean ESS, measured ESS/second, and split R-hat |
 | `iterator_sampling` | Drive a sampler as an iterator |
 | `normal_1d` | Sample a normal target with a by-value random walk |
@@ -245,7 +251,9 @@ Example workflows live in [`examples/`](https://github.com/acgetchell/markov-cha
 Run `just examples` for all validated examples or `just example NAME` for one. The reference-distribution example requires `--features benchmarks`
 when run directly with Cargo.
 
-Run `just notebook-check` to generate Ising CSV/JSON files and execute the trace-analysis notebook under `target/notebooks/`.
+Run `just diagnostic-plots` for original-chain rank overlays, bulk/tail ESS and relative-ESS curves, traces, ACF, and saved numeric reports.
+The five scenarios illustrate location and scale disagreement, slow mixing, and tied discrete observations alongside ordinary sampling.
+`just notebook-check` executes both this workflow and the Ising trace-analysis notebook under `target/notebooks/`.
 See [analyzing chains][analyzing-chains] for input selection, timing scope, exports, and error handling; these demonstrations do not certify convergence.
 This crate is a library: the examples and notebook are contributor workflows, with no installed CLI.
 

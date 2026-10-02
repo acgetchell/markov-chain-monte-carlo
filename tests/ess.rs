@@ -1,6 +1,6 @@
 //! Public multi-chain ESS/MCSE contracts and independent `ArviZ` 0.22.0 fixtures.
 
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use approx::assert_relative_eq;
 use markov_chain_monte_carlo::{
@@ -166,13 +166,18 @@ fn inputs_probabilities_and_degenerate_results_have_typed_outcomes() {
         QuantileMcse::estimate(&[&valid], 0.5).map(drop),
         TailEss::estimate(&[&valid]).map(drop),
     ] {
+        let error = result.unwrap_err();
         assert!(matches!(
-            result,
-            Err(MonteCarloError::Input(SplitRhatError::InsufficientChains {
-                count: 1,
-                ..
-            }))
+            error,
+            MonteCarloError::Input(SplitRhatError::InsufficientChains { count: 1, .. })
         ));
+        let cause = error.source().unwrap();
+        assert!(matches!(
+            cause.downcast_ref::<SplitRhatError>(),
+            Some(SplitRhatError::InsufficientChains { count: 1, .. })
+        ));
+        assert_eq!(error.to_string(), cause.to_string());
+        assert!(cause.source().is_none());
     }
     for probability in [
         0.0,
@@ -225,10 +230,9 @@ fn inputs_probabilities_and_degenerate_results_have_typed_outcomes() {
         ));
     }
     let zeros = [-0.0, 0.0, -0.0, 0.0];
-    assert_eq!(
-        EssEstimate::estimate(&[&zeros, &zeros], EssEstimator::Mean),
-        Err(MonteCarloError::ConstantSamples)
-    );
+    let unavailable = EssEstimate::estimate(&[&zeros, &zeros], EssEstimator::Mean).unwrap_err();
+    assert_eq!(unavailable, MonteCarloError::ConstantSamples);
+    assert!(unavailable.source().is_none());
     let stuck = [0.0, 0.0, 1.0, 1.0];
     assert_eq!(
         EssEstimate::estimate(&[&stuck, &stuck], EssEstimator::Mean),
@@ -295,6 +299,80 @@ fn timing_requires_present_positive_matching_workload() {
         Err(DiagnosticTimingError::CountMismatch { .. })
     ));
     assert_eq!(unavailable.per_second(Some(&timing)), Ok(None));
+}
+
+#[test]
+fn odd_length_ess_rates_require_timing_of_all_original_draws() {
+    let a = [0., 4., 2., 6., 3.5, 1., 5., 3., 7.];
+    let b = [8., 12., 10., 14., 11.5, 9., 13., 11., 15.];
+    let ess = EssEstimate::estimate(&[&a, &b], EssEstimator::Bulk).unwrap();
+    let tail = TailEss::estimate(&[&a, &b]).unwrap();
+    assert_eq!(tail.chain_count(), 2);
+    assert_eq!(tail.samples_per_chain(), 9);
+    assert_eq!(tail.samples_per_split_chain(), 4);
+    assert_eq!(tail.original_sample_count(), 18);
+    assert_eq!(tail.sample_count(), 16);
+
+    // Timing must match both original dimensions, even though splitting omits
+    // one draw per chain. Fractional seconds must contribute to the rate.
+    let elapsed = Duration::from_millis(2500);
+    let timing = DiagnosticTiming::try_new(elapsed, 2, 9).unwrap();
+    assert_relative_eq!(
+        ess.per_second(Some(&timing)).unwrap(),
+        ess.value() / 2.5,
+        epsilon = 1e-14
+    );
+    assert_relative_eq!(
+        tail.per_second(Some(&timing)).unwrap().unwrap(),
+        tail.value().unwrap() / 2.5,
+        epsilon = 1e-14
+    );
+    for (chains, samples) in [(1, 9), (2, 8)] {
+        let mismatch = DiagnosticTiming::try_new(elapsed, chains, samples).unwrap();
+        for error in [
+            ess.per_second(Some(&mismatch)).unwrap_err(),
+            tail.per_second(Some(&mismatch)).unwrap_err(),
+        ] {
+            assert!(matches!(
+                error,
+                DiagnosticTimingError::CountMismatch {
+                    expected_chains: 2,
+                    expected_samples_per_chain: 9,
+                    actual_chains,
+                    actual_samples_per_chain,
+                    ..
+                } if actual_chains == chains && actual_samples_per_chain == samples
+            ));
+        }
+    }
+}
+
+#[test]
+fn quantile_mcse_stays_finite_when_the_interval_width_overflows() {
+    for (lower, upper, expected_mcse, expected_median) in [
+        (-f64::MAX, f64::MAX, f64::MAX, 0.0),
+        (-f64::MAX, f64::MAX * 0.5, f64::MAX * 0.75, -f64::MAX * 0.25),
+    ] {
+        let alternating = [lower, upper, lower, upper, lower, upper, lower, upper];
+        let mcse = QuantileMcse::estimate(&[&alternating, &alternating], 0.5).unwrap();
+        assert_eq!(
+            mcse.interval().map(f64::to_bits),
+            [lower, upper].map(f64::to_bits)
+        );
+        assert!((upper - lower).is_infinite());
+        // These two-point samples put both uncertainty bounds at the endpoints;
+        // their half-width and median remain representable in original units.
+        assert_relative_eq!(
+            mcse.value(),
+            expected_mcse,
+            max_relative = 2.0 * f64::EPSILON
+        );
+        assert_relative_eq!(
+            mcse.quantile(),
+            expected_median,
+            max_relative = 2.0 * f64::EPSILON
+        );
+    }
 }
 
 #[test]

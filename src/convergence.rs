@@ -10,7 +10,10 @@
 
 use std::{error::Error, fmt};
 
-use crate::numerics::{compensated_sum, count_as_f64, inverse_normal_lower_tail};
+use crate::{
+    numerics::{compensated_sum, count_as_f64, inverse_normal_lower_tail},
+    ranks::{max_ranked_samples, rank_transform},
+};
 
 /// Invalid input or an unavailable component of a split R-hat diagnostic.
 ///
@@ -919,15 +922,11 @@ impl RankedRhatInput<'_> {
     }
     /// Rank only retained draws, then scatter scores back into original
     /// chain/first-half/last-half order. No raw-value arithmetic is needed.
-    #[expect(
-        clippy::float_cmp,
-        reason = "ties mean exact represented equality, including signed zero"
-    )]
     pub(super) fn normal_scores(&self) -> Vec<f64> {
         let half_length = self.input.samples_per_chain / 2;
         let count = self.retained_count;
-        let mut ordered = Vec::with_capacity(count);
-        ordered.extend(
+        let total = count_as_f64(count);
+        rank_transform(
             self.input
                 .chains
                 .iter()
@@ -936,30 +935,15 @@ impl RankedRhatInput<'_> {
                         .iter()
                         .chain(&chain[self.input.samples_per_chain - half_length..])
                 })
-                .copied()
-                .enumerate(),
-        );
-        ordered.sort_unstable_by(|(_, left), (_, right)| left.total_cmp(right));
-        let mut scores = vec![0.0; count];
-        let total = count_as_f64(count);
-        let mut start = 0;
-        while start < count {
-            let mut end = start + 1;
-            while end < count && ordered[end].1 == ordered[start].1 {
-                end += 1;
-            }
-            // Positions start..end have one-based average rank (start+1+end)/2.
-            let rank = (count_as_f64(start) + count_as_f64(end) + 1.0) * 0.5;
-            let lower = rank - 0.375;
-            let upper = total - rank + 0.625;
-            let score = inverse_normal_lower_tail(lower.min(upper) / (total + 0.25));
-            let score = if lower <= upper { score } else { -score };
-            for &(index, _) in &ordered[start..end] {
-                scores[index] = score;
-            }
-            start = end;
-        }
-        scores
+                .copied(),
+            count,
+            |rank| {
+                let lower = rank - 0.375;
+                let upper = total - rank + 0.625;
+                let score = inverse_normal_lower_tail(lower.min(upper) / (total + 0.25));
+                if lower <= upper { score } else { -score }
+            },
+        )
     }
 }
 
@@ -973,7 +957,7 @@ impl<'a> SplitRhatInput<'a> {
     /// reports consistent about count failures before component estimation begins.
     pub(super) fn ranked(self) -> Result<RankedRhatInput<'a>, SplitRhatError> {
         let half_length = self.samples_per_chain / 2;
-        let max_retained_samples = usize::try_from(1_u64 << 50).unwrap_or(usize::MAX);
+        let max_retained_samples = max_ranked_samples();
         let retained_count = self
             .chains
             .len()

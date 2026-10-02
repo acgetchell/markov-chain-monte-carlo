@@ -7,7 +7,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 _run := "uv run --locked --group dev research-repo-tools toolchain run --"
 
-fast_notebooks := "notebooks/ising_trace_analysis.ipynb"
+fast_notebooks := "notebooks/ising_trace_analysis.ipynb notebooks/diagnostic_plots.ipynb"
 slow_notebooks := ""
 
 # Common cargo-llvm-cov arguments for all coverage runs.
@@ -18,7 +18,15 @@ _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
 
 # Examples
 _build-examples:
-    {{ _run }} cargo build --locked --all-features --examples
+    #!/usr/bin/env bash
+    set -euo pipefail
+    revision="$(git --no-pager rev-parse HEAD)"
+    source_status="$(git --no-pager status --porcelain --untracked-files=normal)"
+    dirty=false
+    if [ -n "$source_status" ]; then
+        dirty=true
+    fi
+    MCMC_SOURCE_REVISION="$revision" MCMC_SOURCE_DIRTY="$dirty" {{ _run }} cargo build --locked --all-features --examples
 
 # System prerequisites remain outside the shared managed toolchain.
 _ensure-jq:
@@ -269,11 +277,27 @@ notebook-clear-outputs-all: (_notebook-all 'clear')
 
 # Execute the configured fast notebook set headlessly.
 [group('notebooks')]
-notebook-execute-fast: notebook-sync validate-ising-example
+notebook-execute-fast: notebook-sync validate-ising-example diagnostic-plots-data
     #!/usr/bin/env bash
     set -euo pipefail
     notebooks=( {{ fast_notebooks }} )
     uv run --locked --group dev --group notebook research-repo-tools notebooks execute "${notebooks[@]}"
+
+# Export reproducible rank/prefix data with build-time source provenance.
+[group('notebooks')]
+diagnostic-plots-data: _build-examples
+    {{ _run }} research-repo-tools validation run tooling/examples.toml diagnostics
+
+# Render original-chain ranks and prefix ESS efficiency from Rust exports.
+[group('notebooks')]
+diagnostic-plots: notebook-sync diagnostic-plots-data
+    uv run --locked --group dev --group notebook research-repo-tools notebooks execute notebooks/diagnostic_plots.ipynb
+
+# Regenerate the analysis guide's rank and ESS figures from the notebook.
+[group('notebooks')]
+diagnostic-plots-figures: diagnostic-plots
+    cp target/notebooks/diagnostics/rank_overlays.png docs/assets/diagnostic_rank_overlays.png
+    cp target/notebooks/diagnostics/ess_efficiency.png docs/assets/diagnostic_ess_efficiency.png
 
 # Execute the explicitly configured slow notebook set headlessly.
 [group('notebooks')]
@@ -607,8 +631,8 @@ update-uv:
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
-validate-examples: _build-examples validate-ising-example
-    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal diagnostics
+validate-examples: _build-examples validate-ising-example diagnostic-plots-data
+    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]

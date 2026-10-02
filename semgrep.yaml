@@ -2,7 +2,7 @@
 # Repository-owned Semgrep/OpenGrep rules.
 #
 # Keep this file small and project-specific. Broad default/community rules tend
-# to duplicate Clippy, cargo-audit, and CodeQL. These rules encode repository
+# to duplicate Clippy, Ruff, cargo-audit, and CodeQL. These rules encode repository
 # policies not covered by the language-specific linters.
 
 rules:
@@ -527,21 +527,6 @@ rules:
       - pattern-regex: '^\s*#\s*\[\s*expect\s*\([^\]\n]*\)\s*\]'
       - pattern-not-regex: '\breason\s*='
 
-  - id: mcmc.rust.prefer-prelude-imports-in-examples
-    languages:
-      - rust
-    severity: WARNING
-    message: "Use markov_chain_monte_carlo::prelude imports in examples instead of deep module paths."
-    metadata:
-      category: maintainability
-      rationale: "Examples should model the public import surface users are expected to copy."
-    paths:
-      include:
-        - "/examples/**/*.rs"
-    patterns:
-      - pattern-regex: '^\s*use\s+markov_chain_monte_carlo::(chain|error|sampler|traits)::'
-      - pattern-not-regex: '^\s*use\s+markov_chain_monte_carlo::prelude::'
-
   - id: mcmc.github-actions.external-action-sha-pinned
     languages:
       - regex
@@ -618,38 +603,6 @@ rules:
     pattern-either:
       - pattern-regex: '(?ms)\bjust\s+fix\b[^\n]*(?:\n[^\n]*){0,4}\bjust\s+check\b'
       - pattern-regex: '(?ms)\bjust\s+([A-Za-z0-9_]+)-fix\b[^\n]*(?:\n[^\n]*){0,4}\bjust\s+\1-check\b'
-
-  - id: mcmc.python.no-broad-exception
-    languages:
-      - python
-    severity: WARNING
-    message: "Catch a specific exception type instead of broad Exception."
-    metadata:
-      category: maintainability
-      rationale: >-
-        Python tooling should surface expected failure modes explicitly instead
-        of swallowing unrelated errors.
-    paths:
-      include:
-        - "/tests/tooling/**/*.py"
-      exclude:
-        - "/tests/semgrep/**"
-    pattern-regex: '^\s*except\s+Exception(?:\s+as\s+\w+)?\s*:'
-
-  - id: mcmc.python.no-raw-exception-in-tests
-    languages:
-      - python
-    severity: WARNING
-    message: "Raise a specific exception type in Python tests instead of raw Exception."
-    metadata:
-      category: maintainability
-      rationale: "Typed exceptions make test failures and expected errors easier to diagnose."
-    paths:
-      include:
-        - "/tests/tooling/**/*.py"
-      exclude:
-        - "/tests/semgrep/**"
-    pattern: raise Exception(...)
 
   - id: mcmc.python.no-adhoc-completedprocess-mock
     languages:
@@ -731,18 +684,3 @@ rules:
       - pattern: MagicMock(..., returncode=..., ...)
       - pattern: unittest.mock.MagicMock(..., returncode=..., ...)
       - pattern: mock.MagicMock(..., returncode=..., ...)
-
-  - id: mcmc.python.no-untyped-defs-in-tests
-    languages:
-      - python
-    severity: WARNING
-    message: "Add an explicit return annotation to test functions."
-    metadata:
-      category: maintainability
-      rationale: "Typed test helpers are easier for ty and reviewers to reason about."
-    paths:
-      include:
-        - "/tests/tooling/**/*.py"
-      exclude:
-        - "/tests/semgrep/**"
-    pattern-regex: '^( {0,4}|\t)(async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\([^#\n]*\)\s*:'

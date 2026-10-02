@@ -174,15 +174,9 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
-"tests/semgrep/tests/tooling/python_exceptions.py" = [
-    "ANN201", # Deliberately missing return annotation
-    "BLE001", # Broad-exception negative fixtures
+"tests/semgrep/tests/tooling/subprocess_mocks.py" = [
     "ERA001", # Semgrep ruleid/ok annotations are harness metadata
     "INP001", # Scanner input, not an importable package
-    "S110", # Deliberate except/pass fixtures
-    "SIM105", # Preserve explicit exception handlers for Semgrep
-    "T201", # Visible exception handling in a negative fixture
-    "TRY002", # Deliberate raw Exception
 ]
 
 [tool.ruff.lint.flake8-type-checking]
@@ -216,7 +210,7 @@ python_classes = [ "Test*" ]
 python_functions = [ "test_*" ]
 
 [tool.uv]
-required-version = "==0.12.21"
+required-version = "==0.12.22"
 package = false
 default-groups = [ "dev", "notebook" ]
 # Semgrep 1.178.0 caps PyJWT below 2.14; 2.15.1 includes the OSV fixes.

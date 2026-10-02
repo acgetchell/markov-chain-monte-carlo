@@ -50,11 +50,40 @@ def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
     ci = {item["recipe"] for item in recipes["ci"]["dependencies"]}
     assert {"test-python", "notebook-check", "validate-examples", "test-rust-ci"} <= ci
     notebook = {item["recipe"] for item in recipes["notebook-execute-fast"]["dependencies"]}
-    assert "validate-ising-example" in notebook
+    assert {"validate-ising-example", "diagnostic-plots-data"} <= notebook
     workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "run: just ci" in workflow
     for platform in ("ubuntu-latest", "macos-latest", "windows-latest"):
         assert platform in workflow
+
+
+@pytest.mark.parametrize(("status_exit", "status_output", "expected_dirty"), [(0, "", "false"), (0, " M src/lib.rs", "true"), (128, "", None)])
+def test_example_build_requires_successful_source_status(status_exit: int, status_output: str, expected_dirty: str | None) -> None:
+    """Run the actual recipe with process-boundary stand-ins, without invoking Git or Cargo."""
+    executable = shutil.which("bash")
+    assert executable is not None
+    recipe = _run_just("--dry-run", "_build-examples").stderr
+    stand_ins = f"""
+git() {{
+    if [ "$2" = rev-parse ]; then
+        printf '%s\\n' fixture-revision
+    else
+        printf '%s' {shlex.quote(status_output)}
+        return {status_exit}
+    fi
+}}
+uv() {{ printf 'build:%s:%s\\n' "$MCMC_SOURCE_REVISION" "$MCMC_SOURCE_DIRTY"; }}
+"""
+    result = subprocess.run(  # noqa: S603 - resolved Bash executes a repository recipe with inert process stand-ins.
+        [executable], input=stand_ins + recipe, check=False, capture_output=True, encoding="utf-8"
+    )
+    assert result.stderr == ""
+    if expected_dirty is None:
+        assert result.returncode == status_exit
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0
+        assert result.stdout == f"build:fixture-revision:{expected_dirty}\n"
 
 
 def test_every_example_runs_once_in_full_ci_through_shared_validation() -> None:
@@ -137,7 +166,7 @@ def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> Non
         includes = tuple(selection[index + 1] for index, value in enumerate(selection) if value == "--include")
         assert set(includes) == {"*.py", "*.pyi"}
         selected = select_files(REPO_ROOT, include=includes)
-        assert "tests/semgrep/tests/tooling/python_exceptions.py" in selected
+        assert "tests/semgrep/tests/tooling/subprocess_mocks.py" in selected
         assert "tests/tooling/test_commands.py" in selected
         native.append(tool)
     assert native == [
@@ -217,8 +246,8 @@ def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None
     assert {"ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204", "ANN205", "ANN206"} <= set(lint["extend-select"])
     assert {"TC", "UP"} <= set(lint["select"])
     assert lint["flake8-type-checking"]["strict"] is True
-    fixture = "tests/semgrep/tests/tooling/python_exceptions.py"
-    assert {rule for rule in lint["per-file-ignores"][fixture] if rule.startswith(("ANN", "TC", "UP"))} == {"ANN201"}
+    fixture = "tests/semgrep/tests/tooling/subprocess_mocks.py"
+    assert not {rule for rule in lint["per-file-ignores"][fixture] if rule.startswith(("ANN", "TC", "UP"))}
     review = yaml.safe_load((REPO_ROOT / ".coderabbit.yml").read_bytes())["reviews"]
     assert "!tests/semgrep/**" in review["path_filters"]
     assert review["pre_merge_checks"]["docstrings"]["mode"] == "off"

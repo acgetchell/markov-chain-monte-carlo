@@ -4,42 +4,6 @@ from unittest import mock
 from unittest.mock import MagicMock, Mock
 
 
-def catches_broad_exception() -> None:
-    try:
-        pass
-    # ruleid: mcmc.python.no-broad-exception
-    except Exception:
-        pass
-
-
-def catches_broad_exception_with_alias() -> None:
-    try:
-        pass
-    # ruleid: mcmc.python.no-broad-exception
-    except Exception as exc:
-        print(exc)
-
-
-def catches_specific_exception() -> None:
-    try:
-        pass
-    # ok: mcmc.python.no-broad-exception
-    except OSError:
-        pass
-
-
-def raises_raw_exception() -> None:
-    message = "too broad"
-    # ruleid: mcmc.python.no-raw-exception-in-tests
-    raise Exception(message)
-
-
-def raises_specific_exception() -> None:
-    message = "specific failure"
-    # ok: mcmc.python.no-raw-exception-in-tests
-    raise RuntimeError(message)
-
-
 def adhoc_mock_stdout() -> None:
     # ruleid: mcmc.python.no-adhoc-completedprocess-mock
     result = Mock()
@@ -70,13 +34,3 @@ def adhoc_mock_magic_stdout_constructor() -> None:
 def typed_completed_process() -> subprocess.CompletedProcess[str]:
     # ok: mcmc.python.no-adhoc-completedprocess-mock
     return subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
-
-
-# ruleid: mcmc.python.no-untyped-defs-in-tests
-def missing_return_annotation():
-    return None
-
-
-# ok: mcmc.python.no-untyped-defs-in-tests
-def explicit_return_annotation() -> None:
-    return None
