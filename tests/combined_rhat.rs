@@ -14,7 +14,7 @@ fn assert_reference(actual: f64, expected: f64, tolerance: f64, name: &str, comp
 }
 
 /// Compare rejection with raw-input expectations, never another production path.
-fn assert_invalid_input(chains: &[&[f64]], expected: fn(SplitRhatError) -> bool) {
+fn assert_invalid_input(chains: &[&[f64]], expected: fn(SplitRhatError) -> bool, message: &str) {
     for (estimator, result) in [
         (
             "ranked",
@@ -31,6 +31,7 @@ fn assert_invalid_input(chains: &[&[f64]], expected: fn(SplitRhatError) -> bool)
             expected(error),
             "{estimator}: chains={chains:?}, error={error:?}"
         );
+        assert_eq!(error.to_string(), message, "{estimator}");
     }
 }
 
@@ -174,56 +175,76 @@ fn binary_observables_can_have_both_components_available() {
 #[test]
 fn invalid_inputs_are_separate_from_unavailable_components() {
     let good = [0.0, 1.0, 2.0, 3.0];
-    assert_invalid_input(&[], |error| {
-        matches!(error, SplitRhatError::InsufficientChains { count: 0, .. })
-    });
-    assert_invalid_input(&[&good], |error| {
-        matches!(error, SplitRhatError::InsufficientChains { count: 1, .. })
-    });
-    assert_invalid_input(&[&good, &[0.0; 3]], |error| {
-        matches!(
-            error,
-            SplitRhatError::InsufficientSamples {
-                chain_index: 1,
-                count: 3,
-                ..
-            }
-        )
-    });
-    assert_invalid_input(&[&good, &[0.0; 5]], |error| {
-        matches!(
-            error,
-            SplitRhatError::UnequalLengths {
-                chain_index: 1,
-                expected: 4,
-                actual: 5,
-                ..
-            }
-        )
-    });
-    // Shape errors precede a nonfinite draw in an earlier chain.
-    assert_invalid_input(&[&[f64::NAN; 4], &[0.0; 3]], |error| {
-        matches!(
-            error,
-            SplitRhatError::InsufficientSamples {
-                chain_index: 1,
-                count: 3,
-                ..
-            }
-        )
-    });
-    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        let middle = [0.0, 1.0, bad, 2.0, 3.0];
-        assert_invalid_input(&[&[0.0; 5], &middle], |error| {
+    assert_invalid_input(
+        &[],
+        |error| matches!(error, SplitRhatError::InsufficientChains { count: 0, .. }),
+        "split R-hat needs at least two original chains, got 0",
+    );
+    assert_invalid_input(
+        &[&good],
+        |error| matches!(error, SplitRhatError::InsufficientChains { count: 1, .. }),
+        "split R-hat needs at least two original chains, got 1",
+    );
+    assert_invalid_input(
+        &[&good, &[0.0; 3]],
+        |error| {
             matches!(
                 error,
-                SplitRhatError::NonFiniteSample {
+                SplitRhatError::InsufficientSamples {
                     chain_index: 1,
-                    sample_index: 2,
+                    count: 3,
                     ..
                 }
             )
-        });
+        },
+        "chain 1 needs at least four samples, got 3",
+    );
+    assert_invalid_input(
+        &[&good, &[0.0; 5]],
+        |error| {
+            matches!(
+                error,
+                SplitRhatError::UnequalLengths {
+                    chain_index: 1,
+                    expected: 4,
+                    actual: 5,
+                    ..
+                }
+            )
+        },
+        "chain 1 has 5 samples; expected 4",
+    );
+    // Shape errors precede a nonfinite draw in an earlier chain.
+    assert_invalid_input(
+        &[&[f64::NAN; 4], &[0.0; 3]],
+        |error| {
+            matches!(
+                error,
+                SplitRhatError::InsufficientSamples {
+                    chain_index: 1,
+                    count: 3,
+                    ..
+                }
+            )
+        },
+        "chain 1 needs at least four samples, got 3",
+    );
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let middle = [0.0, 1.0, bad, 2.0, 3.0];
+        assert_invalid_input(
+            &[&[0.0; 5], &middle],
+            |error| {
+                matches!(
+                    error,
+                    SplitRhatError::NonFiniteSample {
+                        chain_index: 1,
+                        sample_index: 2,
+                        ..
+                    }
+                )
+            },
+            "chain 1 sample 2 is not finite",
+        );
     }
     let constant = CombinedRhat::estimate(&[&[1.0; 4], &[1.0; 4]]).unwrap();
     assert!(matches!(
@@ -352,6 +373,10 @@ fn unavailable_components_preserve_every_original_chain_and_half_index() {
                 assert_eq!(
                     FoldedRankNormalizedSplitRhat::estimate(&borrowed).unwrap_err(),
                     error
+                );
+                assert_eq!(
+                    error.to_string(),
+                    format!("chain {chain_index} half {half} is constant")
                 );
                 if folded_only {
                     // Each half is symmetric around zero: ranked half means agree.

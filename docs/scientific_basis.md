@@ -291,8 +291,8 @@ differences in these fixtures. Cases cover scale-only disagreement, location shi
 and folded degeneracy. The scale-only example gives location R-hat about 0.866 and folded/combined R-hat about 1.975, exposing what location alone misses.
 Additional Rust regressions exercise extreme finite values, subnormal arithmetic, invalid inputs, and input immutability.
 
-Implementation and release availability are separate: these APIs are implemented in the working source for #184. The v0.5.1 registry release and a
-clean registry consumer build remain release-time checks; local source validation does not establish that the published package exposes them.
+These APIs are available in the [v0.5.1 registry release](https://crates.io/crates/markov-chain-monte-carlo/0.5.1). A clean consumer using the published
+crate with default features disabled passed all seven combined R-hat integration tests on macOS, including the nine reference cases above.
 
 ### Monte Carlo standard errors
 
