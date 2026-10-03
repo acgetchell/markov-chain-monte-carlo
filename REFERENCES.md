@@ -31,7 +31,7 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Sampling | [Metropolis-Hastings acceptance](docs/scientific_basis.md#metropolis-hastings-contract) | [1](#ref-1), [2](#ref-2), original algorithm sources |
 | Statistics and diagnostics | [Autocorrelation and integrated time](docs/scientific_basis.md#autocorrelation-estimator-contract) | [8](#ref-8), initial sequence estimators; [15](#ref-15), trace-length caution only |
 | Statistics and diagnostics | [Binning](docs/scientific_basis.md#binning-analysis) | [7](#ref-7), blocking for correlated uncertainty |
-| Statistics and diagnostics | [Classical split R-hat](docs/scientific_basis.md#classical-split-r-hat) | [13](#ref-13), the implemented variance-ratio definition; [14](#ref-14), limitations and rank/folded improvements |
+| Statistics and diagnostics | [Classical split R-hat](docs/scientific_basis.md#classical-split-r-hat) | [22](#ref-22), original multiple-sequence diagnostic; [13](#ref-13), implemented split variance ratio; [14](#ref-14), rank/folded improvements |
 | Statistics and diagnostics | [Folded and combined R-hat](docs/scientific_basis.md#folded-and-combined-r-hat) | [14](#ref-14), Section 4.2, equation (15); [20](#ref-20), independent component and maximum fixtures |
 | Statistics and diagnostics | [ESS and efficiency](docs/scientific_basis.md#ess-and-wall-clock-efficiency) | [8](#ref-8), [13](#ref-13), integrated-time relation; Stan's pooled multi-chain ESS is a different estimator |
 | Statistics and diagnostics | [Monte Carlo standard errors](docs/scientific_basis.md#monte-carlo-standard-errors) | [14](#ref-14), Section 4.4, beta/order-statistic quantile uncertainty; [19](#ref-19), pinned mean and quantile MCSE conventions |
@@ -43,7 +43,9 @@ Independent methods are alphabetical within each group; the bibliography retains
 | Numerical arithmetic | [Compensated summation](docs/scientific_basis.md#autocorrelation-estimator-contract) | [16](#ref-16), Kahan accumulation used by scalar diagnostics |
 | Example models | Neal's funnel | [17](#ref-17), original model; [10](#ref-10), conditional scale convention |
 | Example models | Rosenbrock target | [9](#ref-9), normalized conditional-normal construction |
+| General background | [Augmented-space proposal corrections](docs/VALIDATING_PROPOSALS.md#check-the-density-ratio) | [21](#ref-21), auxiliary-variable mappings and Jacobians; callers derive their proposal's correction |
 | General background | MCMC and statistical physics | [3](#ref-3), [4](#ref-4), [5](#ref-5), textbooks and surveys |
+| General background | [MCMC diagnostic interpretation](docs/ANALYZING_CHAINS.md#choose-the-quantity) | [24](#ref-24), practical numerical and visual analysis with ArviZ; [23](#ref-23), software credit |
 
 ## Background references
 
@@ -64,7 +66,8 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
    [10.1080/00401706.1962.10490022](https://doi.org/10.1080/00401706.1962.10490022)
 7. <a name="ref-7"></a> Flyvbjerg, H., and H. G. Petersen. "Error Estimates on Averages of Correlated Data." *The Journal of Chemical Physics* 91, no. 1 (1989):
    461-466. DOI: [10.1063/1.457480](https://doi.org/10.1063/1.457480)
-8. <a name="ref-8"></a> Geyer, C. J. "Practical Markov Chain Monte Carlo." *Statistical Science* 7 (1992): 473-483.
+8. <a name="ref-8"></a> Geyer, Charles J. "Practical Markov Chain Monte Carlo." *Statistical Science* 7, no. 4 (1992): 473-483.
+   DOI: [10.1214/ss/1177011137](https://doi.org/10.1214/ss/1177011137).
    [Author's initial sequence estimator documentation](https://www.stat.umn.edu/geyer/mcmc/library/mcmc/html/initseq.html).
 9. <a name="ref-9"></a> Pagani, Filippo, Martin Wiegand, and Saralees Nadarajah. "An n-dimensional Rosenbrock Distribution for MCMC Testing." 2020.
    [arXiv:1903.09556](https://arxiv.org/abs/1903.09556). Section 4 supplies the conditional-normal construction and normalization of the two-dimensional family.
@@ -102,6 +105,7 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     [CPython 3.13.7's implementation](https://github.com/python/cpython/blob/v3.13.7/Modules/_statisticsmodule.c).
 19. <a name="ref-19"></a> ArviZ developers. *ArviZ* 0.22.0,
     [diagnostics implementation](https://github.com/arviz-devs/arviz/blob/v0.22.0/arviz/stats/diagnostics.py).
+    The software paper [23](#ref-23) credits the package authors; this versioned record identifies the implementation used for numerical comparisons.
     Independent `rhat(method="z_scale")` reference for the rank-normalized split component, using SciPy 1.16.2 and NumPy 2.2.6.
     `method="rank"` instead returns the combined rank/folded maximum and is not the component oracle.
     Also the independent oracle for multi-chain mean/bulk/tail/quantile ESS and mean/quantile MCSE in
@@ -118,6 +122,24 @@ Reference numbers are stable citation identifiers. Each entry has a permanent an
     The crate retains its stricter policy of rejecting any constant split half; posterior 1.7.0 can compute a value when only one half is constant.
     The [Python reproduction script](tests/fixtures/generate_combined_rhat.py) checks these retained values using [19](#ref-19)'s `z_scale` component
     on original and median-folded chains, preserving posterior's fold-before-split convention without an R runtime.
+21. <a name="ref-21"></a> Green, Peter J. "Reversible Jump Markov Chain Monte Carlo Computation and Bayesian Model Determination."
+    *Biometrika* 82, no. 4 (1995): 711-732. DOI: [10.1093/biomet/82.4.711](https://doi.org/10.1093/biomet/82.4.711).
+    Section 3.3 supplies background for caller-owned augmented-space proposal corrections:
+    auxiliary-variable mappings, dimension matching, and Jacobian factors.
+22. <a name="ref-22"></a> Gelman, Andrew, and Donald B. Rubin. "Inference from Iterative Simulation Using Multiple Sequences."
+    *Statistical Science* 7, no. 4 (1992): 457-472. DOI: [10.1214/ss/1177011136](https://doi.org/10.1214/ss/1177011136).
+    Original multiple-sequence convergence diagnostic and dispersed-initialization motivation;
+    the implemented split and rank/folded conventions follow [13](#ref-13) and [14](#ref-14).
+23. <a name="ref-23"></a> Kumar, Ravin, Colin Carroll, Ari Hartikainen, and Osvaldo Martin.
+    "ArviZ a Unified Library for Exploratory Analysis of Bayesian Models in Python." *Journal of Open Source Software* 4, no. 33 (2019): 1143.
+    DOI: [10.21105/joss.01143](https://doi.org/10.21105/joss.01143). Software credit for the ArviZ package used in [19](#ref-19)'s pinned reference checks.
+24. <a name="ref-24"></a> Martin, Osvaldo A., Oriol Abril-Pla, and Jordan Deklerk. *Exploratory Analysis of Bayesian Models*.
+    Zenodo, 2025; online edition updated 2026.
+    DOI: [10.5281/zenodo.15127548](https://doi.org/10.5281/zenodo.15127548). [Online book](https://arviz-devs.github.io/EABM/).
+    [Chapter 4: MCMC Diagnostics](https://arviz-devs.github.io/EABM/Chapters/MCMC_diagnostics.html)
+    provides practical guidance on traces, ranks, R-hat, ESS, and MCSE.
+    The authors recommend this concept DOI, which resolves to the latest version;
+    estimator papers and pinned implementation records specify the crate's numerical methods.
 
 ## Related crates
 
