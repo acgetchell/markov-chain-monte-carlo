@@ -318,9 +318,10 @@ units for mean MCSE; overflow or underflow of the final positive error is unavai
 The regularized beta CDF comes from statrs 0.19.1; inversion uses 80 bisection steps and requires finite CDF residual at most `1e-8`.
 Unresolved inversion returns `NumericalFailure`, rather than entering an unbounded Newton loop or accepting a finite-looking endpoint.
 
-[`examples/diagnostics.rs`](../examples/diagnostics.rs) demonstrates mean and 0.05/0.5/0.95 quantile MCSE in position units for a standard-normal
-target. Its known target standard deviation is one; MCSE estimates precision of the summaries. The pinned reference corpus below verifies those
-methods independently, including explicit policy differences for tied and degenerate data.
+[`examples/ising_1d.rs`](../examples/ising_1d.rs) demonstrates mean MCSE for energy and magnetization per spin, with baseline and cold temperatures.
+Its plotting report also retains 0.05/0.5/0.95 quantile MCSE or unavailable reasons for these discrete observables.
+MCSE estimates precision of the summaries, rather than target spread. The pinned reference corpus below verifies those methods independently,
+including explicit policy differences for tied and degenerate data.
 
 ### Multi-chain effective sample size
 

@@ -11,11 +11,6 @@ command = [ "target/debug/examples/benchmark_distributions" ]
 expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixture", "Banana", "Cross covariance", "mean ESS", "Acceptance rate" ]
 
 [[checks]]
-name = "diagnostics"
-command = [ "target/debug/examples/diagnostics" ]
-expect = [ "Scalar diagnostics", "chain 0: ACF[1]=", "chain 1: ACF[1]=", "chain 2: ACF[1]=", "chain 3: ACF[1]=", "chain 0: mean ESS=", "chain 1: mean ESS=", "chain 2: mean ESS=", "chain 3: mean ESS=", "Multi-chain mean ESS:", "Multi-chain bulk ESS:", "Tail ESS:", "Mean MCSE:", "Quantile p=0.05:", "Quantile p=0.5:", "Quantile p=0.95:", "ESS/second=", "Classical split R-hat:", "Rank-normalized split R-hat component:", "Folded rank-normalized split R-hat component:", "Combined R-hat:", "diagnostics JSON:", "Rank/ESS-efficiency data:" ]
-
-[[checks]]
 name = "detailed_balance"
 command = [ "target/debug/examples/detailed_balance" ]
 expect = [ "Detailed balance checks passed", "by-value residual" ]
@@ -28,7 +23,7 @@ expect = [ "Sample mean", "Acceptance rate" ]
 [[checks]]
 name = "ising_1d"
 command = [ "target/debug/examples/ising_1d" ]
-expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:", "energy ESS:", "energy split R-hat:", "diagnostics JSON:" ]
+expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:", "energy ESS:", "energy split R-hat:", "Multi-chain energy: pooled mean=", "Multi-chain magnetization: pooled mean=", "energy mean MCSE: Ok(", "magnetization mean MCSE: Ok(", "energy bulk ESS: Ok(", "magnetization bulk ESS: Ok(", "energy tail ESS: Ok(Some(", "magnetization tail ESS: Ok(Some(", "energy combined R-hat: Ok(Some(", "magnetization combined R-hat: Ok(Some(", "β=2", "Ising rank/ESS-efficiency data:", "diagnostics JSON:" ]
 
 [[checks]]
 name = "iterator_sampling"

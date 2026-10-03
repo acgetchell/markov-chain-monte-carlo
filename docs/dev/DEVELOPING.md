@@ -279,10 +279,12 @@ and synchronize through `just notebook-sync` instead of modifying the environmen
 `target/notebooks/notebooks/ising_trace_analysis.ipynb` and a sibling `.report.json` with source/lock hashes, interpreter/package versions, and execution
 status. Temporary Jupyter and Matplotlib state is private to each run. Source notebooks stay unchanged.
 
-`just diagnostic-plots` builds the public Rust diagnostics consumer, validates its output, and executes only `notebooks/diagnostic_plots.ipynb`.
-`just diagnostic-plots-data` exports its self-contained schema-2 JSON and CSV without notebook execution. The example build records the source revision
-and dirty state. Both examples execute once in `just ci` through shared validation, before notebook consumption. The new notebook retains a byte-exact
-report copy, hash manifest, numeric CSVs, and three figures under `target/notebooks/diagnostics/`; see [the analysis guide](../ANALYZING_CHAINS.md).
+`just diagnostic-plots` builds and validates the Ising example, then executes `notebooks/diagnostic_plots.ipynb`.
+`just diagnostic-plots-data` exports its self-contained schema-2 JSON and CSV without notebook execution.
+The example build records the source revision and dirty state.
+The single Ising executable runs once in `just ci`, generating baseline and cold traces and diagnostic reports before both notebooks consume them.
+The rank/efficiency notebook retains a byte-exact report copy, hash manifest, numeric CSVs, and three figures under `target/notebooks/diagnostics/`;
+see [the analysis guide](../ANALYZING_CHAINS.md).
 
 `just notebook-ising-figure` promotes `target/notebooks/ising_energy_trace.png` to the tracked README asset. MCMC retains its input validation, acceptance
 statistics, plot content, and explicit `MCMC_TRACE_PATH`, `MCMC_REPO_ROOT`, and `MCMC_NOTEBOOK_OUTPUT_DIR` semantics. Use `just notebook-clear-outputs-all` for

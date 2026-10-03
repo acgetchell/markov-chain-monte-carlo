@@ -8,111 +8,63 @@ use std::{
 };
 
 use markov_chain_monte_carlo::{
-    Autocorrelation, BinningAnalysis, CombinedRhat, DiagnosticTiming, EssEstimate, EssEstimator,
-    FoldedRankNormalizedSplitRhat, IntegratedAutocorrelationTime, MeanMcse, MonteCarloError,
-    OnlineStats, PooledRanks, QuantileMcse, RankNormalizedSplitRhat, SplitRhat, TailEss,
+    Autocorrelation, BinningAnalysis, ChainId, CombinedRhat, DiagnosticTiming, EssEstimate,
+    EssEstimator, FoldedRankNormalizedSplitRhat, IntegratedAutocorrelationTime, MeanMcse,
+    MonteCarloError, OnlineStats, PooledRanks, QuantileMcse, RankNormalizedSplitRhat, SplitRhat,
+    TailEss, Trace,
 };
 use serde_json::{Value, json};
 
-use super::{DRAWS, DiagnosticsError, SEEDS, STARTS, WARMUP};
+use super::{BURN_IN, ExampleError, Ising, SAMPLES};
 
-const PREFIXES: [usize; 5] = [64, 127, 256, 512, DRAWS];
+const PREFIXES: [usize; 8] = [64, 127, 256, 512, 1_024, 4_096, 8_192, SAMPLES as usize];
 
-struct Scenario<'a> {
-    name: &'static str,
-    transform: &'static str,
-    observable: &'static str,
+pub struct Case<'a> {
+    pub label: &'static str,
+    pub trace: &'a Trace,
+    pub timings: &'a [(ChainId, Duration)],
+    pub target: &'a Ising,
+}
+
+struct ObservableRun<'a> {
+    case: &'a Case<'a>,
+    observable: &'a str,
     units: &'static str,
-    half_width: f64,
     draws: &'a [Vec<f64>],
-    times: Option<&'a [Duration]>,
+    times: &'a [Duration],
 }
 
-pub fn export(
-    baseline: &[Vec<f64>],
-    baseline_times: &[Duration],
-    slow: &[Vec<f64>],
-    slow_times: &[Duration],
-) -> Result<(), DiagnosticsError> {
-    let shifted: Vec<Vec<_>> = baseline
-        .iter()
-        .enumerate()
-        .map(|(chain, draws)| {
-            draws
+pub fn export(cases: &[Case<'_>]) -> Result<(), ExampleError> {
+    let mut runs = Vec::new();
+    for case in cases {
+        let times: Vec<_> = case.timings.iter().map(|&(_, elapsed)| elapsed).collect();
+        for name in case.trace.observable_names() {
+            let draws: Vec<Vec<f64>> = case
+                .timings
                 .iter()
-                .map(|&value| if chain == 3 { value + 4.0 } else { value })
-                .collect()
-        })
-        .collect();
-    let rescaled: Vec<Vec<_>> = baseline
-        .iter()
-        .enumerate()
-        .map(|(chain, draws)| {
-            draws
-                .iter()
-                .map(|&value| if chain == 3 { value * 4.0 } else { value })
-                .collect()
-        })
-        .collect();
-    let counts: Vec<Vec<_>> = baseline
-        .iter()
-        .map(|draws| draws.iter().map(|value| value.abs().floor()).collect())
-        .collect();
-    let scenarios = [
-        Scenario {
-            name: "well_behaved",
-            transform: "identity",
-            observable: "position",
-            units: "position",
-            half_width: 2.0,
-            draws: baseline,
-            times: Some(baseline_times),
-        },
-        Scenario {
-            name: "location_disagreement",
-            transform: "add 4 to original chain 3 after sampling",
-            observable: "position",
-            units: "position",
-            half_width: 2.0,
-            draws: &shifted,
-            times: None,
-        },
-        Scenario {
-            name: "scale_disagreement",
-            transform: "multiply original chain 3 by 4 after sampling",
-            observable: "position",
-            units: "position",
-            half_width: 2.0,
-            draws: &rescaled,
-            times: None,
-        },
-        Scenario {
-            name: "slow_mixing",
-            transform: "identity",
-            observable: "position",
-            units: "position",
-            half_width: 0.1,
-            draws: slow,
-            times: Some(slow_times),
-        },
-        Scenario {
-            name: "discrete_counts",
-            transform: "floor(abs(position)) after sampling",
-            observable: "count",
-            units: "counts",
-            half_width: 2.0,
-            draws: &counts,
-            times: None,
-        },
-    ];
-    write_report(&scenarios)
+                .map(|&(id, _)| {
+                    case.trace
+                        .observable_values(id, name)
+                        .map(|values| values.copied().collect())
+                })
+                .collect::<Result<_, _>>()?;
+            runs.push(observable_json(&ObservableRun {
+                case,
+                observable: name,
+                units: if name == "energy" {
+                    "energy (J=1)"
+                } else {
+                    "magnetization per spin"
+                },
+                draws: &draws,
+                times: &times,
+            })?);
+        }
+    }
+    write_report(&runs, cases)
 }
 
-fn write_report(scenarios: &[Scenario<'_>]) -> Result<(), DiagnosticsError> {
-    let runs: Vec<_> = scenarios
-        .iter()
-        .map(scenario_json)
-        .collect::<Result<_, _>>()?;
+fn write_report(runs: &[Value], cases: &[Case<'_>]) -> Result<(), ExampleError> {
     let output = json!({
         "schema_version": 2,
         "workflow": "rank_ess_efficiency_v1",
@@ -125,7 +77,7 @@ fn write_report(scenarios: &[Scenario<'_>]) -> Result<(), DiagnosticsError> {
         "rank_convention": "one_based_average_ties_all_original_prefix_draws_signed_zero_equal",
         "split_convention": "first_and_last_floor_N_over_2",
         "quantile_convention": "linear_type_7_all_original_prefix_draws",
-        "timing_scope": "sequential_production_sampling_and_recording_excluding_allocation_warmup_analysis_export",
+        "timing_scope": "sequential_production_sampling_observation_recording_and_summaries_excluding_warmup_analysis_export",
         "prefixes": PREFIXES,
         "runs": runs,
     });
@@ -136,54 +88,55 @@ fn write_report(scenarios: &[Scenario<'_>]) -> Result<(), DiagnosticsError> {
     file.flush()?;
     let mut csv = BufWriter::new(File::create("target/diagnostics_trace.csv")?);
     writeln!(csv, "run_id,observable,chain_id,draw,value")?;
-    for scenario in scenarios {
-        for (chain, draws) in scenario.draws.iter().enumerate() {
-            for (draw, value) in draws.iter().enumerate() {
-                writeln!(
-                    csv,
-                    "{}-seeds40-43,{},chain-{chain},{},{value}",
-                    scenario.name,
-                    scenario.observable,
-                    draw + 1
-                )?;
+    for case in cases {
+        for name in case.trace.observable_names() {
+            for &(id, _) in case.timings {
+                for (draw, value) in case.trace.observable_values(id, name)?.enumerate() {
+                    writeln!(
+                        csv,
+                        "ising_1d-{}-{name}-seeds42-45,{name},chain-{},{},{value}",
+                        case.label,
+                        id.get(),
+                        draw + 1
+                    )?;
+                }
             }
         }
     }
     csv.flush()?;
     println!("diagnostics JSON: target/diagnostics.json; trace CSV: target/diagnostics_trace.csv");
     println!(
-        "Rank/ESS-efficiency data: five scenarios, {} reranked prefixes each",
+        "Ising rank/ESS-efficiency data: energy and magnetization, {} reranked prefixes each",
         PREFIXES.len()
     );
     Ok(())
 }
 
-fn scenario_json(scenario: &Scenario<'_>) -> Result<Value, DiagnosticsError> {
+fn observable_json(run: &ObservableRun<'_>) -> Result<Value, ExampleError> {
+    let target = run.case.target;
     let prefixes: Vec<_> = PREFIXES
         .into_iter()
-        .map(|length| prefix_json(scenario, length))
+        .map(|length| prefix_json(run, length))
         .collect::<Result<_, _>>()?;
-    let chains: Vec<_> = scenario.draws.iter().enumerate().map(|(index, draws)| json!({
-        "chain_id": format!("chain-{index}"), "seed": SEEDS[index], "start": STARTS[index],
-        "draws": draws, "elapsed_seconds": scenario.times.map(|times| times[index].as_secs_f64()),
+    let chains: Vec<_> = run.draws.iter().enumerate().map(|(index, draws)| json!({
+        "chain_id": format!("chain-{index}"), "seed": 42 + index,
+        "start": (["all_up", "all_down", "alternating_down_up", "alternating_up_down"][index]),
+        "draws": draws, "elapsed_seconds": run.times[index].as_secs_f64(),
     })).collect();
     Ok(json!({
-        "run_id": format!("{}-seeds40-43", scenario.name),
-        "scenario": scenario.name, "observable": scenario.observable, "units": scenario.units,
-        "target_before_transform": "standard_normal", "transform": scenario.transform,
-        "proposal": "uniform_random_walk", "proposal_half_width": scenario.half_width,
-        "rng": "rand::rngs::StdRng; exact version in cargo_lock", "warmup_per_chain": WARMUP,
+        "run_id": format!("ising_1d-{}-{}-seeds42-45", run.case.label, run.observable),
+        "scenario": format!("ising_{}_{}", run.case.label, run.observable), "observable": run.observable, "units": run.units,
+        "target_before_transform": "open_boundary_zero_field_1d_ising", "transform": "identity",
+        "model": {"spins": 50, "coupling": target.coupling, "beta": target.beta, "boundary": "open", "field": 0},
+        "proposal": "uniform_single_spin_flip",
+        "rng": "rand::rngs::StdRng; exact version in cargo_lock", "warmup_per_chain": BURN_IN,
         "recording_interval": 1, "chain_identity": "original_unsplit",
         "chains": chains, "prefixes": prefixes,
     }))
 }
 
-fn prefix_json(scenario: &Scenario<'_>, length: usize) -> Result<Value, DiagnosticsError> {
-    let chains: Vec<_> = scenario
-        .draws
-        .iter()
-        .map(|draws| &draws[..length])
-        .collect();
+fn prefix_json(run: &ObservableRun<'_>, length: usize) -> Result<Value, ExampleError> {
+    let chains: Vec<_> = run.draws.iter().map(|draws| &draws[..length]).collect();
     let ranks = PooledRanks::from_chains(&chains)?;
     let by_chain: Vec<_> = (0..ranks.chain_count())
         .map(|index| {
@@ -192,15 +145,11 @@ fn prefix_json(scenario: &Scenario<'_>, length: usize) -> Result<Value, Diagnost
             })
         })
         .collect();
-    let times = scenario.times.filter(|_| length == DRAWS);
+    let times = (length == SAMPLES as usize).then_some(run.times);
     let timing = times
         .map(|times| DiagnosticTiming::try_new(times.iter().copied().sum(), chains.len(), length))
         .transpose()?;
-    let timing_reason = if length < DRAWS {
-        "prefix_not_timed"
-    } else {
-        "derived_observable_not_timed"
-    };
+    let timing_reason = "prefix_not_timed";
     let rhat = CombinedRhat::estimate(&chains)?;
     let tail = TailEss::estimate(&chains)?;
     let quantiles: Vec<_> = [0.05, 0.5, 0.95].into_iter().map(|probability| {
