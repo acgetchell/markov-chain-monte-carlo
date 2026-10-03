@@ -138,10 +138,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── benchmark_distributions.rs
 │   ├── delayed_chunked_telemetry.rs
 │   ├── detailed_balance.rs
-│   ├── diagnostics.rs
-│   ├── diagnostics/
-│   │   └── plot_data.rs
 │   ├── ising_1d.rs
+│   ├── ising_1d/
+│   │   └── diagnostics.rs
 │   ├── iterator_sampling.rs
 │   └── normal_1d.rs
 ├── justfile
@@ -460,12 +459,12 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/additive_target_bias.rs` — additive model and bias log-weight composition with `AdditiveTarget`.
 - `examples/benchmark_distributions.rs` — feature-gated reference targets, moment errors, and scalar mean ESS per measured production second.
 - `examples/detailed_balance.rs` — by-value, in-place, delayed, and batch detailed-balance checks.
-- `examples/diagnostics.rs` — four sequential scalar chains and five illustrative regimes with ACF, single/multi-chain ESS, original-unit mean/quantile
-  MCSE, measured production rates, and classical/ranked/folded/combined R-hat. `examples/diagnostics/plot_data.rs` assembles original-chain pooled ranks,
-  independently recomputed prefixes, blocked errors, and self-contained CSV/JSON reports through public APIs; assumptions in `docs/ANALYZING_CHAINS.md`.
 - `examples/normal_1d.rs` — simple by-value random-walk sampler.
 - `examples/adaptive_normal.rs` — bounded proposal-width tuning during warmup, then fixed-width production sampling.
-- `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback; trace/ACF/time CSVs and ESS, timing, and classical split R-hat JSON.
+- `examples/ising_1d.rs` — four sequential chains using in-place mutation with rollback, recording energy and magnetization per spin; trace/ACF/time CSVs
+  and JSON with single-chain ESS/rates, pooled means, multi-chain mean/bulk/tail ESS, mean MCSE, and classical/combined R-hat.
+  Runs baseline and cold temperatures with the same starts and recording policy. `examples/ising_1d/diagnostics.rs` assembles original-chain ranks,
+  independently recomputed prefixes, blocked errors, and schema-2 plotting reports through public APIs; assumptions in `docs/ANALYZING_CHAINS.md`.
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 - `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 

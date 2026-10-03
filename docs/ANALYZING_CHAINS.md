@@ -5,6 +5,10 @@ The library provides autocorrelation, single- and multi-chain effective sample s
 classical and rank-based R-hat, and mean/quantile Monte Carlo standard errors (MCSE), without optional Cargo features.
 Independently initialized chains can run sequentially; parallel execution is not required.
 
+This guide follows **one Ising example throughout**: energy and magnetization from four chains per temperature,
+with 5,000 warmup steps and 20,000 production draws per chain.
+The baseline and colder runs use the same model and observation code; the figures below come from those exact traces.
+
 For practical guidance, see Martin, Abril-Pla, and Deklerk's **[Exploratory Analysis of Bayesian Models (EABM)][eabm]**,
 especially [Chapter 4: MCMC Diagnostics][eabm-diagnostics] on interpreting traces, rank plots, R-hat, ESS, and MCSE.
 
@@ -17,7 +21,8 @@ The [validation evidence](#validation-evidence) records the comparisons and inte
 
 - [Choose the quantity](#choose-the-quantity)
 - [Input and estimator contracts](#input-and-estimator-contracts)
-- [Run the complete workflow](#run-the-complete-workflow)
+- [Follow along with Ising observables](#follow-along-with-ising-observables)
+- [Render the Ising figures](#render-the-ising-figures)
 - [Original-chain ranks and prefix efficiency](#original-chain-ranks-and-prefix-efficiency)
 - [Export and notebook workflow](#export-and-notebook-workflow)
 - [Keep unavailable results explicit](#keep-unavailable-results-explicit)
@@ -49,34 +54,6 @@ Selection borrows the trace, checks the column name, and preserves insertion ord
 Use `records_for_chain(id)` to verify step ordering and constant spacing; keep rejected and no-proposal steps.
 Keep chains separate: concatenation creates artificial transitions, and summing per-chain ESS omits between-chain disagreement.
 ESS is specific to the observable and summary; mean, bulk, and tail ESS are different quantities.
-
-For original-unit precision:
-
-```rust
-use markov_chain_monte_carlo::{
-    EssEstimate, EssEstimator, MeanMcse, MonteCarloError, QuantileMcse, TailEss,
-};
-
-fn precision(chains: &[&[f64]]) -> Result<(), MonteCarloError> {
-    let mean_ess = EssEstimate::estimate(chains, EssEstimator::Mean)?;
-    let mean_error = MeanMcse::estimate(chains)?;
-    let median_error = QuantileMcse::estimate(chains, 0.5)?;
-    let tails = TailEss::estimate(chains)?;
-    println!(
-        "Mean ESS={}, ESS/S={}, mean MCSE={}",
-        mean_ess.value(), mean_ess.relative(), mean_error.value()
-    );
-    println!(
-        "Median={}, MCSE={}, bounds={:?}",
-        median_error.quantile(), median_error.value(), median_error.interval()
-    );
-    println!(
-        "Tail minimum={:?}, lower={:?}, upper={:?}",
-        tails.value(), tails.lower(), tails.upper()
-    );
-    Ok(())
-}
-```
 
 Mean MCSE estimates uncertainty in the sampled mean, in observable units.
 It is distinct from target/posterior standard deviation and requires finite population moments and a suitable Markov chain central limit theorem.
@@ -136,7 +113,121 @@ Neither large ESS nor R-hat near one proves convergence or exploration of every 
 Use dispersed starts, inspect multiple observables and traces, and assess precision for the summaries you need.
 All chains can agree while missing the same region of the target distribution.
 
-## Run the complete workflow
+## Follow along with Ising observables
+
+[`examples/ising_1d.rs`](../examples/ising_1d.rs) is a complete runnable program with the state, target, proposal,
+warmup, observation loop, diagnostics, and exports. From the repository root, run:
+
+```bash
+just example ising_1d
+```
+
+The model has 50 spins `s_i` in `{-1, +1}`, open boundaries, zero external field, and coupling `J = 1`.
+The example runs a baseline at inverse temperature `beta = 0.5` and a colder case at `beta = 2`.
+Its energy is `H = -J * sum(s_i * s_(i+1))` over the 49 adjacent pairs, with target weight proportional to `exp(-beta * H)`.
+Each proposal flips one uniformly selected spin; applying the same flip undoes a rejection.
+For statistical-physics Monte Carlo background, see [Landau and Binder](../REFERENCES.md#ref-5).
+
+| Trace column | Observable | Units |
+| --- | --- | --- |
+| `energy` | Total energy `H`, without division by the spin count | Energy, with `J = 1` |
+| `magnetization` | Magnetization per spin `m = sum(s_i) / 50` | Dimensionless, from -1 to +1 |
+
+Four chains run sequentially with seeds 42–45, starting from all-up, all-down, and the two alternating configurations.
+At each temperature, each chain discards 5,000 warmup transitions, then records **20,000 production draws**:
+80,000 records per temperature, or 160,000 across both runs.
+Seeds and starts are reused across temperatures to hold the demonstration settings fixed; the two runs are not independent replicated experiments.
+One transition attempts one spin flip; these counts are not sweeps over all 50 spins.
+The recording loop retains rejected steps and gives both observables the same cadence:
+
+```rust
+let mut recorder = TraceRecorder::new(chain_id, ["energy", "magnetization"])?;
+for _ in 0..SAMPLES {
+    let step = sampler.step_mut()?;
+    let chain = sampler.chain_ref();
+    let state = chain.state();
+    recorder.record(
+        chain,
+        TraceStepOutcome::from(&step),
+        [target.energy(state), state.magnetization()],
+    )?;
+}
+```
+
+After combining the four traces with `Trace::extend`, select each observable separately while preserving chain boundaries.
+The following analysis function shows the public API calls used by the example's `precision_diagnostics` function;
+the complete program also reports pooled means and exports results and unavailable reasons to JSON.
+
+```rust
+use markov_chain_monte_carlo::{
+    ChainId, CombinedRhat, EssEstimate, EssEstimator, MeanMcse, TailEss, Trace, TraceError,
+};
+
+fn ising_precision(trace: &Trace, chain_ids: &[ChainId]) -> Result<(), TraceError> {
+    for name in ["energy", "magnetization"] {
+        let columns: Vec<Vec<f64>> = chain_ids
+            .iter()
+            .map(|&id| trace.observable_values(id, name).map(|values| values.copied().collect()))
+            .collect::<Result<_, _>>()?;
+        let chains: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
+
+        match MeanMcse::estimate(&chains) {
+            Ok(error) => println!(
+                "{name}: mean MCSE={}, mean ESS={}",
+                error.value(), error.effective_sample_size().value()
+            ),
+            Err(error) => println!("{name}: mean precision unavailable: {error}"),
+        }
+        println!("{name}: bulk ESS={:?}",
+            EssEstimate::estimate(&chains, EssEstimator::Bulk).map(EssEstimate::value));
+        match TailEss::estimate(&chains) {
+            Ok(tail) => println!(
+                "{name}: tail ESS={:?}, lower={:?}, upper={:?}",
+                tail.value(),
+                tail.lower().map(EssEstimate::value),
+                tail.upper().map(EssEstimate::value)
+            ),
+            Err(error) => println!("{name}: tail ESS unavailable: {error}"),
+        }
+        match CombinedRhat::estimate(&chains) {
+            Ok(rhat) => println!(
+                "{name}: combined R-hat={:?}, rank={:?}, folded={:?}",
+                rhat.value(),
+                rhat.rank_normalized().map(|part| part.value()),
+                rhat.folded().map(|part| part.value())
+            ),
+            Err(error) => println!("{name}: R-hat unavailable: {error}"),
+        }
+    }
+    Ok(())
+}
+```
+
+Call it with the combined production trace and IDs `[ChainId::new(0), ChainId::new(1), ChainId::new(2), ChainId::new(3)]`.
+Energy mean MCSE has energy units; magnetization mean MCSE has magnetization-per-spin units.
+Bulk/tail ESS measure effective draw counts, and R-hat is dimensionless.
+For these even-length inputs, split diagnostics use eight halves of 10,000 draws and retain all 80,000 observations.
+Both Ising observables are discrete, so this walkthrough emphasizes means rather than quantile MCSE;
+tied quantile bounds and tail/folded degeneracy still require explicit unavailable results.
+
+Inspect `target/ising_1d_trace.csv` for baseline observations and `target/ising_1d_cold_trace.csv` for the colder run.
+Both retain step outcomes and ordered energy/magnetization measurements.
+The baseline's companion `target/ising_1d_diagnostics.json` contains its scalar results.
+The JSON's `chains` and `rhat` sections retain single-chain mean ESS/rates and classical split R-hat;
+`multi_chain` adds observable means, mean MCSE, mean/bulk/tail ESS, and combined R-hat with component results.
+To plot the exported physical observables, run:
+
+```bash
+just notebook-sync
+uv run --locked --group dev --group notebook research-repo-tools notebooks execute notebooks/ising_trace_analysis.ipynb
+```
+
+The notebook writes trace/ACF figures and single-chain ESS/classical R-hat tables under `target/notebooks/`.
+Compare its observable names and counts with the Rust report; the [export workflow](#export-and-notebook-workflow) explains timing and input overrides.
+
+<a name="run-the-complete-workflow"></a>
+
+## Render the Ising figures
 
 From the repository root:
 
@@ -144,61 +235,124 @@ From the repository root:
 just diagnostic-plots
 ```
 
-[`examples/diagnostics.rs`](../examples/diagnostics.rs) runs four standard-normal chains with distinct seeds and dispersed starts.
-It discards warmup, retains every production step, and computes ACF, single- and multi-chain ESS, mean/quantile MCSE, and all R-hat components.
-Quantile summaries use probabilities 0.05, 0.5, and 0.95.
-MCSE has position units; the target standard deviation is one.
-
-The report includes five scenarios: ordinary sampling, shifted or rescaled chain 3,
-a narrow proposal with slow mixing, and the tied discrete observable `floor(abs(position))`.
-Shifted/rescaled chains deliberately no longer share a target.
-The fixed seeds support reproduction with pinned tools and dependencies; the results illustrate diagnostics and are not a convergence gate.
+This command runs [`examples/ising_1d.rs`](../examples/ising_1d.rs) and renders its schema-2 `target/diagnostics.json`.
+Its [report helper](../examples/ising_1d/diagnostics.rs) analyzes energy and magnetization at each temperature,
+using the same production observations exported to the Ising trace CSVs.
+All four chains within a temperature have the same target; temperatures are analyzed separately.
+The report includes ACF, single/multi-chain ESS, mean/quantile MCSE, blocked errors, and all R-hat components.
+Quantile probabilities are 0.05, 0.5, and 0.95, with unavailable results retained for tied discrete bounds or indicators.
+Fixed seeds support reproduction with pinned dependencies; the results illustrate diagnostics and are not a convergence gate.
 
 | Command | Result |
 | --- | --- |
 | `just diagnostic-plots` | Regenerate Rust exports and render the rank/efficiency notebook |
 | `just diagnostic-plots-data` | Regenerate Rust CSV/JSON with build-time source provenance |
-| `just example diagnostics` | Run the Rust example without plotting |
-| `just example ising_1d` | Run the physical-model trace example |
+| `just example ising_1d` | Run both Ising temperatures and write traces and diagnostic reports |
 | `just notebook-check` | Lint and execute both analysis notebooks |
 | `just diagnostic-plots-figures` | Regenerate the two tracked rank/ESS figures below |
 
-The diagnostics example measures sequential production segments, including transitions and recording.
-Allocation, warmup, diagnostics, and export are excluded.
+The Ising example measures sequential production segments, including transitions, observations, recording, and running magnetization sums.
+Warmup, diagnostics, and export are excluded; allocations during observation and recording are included.
 ESS/second illustrates this timing contract; it varies with build profile and machine and is not benchmark evidence.
 The [example validator](../tooling/examples.toml) checks successful demonstration output through `just examples` and `just ci`.
 
 ## Original-chain ranks and prefix efficiency
+
+### Read the rank overlays
+
+Every row below contains **four original Ising chains × 20,000 draws = 80,000 observations**, after 5,000 warmup steps per chain.
+Pool and sort that row's observable values at its temperature to assign ranks 1–80,000, averaging ranks for exact ties.
+Then return each rank to its original chain and bin it using 20 common equal-width bins.
+The horizontal axis is rank, with smaller observable values on the left and larger ones on the right.
+The vertical axis is the fraction of a chain's 20,000 draws in that bin; a height of 0.10 means 2,000 draws.
+This rank histogram does not show temporal order; inspect a trace plot for that.
+
+Blue, orange, green, and red identify original chains 0–3.
+The dashed black line bins all 80,000 ranks and divides by 80,000, providing the **pooled bin reference**.
+These observables are discrete, so ties make the reference nonflat even when chains agree.
+Compare each chain's colored profile with that reference and with the other chains.
+The vertical scales differ across rows, so compare shapes within a row rather than raw panel heights.
+
+| Row | Observable and temperature | What to inspect |
+| --- | --- | --- |
+| Baseline energy | Total energy, `beta = 0.5` | Whether chains cover similar energy levels |
+| Baseline magnetization | Magnetization per spin, `beta = 0.5` | Whether chains explore both magnetization signs similarly |
+| Cold energy | Total energy, `beta = 2` | Agreement in energy can coexist with poor magnetization exploration |
+| Cold magnetization | Magnetization per spin, `beta = 2` | Differences between chains occupying long-lived magnetization regions |
+
+![Original-chain ranks for energy and magnetization from four Ising chains at each of two temperatures, with 20,000 production draws per chain.](assets/diagnostic_rank_overlays.png)
+
+Each tied group receives one average rank, leaving some bins empty.
+Similar spikes across chains and the pooled reference can therefore indicate agreement rather than failed mixing.
+Inspect both observables: energy is unchanged by reversing all spins, whereas magnetization changes sign.
+Energy agreement alone can therefore miss differences in magnetization exploration.
+Neither uniform-looking ranks nor agreement with pooled bins proves convergence.
+[Vehtari et al., Section 4.5][rank-methods] motivate these rank plots and prefix efficiency curves.
+
+### Read the prefix efficiency curves
+
+Each point below uses the **first `N` draws from each of the four chains**, rather than a new run or one chain's ESS.
+The example recomputes ranks, quantile cutoffs, and multi-chain diagnostics from that prefix alone.
+The eight prefixes are nested, so their estimates are correlated; connecting lines are visual guides.
+Reusing full-run ranks or cutoffs would change the prefix analysis.
+
+Split diagnostics internally use eight halves of `floor(N / 2)` draws each.
+The horizontal axis counts retained observations across those halves, `S = 8 * floor(N / 2)`:
+
+| Original draws per chain `N` | Pooled original draws `4N` | Draws per split half | Retained split count `S` |
+| --- | --- | --- | --- |
+| 64 | 256 | 32 | 256 |
+| 127 | 508 | 63 | 504 |
+| 256 | 1,024 | 128 | 1,024 |
+| 512 | 2,048 | 256 | 2,048 |
+| 1,024 | 4,096 | 512 | 4,096 |
+| 4,096 | 16,384 | 2,048 | 16,384 |
+| 8,192 | 32,768 | 4,096 | 32,768 |
+| 20,000 | 80,000 | 10,000 | 80,000 |
+
+At `N = 127`, each original chain's middle draw is omitted from split autocovariances and rank normalization.
+The original-chain rank plot still includes it; quantile cutoffs also use all 508 original observations.
+Splitting creates analysis halves, not eight independently initialized sampling chains.
+
+![Bulk and tail ESS and relative ESS for energy and magnetization across prefixes of the baseline and cold Ising traces.](assets/diagnostic_ess_efficiency.png)
+
+Blue is rank-normalized **bulk ESS**; orange is **tail ESS**, the smaller of the 0.05/0.95 indicator ESS components.
+Each is a combined estimate from all four original chains for the row's observable.
+The left column measures effective draw counts; the right shows `ESS / S`, effective information per retained draw.
+These axes do not measure MCSE in observable units or ESS per second.
+At the final point, `S = 80,000` for each observable and temperature.
+The horizontal scale is logarithmic to keep short prefixes visible alongside the full run.
+
+Full-run values in these fixed-seed figures are rounded below; each row uses 80,000 retained draws.
+
+| Temperature | Observable | Bulk ESS | Tail ESS | Combined R-hat |
+| --- | --- | --- | --- | --- |
+| Baseline, `beta = 0.5` | Energy | 994 | 1,912 | 1.007 |
+| Baseline, `beta = 0.5` | Magnetization per spin | 298 | 602 | 1.007 |
+| Cold, `beta = 2` | Energy | 15.6 | 16.4 | 1.182 |
+| Cold, `beta = 2` | Magnetization per spin | 4.67 | Unavailable | 2.704 |
+
+For example, baseline energy has `994 / 80,000 = 0.0124` relative bulk ESS, while baseline magnetization has about `0.00372`.
+The cold run shows much stronger disagreement and little effective information about magnetization despite its large draw count.
+Its orange magnetization curve is absent because the 0.95 sample quantile is the maximum `m = +1`:
+every draw satisfies `m <= +1`, so that tail indicator is constant.
+This discrete-observable limitation is distinct from the mixing warning in bulk ESS and R-hat.
+
+For stable sampling, collecting more draws should eventually increase ESS roughly in proportion to `S`, while `ESS / S` settles.
+Finite estimates can rise or fall between prefixes.
+Compare baseline energy with baseline magnetization to see observable-specific sampling efficiency.
+Compare each baseline row with its cold counterpart to assess how the same update rule performs at a lower temperature.
+Missing points mean unavailable estimates, such as a constant quantile indicator or an observable with no within-half variation; they do not mean zero ESS.
+Panel scales differ, and these finite examples provide illustrations rather than pass/fail thresholds.
+Only full runs have measured production timing; untimed prefixes leave ESS/second unavailable.
+
+### Use the plot data
 
 `PooledRanks::from_chains(&chains)` returns owned plot data with borrowed `chain(index)` slices in original draw order.
 Pair input positions with your application's `ChainId`s.
 Ranks are one-based pooled averages for exact ties, including signed zeros.
 Constant, single-draw, or unequal-length finite chains are valid plot inputs, although they may be unsuitable for ESS or R-hat.
 Empty/nonfinite inputs and unsupported counts return [`PooledRankError`][rank-errors].
-
-Plot ranks include **all original production draws**, including an odd middle draw.
-Split R-hat/ESS omit that draw before their internal ranking.
-The example independently recomputes ranks, quantile cutoffs, and diagnostics for prefixes of 64, 127, 256, 512, and 1,024 draws per chain.
-Reusing full-run ranks or cutoffs would change the prefix analysis.
-Efficiency plots use retained split count `S` on the horizontal axis; CSVs also preserve original `N` and `M N`.
-
-Rank overlays compare each chain's bin proportions with the **pooled bin reference**, using common edges.
-Ties can make the discrete pooled reference nonuniform even when chains agree.
-Neither uniform-looking ranks nor agreement with pooled bins proves convergence.
-[Vehtari et al., Section 4.5][rank-methods] motivate rank plots and prefix efficiency curves.
-
-![Original-chain rank proportions for ordinary sampling, location and scale disagreement, slow mixing, and a tied discrete observable.](assets/diagnostic_rank_overlays.png)
-
-Each row uses the full 1,024-draw prefix from four original chains.
-Colored lines identify chains; the dashed black line is the pooled reference.
-The discrete row illustrates why tied data need that reference instead of an expectation of flat bins.
-
-![Bulk and tail ESS and relative ESS across independently recomputed prefixes of the five diagnostic scenarios.](assets/diagnostic_ess_efficiency.png)
-
-Each point recomputes diagnostics for its prefix.
-The left column shows bulk/tail ESS; the right divides each by retained split count `S`.
-These curves compare information as draws accumulate.
-Only full, directly sampled runs have measured production timing; prefixes and post-sampling transformations leave ESS/second unavailable.
 
 [`notebooks/diagnostic_plots.ipynb`](../notebooks/diagnostic_plots.ipynb) renders exported Rust results without recomputing estimators.
 It writes rank, efficiency, and trace/ACF figures plus `rank_bins.csv`, `efficiency.csv`, `summary.csv`,
@@ -222,8 +376,8 @@ Trace axes use recorded-draw indices and label the positive recording interval.
 
 ## Export and notebook workflow
 
-The diagnostics example writes schema-2 `target/diagnostics.json` with exact draws, ranks, results, and run/observable/chain identities.
-It retains seeds, starts, proposal widths, warmup, cadence, original/used counts, RNG/crate versions, and estimator references.
+The Ising example writes schema-2 `target/diagnostics.json` with exact draws, ranks, results, and temperature/observable/chain identities.
+It retains seeds, starts, Ising parameters, proposal identity, warmup, cadence, original/used counts, RNG/crate versions, and estimator references.
 Its CSV columns are `run_id,observable,chain_id,draw,value`.
 
 The named build recipes capture source revision and dirty state; the report embeds the Cargo lockfile and declared Rust baseline.
@@ -232,8 +386,7 @@ Direct Cargo builds without the provenance environment values report null source
 The plotting notebook copies the exact input JSON and records its SHA-256 and plotting versions in `manifest.json`;
 the shared executor also records notebook/environment provenance.
 
-For a physical observable, [`examples/ising_1d.rs`](../examples/ising_1d.rs) records four sequential chains with distinct seeds and initial states.
-Its schema-1 `target/ising_1d_diagnostics.json` accompanies the CSV trace and identifies estimators, observables, chains, warmup,
+The baseline's schema-1 `target/ising_1d_diagnostics.json` accompanies its CSV trace and identifies estimators, observables, chains, warmup,
 recording interval, counts, per-chain seconds, and production timing scope.
 Production timing includes sampling and observation/recording and excludes warmup, export, and diagnostics.
 
@@ -243,7 +396,7 @@ External traces need an explicit `MCMC_DIAGNOSTICS_PATH` for rates; further warm
 Preserve the source JSON with exported ESS/R-hat tables to retain timing and warmup scope.
 This notebook is an additional consumer, rather than an independent numerical oracle.
 
-Both workflows set example parameters in Rust source and replace generated files under `target/` on reruns.
+The example sets parameters in Rust source and replaces generated files under `target/` on reruns.
 Console output is a summary; use CSV/JSON for analysis.
 The exports are example-owned formats, independent of optional checkpoint `serde` support.
 JSON and plotting dependencies are development dependencies; ordinary library use requires neither.
@@ -279,7 +432,7 @@ The existing examples and tests cover this workflow; reference agreement and suc
 
 | Evidence | Coverage |
 | --- | --- |
-| [`examples/diagnostics.rs`](../examples/diagnostics.rs), [`examples/ising_1d.rs`](../examples/ising_1d.rs) | Complete scalar and physical-model workflows |
+| [`examples/ising_1d.rs`](../examples/ising_1d.rs), [report helper](../examples/ising_1d/diagnostics.rs) | Complete sampling, observation, and diagnostic workflow at two Ising temperatures |
 | [`tests/autocorrelation.rs`](../tests/autocorrelation.rs), [`tests/convergence.rs`](../tests/convergence.rs) | Hand-calculated estimates, analytic AR(1) behavior, drift, separated chains, trace selection, self-loops, and numerical extremes |
 | [ACF properties](../tests/proptest_autocorrelation.rs), [R-hat properties](../tests/proptest_convergence.rs) | Exact integer-moment oracles and public-API invariants |
 | [`tests/rank_normalized_rhat.rs`](../tests/rank_normalized_rhat.rs), [`tests/combined_rhat.rs`](../tests/combined_rhat.rs) | Pinned ArviZ/posterior comparisons, Cauchy and scale disagreement, folded degeneracy, ties, and odd-length conventions |

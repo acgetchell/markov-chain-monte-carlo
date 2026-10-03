@@ -49,8 +49,12 @@ def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
     recipes = _recipes()
     ci = {item["recipe"] for item in recipes["ci"]["dependencies"]}
     assert {"test-python", "notebook-check", "validate-examples", "test-rust-ci"} <= ci
-    notebook = {item["recipe"] for item in recipes["notebook-execute-fast"]["dependencies"]}
-    assert {"validate-ising-example", "diagnostic-plots-data"} <= notebook
+    notebook = _run_just("--dry-run", "notebook-execute-fast").stderr
+    producer = "research-repo-tools validation run tooling/examples.toml ising_1d"
+    consumer = "research-repo-tools notebooks execute"
+    assert notebook.count(producer) == 1
+    assert notebook.count(consumer) == 1
+    assert notebook.index(producer) < notebook.index(consumer)
     workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "run: just ci" in workflow
     for platform in ("ubuntu-latest", "macos-latest", "windows-latest"):

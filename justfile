@@ -277,7 +277,7 @@ notebook-clear-outputs-all: (_notebook-all 'clear')
 
 # Execute the configured fast notebook set headlessly.
 [group('notebooks')]
-notebook-execute-fast: notebook-sync validate-ising-example diagnostic-plots-data
+notebook-execute-fast: notebook-sync diagnostic-plots-data
     #!/usr/bin/env bash
     set -euo pipefail
     notebooks=( {{ fast_notebooks }} )
@@ -285,8 +285,7 @@ notebook-execute-fast: notebook-sync validate-ising-example diagnostic-plots-dat
 
 # Export reproducible rank/prefix data with build-time source provenance.
 [group('notebooks')]
-diagnostic-plots-data: _build-examples
-    {{ _run }} research-repo-tools validation run tooling/examples.toml diagnostics
+diagnostic-plots-data: validate-ising-example
 
 # Render original-chain ranks and prefix ESS efficiency from Rust exports.
 [group('notebooks')]
@@ -631,7 +630,7 @@ update-uv:
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
-validate-examples: _build-examples validate-ising-example diagnostic-plots-data
+validate-examples: _build-examples validate-ising-example
     {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal
 
 # Validate the Ising example output and produce its trace for notebook checks.

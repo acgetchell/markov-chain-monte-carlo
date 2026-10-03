@@ -4,8 +4,13 @@
 //! per-sample collection on a discrete, non-Clone state space, and
 //! [`TraceRecorder`] for CSV trace export. Four separately seeded chains also
 //! demonstrate [`Autocorrelation`] for mean ESS and measured ESS per second,
-//! and [`SplitRhat`] for classical split convergence diagnostics. The companion
-//! JSON report records estimator names, chain identities, and timing scope.
+//! and [`SplitRhat`] for classical split convergence diagnostics. Energy and
+//! magnetization also receive pooled means, multi-chain mean/bulk/tail ESS,
+//! mean MCSE, and [`CombinedRhat`]. The companion JSON report records estimator
+//! names, chain identities, timing scope, and unavailable component results.
+//! The same workflow runs at beta=0.5 and beta=2; the colder run illustrates
+//! slow magnetization exploration. Both runs supply original-chain rank and
+//! prefix-efficiency plots through `ising_1d/diagnostics.rs`.
 //! The example is intentionally small:
 //! it shows the sampler contract for a familiar statistical-physics model,
 //! not a finite-size scaling study.  Parameters use dimensionless units with
@@ -25,12 +30,16 @@ use std::time::{Duration, Instant};
 
 use markov_chain_monte_carlo::prelude::in_place::*;
 use markov_chain_monte_carlo::prelude::{
-    Autocorrelation, AutocorrelationError, ChainId, SplitRhat, Trace, TraceError, TraceRecorder,
-    TraceStepOutcome,
+    Autocorrelation, AutocorrelationError, ChainId, CombinedRhat, DiagnosticTimingError,
+    EssEstimate, EssEstimator, MeanMcse, MonteCarloError, OnlineStats, PooledRankError, SplitRhat,
+    SplitRhatError, StatisticsError, TailEss, Trace, TraceError, TraceRecorder, TraceStepOutcome,
 };
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 use serde_json::{Error as JsonError, Value, json};
+
+#[path = "ising_1d/diagnostics.rs"]
+mod diagnostics;
 
 /// Errors from the Ising trace example.
 #[derive(Debug)]
@@ -48,6 +57,16 @@ enum ExampleError {
         /// Original typed estimator failure.
         source: AutocorrelationError,
     },
+    /// Accumulating an observable's pooled mean failed.
+    Statistics(StatisticsError),
+    /// Invalid inputs for the multi-chain report.
+    Rhat(SplitRhatError),
+    /// Pooled plot ranks could not be constructed.
+    Ranks(PooledRankError),
+    /// Production timing could not be paired with diagnostic inputs.
+    Timing(DiagnosticTimingError),
+    /// Structurally invalid multi-chain ESS/MCSE inputs.
+    Precision(MonteCarloError),
     /// Output directory creation or CSV/JSON artifact I/O failed.
     Io(io::Error),
     /// JSON diagnostic export failed.
@@ -67,6 +86,11 @@ impl fmt::Display for ExampleError {
                 f,
                 "autocorrelation for chain {chain_id}, observable {observable:?}: {source}"
             ),
+            Self::Statistics(err) => write!(f, "{err}"),
+            Self::Rhat(err) => write!(f, "{err}"),
+            Self::Ranks(err) => write!(f, "{err}"),
+            Self::Timing(err) => write!(f, "{err}"),
+            Self::Precision(err) => write!(f, "{err}"),
             Self::Io(err) => write!(f, "{err}"),
             Self::Json(err) => write!(f, "{err}"),
         }
@@ -79,6 +103,11 @@ impl Error for ExampleError {
             Self::Mcmc(err) => Some(err),
             Self::Trace(err) => Some(err),
             Self::Autocorrelation { source, .. } => Some(source),
+            Self::Statistics(err) => Some(err),
+            Self::Rhat(err) => Some(err),
+            Self::Ranks(err) => Some(err),
+            Self::Timing(err) => Some(err),
+            Self::Precision(err) => Some(err),
             Self::Io(err) => Some(err),
             Self::Json(err) => Some(err),
         }
@@ -94,6 +123,36 @@ impl From<McmcError> for ExampleError {
 impl From<TraceError> for ExampleError {
     fn from(err: TraceError) -> Self {
         Self::Trace(err)
+    }
+}
+
+impl From<StatisticsError> for ExampleError {
+    fn from(err: StatisticsError) -> Self {
+        Self::Statistics(err)
+    }
+}
+
+impl From<SplitRhatError> for ExampleError {
+    fn from(err: SplitRhatError) -> Self {
+        Self::Rhat(err)
+    }
+}
+
+impl From<PooledRankError> for ExampleError {
+    fn from(err: PooledRankError) -> Self {
+        Self::Ranks(err)
+    }
+}
+
+impl From<DiagnosticTimingError> for ExampleError {
+    fn from(err: DiagnosticTimingError) -> Self {
+        Self::Timing(err)
+    }
+}
+
+impl From<MonteCarloError> for ExampleError {
+    fn from(err: MonteCarloError) -> Self {
+        Self::Precision(err)
     }
 }
 
@@ -287,13 +346,7 @@ fn main() -> Result<(), ExampleError> {
         coupling: 1.0,
         beta: 0.5,
     };
-    let mut trace = Trace::new(["energy", "magnetization"])?;
-    let mut timings = Vec::new();
-    for (chain_index, seed) in (42..46).enumerate() {
-        let (chain_trace, elapsed) = sample_chain(chain_index, seed, &target)?;
-        trace.extend(chain_trace)?;
-        timings.push((ChainId::new(chain_index), elapsed));
-    }
+    let (trace, timings) = sample_chains(&target)?;
     fs::create_dir_all("target")?;
     let trace_path = "target/ising_1d_trace.csv";
     let mut trace_csv = BufWriter::new(File::create(trace_path)?);
@@ -311,6 +364,7 @@ fn main() -> Result<(), ExampleError> {
         "execution": "sequential_chains",
         "chains": write_scalar_diagnostics(&trace, &timings)?,
         "rhat": rhat_diagnostics(&trace, &chain_ids)?,
+        "multi_chain": precision_diagnostics(&trace, &chain_ids)?,
     });
     let mut diagnostics_file = BufWriter::new(File::create("target/ising_1d_diagnostics.json")?);
     serde_json::to_writer_pretty(&mut diagnostics_file, &diagnostics)?;
@@ -318,7 +372,142 @@ fn main() -> Result<(), ExampleError> {
     diagnostics_file.flush()?;
     println!("  trace CSV:        {trace_path}");
     println!("  diagnostics JSON: target/ising_1d_diagnostics.json");
+
+    // Same model and observation policy, colder temperature. Compare actual
+    // sampling difficulty without shifting or rescaling recorded observations.
+    let cold_target = Ising {
+        coupling: 1.0,
+        beta: 2.0,
+    };
+    let (cold_trace, cold_timings) = sample_chains(&cold_target)?;
+    let mut cold_csv = BufWriter::new(File::create("target/ising_1d_cold_trace.csv")?);
+    cold_trace.write_csv(&mut cold_csv)?;
+    cold_csv.flush()?;
+    diagnostics::export(&[
+        diagnostics::Case {
+            label: "baseline",
+            trace: &trace,
+            timings: &timings,
+            target: &target,
+        },
+        diagnostics::Case {
+            label: "cold",
+            trace: &cold_trace,
+            timings: &cold_timings,
+            target: &cold_target,
+        },
+    ])?;
     Ok(())
+}
+
+/// Run the same four starts, seeds, warmup, and recording policy for one target.
+fn sample_chains(target: &Ising) -> Result<(Trace, Vec<(ChainId, Duration)>), ExampleError> {
+    let mut trace = Trace::new(["energy", "magnetization"])?;
+    let mut timings = Vec::new();
+    for (chain_index, seed) in (42..46).enumerate() {
+        let (chain_trace, elapsed) = sample_chain(chain_index, seed, target)?;
+        trace.extend(chain_trace)?;
+        timings.push((ChainId::new(chain_index), elapsed));
+    }
+    Ok((trace, timings))
+}
+
+/// Analyze each physical observable while preserving original chain boundaries.
+///
+/// Pool observations only for the sample mean. Precision and convergence APIs
+/// receive separate ordered columns. Discrete tails or folded ranks can be
+/// unavailable; retain both components and their errors in the exported report.
+fn precision_diagnostics(trace: &Trace, chain_ids: &[ChainId]) -> Result<Vec<Value>, ExampleError> {
+    let mut reports = Vec::new();
+    for name in trace.observable_names() {
+        let columns: Vec<Vec<f64>> = chain_ids
+            .iter()
+            .map(|&id| {
+                trace
+                    .observable_values(id, name)
+                    .map(|values| values.copied().collect())
+            })
+            .collect::<Result<_, _>>()?;
+        let chains: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
+        let summary = OnlineStats::try_from_iter(columns.iter().flatten().copied())?;
+        let mean_error = MeanMcse::estimate(&chains);
+        let bulk = EssEstimate::estimate(&chains, EssEstimator::Bulk);
+        let tails = TailEss::estimate(&chains);
+        let rhat = CombinedRhat::estimate(&chains);
+
+        println!("\nMulti-chain {name}: pooled mean={:?}", summary.mean());
+        println!("  {name} mean MCSE: {:?}", mean_error.map(MeanMcse::value));
+        println!(
+            "  {name} multi-chain mean ESS: {:?}",
+            mean_error.map(|error| error.effective_sample_size().value())
+        );
+        println!("  {name} bulk ESS: {:?}", bulk.map(EssEstimate::value));
+        println!("  {name} tail ESS: {:?}", tails.map(|tail| tail.value()));
+        println!(
+            "  {name} combined R-hat: {:?}",
+            rhat.map(CombinedRhat::value)
+        );
+
+        let tail_report = match tails {
+            Ok(tail) => json!({
+                "status": if tail.value().is_some() { "estimated" } else { "unavailable" },
+                "method": "minimum_quantile_ess_0.05_0.95",
+                "ess": tail.value(), "relative_ess": tail.relative(),
+                "lower": estimate_json(tail.lower(), ess_json),
+                "upper": estimate_json(tail.upper(), ess_json),
+            }),
+            Err(error) => estimate_json::<TailEss>(Err(error), |_| Value::Null),
+        };
+        let rhat_report = match rhat {
+            Ok(rhat) => json!({
+                "status": if rhat.value().is_some() { "estimated" } else { "unavailable" },
+                "method": "maximum_rank_normalized_and_folded_split_rhat",
+                "rhat": rhat.value(),
+                "rank_normalized": estimate_json(rhat.rank_normalized(), |part| json!(part.value())),
+                "folded": estimate_json(rhat.folded(), |part| json!(part.value())),
+            }),
+            Err(error) => estimate_json::<CombinedRhat>(Err(error), |_| Value::Null),
+        };
+        reports.push(json!({
+            "observable": name,
+            "units": if name == "energy" { "energy (J=1)" } else { "magnetization per spin" },
+            "chain_ids": chain_ids.iter().map(|id| id.get()).collect::<Vec<_>>(),
+            "original_sample_count": summary.count(), "mean": summary.mean(),
+            "mean_mcse": estimate_json(mean_error, |error| json!({
+                "method": "pooled_sample_sd_over_sqrt_raw_mean_ess",
+                "mcse": error.value(), "mean_ess": ess_json(*error.effective_sample_size()),
+            })),
+            "bulk_ess": estimate_json(bulk, ess_json),
+            "tail_ess": tail_report, "combined_rhat": rhat_report,
+        }));
+    }
+    Ok(reports)
+}
+
+/// Preserve an estimate or its unavailable reason without numeric sentinels.
+fn estimate_json<T>(
+    estimate: Result<T, impl fmt::Display>,
+    value: impl FnOnce(T) -> Value,
+) -> Value {
+    match estimate {
+        Ok(estimate) => json!({ "status": "estimated", "result": value(estimate) }),
+        Err(error) => {
+            json!({ "status": "unavailable", "result": null, "error": error.to_string() })
+        }
+    }
+}
+
+/// Describe the estimator and both original and retained counts for an ESS.
+fn ess_json(ess: EssEstimate) -> Value {
+    json!({
+        "method": format!("{:?}", ess.estimator()),
+        "ess": ess.value(), "relative_ess": ess.relative(),
+        "original_sample_count": ess.original_sample_count(),
+        "retained_sample_count": ess.sample_count(),
+        "chain_count": ess.chain_count(), "samples_per_chain": ess.samples_per_chain(),
+        "samples_per_split_chain": ess.samples_per_split_chain(),
+        "regularized": ess.is_regularized(),
+    })
 }
 
 /// Export per-chain ACF/time CSVs and return observable ESS/rate JSON records.

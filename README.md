@@ -243,8 +243,7 @@ Example workflows live in [`examples/`](https://github.com/acgetchell/markov-cha
 | `benchmark_distributions` | Compare seeded sampling against reference distributions with analytical moments |
 | `delayed_chunked_telemetry` | Resume chunks while recording delayed-step telemetry |
 | `detailed_balance` | Check by-value, in-place, delayed, and batch transition flows |
-| `diagnostics` | Export traces, pooled ranks, R-hat, ACF, mean/bulk/tail/quantile ESS, measured rates, blocked errors, and MCSE across five scenarios and reranked prefixes |
-| `ising_1d` | Run four sequential spin chains with CSV traces, ACF, mean ESS, measured ESS/second, and split R-hat |
+| `ising_1d` | Compare baseline and cold spin chains using energy/magnetization traces, ranks, ACF, ESS, MCSE, R-hat, and prefix efficiency |
 | `iterator_sampling` | Drive a sampler as an iterator |
 | `normal_1d` | Sample a normal target with a by-value random walk |
 
@@ -252,7 +251,7 @@ Run `just examples` for all validated examples or `just example NAME` for one. T
 when run directly with Cargo.
 
 Run `just diagnostic-plots` for original-chain rank overlays, bulk/tail ESS and relative-ESS curves, traces, ACF, and saved numeric reports.
-The five scenarios illustrate location and scale disagreement, slow mixing, and tied discrete observations alongside ordinary sampling.
+The Ising example compares two temperatures using four chains per temperature, with 5,000 warmup steps and 20,000 production draws per chain.
 `just notebook-check` executes both this workflow and the Ising trace-analysis notebook under `target/notebooks/`.
 See [analyzing chains][analyzing-chains] for input selection, timing scope, exports, and error handling; these demonstrations do not certify convergence.
 This crate is a library: the examples and notebook are contributor workflows, with no installed CLI.
