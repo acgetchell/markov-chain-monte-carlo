@@ -181,6 +181,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── ess.rs
 │   ├── public_api.rs
 │   ├── pooled_ranks.rs
+│   ├── proposal_validation.rs
 │   ├── rank_normalized_rhat.rs
 │   ├── fixtures/
 │   │   ├── combined_rhat.json
@@ -433,6 +434,9 @@ Contains test-facing validation utilities for proposal development.
 Detailed-balance helpers empirically check discrete by-value, in-place, and delayed proposal transitions by sampling forward/reverse moves and comparing
 estimated Metropolis-Hastings transition flows. Keep these helpers explicit at the crate root because they are test-facing diagnostics rather than everyday
 sampling imports.
+
+`tests/proposal_validation.rs` exercises proposal-author workflows through the public API, including exhaustive bounded-search paths and rejection of an
+omitted search-success correction.
 
 ### `src/continuous_testing.rs`
 
