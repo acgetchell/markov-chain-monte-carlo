@@ -286,7 +286,7 @@ fn completed_steps_report_post_transition_metrics_for_every_kernel() {
                 fields["acceptance_rate"].parse::<f64>().unwrap(),
                 expected_rate
             );
-            assert!(event.scope.is_empty());
+            assert_eq!(event.scope, [] as [&str; 0]);
         }
     }
 }
@@ -438,7 +438,7 @@ fn spans_close_on_error_and_empty_runs_without_leaking_context() {
     assert_eq!(records.closed, 3);
     assert_eq!(records.events.len(), 2);
     assert_eq!(records.events[0].scope, ["try_run_observing"]);
-    assert!(records.events[1].scope.is_empty());
+    assert_eq!(records.events[1].scope, [] as [&str; 0]);
     assert_eq!(records.events[1].fields.0["step"], "2");
 }
 

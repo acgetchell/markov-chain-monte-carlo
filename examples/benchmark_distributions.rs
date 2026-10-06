@@ -70,8 +70,7 @@ fn main() -> Result<(), McmcError> {
         let cross_covariance = samples[0]
             .iter()
             .zip(&samples[1])
-            .map(|(x, y)| (x - means[0]) * (y - means[1]))
-            .sum::<f64>()
+            .fold(0.0, |sum, (x, y)| (x - means[0]).mul_add(y - means[1], sum))
             / f64::from(DRAWS - 1);
         println!(
             "Cross covariance: {cross_covariance:.5}, expected={:.5}, error={:+.5}",
@@ -80,8 +79,10 @@ fn main() -> Result<(), McmcError> {
         );
         for (i, column) in samples.iter().enumerate() {
             let mean = means[i];
-            let variance =
-                column.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / f64::from(DRAWS - 1);
+            let variance = column.iter().fold(0.0, |sum, x| {
+                let delta = x - mean;
+                delta.mul_add(delta, sum)
+            }) / f64::from(DRAWS - 1);
             println!(
                 "coordinate {i}: mean={mean:.5}, expected={:.5}, error={:+.5}; variance={variance:.5}, expected={:.5}",
                 expected_mean[i],

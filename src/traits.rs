@@ -1224,6 +1224,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::mut_mut,
+        reason = "exercise the blanket ProposalMut implementation for mutable proposal references"
+    )]
     fn mut_ref_mut_proposal_forwards() {
         let mut proposal = SymmetricMutProposal;
         let mut shared = &mut proposal;
@@ -1496,6 +1500,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::mut_mut,
+        reason = "exercise the blanket DelayedProposal implementation for mutable proposal references"
+    )]
     fn delayed_mut_ref_forwards() {
         struct ZeroTarget;
         impl Target<Scalar> for ZeroTarget {

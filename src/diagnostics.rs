@@ -389,6 +389,7 @@ impl Trace {
     }
 
     /// Recorded rows.
+    #[must_use]
     pub fn records(&self) -> &[TraceRecord] {
         &self.records
     }
@@ -718,6 +719,7 @@ impl TraceRecorder {
     }
 
     /// Borrow the accumulated trace.
+    #[must_use]
     pub const fn trace(&self) -> &Trace {
         &self.trace
     }

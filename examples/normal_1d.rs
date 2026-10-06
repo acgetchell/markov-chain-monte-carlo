@@ -72,7 +72,7 @@ fn main() -> Result<(), McmcError> {
     }
 
     let mean = sum / f64::from(n_samples);
-    let variance = sum_sq / f64::from(n_samples) - mean * mean;
+    let variance = mean.mul_add(-mean, sum_sq / f64::from(n_samples));
 
     println!("\nResults ({n_samples} samples):");
     println!("  Sample mean:     {mean:+.4} (expected: 0.0)");

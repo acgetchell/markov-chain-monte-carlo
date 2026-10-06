@@ -1043,7 +1043,7 @@ mod tests {
         let before = bins.clone();
         assert_eq!(bins.try_push(4.0), Err(StatisticsError::CountOverflow));
         assert_eq!(bins, before);
-        assert!(bins.staged_levels.is_empty());
+        assert_eq!(bins.staged_levels, []);
     }
 
     #[test]
@@ -1301,7 +1301,7 @@ mod tests {
         assert_eq!(bins.count(), 1);
         assert_eq!(bins.mean(), Some(f64::MAX));
         assert_eq!(bins.estimates().next().unwrap().block_count(), 1);
-        assert!(bins.staged_levels.is_empty());
+        assert_eq!(bins.staged_levels, []);
         assert_eq!(bins, before);
         bins.try_push(f64::MAX).unwrap();
         assert_eq!(bins.count(), 2);

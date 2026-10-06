@@ -47,7 +47,7 @@ were accepted where they made invalid states unrepresentable or preserved valida
 ## v0.5.0 Adaptive Diagnostics (Completed)
 
 Bounded scalar warmup and classical diagnostics provide practical baselines for assessing runs before multi-chain execution, tempering, and
-learned-proposal experiments. The current Rust toolchain and MSRV are 1.98.1.
+learned-proposal experiments. The current Rust toolchain and MSRV are 1.99.0.
 
 - [x] [#10](https://github.com/acgetchell/markov-chain-monte-carlo/issues/10) - Bounded scalar adaptive Metropolis-Hastings warmup; production uses the
       final fixed proposal scale

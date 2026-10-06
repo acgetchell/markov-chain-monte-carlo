@@ -50,6 +50,7 @@ impl<P: TunableProposal + ?Sized> TunableProposal for &mut P {
 /// proposal. Errors do not advance adaptation. The scale is also clamped after
 /// exponentiation to preserve the supplied bounds despite floating-point
 /// rounding. At `usize::MAX` completed steps, further updates leave it frozen.
+/// The gain-times-error addition uses fused multiply-add with one rounding.
 ///
 /// Use with [`Sampler::warm_up`], [`Sampler::warm_up_mut`], or
 /// [`Sampler::warm_up_delayed`], then collect production samples with the ordinary
@@ -77,7 +78,7 @@ impl<P: TunableProposal + ?Sized> TunableProposal for &mut P {
 /// struct Walk { width: f64 }
 /// impl Proposal<f64> for Walk {
 ///     fn propose<R: Rng + ?Sized>(&self, x: &f64, rng: &mut R) -> f64 {
-///         x + self.width * rng.random_range(-1.0..1.0)
+///         self.width.mul_add(rng.random_range(-1.0..1.0), *x)
 ///     }
 /// }
 /// impl TunableProposal for Walk {
@@ -194,8 +195,9 @@ impl AdaptiveScale {
         // Rounding large counts only rounds the learning rate; no integer
         // accounting or transition selection depends on the floating value.
         let gain = count_as_f64(next).powf(-0.6);
-        self.log_scale = (self.log_scale + gain * (f64::from(accepted) - self.target_acceptance))
-            .clamp(self.log_min, self.log_max);
+        let next_log_scale =
+            gain.mul_add(f64::from(accepted) - self.target_acceptance, self.log_scale);
+        self.log_scale = next_log_scale.clamp(self.log_min, self.log_max);
         self.scale = self.log_scale.exp().clamp(self.min_scale, self.max_scale);
     }
 }
@@ -366,7 +368,24 @@ impl<S, T: Target<S> + ?Sized, P: DelayedProposal<S> + TunableProposal, R: Rng +
 
 #[cfg(test)]
 mod tests {
-    use super::AdaptiveScale;
+    use super::{AdaptiveScale, count_as_f64};
+
+    #[test]
+    fn update_preserves_the_residual_when_gain_and_log_scale_cancel() {
+        let gain = count_as_f64(2).powf(-0.6);
+        let mut tuning = AdaptiveScale::new(gain.exp(), 1.0 - f64::EPSILON, 0.1..=10.0).unwrap();
+        // Exercise the private logarithmic state without depending on ln(exp(gain))
+        // rounding. The second update uses this same gain and rejects the proposal.
+        tuning.log_scale = gain;
+        tuning.completed_steps = 1;
+        tuning.update(false);
+        // Independently, g - g * (1 - 2^-52) = g * 2^-52 exactly. Scaling by
+        // this power of two is representable and needs no rounding here.
+        let expected = gain * f64::EPSILON;
+        assert_eq!(tuning.log_scale.to_bits(), expected.to_bits());
+        assert_eq!(tuning.completed_steps(), 2);
+        assert_eq!(tuning.scale().to_bits(), expected.exp().to_bits());
+    }
 
     #[test]
     fn saturated_schedule_freezes_without_overflow() {

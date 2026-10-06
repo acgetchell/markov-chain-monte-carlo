@@ -1,6 +1,6 @@
 # Developing in Rust
 
-This repository is a single Rust library crate using Rust 1.98.1 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
+This repository is a single Rust library crate using Rust 1.99.0 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
 
 ## Core Commands
 
@@ -61,6 +61,9 @@ For cross-repo muscle memory, the same checks are also available through grouped
 spelling, release metadata, JSON, TOML, YAML/CFF, Python, Python tests, Semgrep, notebooks, Rust formatting and all-target Clippy, documentation, broad Rust
 runnable tests, doctests, benchmark-harness compilation, and deterministic example validation. It does not depend on nested `ci-*`, `check`, `lint`, or
 `test-all` bundles.
+
+Notebook lint and Rust formatting run before the Python tests. Just coalesces the shared notebook-lint dependency, so the standalone `notebook-check`
+gate retains its lint prerequisite without repeating it during `just ci`.
 
 Runnable library unit and integration tests across all public features share one release-profile nextest invocation through `just test-rust-ci`:
 
@@ -123,10 +126,11 @@ OSV-Scanner audits `uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_bac
 isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
 The existing Cargo audit workflow continues to check RustSec advisories separately.
 
-Semgrep 1.178.0 requires PyJWT `~=2.13.0`, excluding the patched releases needed for the reported PyJWT advisories, including
-[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The project's `[tool.uv].override-dependencies` selects PyJWT `>=2.15.1,<3`
-with its `crypto` extra. Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
-Remove the override when the pinned Semgrep release accepts the patched series.
+Semgrep 1.179.0 accepts PyJWT `>=2.15.0,<3`, which covers
+[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The project's `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
+with its `crypto` extra to include the [Base64URL padding compatibility fix](https://pyjwt.readthedocs.io/en/stable/changelog.html#v2-15-1).
+Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
+Remove the override when the pinned Semgrep release's minimum includes that compatibility fix.
 
 Gitleaks scans all reachable Git history plus a private snapshot of tracked and nonignored working files, including uncommitted files. CI fetches complete
 history (`fetch-depth: 0`). Shared defaults exclude environment/build directories; ignored untracked files, unreachable objects, binary blobs, archives, and
@@ -170,9 +174,25 @@ Verify each finding against current code, fix still-valid issues, and run the af
 review data. CLI failures propagate: authentication, service, and allowance failures mean the review is unavailable, not clean. Report the review scope,
 completion status, valid fixes, and skipped findings with brief reasons.
 
-## Rust 1.98.1 Audit
+## Rust 1.99.0 Audit
 
-The MSRV and contributor toolchain use Rust 1.98.1. This patch release fixes a Rust 1.98.0 miscompilation that could put a null function pointer in a
+The MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace use Rust 1.99.0. The feature assessment follows the
+official [release notes](https://doc.rust-lang.org/stable/releases.html#version-1990-2026-10-01),
+[release announcement](https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/), and
+[Cargo changelog](https://doc.rust-lang.org/nightly/cargo/CHANGELOG.html#cargo-199-2026-10-01).
+
+| Surface | Decision |
+| --- | --- |
+| Iterator improvements | Adopt through the toolchain upgrade. The ACF batching loop already uses `RangeInclusive` with `step_by`; Rust 1.99 improves inclusive-range iteration and adds `FusedIterator` to `StepBy` over fused iterators. Existing loops need no rewrite, and the crate does not inspect exhausted inclusive-range bounds. No performance gain is claimed without measurements. |
+| Compiler diagnostics and Clippy | Keep the warning policy, add `#[must_use]` to four borrowed diagnostic accessors, and adopt `assert_is_empty` suggestions for more informative test failures. Resolve six `suboptimal_flops` findings with correctly rounded `mul_add` in warmup, the AS 241 central-region argument, and example moments. Independent numerical references and an exact cancellation regression validate the changed rounding; no measured speedup is claimed. Two test-scoped `mut_mut` expectations retain coverage of mutable-reference blanket implementations; reborrowing would test the underlying owned implementations instead. The compiler also catches zero-size chunk/window calls. Raw-borrow and runtime-symbol diagnostics need no extra configuration. |
+| Cargo CI compilation | Use Cargo's new default, which disables incremental compilation when `CI` is set. GitHub Actions supplies that environment variable, and the workflows do not override incremental compilation. Local `just ci` keeps local defaults unless invoked with `CI=true`. |
+| Cargo profiles and workspace inheritance | Keep current profiles and dependency declarations. The new `debug` profile currently matches `dev`; switching provides no present benefit. Neither Cargo workspace inherits dependencies, so edition-2024 overrides of inherited `default-features` have no application here. |
+| FFI, raw allocation, and pointer-layout APIs | No source adoption. C variadics, `VaList`, raw-pointer layout queries, `Box`/`Vec` ownership-parts APIs, and the revised `Box::leak` guidance do not address an existing path. The library forbids unsafe code and has no leak/reclaim pattern. |
+| Other stabilized APIs and tooling | No source adoption. Boxed-array iteration, `VecDeque::retain_back`, owned lossy UTF-8 decoding, and filesystem timestamps have no matching workload. Improved compiler suggestions from `doc(alias)` are useful when an alternate API name is established; this assessment found no such alias to add. Keep rustfmt/rustdoc configuration and the declared Linux, macOS, and Windows MSVC targets. |
+
+### Retained Rust 1.98 Decisions
+
+The previous Rust 1.98.1 baseline fixed a Rust 1.98.0 miscompilation that could put a null function pointer in a
 trait-object vtable, causing undefined behavior. Rebuilding with the corrected compiler provides the fix; no source workaround is needed. The release
 adds no language or library features. See the official [Rust 1.98.1 announcement](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/) and
 [release notes](https://github.com/rust-lang/rust/releases/tag/1.98.1).

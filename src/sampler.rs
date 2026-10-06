@@ -4629,7 +4629,7 @@ mod tests {
         let result = sampler.step_mut_observing(&mut coordinate);
 
         assert_matches!(result, Err(McmcError::NanLogQRatio));
-        assert!(observed.is_empty());
+        assert_eq!(observed, [] as [f64; 0]);
         assert_eq!(sampler.chain_ref().state(), &MutScalar(2.0));
         assert_relative_eq!(sampler.chain_ref().log_prob(), -2.0);
         assert_eq!(sampler.chain_ref().total_steps(), 0);
