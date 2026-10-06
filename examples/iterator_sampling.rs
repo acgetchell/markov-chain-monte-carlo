@@ -68,11 +68,11 @@ fn main() -> Result<(), McmcError> {
         let _ = sampler.step()?;
         let x = sampler.chain_ref().state().0;
         sum += x;
-        sum_sq += x * x;
+        sum_sq = x.mul_add(x, sum_sq);
     }
 
     let mean = sum / f64::from(n_samples);
-    let variance = sum_sq / f64::from(n_samples) - mean * mean;
+    let variance = mean.mul_add(-mean, sum_sq / f64::from(n_samples));
 
     println!("\nResults ({n_samples} samples via step()):");
     println!("  Sample mean:     {mean:+.4} (expected: 0.0)");

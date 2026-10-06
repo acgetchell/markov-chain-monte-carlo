@@ -70,13 +70,14 @@ pub(crate) const fn count_as_f64(count: usize) -> f64 {
 /// rational approximations (1988), DOI: <https://doi.org/10.2307/2347330>.
 /// Coefficient tables can also be checked against `CPython` 3.13.7's
 /// `Modules/_statisticsmodule.c`. This evaluates the mathematical tables with
-/// Horner's rule with fused multiply-add; callers own the domain check and
-/// reflect upper-tail ranks before division so that computing `1 - p` never
-/// loses tail precision.
+/// Horner's rule with fused multiply-add, also fusing the central-region
+/// subtraction `0.180625 - q*q`. Callers own the domain check and reflect
+/// upper-tail ranks before division so that computing `1 - p` never loses tail
+/// precision.
 pub(crate) fn inverse_normal_lower_tail(p: f64) -> f64 {
     let q = p - 0.5;
     if q >= -0.425 {
-        let r = 0.180_625 - q * q;
+        let r = q.mul_add(-q, 0.180_625);
         let numerator = polynomial(
             r,
             &[

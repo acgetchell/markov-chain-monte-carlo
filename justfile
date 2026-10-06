@@ -128,7 +128,7 @@ check-rust: fmt-check clippy
 # rustdoc doctests remain separate because nextest does not execute them.
 # Run repository validators, all-target Clippy, tests, docs, examples, and benchmark compilation.
 [group('workflows')]
-ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check semgrep-test semgrep test-python notebook-check fmt-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.

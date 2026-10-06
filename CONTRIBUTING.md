@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.7` package owns setup and checked execution. It installs the declared Python, Rust 1.98.1 components/targets, and Cargo
+The published `research-repo-tools==0.1.7` package owns setup and checked execution. It installs the declared Python, Rust 1.99.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -196,7 +196,7 @@ scope and follow-up guidance. The default base must match the live remote; a sta
    git checkout -b feat/your-feature
    ```
 
-2. **Iterate with the smallest changed-surface validator:**
+2. **Iterate with the smallest changed-surface validator.** Run `just check` before applying formatter fixes:
 
    ```bash
    # edit code and docs
@@ -207,10 +207,10 @@ scope and follow-up guidance. The default base must match the live remote; a sta
    just fix             # apply formatters
    ```
 
-3. **Compose each relevant focused bucket once for final non-core changes.** For core Rust changes or a GitHub-equivalent local run, use the full gate:
+3. **Compose each relevant focused bucket once for final non-core changes.** For core Rust changes or a GitHub-equivalent
+   local run, use the full gate, which already includes those checks:
 
    ```bash
-   just check           # non-mutating linters and validators
    just ci              # flat GitHub-equivalent validation union
    ```
 
@@ -227,7 +227,7 @@ scope and follow-up guidance. The default base must match the live remote; a sta
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.98.1 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.99.0 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
@@ -259,6 +259,9 @@ lints.
 - **Defined floating-point semantics.** The five `f64::algebraic_{add,sub,mul,div,rem}` methods are forbidden throughout repository-owned Rust because their
   unspecified transformations can change precision, non-finite and signed-zero behavior, acceptance decisions, and reproducibility. Ordinary IEEE-754
   arithmetic and deliberate `f64::mul_add` use remain allowed. Any other relaxed or fast-math facility requires a separate tracked scientific review.
+- **Fused multiply-add by default.** Prefer `f64::mul_add` for multiply-add/subtract expressions and ordinary product accumulation when the mathematical
+  contract permits one rounding. Keep separate operations where intermediate rounding is required, including compensated summation and independent
+  unfused test oracles. Validate numerical changes against independent references; measure before claiming a speedup.
 - **Rollback safety.** `ProposalMut::propose_mut` must pair with `undo` so that a rejected mutation leaves state observably unchanged. `DelayedProposal::commit`
   errors are reserved for genuinely exceptional failures applying an already-accepted concrete move.
 - **Detailed balance.** New proposal kinds should ship with a `verify_detailed_balance*` test for representative discrete transitions.

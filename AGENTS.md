@@ -94,12 +94,15 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Rust
 
-- The current MSRV and pinned contributor/CI toolchain are Rust 1.98.1. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
+- The current MSRV and pinned contributor/CI toolchain are Rust 1.99.0. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
   changes deliberately.
 - Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take
   ownership or return `Vec`/allocated data when required.
 - The five `f64::algebraic_{add,sub,mul,div,rem}` methods are forbidden throughout repository-owned Rust. Ordinary IEEE-754 arithmetic and deliberate
   `f64::mul_add` use remain allowed. Any other relaxed or fast-math facility requires a separate tracked scientific review before adoption.
+- Prefer `f64::mul_add` for floating-point multiply-add/subtract expressions and ordinary product accumulation when the mathematical contract permits
+  one rounding. Preserve separate operations when intermediate rounding is required, including compensated summation and independent unfused test oracles.
+  Validate changed numerical behavior against independent references; do not assume a speedup without measurements.
 - Put property-based Rust tests in integration files named `tests/proptest_*.rs`. Keep `src` unit tests focused on deterministic local behavior unless a
   private helper cannot be exercised through a public or crate-visible path.
 - Rust/tooling details live in [`docs/dev/DEVELOPING.md`](docs/dev/DEVELOPING.md).

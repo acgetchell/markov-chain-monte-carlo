@@ -3,7 +3,7 @@ name = "markov-chain-monte-carlo"
 version = "0.5.1"
 authors = [ "Adam Getchell" ]
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 
 description = "A composable Markov Chain Monte Carlo (MCMC) framework for arbitrary state spaces in Rust"
 homepage = "https://github.com/acgetchell/markov-chain-monte-carlo"

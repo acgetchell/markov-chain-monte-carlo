@@ -2,7 +2,7 @@
 name = "diagnostic-backend-comparison"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 publish = false
 
 # Deliberately independent: candidate dependencies do not enter the library graph.

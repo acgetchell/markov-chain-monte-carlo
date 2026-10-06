@@ -328,7 +328,7 @@ fn sample_chain(
     let mean_mag = mag_sum / f64::from(SAMPLES);
     let mean_mag_sq = mag_sq_sum / f64::from(SAMPLES);
     // Finite-sample fluctuation estimate, not a thermodynamic-limit claim.
-    let susceptibility = beta * n_spins_f64 * (mean_mag_sq - mean_mag * mean_mag);
+    let susceptibility = beta * n_spins_f64 * mean_mag.mul_add(-mean_mag, mean_mag_sq);
     println!("\nChain {chain_id} results ({SAMPLES} samples):");
     println!("  <m>:             {mean_mag:+.4}");
     println!("  <m²>:            {mean_mag_sq:.4}");

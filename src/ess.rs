@@ -449,6 +449,7 @@ impl MeanMcse {
     }
 
     /// Borrow the raw-scale mean ESS and its sample metadata.
+    #[must_use]
     pub const fn effective_sample_size(&self) -> &EssEstimate {
         &self.ess
     }
@@ -549,6 +550,7 @@ impl QuantileMcse {
     }
 
     /// Borrow the indicator ESS, probability identity, and retained/original counts.
+    #[must_use]
     pub const fn effective_sample_size(&self) -> &EssEstimate {
         &self.ess
     }

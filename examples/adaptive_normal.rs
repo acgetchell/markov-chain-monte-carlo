@@ -23,7 +23,7 @@ struct Walk {
 
 impl Proposal<f64> for Walk {
     fn propose<R: Rng + ?Sized>(&self, x: &f64, rng: &mut R) -> f64 {
-        x + self.width * rng.random_range(-1.0..1.0)
+        self.width.mul_add(rng.random_range(-1.0..1.0), *x)
     }
 }
 

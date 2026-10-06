@@ -56,7 +56,8 @@ worked usage. The [proposal-validation guide](VALIDATING_PROPOSALS.md) owns kern
   define a different target. An action or dimensionless energy `S` contributes `-S`; physical temperature and unit conversions belong in the target.
 - A proposal reports `log q(x | y) - log q(y | x)`. This correction describes the same concrete move that was generated, including move selection and
   reverse availability. It is distinct from any bias or additional target term.
-- Numerical values use `f64` arithmetic, including deliberate fused multiply-add operations. Log-space acceptance avoids exponentiating tiny
+- Numerical values use `f64` arithmetic, preferring fused multiply-add where a formula permits one rounding. Compensated sums retain the separate
+  operations needed to recover rounding error. Log-space acceptance avoids exponentiating tiny
   probabilities, but does not make target differences exact or eliminate finite-precision limitations. Target log weights and proposal log ratios may be
   finite or negative infinity; `NaN` and positive infinity produce errors. A `NaN` assembled acceptance ratio, including `-inf - (-inf)`, rejects the move.
 - Production diagnostics refer to one observable after discarded warmup unless a method explicitly compares multiple chains. Preserve repeated states from
@@ -113,6 +114,9 @@ For completed warmup step `n`, starting at one, the implemented update is:
 log_scale = clamp(log_scale + n^(-0.6) * (I_accepted - target_acceptance), log_min, log_max)
 scale = clamp(exp(log_scale), min_scale, max_scale)
 ```
+
+The gain-times-error addition uses `f64::mul_add`, rounding the product and sum once before clamping. This can change the last bits of the tuned scale and
+subsequent seeded trajectories compared with separate multiplication and addition. Same-build warmup chunking preserves the schedule and RNG stream.
 
 This is a bounded acceptance-indicator Robbins-Monro scale update, related to the acceptance-probability scaling updates discussed in
 [Andrieu and Thoms (2008)](../REFERENCES.md#ref-12), section 5.1.2. It does not estimate a covariance matrix or implement the full
