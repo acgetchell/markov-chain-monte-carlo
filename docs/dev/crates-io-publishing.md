@@ -39,9 +39,19 @@ approval. Verify all account settings separately from reviewing source.
 
 ## Evidence status
 
-Read-only GitHub API inspection on October 22, 2026 found `main` protected and
-no deployment environments configured. Release immutability was enabled. The
-selected-action allowlist did not yet include the crates.io authentication action.
+Initial GitHub API inspection on October 22, 2026 found `main` protected and
+release immutability enabled. After #206 merged, the owner registered the
+crates.io Trusted Publisher. Read-only inspection of the crate's settings
+confirmed repository `acgetchell/markov-chain-monte-carlo`, owner ID `434849`,
+workflow `publish-crates.yml`, and environment `crates-io`.
+
+The reviewed GitHub environment and allowlist payloads were subsequently applied
+and read back through the API on the same date. Environment ID `25076265562`
+requires reviewer `acgetchell`, permits self-review, and disables administrator
+bypass. Its only deployment policy (ID `64027043`) permits `v*` tags. The Actions
+allowlist retains its previous entries and adds the exact authentication-action
+commit. `main` remains protected. The optional crates.io setting requiring
+Trusted Publishing for all new versions is currently disabled.
 The last completed main-branch CI for
 `e273e5c48f375518c387b97ddcf0c567167ac858` exposed the actual checks
 `build (ubuntu-latest)`, `build (macos-latest)` and `build (windows-latest)` from
@@ -53,9 +63,9 @@ release validation.
 | Evidence | Status |
 | --- | --- |
 | Protected default branch and native CI identities | Inspected through GitHub API |
-| `crates-io` environment, reviewers and tag restrictions | Pending live configuration and verification |
-| Selected Actions allowlist addition | Reviewed payload prepared; pending live configuration and verification |
-| crates.io Trusted Publisher registration | Pending owner configuration and verification |
+| `crates-io` environment, reviewers and tag restrictions | Applied and verified through GitHub API |
+| Selected Actions allowlist addition | Exact reviewed action commit applied and verified; existing entries preserved |
+| crates.io Trusted Publisher registration | Verified in the authenticated crate settings after #206 merged |
 | Native checks for the final release commit | Pending reviewed release commit |
 | Clean tagged Cargo packaging dry run | Pending reviewed release tag |
 | Required baseline attached to draft | Pending release preparation |

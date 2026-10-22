@@ -136,11 +136,14 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert 'just performance-baseline "$RELEASE_TAG"' in baseline
     setup = (REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
     assert "research-repo-tools toolchain export" in setup
-    assert "<<'PY'" not in workflow + setup
+    assert "<<'PY'" not in workflow
     setup_steps = yaml.safe_load(setup)["runs"]["steps"]
     installer = next(step for step in setup_steps if step.get("run", "").endswith("research-repo-tools setup"))
     assert installer["env"]["GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - literal Actions expression, not a credential.
-    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step is not installer)
+    scanner = next(step for step in setup_steps if step.get("name") == "Set up the declared scanner through the shared API")
+    assert installer["if"] == "inputs.scanner == ''"
+    assert scanner["if"] == "inputs.scanner != ''"
+    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step not in (installer, scanner))
 
 
 def test_release_version_check_uses_shared_final_metadata_validation() -> None:
@@ -249,7 +252,7 @@ def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None
 def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["research-repo-tools"]
     assert manifest["zizmor"]["persona"] == "regular"
-    prefix = ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "zizmor", "check"]
+    prefix = ["uv", "run", "--locked", "--only-group", "tooling", "research-repo-tools", "zizmor", "check"]
     assert shlex.split(_run_just("--dry-run", "zizmor").stderr) == [*prefix, "$@", ".github"]
     recipe = _recipes()["zizmor"]
     assert "positional-arguments" in recipe["attributes"]
@@ -273,6 +276,51 @@ def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:
     assert "!cancelled() && steps.sarif.outcome == 'success'" in upload["if"]
     assert "github.event.pull_request.head.repo.full_name == github.repository" in upload["if"]
     assert "github.actor != 'dependabot[bot]'" in upload["if"]
+
+
+@pytest.mark.parametrize("scanner", ["zizmor", "gitleaks", "osv-scanner"])
+def test_scanner_setup_installs_only_its_declared_plan(scanner: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from research_repo_tools import toolchain
+
+    action = yaml.safe_load((REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_bytes())
+    steps = action["runs"]["steps"]
+    step = next(step for step in steps if step.get("name") == "Set up the declared scanner through the shared API")
+    script = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    plans = []
+
+    def capture(runtime: toolchain.Runtime) -> None:
+        plans.append(runtime.plan)
+
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setenv("SCANNER", scanner)
+    monkeypatch.setenv("RESEARCH_REPO_TOOLS_HOME", str(tmp_path / "managed"))
+    destination = tmp_path / "environment"
+    monkeypatch.setenv("GITHUB_ENV", str(destination))
+    monkeypatch.setattr(toolchain.Runtime, "sync", capture)
+    monkeypatch.setattr(toolchain.Runtime, "inspect", lambda _runtime: [])
+    names = ("PATH", "UV_PYTHON_INSTALL_DIR", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL", "RUSTUP_NO_UPDATE_CHECK")
+    monkeypatch.setattr(toolchain.Runtime, "environment", lambda _runtime: dict.fromkeys(names, "fixture"))
+    exec(compile(script, str(REPO_ROOT / ".github/actions/setup-toolchain/action.yml"), "exec"), {})  # noqa: S102 - execute the checked-in setup adapter.
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert {tool.package for tool in plan.cargo} == ({"zizmor"} if scanner == "zizmor" else set())
+    assert {tool.name for tool in plan.binaries} == (set() if scanner == "zizmor" else {scanner})
+    if scanner == "zizmor":
+        assert plan.rust is not None
+        assert plan.rust.profile == "minimal"
+        assert plan.rust.components == plan.rust.targets == ()
+    else:
+        assert plan.rust is None
+    exported = dict(line.split("=", 1) for line in destination.read_text(encoding="utf-8").splitlines())
+    assert exported["RESEARCH_REPO_TOOLS_HOME"] == str(tmp_path / "managed")
+    assert ("RUSTUP_HOME" in exported) == (scanner == "zizmor")
+    assert next(step for step in steps if step.get("name") == "Expose checked tools to workflow actions")["if"] == "inputs.scanner == ''"
+    filename = "osv" if scanner == "osv-scanner" else scanner
+    workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{filename}.yml").read_bytes())
+    job = next(iter(workflow["jobs"].values()))
+    setup = next(step for step in job["steps"] if step.get("uses") == "$/.github/actions/setup-toolchain")
+    assert setup["with"] == {"scanner": scanner}
 
 
 def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> None:

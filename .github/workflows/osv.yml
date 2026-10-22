@@ -28,6 +28,8 @@ jobs:
 
       - name: Set up declared toolchain
         uses: $/.github/actions/setup-toolchain
+        with:
+          scanner: osv-scanner
 
       - name: Audit maintained lockfiles
         id: scan
