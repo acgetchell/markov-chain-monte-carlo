@@ -15,7 +15,8 @@ When making changes in this repo, prioritize (in order):
 ### Git Operations
 
 - **Mutate version-control state only with explicit user approval.** Keep branch creation, staging, commits, pushes, tags, and other ref/index changes
-  within the approved scope. Approval remains valid for the authorized task; without it, suggest commands for the user to run manually.
+  within the approved scope. Approval may cover multiple named operations for a task and remains valid for that task; do not ask again unless the scope
+  changes. Once approved, perform the authorized operations. Without approval, suggest commands for the user to run manually.
 - **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`, `git --no-pager log`, `git --no-pager show`,
   `git --no-pager blame`) to inspect changes/history
 - **ALWAYS** use `git --no-pager` when reading git output
@@ -31,7 +32,7 @@ When generating commit messages:
 3. Valid types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `style`, `ci`, `build`
 4. Include bullet-point body describing key changes
 5. Do not include test commands, validation results, or `Tests:` sections unless the user explicitly asks for them
-6. Present inside a code block so the user can commit manually
+6. Unless committing is explicitly authorized, present inside a code block so the user can commit manually
 
 #### Changelog-Aware Body Text
 
@@ -162,11 +163,14 @@ just setup            # Install managed tools and verify system prerequisites
 just sync             # Synchronize the locked development environment
 just audit            # Audit maintained Python and Rust lockfiles for vulnerabilities
 just update           # Update dependencies, managed Cargo tools, and tool pins
-just release-update VERSION PREVIOUS_TAG RELEASE_DATE # Prepare release metadata without dependency upgrades
+just update-version TAG # Prepare release metadata without dependency upgrades
 just test             # Focused unit + doc tests (fast)
 just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
-just release-check    # Validate the current release tag, metadata, and generated notes
+just release-version-check # Validate final current metadata and generated notes
+just release-package # Verify clean default and all-feature packages without uploading
+just release-publish TAG # Publish the reviewed GitHub draft and trigger approved registry upload (maintainer)
+just release-verify TAG # Verify the published GitHub Release, required assets, and exact registry version
 just performance-release  # Persist, validate, and promote release benchmark evidence
 just performance-doc # Rebuild the curated report from saved release evidence
 just performance-readme # Publish the README table and SVG from retained evidence

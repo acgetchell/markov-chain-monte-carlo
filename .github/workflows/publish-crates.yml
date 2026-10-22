@@ -1,0 +1,91 @@
+name: Publish to crates.io
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-crates-markov-chain-monte-carlo
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.repository == 'acgetchell/markov-chain-monte-carlo' &&
+      github.event_name == 'release' && github.event.action == 'published' &&
+      !github.event.release.draft && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
+        with:
+          cache: "false"
+
+      - name: Require reviewed release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: just release-gate "$RELEASE_TAG"
+
+      - name: Verify clean default and all-feature packages without uploading
+        run: just release-package
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: crates-io
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
+        with:
+          cache: "false"
+
+      - name: Recheck evidence and registry absence after deployment approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          just release-gate "$RELEASE_TAG"
+          uv run --locked --group dev research-repo-tools release registry "$RELEASE_TAG" --expect absent
+
+      - name: Obtain a short-lived crates.io token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      # The verify job built both feature selections without publication credentials.
+      # Repackage the same clean, revalidated source without running build scripts.
+      - name: Package and upload verified source without building
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: uv run --locked --group dev research-repo-tools toolchain run -- cargo publish --locked --registry crates-io --package markov-chain-monte-carlo --no-verify
+
+      - name: Check visibility even after a post-upload Cargo timeout
+        if: ${{ !cancelled() && steps.auth.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: just release-verify "$RELEASE_TAG"

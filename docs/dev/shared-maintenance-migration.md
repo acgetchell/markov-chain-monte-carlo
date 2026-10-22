@@ -43,6 +43,30 @@ reviewed publication flow remains tracked in #176; #182 still owns adopting the
 shared release-guide procedure and the remaining publishing/verification recipes.
 This migration does not publish packages or replace released artifacts.
 
+## Reviewed release adoption (#176 and #182)
+
+The v0.5.2 implementation uses Delaunay's release procedure and recipe interfaces,
+backed by the already-published v0.2.3 shared implementation. `update-version TAG`,
+`release-version-check`, `tag TAG`, `release-package`, `release-publish TAG` and
+`release-verify TAG` replace transitional wrappers. CI delegates final metadata
+checks to the shared CLI without a local Cargo version/name parser. Each crate
+retains its scientific validation, feature selections and benchmark evidence.
+
+Benchmark preparation now attaches its asset and leaves the release in draft.
+Human-reviewed GitHub publication triggers a separate crates.io workflow using
+the shared event gate, actual native CI check/provider identities, clean native
+Cargo package verification and environment-scoped OIDC. The consumer also binds
+the published GitHub title/notes to the tag and shared changelog output, and
+requires an immutable published release. Registry checks block
+already-published versions and uncertain lookup results; post-upload verification
+still runs after a Cargo visibility timeout. No second manual upload is needed.
+
+The existing exact package pins, lock and inherited Python baseline already
+satisfy the published-package prerequisite and remain in place. Live deployment
+settings and first-release evidence are tracked separately in
+[crates.io deployment setup](crates-io-publishing.md); #176 remains open until
+they are verified. Trusted main-artifact promotion remains deferred.
+
 ## Ownership inventory
 
 | Consumer surface | Disposition and replacement |
@@ -87,7 +111,7 @@ The notebook group directly selects the shared notebook extra plus Matplotlib an
 
 Release checks remain offline. Three fixed DOI assertions, required publication files,
 active README source links, and historical artifact exclusions remain declared in
-`pyproject.toml`. The current command, `just release-update VERSION PREVIOUS_TAG RELEASE_DATE --dry-run`,
+`pyproject.toml`. The current command, `just update-version TAG --previous-release PREVIOUS_TAG --date RELEASE_DATE --offline --dry-run`,
 previews the complete release plan offline. No callback advances benchmark examples.
 
 ## Performance series reset

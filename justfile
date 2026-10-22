@@ -5,7 +5,8 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-_run := "uv run --locked --group dev research-repo-tools toolchain run --"
+rrt := "uv run --locked --group dev research-repo-tools"
+_run := rrt + " toolchain run --"
 
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb notebooks/diagnostic_plots.ipynb"
 slow_notebooks := ""
@@ -37,6 +38,17 @@ _ensure-uv-stable:
 
 _notebook-all mode:
     uv run --locked --group dev --group notebook research-repo-tools files run --include '*.ipynb' --exclude '*/.ipynb_checkpoints/*' -- research-repo-tools notebooks {{ quote(mode) }}
+
+[private]
+_release-notes-check tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag={{ quote(tag) }}
+    notes="$(mktemp)"
+    trap 'rm -f "$notes"' EXIT
+    {{ rrt }} changelog notes "$tag" > "$notes"
+    gh release view "$tag" --repo acgetchell/markov-chain-monte-carlo --json tagName,name,body |
+        jq -e --arg tag "$tag" --rawfile notes "$notes" '.tagName == $tag and .name == $tag and ((.body | gsub("\r\n"; "\n") | rtrimstr("\n")) == ($notes | rtrimstr("\n")))' > /dev/null
 
 # GitHub Actions workflow validation
 [group('validation')]
@@ -116,7 +128,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-check performance-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-version-check performance-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -128,7 +140,7 @@ check-rust: fmt-check clippy
 # rustdoc doctests remain separate because nextest does not execute them.
 # Run repository validators, all-target Clippy, tests, docs, examples, and benchmark compilation.
 [group('workflows')]
-ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -388,11 +400,6 @@ performance-release *tags: sync
     {{ _run }} research-repo-tools performance measure tooling/benchmark.toml "$@" --order published --allow-git-mutations --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
 
-# Publish the reviewed crate to crates.io using the managed Cargo toolchain.
-[group('release')]
-publish:
-    {{ _run }} cargo publish --locked
-
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
 publish-check:
@@ -414,33 +421,41 @@ python-fix: sync
 python-typecheck: sync
     uv run --locked --no-sync --no-python-downloads research-repo-tools python typecheck
 
-# Validate a stable release tag, package metadata, and generated notes without publishing.
+# Require the immutable release event and successful checks on its exact commit.
 [group('release')]
-release-check tag="": sync
+release-gate tag: (_release-notes-check tag)
     #!/usr/bin/env bash
     set -euo pipefail
-    package_version="$({{ _run }} cargo read-manifest | jq -er 'if .name == "markov-chain-monte-carlo" then .version else error("expected package.name = markov-chain-monte-carlo") end')"
-    release_tag={{ quote(tag) }}
-    release_tag="${release_tag:-v$package_version}"
-    uv run --locked --group dev research-repo-tools release check "$release_tag"
+    {{ rrt }} release gate {{ quote(tag) }}
+    release_id="$(jq -er '.release.id' "$GITHUB_EVENT_PATH")"
+    gh api "repos/acgetchell/markov-chain-monte-carlo/releases/$release_id" | jq -e '.immutable == true' > /dev/null
 
 # Extract release notes from the root changelog or its archives
 [group('release')]
-release-notes tag: sync
-    uv run --locked --group dev research-repo-tools changelog notes {{ quote(tag) }}
+release-notes tag:
+    {{ rrt }} changelog notes {{ quote(tag) }}
 
-# Update release metadata using an explicit version, previous tag, and date.
+# Verify clean default and all-feature packages without uploading.
 [group('release')]
-[positional-arguments]
-release-update version previous date *args: sync
-    uv run --locked --group dev research-repo-tools release update "v${1#v}" --previous-release "$2" --date "$3" "${@:4}"
+release-package:
+    {{ _run }} research-repo-tools validation cargo-metadata --package markov-chain-monte-carlo
+    {{ _run }} cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --dry-run
+    {{ _run }} cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --dry-run --all-features
 
-# Inspect the GitHub Release and the exact published crates.io version.
+# Approve the reviewed draft GitHub Release and trigger registry publication.
 [group('release')]
-[positional-arguments]
+release-publish tag: (_release-notes-check tag)
+    {{ rrt }} release publish {{ quote(tag) }} --approve
+
+# Require the stable GitHub Release/assets and exact published registry version.
+[group('release')]
 release-verify tag:
-    gh release view "$1" --json tagName,isDraft,isPrerelease,body,assets
-    {{ _run }} cargo info "markov-chain-monte-carlo@${1#v}" --registry crates-io
+    {{ rrt }} release verify {{ quote(tag) }} --attempts 7 --interval 10
+
+# Require matching final changelog, package and citation metadata.
+[group('release')]
+release-version-check:
+    {{ rrt }} release check --final-release
 
 # Review committed and local changes against the PR base with CodeRabbit.
 [group('review')]
@@ -498,20 +513,10 @@ spell-check:
 sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
-# Recreate an existing tag from the CHANGELOG.md section for the given version
+# Create an annotated tag from validated release notes (maintainer only).
 [group('release')]
-tag-force version: sync
-    uv run --locked --group dev research-repo-tools changelog tag {{ quote(version) }} --force
-
-# Preview the annotated release tag without changing Git state.
-[group('release')]
-tag-preview tag: sync
-    uv run --locked --group dev research-repo-tools changelog tag {{ quote(tag) }} --dry-run
-
-# Create a local annotated tag from validated release notes.
-[group('release')]
-tag-release tag: sync
-    uv run --locked --group dev research-repo-tools changelog tag {{ quote(tag) }}
+tag version: release-version-check
+    {{ rrt }} changelog tag {{ quote(version) }}
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
 [group('tests and coverage')]
@@ -611,6 +616,14 @@ update-tools: update-uv update-cargo-tools setup
 [group('build and setup')]
 update-uv:
     uv run --no-config --no-sync --no-python-downloads research-repo-tools deps update-uv
+
+# Update release metadata; optional date and predecessor arguments support offline preparation.
+[group('release')]
+[positional-arguments]
+update-version tag *args:
+    {{ rrt }} release update "$@"
+    {{ _run }} cargo metadata --locked --format-version 1 --no-deps > /dev/null
+    {{ rrt }} release check
 
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)

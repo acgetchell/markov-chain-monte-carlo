@@ -54,6 +54,10 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   └── setup-toolchain/
 │   │       └── action.yml
 │   ├── dependabot.yml
+│   ├── settings/
+│   │   ├── actions-selected.json
+│   │   ├── crates-io-environment.json
+│   │   └── crates-io-tags.json
 │   └── workflows/
 │       ├── audit.yml
 │       ├── ci.yml
@@ -62,6 +66,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── dependabot-auto-merge.yml
 │       ├── gitleaks.yml
 │       ├── osv.yml
+│       ├── publish-crates.yml
 │       ├── rust-clippy.yml
 │       ├── release-benchmarks.yml
 │       ├── semgrep-sarif.yml
@@ -115,6 +120,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── code_organization.md
 │   ├── dev/
 │   │   ├── DEVELOPING.md
+│   │   ├── crates-io-publishing.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
 │   ├── performance/
@@ -203,6 +209,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── test_ess_fixture.py
 │   │   ├── test_notebooks.py
 │   │   ├── test_performance_evidence.py
+│   │   ├── test_publishing.py
 │   │   └── test_release_policy.py
 │   └── semgrep/
 │       ├── benches/
@@ -262,6 +269,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
   `performance-readme.toml` selects the unthinned workloads and pins the reviewed evidence for README publication; update it when a new measured pair exists.
   `semgrep/` owns the independent Python 3.14 scanner environment, exact dependency pin, compatibility overrides, and lockfile.
 - `tests/tooling/` — focused consumer configuration, command wiring, workload lifecycle, release policy, evidence transition and notebook checks.
+- `.github/settings/` — reviewed deployment-policy payloads; live account configuration and read-back evidence remain separate maintainer actions.
   Reusable implementation and generic regressions live in the pinned shared package. No local Python package or support module remains.
 - `.gitattributes` — prevents checkout text conversion of byte-sensitive retained reports and scientific JSON fixtures used in provenance hashes.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `.python-version`, `pyproject.toml`, `uv.lock`, `justfile`, `semgrep.yaml`, `dprint.json`,

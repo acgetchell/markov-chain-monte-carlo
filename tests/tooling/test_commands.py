@@ -130,7 +130,7 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
         assert "contents: write" in writer
         assert "actions/checkout@" not in writer
         assert f"{shared_pin} research-repo-tools performance {command}" in writer
-    assert "--publish" in publication
+    assert "--publish" not in publication
     assert "GH_TOKEN:" not in baseline
     assert "persist-credentials: false" in baseline
     assert 'just performance-baseline "$RELEASE_TAG"' in baseline
@@ -143,20 +143,18 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step is not installer)
 
 
-@pytest.mark.parametrize("explicit_tag", [False, True])
-def test_release_check_accepts_current_version_with_or_without_tag(*, explicit_tag: bool) -> None:
+def test_release_version_check_uses_shared_final_metadata_validation() -> None:
     version = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
-    arguments = (f"v{version}",) if explicit_tag else ()
-    result = _run_just("release-check", *arguments)
-    assert f"Ready to validate packages for v{version}." in result.stdout
+    result = _run_just("release-version-check")
+    assert f"Release metadata is synchronized at {version}." in result.stdout
+    assert "release check --final-release" in result.stderr
 
 
 @pytest.mark.parametrize("tag", ["v0.4.2", "0.5.0", "v0.5.0-rc.1", "v0.5.0+build.1", "v00.5.0", "v0.5.0\n"])
-def test_release_check_rejects_wrong_or_noncanonical_tag(tag: str) -> None:
-    with pytest.raises(subprocess.CalledProcessError) as error:
-        _run_just("release-check", tag)
-    assert "research-repo-tools:" in error.value.stderr
-    assert "Ready to validate packages" not in error.value.stdout
+def test_shared_release_policy_rejects_wrong_or_noncanonical_tag(tag: str) -> None:
+    from research_repo_tools.cli import main
+
+    assert main(["--root", str(REPO_ROOT), "release", "check", tag]) == 1
 
 
 def test_python_gates_delegate_to_shared_validation_and_keep_fixture_coverage() -> None:
@@ -200,7 +198,8 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
         for path in directory.rglob("*")
         if path.suffix in {".yml", ".yaml"}
     }
-    assert set(policy["github_actions"]["files"]) == actions
+    # Credentialed publishing changes require maintainer review.
+    assert set(policy["github_actions"]["files"]) == actions - {".github/workflows/publish-crates.yml"}
     for path in (REPO_ROOT / ".github").rglob("*"):
         if path.is_file():
             assert b"CODERABBIT_REVIEW_TOKEN" not in path.read_bytes()

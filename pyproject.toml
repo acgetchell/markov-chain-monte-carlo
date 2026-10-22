@@ -25,6 +25,19 @@ owner = "acgetchell"
 repository = "markov-chain-monte-carlo"
 formatter = "rumdl.toml"
 
+[tool.research-repo-tools.publishing]
+registry = "crates-io"
+package = "markov-chain-monte-carlo"
+repository = "acgetchell/markov-chain-monte-carlo"
+required-checks = [
+    { name = "build (ubuntu-latest)", app-id = 15368 },
+    { name = "build (macos-latest)", app-id = 15368 },
+    { name = "build (windows-latest)", app-id = 15368 },
+    { name = "Clippy SARIF Analysis", app-id = 15368 },
+    { name = "Repository Rule SARIF Analysis", app-id = 15368 },
+]
+required-assets = [ "markov-chain-monte-carlo-v{version}-criterion-baseline.tar.gz" ]
+
 [tool.research-repo-tools.release]
 date-policy = "declared"
 tag-policy = "canonical-stable"
@@ -147,7 +160,7 @@ cwd = "tests/semgrep"
 
 [tool.research-repo-tools.semgrep.counts."tests/semgrep/github-actions/workflow_actions.yml"]
 "mcmc.github-actions.external-action-sha-pinned" = 2
-"mcmc.github-actions.external-action-approved-allowlist" = 2
+"mcmc.github-actions.external-action-approved-allowlist" = 3
 "mcmc.github-actions.external-action-version-comment" = 2
 
 [tool.research-repo-tools.semgrep.counts."tests/semgrep/docs/check_fix_order.md"]
