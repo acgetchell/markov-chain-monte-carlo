@@ -164,15 +164,17 @@ It rechecks inputs before updating the marked README section and SVG together. K
 The manually dispatched `Release Benchmarks` workflow requires a mutable stable
 draft. A read-only job measures a clean tagged checkout and packages
 `markov-chain-monte-carlo-TAG-criterion-baseline.tar.gz`. Separate jobs install the exact
-registry package for draft validation and attachment/publication; they never check out
+registry package for draft validation and attachment; they never check out
 benchmark code. The benchmark job has no write credentials.
 
 Shared archives contain the complete selected Criterion sample and provenance in
 `sample.json` and `provenance.json`. They are compact retained estimates, not raw
 Criterion time-series archives. Preserve local raw Criterion output separately when
 needed for independent reanalysis. An identical attachment retry succeeds; different
-bytes fail without overwrite. Publication follows attachment verification and a fresh
-draft-state check. The Actions artifact lasts 30 days; the release asset is durable.
+bytes fail without overwrite. The workflow leaves the release in draft for review.
+After attachment verification, the maintainer runs `just release-publish "$TAG"`
+to trigger the separately approved crates.io upload; see [RELEASING.md](RELEASING.md).
+The Actions artifact lasts 30 days; the release asset is durable.
 
 `just performance-github-assets CURRENT BASELINE` downloads native shared assets via authenticated GitHub CLI, checks provider hashes when available,
 and uses bounded extraction. It no longer accepts the former repository-specific legacy layout.

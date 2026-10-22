@@ -1,6 +1,11 @@
 name: Set up declared toolchain
 description: Install the locked shared tooling and synchronize the declared toolchain.
 
+inputs:
+  cache:
+    description: Restore and save uv and managed-tool caches.
+    default: "true"
+
 runs:
   using: composite
   steps:
@@ -8,11 +13,12 @@ runs:
       uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       with:
         version-file: pyproject.toml
-        enable-cache: true
+        enable-cache: ${{ inputs.cache == 'true' }}
         # Restored Windows Python homes can be inaccessible to ty.
         cache-python: ${{ runner.os != 'Windows' }}
 
     - name: Cache declared Rust and Cargo tools
+      if: inputs.cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/rrt

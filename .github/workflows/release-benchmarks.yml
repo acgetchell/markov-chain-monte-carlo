@@ -57,6 +57,8 @@ jobs:
 
       - name: Set up declared toolchain
         uses: $/.github/actions/setup-toolchain
+        with:
+          cache: "false"
 
       - name: Measure and package shared release baseline
         run: just performance-baseline "$RELEASE_TAG"
@@ -87,10 +89,10 @@ jobs:
         with:
           name: bench-baseline-${{ inputs.release_tag }}
 
-      - name: Attach baseline and publish GitHub Release
+      - name: Attach baseline to the draft for maintainer review
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: >-
           uvx --no-config --isolated --managed-python --exclude-newer 2026-10-21T23:41:46Z
-          --from research-repo-tools==0.2.3 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET" --publish
+          --from research-repo-tools==0.2.3 research-repo-tools performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RELEASE_ASSET"

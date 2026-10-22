@@ -1,0 +1,16 @@
+{
+  "github_owned_allowed": true,
+  "patterns_allowed": [
+    "github/codeql-action@*",
+    "actions-rust-lang/setup-rust-toolchain@*",
+    "astral-sh/setup-uv@*",
+    "codecov/codecov-action@*",
+    "zizmorcore/zizmor-action@*",
+    "swatinem/rust-cache@*",
+    "taiki-e/cache-cargo-install-action@*",
+    "dependabot/fetch-metadata@*",
+    "acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@*",
+    "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18"
+  ],
+  "verified_allowed": false
+}

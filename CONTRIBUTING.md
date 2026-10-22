@@ -487,7 +487,7 @@ descriptions or review notes instead.
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
 - [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`,
-      `justfile-fmt-check`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `release-check`, `semgrep`, `semgrep-test`)
+      `justfile-fmt-check`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `release-version-check`, `semgrep`, `semgrep-test`)
 - [ ] `just security` passes (OSV dependency audit and Gitleaks secret scan); resolve all findings before submitting the PR
 - [ ] Commit message follows the Conventional Commits format above
 
@@ -542,16 +542,15 @@ For full tool citation metadata, see the [AI-assisted development tools](REFEREN
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
-2. Set `VERSION`, `TAG`, `PREVIOUS_TAG`, and `RELEASE_DATE` using the guide's input block. Pass the same explicit date and previous tag to metadata preparation,
-   then preview and generate the changelog from committed history.
+2. Set `TAG` and run `just update-version "$TAG"`, then generate the changelog with the matching declared date from committed history.
 3. For the first release after the performance reset, let the tagged workflow establish the baseline. For subsequent releases, follow
-   [retained performance publication](docs/RELEASING.md#retained-performance-evidence-and-publication) to measure a real pair, create the reviewed
+   [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication) to measure a real pair, create the reviewed
    `tooling/performance-readme.toml`, and publish the README table/SVG.
 4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci` and `just publish-check`.
-5. Commit and push the release PR. After merge, sync and verify the reviewed `main` commit. Inspect `just tag-preview "$TAG"`, create the annotated tag with
-   `just tag-release "$TAG"`, verify it, then push it.
-6. Create a draft GitHub Release, publish to crates.io, dispatch `Release Benchmarks` to attach the Criterion baseline and publish the draft, then verify the
-   durable attachment and delete the merged release branch.
+5. Commit and push the release PR. After merge, sync and verify the reviewed `main` commit. Run `just tag "$TAG"`, inspect the annotated tag, then push it.
+   Run `just release-package` to verify clean default and all-feature Cargo packaging.
+6. Create a draft GitHub Release and dispatch `Release Benchmarks` to attach the Criterion baseline. Review the draft and run `just release-publish "$TAG"`
+   in a human GitHub CLI session, then approve the crates.io deployment. Verify both publications and the durable attachment before deleting the release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
