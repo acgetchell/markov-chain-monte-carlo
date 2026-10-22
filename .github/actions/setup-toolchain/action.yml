@@ -5,6 +5,9 @@ inputs:
   cache:
     description: Restore and save uv and managed-tool caches.
     default: "true"
+  scanner:
+    description: Set up only zizmor, gitleaks, or osv-scanner; empty installs the full contributor toolchain.
+    default: ""
 
 runs:
   using: composite
@@ -22,17 +25,58 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/rrt
-        key: rrt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'pyproject.toml', 'uv.lock', '.python-version') }}
-        restore-keys: rrt-${{ runner.os }}-${{ runner.arch }}-
+        key: rrt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scanner && format('{0}-', inputs.scanner) || '' }}${{ hashFiles('rust-toolchain.toml', 'pyproject.toml', 'uv.lock', '.python-version') }}
+        restore-keys: rrt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scanner && format('{0}-', inputs.scanner) || '' }}
 
     - name: Set up declared tools and development environment
+      if: inputs.scanner == ''
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
       run: uv run --locked --managed-python --only-group tooling research-repo-tools setup
 
+    - name: Set up the declared scanner through the shared API
+      if: inputs.scanner != ''
+      shell: bash
+      env:
+        SCANNER: ${{ inputs.scanner }}
+        GITHUB_TOKEN: ${{ github.token }}
+        RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
+      run: |
+        uv run --locked --managed-python --only-group tooling python - <<'PY'
+        import os
+        from dataclasses import replace
+        from pathlib import Path
+
+        from research_repo_tools.ci import export_environment
+        from research_repo_tools.config import load
+        from research_repo_tools.toolchain import Runtime, report
+        from research_repo_tools.toolchain_config import load as load_toolchain
+
+        scanner = os.environ["SCANNER"]
+        if scanner not in {"zizmor", "gitleaks", "osv-scanner"}:
+            raise ValueError(f"unsupported scanner: {scanner}")
+        plan = load_toolchain(load())
+        cargo = tuple(tool for tool in plan.cargo if tool.package == scanner)
+        binaries = tuple(tool for tool in plan.binaries if tool.name == scanner)
+        if len(cargo) + len(binaries) != 1:
+            raise ValueError(f"declare exactly one managed {scanner} scanner")
+        rust = replace(plan.rust, profile="minimal", components=(), targets=()) if cargo and plan.rust else None
+        runtime = Runtime(replace(plan, rust=rust, cargo=cargo, binaries=binaries))
+        runtime.sync()
+        if not report(runtime.inspect()):
+            raise RuntimeError("scanner setup failed verification")
+        environment = runtime.environment()
+        environment["RESEARCH_REPO_TOOLS_HOME"] = str(runtime.base)
+        names = ["RESEARCH_REPO_TOOLS_HOME", "UV_PYTHON_INSTALL_DIR", "PATH"]
+        if rust:
+            names.extend(["CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL", "RUSTUP_NO_UPDATE_CHECK"])
+        export_environment(Path(os.environ["GITHUB_ENV"]), names, environment=environment)
+        PY
+
     - name: Expose checked tools to workflow actions
+      if: inputs.scanner == ''
       shell: bash
       env:
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt

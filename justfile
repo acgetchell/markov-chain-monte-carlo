@@ -59,7 +59,7 @@ action-lint:
 # Audit every maintained Python and Rust lockfile without executing dependency code.
 [group('security')]
 audit:
-    uv run --locked --group dev research-repo-tools security osv uv.lock tooling/semgrep/uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+    uv run --locked --only-group tooling research-repo-tools security osv uv.lock tooling/semgrep/uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
 
 # Run the fixed-seed stepping benchmark suite.
 [group('benchmarks and performance')]
@@ -474,7 +474,7 @@ security: audit security-secrets
 # Scan all reachable Git history and current tracked/nonignored files with redacted reports.
 [group('security')]
 security-secrets:
-    uv run --locked --group dev research-repo-tools security secrets
+    uv run --locked --only-group tooling research-repo-tools security secrets
 
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
@@ -655,4 +655,4 @@ yaml-fix:
 [group('validation')]
 [positional-arguments]
 zizmor *args:
-    uv run --locked --group dev research-repo-tools zizmor check "$@" .github
+    uv run --locked --only-group tooling research-repo-tools zizmor check "$@" .github

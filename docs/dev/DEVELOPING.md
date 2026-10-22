@@ -108,7 +108,7 @@ floating-point restrictions, and error-contract policy.
 
 ### GitHub Actions security audits
 
-`just zizmor` delegates to the pinned shared CLI, verifies the declared zizmor 1.30.1 scanner, and uses the explicit regular persona in `pyproject.toml`.
+`just zizmor` delegates to the pinned shared CLI, verifies the declared scanner version, and uses the explicit regular persona in `pyproject.toml`.
 Authentication is discovered from `ZIZMOR_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, in that order, without printing credentials.
 When none is available, the command reports that online audits were skipped and runs offline. Use `just zizmor --offline` for an intentional offline scan
 or `just zizmor --require-online` to fail when authentication is unavailable. Scanner/authentication failures never trigger a silent offline retry.
@@ -126,6 +126,15 @@ Exact native scanner versions live in `[tool.research-repo-tools.toolchain.binar
 OSV-Scanner audits `uv.lock`, `tooling/semgrep/uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These include the
 isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
 The existing Cargo audit workflow continues to check RustSec advisories separately.
+
+The zizmor, Gitleaks and OSV jobs select one scanner through the setup action's
+`scanner` input. The published shared API loads its version from the canonical
+toolchain declaration, installs and verifies only that scanner, and exports its
+managed environment. Gitleaks and OSV need no Rust installation. zizmor needs
+only minimal host Rust and its own Cargo package; contributor components,
+cross-compilation targets and other Cargo tools are excluded. Each scanner has
+its own cache namespace. These recipes use the `tooling` Python group; ordinary
+build and release jobs retain the complete contributor setup.
 
 Semgrep 1.182.1 accepts PyJWT `>=2.15.0,<3`, which covers
 [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The scanner project's `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
