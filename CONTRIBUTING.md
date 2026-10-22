@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.1.7` package owns setup and checked execution. It installs the declared Python, Rust 1.99.0 components/targets, and Cargo
+The published `research-repo-tools==0.2.3` package owns setup and checked execution. It installs the declared Python, Rust 1.99.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -113,6 +113,10 @@ short path on Windows. Normal recipes select the checked tool paths through `too
 To adopt a newer published shared package and its Python baseline, run `just shared-python-plan VERSION`, review the preview, then run
 `just shared-python-update VERSION`. Use the package version, not the Python version. These standalone commands work outside the old environment and update
 both package pins, the Python mirrors, lockfile, environment, and notebook kernel together. `just update` retains the exact shared-package pin.
+
+The main environment uses Python 3.15. Semgrep retains a separate locked Python 3.14 environment in `tooling/semgrep/` until its published wheels support
+Python 3.15. The Semgrep recipes select that environment automatically. `just update-python-dependencies` refreshes and synchronizes both declared projects;
+the scanner keeps its exact dependency pin and compatibility overrides. Security scans and Dependabot cover both Python lockfiles.
 Keep the registry-only release workflow's package pin and resolution cutoff aligned with the adopted version; it selects a package-compatible Python.
 
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated

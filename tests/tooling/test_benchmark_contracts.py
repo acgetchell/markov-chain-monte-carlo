@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from research_repo_tools.measurement import load_measurement
+from research_repo_tools.measurement import MeasurementConfig, load_measurement
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_HARNESS = REPO_ROOT / "benches" / "stepping.rs"
@@ -33,7 +33,8 @@ def _benchmark_block(source: str, name: str) -> str:
     )
     match = pattern.search(source)
     assert match is not None, name
-    return match.group("body")
+    start, end = match.span("body")
+    return source[start:end]
 
 
 def test_release_signal_benchmark_names_are_explicit_contracts() -> None:
@@ -66,6 +67,7 @@ def test_fresh_batch_contracts_use_criterion_batch_setup() -> None:
 
 def test_measurement_configuration_preserves_the_release_signal() -> None:
     config = load_measurement(REPO_ROOT, "tooling/benchmark.toml")
+    assert isinstance(config, MeasurementConfig)
     assert config.command == ("cargo", "bench", "--locked", "--bench", "stepping")
     assert config.sample == "new"
     assert config.statistic == "median"

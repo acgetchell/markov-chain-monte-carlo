@@ -48,7 +48,7 @@ jobs:
             --null > "$RUNNER_TEMP/semgrep-inputs"
           mapfile -d '' -t scan_paths < "$RUNNER_TEMP/semgrep-inputs"
           set +e
-          uv run --locked --managed-python --group dev semgrep \
+          uv run --locked --managed-python --project tooling/semgrep semgrep \
             --metrics off \
             --error \
             --strict \

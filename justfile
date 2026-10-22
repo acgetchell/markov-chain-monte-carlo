@@ -47,7 +47,7 @@ action-lint:
 # Audit every maintained Python and Rust lockfile without executing dependency code.
 [group('security')]
 audit:
-    uv run --locked --group dev research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+    uv run --locked --group dev research-repo-tools security osv uv.lock tooling/semgrep/uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
 
 # Run the fixed-seed stepping benchmark suite.
 [group('benchmarks and performance')]
@@ -401,21 +401,18 @@ publish-check:
 
 # Check all Python files and fixtures with the complete configured Ruff and Ty policy.
 [group('validation')]
-python-check: python-typecheck
-    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --check --no-force-exclude
-    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --no-fix --no-force-exclude
+python-check: sync
+    uv run --locked --no-sync --no-python-downloads research-repo-tools python check
 
 # Apply configured Ruff fixes and formatting to all Python files and fixtures.
 [group('validation')]
 python-fix: sync
-    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff check --fix --no-force-exclude
-    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ruff format --no-force-exclude
+    uv run --locked --no-sync --no-python-downloads research-repo-tools python fix
 
 # Type-check every discovered Python file and fixture with Ty.
 [group('validation')]
 python-typecheck: sync
-    uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain python-check
-    uv run --locked --group dev research-repo-tools files run --include '*.py' --include '*.pyi' -- ty check --no-force-exclude
+    uv run --locked --no-sync --no-python-downloads research-repo-tools python typecheck
 
 # Validate a stable release tag, package metadata, and generated notes without publishing.
 [group('release')]
@@ -425,17 +422,7 @@ release-check tag="": sync
     package_version="$({{ _run }} cargo read-manifest | jq -er 'if .name == "markov-chain-monte-carlo" then .version else error("expected package.name = markov-chain-monte-carlo") end')"
     release_tag={{ quote(tag) }}
     release_tag="${release_tag:-v$package_version}"
-    if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-        printf 'Release preflight failed: expected a stable vX.Y.Z tag, got %s\n' "$release_tag" >&2
-        exit 1
-    fi
-    if [[ "$release_tag" != "v$package_version" ]]; then
-        printf 'Release preflight failed: tag %s does not match package version %s\n' "$release_tag" "$package_version" >&2
-        exit 1
-    fi
-    uv run --locked --group dev research-repo-tools release check --final-release
-    uv run --locked --group dev research-repo-tools changelog notes "$release_tag" > /dev/null
-    printf 'Release preflight passed for %s.\n' "$release_tag"
+    uv run --locked --group dev research-repo-tools release check "$release_tag"
 
 # Extract release notes from the root changelog or its archives
 [group('release')]
@@ -477,12 +464,12 @@ security-secrets:
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
 semgrep:
-    uv run --locked --group dev research-repo-tools files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
+    uv run --locked --project tooling/semgrep uv run --locked --project . --group dev research-repo-tools files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
 
 # Validate repository-owned Semgrep rules against annotated fixtures.
 [group('validation')]
 semgrep-test:
-    uv run --locked --group dev research-repo-tools semgrep check-fixtures
+    uv run --locked --project tooling/semgrep uv run --locked --project . --group dev research-repo-tools semgrep check-fixtures
 
 # Install managed tools and verify system prerequisites.
 [group('build and setup')]
@@ -611,12 +598,10 @@ update-cargo-tools:
 [group('build and setup')]
 update-dependencies: update-cargo-dependencies update-python-dependencies
 
-# Resolve direct dev pins, upgrade the Python lock, and synchronize dev.
+# Resolve direct dev pins, then refresh and sync the root and Semgrep environments.
 [group('build and setup')]
 update-python-dependencies: _ensure-uv-stable
-    uv run --locked --only-group tooling --inexact research-repo-tools deps update-python
-    uv lock --upgrade
-    uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain run -- uv sync --locked --managed-python --group dev
+    uv run --locked --only-group tooling --inexact research-repo-tools deps update-python --all-projects
 
 # Upgrade uv and declared Cargo tools, then synchronize the declared environment.
 [group('build and setup')]

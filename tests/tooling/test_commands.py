@@ -148,36 +148,26 @@ def test_release_check_accepts_current_version_with_or_without_tag(*, explicit_t
     version = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
     arguments = (f"v{version}",) if explicit_tag else ()
     result = _run_just("release-check", *arguments)
-    assert f"Release preflight passed for v{version}." in result.stdout
+    assert f"Ready to validate packages for v{version}." in result.stdout
 
 
 @pytest.mark.parametrize("tag", ["v0.4.2", "0.5.0", "v0.5.0-rc.1", "v0.5.0+build.1", "v00.5.0", "v0.5.0\n"])
 def test_release_check_rejects_wrong_or_noncanonical_tag(tag: str) -> None:
     with pytest.raises(subprocess.CalledProcessError) as error:
         _run_just("release-check", tag)
-    assert "Release preflight failed:" in error.value.stderr
-    assert "Release preflight passed" not in error.value.stdout
+    assert "research-repo-tools:" in error.value.stderr
+    assert "Ready to validate packages" not in error.value.stdout
 
 
-def test_python_gate_covers_fixtures_with_full_configured_native_checks() -> None:
+def test_python_gates_delegate_to_shared_validation_and_keep_fixture_coverage() -> None:
     from research_repo_tools.selection import select_files
 
-    commands = [shlex.split(line) for line in _run_just("--dry-run", "python-check").stderr.splitlines() if "research-repo-tools files run" in line]
-    native = []
-    for command in commands:
-        selection, tool = command[: command.index("--")], command[command.index("--") + 1 :]
-        assert "--exclude" not in selection
-        includes = tuple(selection[index + 1] for index, value in enumerate(selection) if value == "--include")
-        assert set(includes) == {"*.py", "*.pyi"}
-        selected = select_files(REPO_ROOT, include=includes)
-        assert "tests/semgrep/tests/tooling/subprocess_mocks.py" in selected
-        assert "tests/tooling/test_commands.py" in selected
-        native.append(tool)
-    assert native == [
-        ["ty", "check", "--no-force-exclude"],
-        ["ruff", "format", "--check", "--no-force-exclude"],
-        ["ruff", "check", "--no-fix", "--no-force-exclude"],
-    ]
+    for recipe, action in (("python-check", "check"), ("python-fix", "fix"), ("python-typecheck", "typecheck")):
+        commands = [shlex.split(line) for line in _run_just("--dry-run", recipe).stderr.splitlines() if "research-repo-tools python " in line]
+        assert commands == [["uv", "run", "--locked", "--no-sync", "--no-python-downloads", "research-repo-tools", "python", action]]
+    selected = select_files(REPO_ROOT, include=("*.py", "*.pyi"))
+    assert "tests/semgrep/tests/tooling/subprocess_mocks.py" in selected
+    assert "tests/tooling/test_commands.py" in selected
     recipes = _recipes()
     for gate in ("ci", "check-repository-tooling"):
         assert "python-check" in {item["recipe"] for item in recipes[gate]["dependencies"]}
@@ -203,7 +193,7 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
     policy = json.loads(job["with"]["policy"])
     assert set(policy) == {"cargo", "uv", "github_actions"}
     assert set(policy["cargo"]["files"]) == {"Cargo.toml", "Cargo.lock"}
-    assert set(policy["uv"]["files"]) == {"pyproject.toml", "uv.lock"}
+    assert set(policy["uv"]["files"]) == {"pyproject.toml", "uv.lock", "tooling/semgrep/pyproject.toml", "tooling/semgrep/uv.lock"}
     actions = {
         path.relative_to(REPO_ROOT).as_posix()
         for directory in (REPO_ROOT / ".github/workflows", REPO_ROOT / ".github/actions")
@@ -221,7 +211,7 @@ def test_security_workflows_cover_owned_inputs_and_fail_on_findings() -> None:
 
     osv = shlex.split(_run_just("--dry-run", "audit").stderr)
     lockfiles = osv[osv.index("osv") + 1 :]
-    assert set(lockfiles) == set(select_files(REPO_ROOT, include=("Cargo.lock", "**/Cargo.lock", "uv.lock")))
+    assert set(lockfiles) == set(select_files(REPO_ROOT, include=("Cargo.lock", "**/Cargo.lock", "uv.lock", "**/uv.lock")))
     assert shlex.split(_run_just("--dry-run", "security-secrets").stderr)[-2:] == ["security", "secrets"]
     for scanner, recipe in (("osv", "audit"), ("gitleaks", "security-secrets")):
         workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{scanner}.yml").read_bytes())
@@ -290,6 +280,7 @@ def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> No
     from research_repo_tools.selection import select_files
 
     command = shlex.split(_run_just("--dry-run", "semgrep").stderr)
+    assert command[:7] == ["uv", "run", "--locked", "--project", "tooling/semgrep", "uv", "run"]
     selection = command[: command.index("--")]
     excludes = tuple(selection[index + 1] for index, argument in enumerate(selection) if argument == "--exclude")
     selected = select_files(REPO_ROOT, exclude=excludes)
@@ -318,6 +309,7 @@ def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
     assert script.index("files list") < script.index("mapfile") < script.index("set +e")
     native = [command for command in commands if "semgrep" in command]
     assert len(native) == 1
+    assert native[0][:7] == ["uv", "run", "--locked", "--managed-python", "--project", "tooling/semgrep", "semgrep"]
     assert native[0][6:] == [
         *canonical[canonical.index("--") + 1 :],
         "--sarif",

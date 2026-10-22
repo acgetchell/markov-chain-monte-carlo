@@ -52,7 +52,9 @@ updates:
 
   # Enable version updates for Python development dependencies locked by uv
   - package-ecosystem: "uv"
-    directory: "/"
+    directories:
+      - "/"
+      - "/tooling/semgrep"
     schedule:
       interval: "weekly"
       day: "wednesday"

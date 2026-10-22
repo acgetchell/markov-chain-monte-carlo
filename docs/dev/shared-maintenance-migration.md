@@ -1,10 +1,47 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.1.7` registry distribution.
+MCMC pins the published `research-repo-tools==0.2.3` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.2.3 adoption
+
+The managed adoption command advances both shared-package pins and the root Python
+baseline to 3.15, refreshes the lock, and rebuilds the environment and notebook kernel.
+Following la-stack, Semgrep keeps an independent locked Python 3.14 project under
+`tooling/semgrep/` until published scanner wheels support Python 3.15. The scanner
+retains its exact pin, the existing PyJWT compatibility floor, and la-stack's patched
+MCP 1.x override; its source distribution cannot substitute for the native engine.
+
+`deps.python-projects` declares that environment. `just update-python-dependencies`
+uses the shared `--all-projects` command to refresh and synchronize both projects
+while preserving the scanner's requirements. Local scans, rule fixtures and SARIF
+select the isolated scanner; OSV, Dependabot and the dependency approval file policy
+cover its manifest and lock. Registry-only release jobs pin v0.2.3 and the declared
+uv version, with their resolution cutoff aligned to the adopted root lock.
+
+Python check, fix, and typecheck recipes now call the shared Python gates, including
+strict Ty diagnostics and the complete source/fixture inventory. Ruff and Ty remain
+consumer-owned at their existing locked versions. Release preflight delegates tag,
+version, metadata and release-note validation to `release check TAG`; the local
+recipe retains only the current-version default and MCMC crate-name assertion.
+
+## Artifact promotion assessment (#202)
+
+This adoption retains native Cargo build/package verification and the existing
+registry publication controls. Trusted main-artifact promotion is deferred:
+shared immutable-selection/download primitives do not establish native package
+validity, scientific correctness, benchmark freshness, or source/harness provenance.
+The current release process still measures and attaches the tagged benchmark
+baseline before publishing the draft GitHub Release.
+
+Rust artifact reuse needs a separately reviewed producer, native validation and
+promotion contract bound to the exact commit, artifact IDs and digests. The
+reviewed publication flow remains tracked in #176; #182 still owns adopting the
+shared release-guide procedure and the remaining publishing/verification recipes.
+This migration does not publish packages or replace released artifacts.
 
 ## Ownership inventory
 
@@ -122,8 +159,8 @@ the actual metadata instead of constructing a second release and editing its pol
 `performance-check` owns offline report reproduction. The initial adoption removed the unused CSV conversion configuration; #154 subsequently retired
 that historical evidence series and replaced its preservation tests with first-report state checks.
 
-The registry-only release writer jobs use v0.1.7 and uv 0.12.19. Their resolution cutoff
-is after both v0.1.7 PyPI artifacts were uploaded. Native Rust, scientific notebook,
+At that adoption, the registry-only release writer jobs used v0.1.7 and uv 0.12.19. Their resolution cutoff
+was after both v0.1.7 PyPI artifacts were uploaded. Native Rust, scientific notebook,
 benchmark lifecycle, project-rule fixtures and consumer security boundaries remain
 locally owned. The existing batched native Semgrep scan stays in place: the shared
 per-file JSON/SARIF scan is not a replacement for its command and performance contract.
@@ -134,7 +171,7 @@ is removed. See [Dependabot automation](DEVELOPING.md#dependabot-automation) for
 settings, the required-check boundary, and token removal after merging the caller.
 
 OSV-Scanner and Gitleaks use exact managed binary pins and shared report handling.
-OSV covers all three maintained lockfiles; Gitleaks covers full reachable history
+OSV covers all maintained Python and Rust lockfiles; Gitleaks covers full reachable history
 and current tracked/nonignored files. Dedicated security workflows retain native
 JSON/SARIF reports, with Gitleaks findings redacted, and supply README badges.
 The consumer test checks lockfile coverage, full-history checkout, and failure

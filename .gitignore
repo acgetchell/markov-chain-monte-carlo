@@ -1,6 +1,6 @@
 /target
 /coverage
-/.venv
+.venv/
 /.codex
 __pycache__/
 *.egg-info/

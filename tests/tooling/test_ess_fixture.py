@@ -19,7 +19,14 @@ def verifier(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, dict[str, Any]]:
     original = deepcopy(fixture)
 
     def reference_values(chains: list[list[float]]) -> dict[str, float | None]:
-        return next(case["reference"].copy() for case in original["cases"] if case["chains"] == chains)
+        reference = next(case["reference"] for case in original["cases"] if case["chains"] == chains)
+        assert isinstance(reference, dict)
+        values: dict[str, float | None] = {}
+        for metric, value in reference.items():
+            assert isinstance(metric, str)
+            assert value is None or isinstance(value, float)
+            values[metric] = value
+        return values
 
     verify = namespace["verify_fixture"]
     monkeypatch.setitem(verify.__globals__, "references", reference_values)
