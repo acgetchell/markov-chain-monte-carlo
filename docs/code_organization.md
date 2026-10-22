@@ -233,7 +233,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── examples.toml
 │   ├── performance-interpretation.md
 │   ├── performance-readme.toml
-│   └── performance-report.toml
+│   ├── performance-report.toml
+│   └── semgrep/
+│       ├── .python-version
+│       ├── pyproject.toml
+│       └── uv.lock
 ├── ty.toml
 ├── typos.toml
 └── uv.lock
@@ -256,6 +260,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
   Regenerate the analysis guide's rank and ESS figures with `just diagnostic-plots-figures`, and the Ising figure with `just notebook-ising-figure`.
 - `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, and scientific prose.
   `performance-readme.toml` selects the unthinned workloads and pins the reviewed evidence for README publication; update it when a new measured pair exists.
+  `semgrep/` owns the independent Python 3.14 scanner environment, exact dependency pin, compatibility overrides, and lockfile.
 - `tests/tooling/` — focused consumer configuration, command wiring, workload lifecycle, release policy, evidence transition and notebook checks.
   Reusable implementation and generic regressions live in the pinned shared package. No local Python package or support module remains.
 - `.gitattributes` — prevents checkout text conversion of byte-sensitive retained reports and scientific JSON fixtures used in provenance hashes.

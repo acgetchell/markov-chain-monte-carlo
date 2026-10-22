@@ -92,12 +92,13 @@ comprehensive validation gate.
 
 ### Python typing policy
 
-`just python-check` uses shared discovery for every tracked or non-ignored `.py` and `.pyi`, including `tests/tooling/` and Semgrep fixtures. Formatting,
-Ruff and Ty use their complete repository configuration without a narrowed lint selector or forced path exclusions. `python-check` is a direct dependency
-of `just ci` and the tooling part of `just check`, so fixture validation cannot be omitted by a separate aggregate recipe.
+`just python-check`, `just python-fix`, and `just python-typecheck` delegate to the shared `python check`, `python fix`, and `python typecheck` commands.
+They use shared discovery for every tracked or non-ignored `.py` and `.pyi`, including `tests/tooling/` and Semgrep fixtures. Checks apply native Ruff
+formatting/linting and strict Ty (`--error all`) with the complete repository configuration and precise fixture exceptions.
+`python-check` is a direct dependency of `just ci` and the tooling part of `just check`, so fixture validation cannot be omitted by a separate aggregate recipe.
 
 Ruff requires parameter and return annotations (ANN001/002/003/201/202/204/205/206), strict `TC` import handling, and `UP` modernization including UP037.
-Use precise bare annotations with Python 3.14's native deferred evaluation; put imports used only for annotations under `if TYPE_CHECKING`.
+Use precise bare annotations with Python 3.15's native deferred evaluation; put imports used only for annotations under `if TYPE_CHECKING`.
 Do not add future annotations solely for lint compliance. The subprocess-mock Semgrep fixture exempts only harness comments and package layout.
 Source notebooks use the same configured policy through `just notebook-lint`.
 
@@ -122,14 +123,14 @@ those runs still execute the audit gate. Online zizmor audits own remote action 
 Exact native scanner versions live in `[tool.research-repo-tools.toolchain.binaries]`; `just setup` installs verified release binaries, and
 `just update-cargo-tools` also updates these managed binary pins through the shared toolchain updater.
 
-OSV-Scanner audits `uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These are the three maintained lockfiles, including the
+OSV-Scanner audits `uv.lock`, `tooling/semgrep/uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These include the
 isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
 The existing Cargo audit workflow continues to check RustSec advisories separately.
 
-Semgrep 1.179.0 accepts PyJWT `>=2.15.0,<3`, which covers
-[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The project's `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
+Semgrep 1.182.1 accepts PyJWT `>=2.15.0,<3`, which covers
+[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The scanner project's `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
 with its `crypto` extra to include the [Base64URL padding compatibility fix](https://pyjwt.readthedocs.io/en/stable/changelog.html#v2-15-1).
-Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
+Refresh that selection with `uv lock --project tooling/semgrep --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
 Remove the override when the pinned Semgrep release's minimum includes that compatibility fix.
 
 Gitleaks scans all reachable Git history plus a private snapshot of tracked and nonignored working files, including uncommitted files. CI fetches complete
@@ -158,7 +159,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.1.7` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.2.3` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -216,14 +217,20 @@ pinned shared installer. `just tools-check` checks existing installations withou
 
 The authoritative declarations are `[tool.uv].required-version`, the installed shared Python baseline, `rust-toolchain.toml`, and
 `[tool.research-repo-tools.toolchain.cargo]`. With `toolchain.inherit-python = true`, `.python-version` and `project.requires-python` are checked mirrors.
-`python-typecheck` runs the shared drift check before Ty; Ruff and Ty infer their Python targets from project metadata.
+The shared Python gates check baseline drift before validation; Ruff and Ty infer their Python targets from project metadata.
+Ruff and Ty versions remain consumer-owned in the manifest and lock; `inherit-python-tools` stays disabled.
 Shared setup installs isolated Rust/Cargo tools, managed Python, and user-level Just, configures shell PATH, and synchronizes the locked dev environment. Git,
 Bash/sh, the native compiler/linker, jq, and uv remain system prerequisites; authenticated gh is needed for release operations.
 
 `just update` composes the shared uv owner upgrade, managed Cargo upgrades, setup, and Cargo/Python dependency updates. The uv startup bypasses stale project
 configuration so an externally upgraded supported uv can reconcile its pin. Unsupported uv owners receive manual guidance. Cargo upgrades publish verified exact
 TOML pins and retain previous managed versions on failure. `cargo-update` and the legacy Just pin reconciler are no longer used. Python-only updates retain the
-stable-uv preflight, refresh the complete lock, and synchronize dev. Shared package and Just upgrades remain deliberate package-pin changes.
+stable-uv preflight. The shared `deps update-python --all-projects` command refreshes the root lock and synchronizes dev, then refreshes and synchronizes
+the independent projects declared in `deps.python-projects`. Shared package and Just upgrades remain deliberate package-pin changes.
+
+The root environment uses Python 3.15. `tooling/semgrep/` owns a separate Python 3.14 manifest, interpreter mirror, and lock because the scanner's published
+wheels do not yet support Python 3.15. Native scans and SARIF use that environment; fixture checks expose its scanner to the main shared CLI.
+The scanner retains its exact pin, PyJWT compatibility floor, and patched MCP 1.x override during updates. OSV and Dependabot cover both Python locks.
 
 For a newer published shared package, run `just shared-python-plan VERSION`, then `just shared-python-update VERSION` after reviewing the preview.
 `VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.

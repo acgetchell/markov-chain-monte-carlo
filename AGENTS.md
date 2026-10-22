@@ -14,11 +14,11 @@ When making changes in this repo, prioritize (in order):
 
 ### Git Operations
 
-- **NEVER** run `git commit`, `git push`, `git tag`, or any git commands that modify version control state
+- **Mutate version-control state only with explicit user approval.** Keep branch creation, staging, commits, pushes, tags, and other ref/index changes
+  within the approved scope. Approval remains valid for the authorized task; without it, suggest commands for the user to run manually.
 - **ALLOWED**: Run read-only git commands (e.g. `git --no-pager status`, `git --no-pager diff`, `git --no-pager log`, `git --no-pager show`,
   `git --no-pager blame`) to inspect changes/history
 - **ALWAYS** use `git --no-pager` when reading git output
-- Suggest git commands that modify version control state for the user to run manually
 - When suggesting branch names, prefer `{type}/{issue}-descriptor-or-two`, e.g. `fix/307-acceptance-rate`, `ci/312-rust-tooling`, or `doc/329-citation-notes`.
   If an environment requires an owner/tool prefix, keep this structure after the prefix, e.g. `codex/ci/312-rust-tooling`.
 
@@ -109,7 +109,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.1.7` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.2.3` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
 - Release performance tracking starts with the current development version; earlier reports and converted legacy evidence were retired by maintainer
   request. Shared reports and evidence use `docs/performance/v1/`, with the current report at `performance.md`. The next tagged release establishes the
@@ -124,6 +124,8 @@ changing numerical semantics, or changing acceptance/error behavior.
 - Adopt a newer shared package and its Python baseline with `just shared-python-plan VERSION`, then `just shared-python-update VERSION`. These standalone
   commands update both exact package pins, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the Python mirrors.
   Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
+- Semgrep uses its own locked Python 3.14 project in `tooling/semgrep/` until published scanner wheels support the shared Python 3.15 baseline. Keep it
+  declared in `deps.python-projects`; `just update-python-dependencies` refreshes both environments through the shared `--all-projects` workflow.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
   newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
   bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.
@@ -139,9 +141,10 @@ changing numerical semantics, or changing acceptance/error behavior.
   contents explicit, and fix implementation defects without weakening intended-behavior assertions or skipping Windows coverage.
 - Report the actual validation platform. A macOS or Linux run, including Windows emulation tests, does not establish that native Windows CI passes.
   Semgrep enforces recognizable source patterns; behavioral tests and native Windows CI remain necessary.
-- `just python-check` applies the full configured Ruff formatting, annotation, `TC`/`UP` and Ty policy to every tracked or non-ignored Python file, including
-  Semgrep fixtures. Keep deliberate violations as exact per-file rule exceptions; do not narrow discovery or override Ruff's selector. Notebook checks use the
-  same policy through the shared native notebook command. On Python 3.14, use deferred bare annotations and `TYPE_CHECKING` for annotation-only imports.
+- `just python-check` delegates to shared `python check`, applying configured Ruff and strict Ty (`--error all`) to every tracked or non-ignored Python file,
+  including Semgrep fixtures. Keep deliberate violations as exact per-file rule exceptions; do not narrow discovery or override Ruff's selector.
+  Notebook checks use the same policy through the shared native notebook command. On Python 3.15, use deferred bare annotations and `TYPE_CHECKING` for
+  annotation-only imports.
 - `just zizmor` uses the declared scanner and persona through the shared CLI, discovers authentication without printing tokens, and reports an offline fallback.
   The SARIF workflow requires online audits and runs a plain findings gate before report generation; keep both steps on the same canonical recipe.
 - `just security` runs the shared OSV and Gitleaks gates. Keep scanner versions in `[tool.research-repo-tools.toolchain.binaries]`, maintained lockfile scope in

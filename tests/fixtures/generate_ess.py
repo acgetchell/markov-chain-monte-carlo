@@ -103,7 +103,7 @@ def inputs() -> list[tuple[str, list[list[float]]]]:
     """Build fixed-seed regimes; retained exact inputs make RNG reproduction optional."""
     rng = np.random.default_rng(188)
     independent = rng.normal(size=(2, 64))
-    cases = [("independent", independent.tolist())]
+    cases: list[tuple[str, list[list[float]]]] = [("independent", independent.tolist())]
     for name, correlation in (("positive_correlation", 0.85), ("antithetic", -0.85)):
         innovations = rng.normal(size=(2, 64))
         draws = innovations.copy()

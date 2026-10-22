@@ -18,6 +18,11 @@ maintainer actions; assistants follow the restrictions in [AGENTS.md](../AGENTS.
 
 ## Prepare the environment
 
+The v0.2.3 tooling adoption preserves this native release flow. Shared release-guide
+and reviewed-publication adoption remain tracked in #182 and #176. Trusted
+main-artifact promotion is deferred; see the
+[artifact promotion assessment](dev/shared-maintenance-migration.md#artifact-promotion-assessment-202).
+
 Complete [contributor setup](../CONTRIBUTING.md#development-environment-setup).
 GitHub CLI must be installed and authenticated, and your Cargo credentials must
 permit publishing this crate to crates.io.
@@ -156,7 +161,7 @@ Python tests, doctests, notebook execution, example validation, docs, and benchm
 compilation. `just publish-check` validates crates.io metadata and runs Cargo's
 packaging dry run without publishing.
 
-`just security` runs `just audit` for vulnerabilities in `uv.lock` and both Cargo
+`just security` runs `just audit` for vulnerabilities in both Python and both Cargo
 lockfiles, then `just security-secrets` for secrets in Git history and current
 files. It requires network access and a complete Git checkout, and remains
 separate from `just ci`. Findings or scanner errors fail the check; inspect the
