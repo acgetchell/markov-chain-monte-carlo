@@ -31,10 +31,11 @@ The reviewed payloads are
 and [`crates-io-tags.json`](../../.github/settings/crates-io-tags.json). They require
 `acgetchell` (user ID `434849`) review, permit self-review, disable administrator
 bypass, and restrict deployment to `v*` tags. Keep `main` protected.
-[`actions-selected.json`](../../.github/settings/actions-selected.json) adds only
-the reviewed authentication-action commit to the observed existing Actions
-allowlist. Re-read live settings before applying any payload and preserve newer
-entries. Publishing workflow updates are excluded from Dependabot automatic
+The current [`actions-selected.json`](../../.github/settings/actions-selected.json) declares explicit action and reusable-workflow identities for the shared
+checker, including GitHub-owned actions and CodeQL subpaths. The authentication-action identity uses `@*` in this strict shared schema; its workflow and
+consumer regression still require the exact reviewed commit. This proposed local payload supersedes the original broad GitHub-owned exemption described
+in the historical evidence below. It has not been applied by this migration. Re-read live settings before applying any payload and preserve newer
+reviewed identities. Publishing workflow updates are excluded from Dependabot automatic
 approval. Verify all account settings separately from reviewing source.
 
 ## Evidence status

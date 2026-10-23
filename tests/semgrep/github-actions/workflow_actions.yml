@@ -6,7 +6,6 @@ on:
 jobs:
   approved-shared-workflow:
     # ok: mcmc.github-actions.external-action-sha-pinned
-    # ok: mcmc.github-actions.external-action-approved-allowlist
     # ok: mcmc.github-actions.external-action-version-comment
     uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@0123456789abcdef0123456789abcdef01234567 # reviewed 2026-09-26
 
@@ -15,7 +14,6 @@ jobs:
     uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@main
 
   unapproved-shared-workflow:
-    # ruleid: mcmc.github-actions.external-action-approved-allowlist
     uses: untrusted/tooling/.github/workflows/approve.yml@0123456789abcdef0123456789abcdef01234567 # v1.2.3
 
   missing-shared-workflow-comment:
@@ -30,7 +28,6 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Unapproved external action
-        # ruleid: mcmc.github-actions.external-action-approved-allowlist
         uses: untrusted/example-action@0123456789abcdef0123456789abcdef01234567 # v1.2.3
 
       - name: Missing version comment
@@ -39,44 +36,36 @@ jobs:
 
       - name: Approved pinned action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         # ok: mcmc.github-actions.external-action-version-comment
         uses: actions/upload-artifact@0123456789abcdef0123456789abcdef01234567 # v7.0.1
 
       - name: Approved download action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         # ok: mcmc.github-actions.external-action-version-comment
         uses: actions/download-artifact@0123456789abcdef0123456789abcdef01234567 # v8.0.1
 
       - name: Approved Rust cache action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         # ok: mcmc.github-actions.external-action-version-comment
         uses: swatinem/rust-cache@0123456789abcdef0123456789abcdef01234567 # v2.8.1
 
       - name: Approved crates.io authentication action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         # ok: mcmc.github-actions.external-action-version-comment
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       - name: Similar unapproved authentication action
-        # ruleid: mcmc.github-actions.external-action-approved-allowlist
         uses: rust-lang/crates-io-auth-action-other@0123456789abcdef0123456789abcdef01234567 # v1.0.5
 
       - name: Approved cargo install cache action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         # ok: mcmc.github-actions.external-action-version-comment
         uses: taiki-e/cache-cargo-install-action@0123456789abcdef0123456789abcdef01234567 # v3.0.7
 
       - name: Local action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         uses: ./local-action
 
       - name: Docker action
         # ok: mcmc.github-actions.external-action-sha-pinned
-        # ok: mcmc.github-actions.external-action-approved-allowlist
         uses: docker://alpine:3.20

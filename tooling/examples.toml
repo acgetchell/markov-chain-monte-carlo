@@ -1,41 +1,33 @@
 schema = 1
+profile = "dev"
+timeout = 300
+build-timeout = 1800
+exclude = [ "ising_1d" ]
 
-[[checks]]
-name = "adaptive_normal"
-command = [ "target/debug/examples/adaptive_normal" ]
+[examples.adaptive_normal]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Adaptive normal sampling", "Frozen proposal width", "Sample mean", "Acceptance rate" ]
 
-[[checks]]
-name = "benchmark_distributions"
-command = [ "target/debug/examples/benchmark_distributions" ]
+[examples.benchmark_distributions]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Benchmark distributions", "Rosenbrock", "NealsFunnel", "GaussianMixture", "Banana", "Cross covariance", "mean ESS", "Acceptance rate" ]
 
-[[checks]]
-name = "detailed_balance"
-command = [ "target/debug/examples/detailed_balance" ]
+[examples.detailed_balance]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Detailed balance checks passed", "by-value residual" ]
 
-[[checks]]
-name = "normal_1d"
-command = [ "target/debug/examples/normal_1d" ]
+[examples.normal_1d]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Sample mean", "Acceptance rate" ]
 
-[[checks]]
-name = "ising_1d"
-command = [ "target/debug/examples/ising_1d" ]
-expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:", "energy ESS:", "energy split R-hat:", "Multi-chain energy: pooled mean=", "Multi-chain magnetization: pooled mean=", "energy mean MCSE: Ok(", "magnetization mean MCSE: Ok(", "energy bulk ESS: Ok(", "magnetization bulk ESS: Ok(", "energy tail ESS: Ok(Some(", "magnetization tail ESS: Ok(Some(", "energy combined R-hat: Ok(Some(", "magnetization combined R-hat: Ok(Some(", "β=2", "Ising rank/ESS-efficiency data:", "diagnostics JSON:" ]
-
-[[checks]]
-name = "iterator_sampling"
-command = [ "target/debug/examples/iterator_sampling" ]
+[examples.iterator_sampling]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Sample mean", "Acceptance rate" ]
 
-[[checks]]
-name = "delayed_chunked_telemetry"
-command = [ "target/debug/examples/delayed_chunked_telemetry" ]
+[examples.delayed_chunked_telemetry]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "Per-step telemetry", "Delayed chunked telemetry complete" ]
 
-[[checks]]
-name = "additive_target_bias"
-command = [ "target/debug/examples/additive_target_bias" ]
+[examples.additive_target_bias]
+features = [ "benchmarks", "serde", "tracing" ]
 expect = [ "AdditiveTarget bias example", "observed P(true)" ]

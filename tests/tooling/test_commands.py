@@ -6,53 +6,36 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
+from research_repo_tools.cargo_examples import discover_examples
+from research_repo_tools.just_inspect import dry_run, inspect_justfile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run_just(*args: str) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("just")
-    assert executable is not None
-    return subprocess.run(  # noqa: S603 - executable is resolved and arguments are test constants.
-        [executable, *args],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        encoding="utf-8",
-    )
-
-
-def _recipes() -> dict[str, dict[str, Any]]:
-    document = json.loads(_run_just("--dump", "--dump-format", "json").stdout)
-    recipes = document["recipes"]
-    assert isinstance(recipes, dict)
-    return recipes
-
-
 def test_offline_reporting_and_explicit_measurement_boundary() -> None:
     for name in ("performance-doc", "performance-readme"):
-        result = _run_just("--dry-run", name)
+        result = dry_run(REPO_ROOT, name)
         assert "performance " in result.stderr
         assert "--allow-git-mutations" not in result.stderr
         assert "cargo bench" not in result.stderr
     for name in ("performance-local", "performance-release"):
-        assert "--allow-git-mutations" in _run_just("--dry-run", name).stderr
+        assert "--allow-git-mutations" in dry_run(REPO_ROOT, name).stderr
     for gate in ("check", "ci", "setup", "update"):
-        assert "research-repo-tools review " not in _run_just("--dry-run", gate).stderr
+        assert "research-repo-tools review " not in dry_run(REPO_ROOT, gate).stderr
 
 
 def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
-    recipes = _recipes()
+    recipes = inspect_justfile(REPO_ROOT).recipes
     ci = {item["recipe"] for item in recipes["ci"]["dependencies"]}
     assert {"test-python", "notebook-check", "validate-examples", "test-rust-ci"} <= ci
-    notebook = _run_just("--dry-run", "notebook-execute-fast").stderr
-    producer = "research-repo-tools validation run tooling/examples.toml ising_1d"
+    notebook = dry_run(REPO_ROOT, "notebook-execute-fast").stderr
+    producer = "research-repo-tools validation cargo-examples"
     consumer = "research-repo-tools notebooks execute"
     assert notebook.count(producer) == 1
+    assert "tooling/ising-example.toml" in notebook
     assert notebook.count(consumer) == 1
     assert notebook.index(producer) < notebook.index(consumer)
     workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -66,7 +49,7 @@ def test_example_build_requires_successful_source_status(status_exit: int, statu
     """Run the actual recipe with process-boundary stand-ins, without invoking Git or Cargo."""
     executable = shutil.which("bash")
     assert executable is not None
-    recipe = _run_just("--dry-run", "_build-examples").stderr
+    recipe = dry_run(REPO_ROOT, "_run-examples", ["tooling/examples.toml"]).stderr
     stand_ins = f"""
 git() {{
     if [ "$2" = rev-parse ]; then
@@ -92,18 +75,26 @@ uv() {{ printf 'build:%s:%s\\n' "$MCMC_SOURCE_REVISION" "$MCMC_SOURCE_DIRTY"; }}
 
 def test_every_example_runs_once_in_full_ci_through_shared_validation() -> None:
     configuration = tomllib.loads((REPO_ROOT / "tooling/examples.toml").read_text(encoding="utf-8"))
-    checks = configuration["checks"]
-    examples = sorted(path.stem for path in (REPO_ROOT / "examples").glob("*.rs"))
-    assert sorted(check["name"] for check in checks) == examples
-    for check in checks:
-        assert check["command"] == [f"target/debug/examples/{check['name']}"]
-        assert check["expect"]
+    discovery = discover_examples(REPO_ROOT)
+    examples = {example.name for example in discovery}
     selected = []
-    for line in _run_just("--dry-run", "ci").stderr.splitlines():
-        if "research-repo-tools validation run tooling/examples.toml" in line:
-            command = shlex.split(line)
-            selected.extend(command[command.index("tooling/examples.toml") + 1 :])
-    assert sorted(selected) == examples
+    features = set(tomllib.loads((REPO_ROOT / "Cargo.toml").read_bytes().decode("utf-8"))["features"])
+    for line in dry_run(REPO_ROOT, "ci").stderr.splitlines():
+        if "research-repo-tools validation cargo-examples " in line:
+            plan = tomllib.loads((REPO_ROOT / shlex.split(line)[-1]).read_text(encoding="utf-8"))
+            assert plan["profile"] == "dev"
+            assert plan["timeout"] == 300
+            assert plan["build-timeout"] == 1800
+            names = set(plan.get("include", examples)) - set(plan.get("exclude", []))
+            for name in names:
+                policy = plan["examples"][name]
+                assert policy["expect"]
+                assert set(policy["features"]) == features
+            selected.extend(names)
+    assert set(configuration["examples"]) == examples - {"ising_1d"}
+    assert sorted(selected) == sorted(examples)
+    for example in discovery:
+        assert set(example.required_features) <= features
 
 
 def test_coverage_workflow_uses_shared_report_validation_after_generation() -> None:
@@ -112,9 +103,9 @@ def test_coverage_workflow_uses_shared_report_validation_after_generation() -> N
     run = next(step for step in steps if step.get("name") == "Run coverage")
     assert run["run"] == "just coverage-ci"
     assert not run.get("continue-on-error", False)
-    commands = _run_just("--dry-run", "coverage-ci").stderr
+    commands = dry_run(REPO_ROOT, "coverage-ci").stderr
     assert commands.index("--cobertura --output-path coverage/cobertura.xml") < commands.index("just coverage-report")
-    summary = shlex.split(_run_just("--dry-run", "coverage-report").stderr)
+    summary = shlex.split(dry_run(REPO_ROOT, "coverage-report").stderr)
     assert summary == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "coverage", "report", "$@"]
     upload = next(step for step in steps if step.get("uses", "").startswith("codecov/codecov-action@"))
     assert upload["with"]["files"] == "coverage/cobertura.xml"
@@ -129,7 +120,8 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     for writer, command in ((validation, "release-draft"), (publication, "release-upload")):
         assert "contents: write" in writer
         assert "actions/checkout@" not in writer
-        assert f"{shared_pin} research-repo-tools performance {command}" in writer
+        assert f"{shared_pin} research-repo-tools --root" in writer
+        assert f"performance {command}" in writer
     assert "--publish" not in publication
     assert "GH_TOKEN:" not in baseline
     assert "persist-credentials: false" in baseline
@@ -146,11 +138,13 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step not in (installer, scanner))
 
 
-def test_release_version_check_uses_shared_final_metadata_validation() -> None:
+def test_release_version_check_uses_shared_final_metadata_validation(capsys: pytest.CaptureFixture[str]) -> None:
+    from research_repo_tools.cli import main
+
     version = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
-    result = _run_just("release-version-check")
-    assert f"Release metadata is synchronized at {version}." in result.stdout
-    assert "release check --final-release" in result.stderr
+    assert main(["--root", str(REPO_ROOT), "release", "check", "--final-release"]) == 0
+    assert f"Release metadata is synchronized at {version}." in capsys.readouterr().out
+    assert "release check --final-release" in dry_run(REPO_ROOT, "release-version-check").stderr
 
 
 @pytest.mark.parametrize("tag", ["v0.4.2", "0.5.0", "v0.5.0-rc.1", "v0.5.0+build.1", "v00.5.0", "v0.5.0\n"])
@@ -164,18 +158,18 @@ def test_python_gates_delegate_to_shared_validation_and_keep_fixture_coverage() 
     from research_repo_tools.selection import select_files
 
     for recipe, action in (("python-check", "check"), ("python-fix", "fix"), ("python-typecheck", "typecheck")):
-        commands = [shlex.split(line) for line in _run_just("--dry-run", recipe).stderr.splitlines() if "research-repo-tools python " in line]
+        commands = [shlex.split(line) for line in dry_run(REPO_ROOT, recipe).stderr.splitlines() if "research-repo-tools python " in line]
         assert commands == [["uv", "run", "--locked", "--no-sync", "--no-python-downloads", "research-repo-tools", "python", action]]
     selected = select_files(REPO_ROOT, include=("*.py", "*.pyi"))
     assert "tests/semgrep/tests/tooling/subprocess_mocks.py" in selected
     assert "tests/tooling/test_commands.py" in selected
-    recipes = _recipes()
+    recipes = inspect_justfile(REPO_ROOT).recipes
     for gate in ("ci", "check-repository-tooling"):
         assert "python-check" in {item["recipe"] for item in recipes[gate]["dependencies"]}
     assert "check-repository-tooling" in {item["recipe"] for item in recipes["check"]["dependencies"]}
     assert "notebook-lint" in {item["recipe"] for item in recipes["check-repository-tooling"]["dependencies"]}
     assert "notebook-lint" in {item["recipe"] for item in recipes["notebook-check"]["dependencies"]}
-    assert "--include '*.ipynb'" in _run_just("--dry-run", "notebook-lint").stderr
+    assert "--include '*.ipynb'" in dry_run(REPO_ROOT, "notebook-lint").stderr
 
 
 def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> None:
@@ -211,10 +205,10 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
 def test_security_workflows_cover_owned_inputs_and_fail_on_findings() -> None:
     from research_repo_tools.selection import select_files
 
-    osv = shlex.split(_run_just("--dry-run", "audit").stderr)
+    osv = shlex.split(dry_run(REPO_ROOT, "audit").stderr)
     lockfiles = osv[osv.index("osv") + 1 :]
     assert set(lockfiles) == set(select_files(REPO_ROOT, include=("Cargo.lock", "**/Cargo.lock", "uv.lock", "**/uv.lock")))
-    assert shlex.split(_run_just("--dry-run", "security-secrets").stderr)[-2:] == ["security", "secrets"]
+    assert shlex.split(dry_run(REPO_ROOT, "security-secrets").stderr)[-2:] == ["security", "secrets"]
     for scanner, recipe in (("osv", "audit"), ("gitleaks", "security-secrets")):
         workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{scanner}.yml").read_bytes())
         events = workflow.get("on", workflow.get(True))
@@ -249,12 +243,47 @@ def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None
     assert review["pre_merge_checks"]["docstrings"]["mode"] == "off"
 
 
+def test_managed_update_preserves_python_tool_policy_without_setup() -> None:
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_bytes().decode("utf-8"))
+    config = manifest["tool"]["research-repo-tools"]
+    assert config["toolchain"]["inherit-python"] is True
+    assert not config["toolchain"].get("inherit-python-tools", False)
+    assert not any("python-tools" in str(requirement) for group in manifest["dependency-groups"].values() for requirement in group)
+    for name in ("dprint", "rumdl"):
+        assert name in config["toolchain"]["binaries"]
+        assert name not in config["toolchain"]["cargo"]
+    update = dry_run(REPO_ROOT, "update-tools").stderr
+    assert "deps update-uv" in update
+    assert "toolchain upgrade" in update
+    assert "research-repo-tools setup" not in update
+    assert "deps update-python --all-projects" in dry_run(REPO_ROOT, "update-python-dependencies").stderr
+
+
+@pytest.mark.parametrize("unapproved", [False, True])
+def test_shared_allowlist_covers_the_actual_composite_action(tmp_path: Path, *, unapproved: bool) -> None:
+    """The shared CLI accepts workflows; adapt this consumer's composite steps only."""
+    from research_repo_tools.cli import main
+
+    action = yaml.safe_load((REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_bytes())
+    if unapproved:
+        action["runs"]["steps"][0]["uses"] = "untrusted/setup-uv@" + "a" * 40
+    workflow = tmp_path / "setup.yml"
+    workflow.write_text(yaml.safe_dump({"jobs": {"setup": {"steps": action["runs"]["steps"]}}}), encoding="utf-8", newline="\n")
+    policy = tmp_path / "actions.json"
+    policy.write_bytes((REPO_ROOT / ".github/settings/actions-selected.json").read_bytes())
+    assert main(["--root", str(tmp_path), "actions", "allowlist", "--policy", str(policy), str(workflow)]) == int(unapproved)
+    recipes = inspect_justfile(REPO_ROOT).recipes
+    for gate in ("ci", "check-repository-tooling"):
+        assert "workflow-allowlist-check" in {item["recipe"] for item in recipes[gate]["dependencies"]}
+    assert "actions allowlist --policy .github/settings/actions-selected.json .github/workflows" in dry_run(REPO_ROOT, "workflow-allowlist-check").stderr
+
+
 def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["research-repo-tools"]
     assert manifest["zizmor"]["persona"] == "regular"
     prefix = ["uv", "run", "--locked", "--only-group", "tooling", "research-repo-tools", "zizmor", "check"]
-    assert shlex.split(_run_just("--dry-run", "zizmor").stderr) == [*prefix, "$@", ".github"]
-    recipe = _recipes()["zizmor"]
+    assert shlex.split(dry_run(REPO_ROOT, "zizmor").stderr) == [*prefix, "$@", ".github"]
+    recipe = inspect_justfile(REPO_ROOT).recipes["zizmor"]
     assert "positional-arguments" in recipe["attributes"]
     assert [(parameter["name"], parameter["kind"]) for parameter in recipe["parameters"]] == [("args", "star")]
     workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/zizmor.yml").read_bytes())
@@ -326,7 +355,7 @@ def test_scanner_setup_installs_only_its_declared_plan(scanner: str, tmp_path: P
 def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> None:
     from research_repo_tools.selection import select_files
 
-    command = shlex.split(_run_just("--dry-run", "semgrep").stderr)
+    command = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr)
     assert command[:7] == ["uv", "run", "--locked", "--project", "tooling/semgrep", "uv", "run"]
     selection = command[: command.index("--")]
     excludes = tuple(selection[index + 1] for index, argument in enumerate(selection) if argument == "--exclude")
@@ -343,7 +372,7 @@ def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
     script = scan["run"]
     commands = [shlex.split(line) for line in script.replace("\\\n", " ").splitlines()]
     inventory = next(command for command in commands if "files" in command)
-    canonical = shlex.split(_run_just("--dry-run", "semgrep").stderr)
+    canonical = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr)
     canonical_selection = canonical[: canonical.index("--")]
     assert inventory[:8] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "research-repo-tools", "files"]
     assert inventory[8] == "list"

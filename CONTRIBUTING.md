@@ -180,8 +180,10 @@ just clean           # Clean build artifacts
 ```
 
 `just update` first upgrades uv through its installation owner (supported standalone or Homebrew installations) and reconciles its exact pin. It then upgrades
-declared Cargo tools, runs setup, and updates Cargo and Python dependencies. Candidate Cargo pins are published only after every new tool installs and verifies
-successfully. Just and the shared package retain their explicit package pins. Unsupported uv installation owners receive manual update guidance.
+declared Cargo tools and release binaries, then updates Cargo and Python dependencies. Candidate pins are published only after every new tool installs and
+verifies successfully. Setup remains explicit when declarations change. Just and the shared package retain their explicit package pins. Unsupported uv
+installation owners receive manual update guidance. dprint and rumdl use checksum-verified release binaries; `just tools-sync-binaries` installs or repairs
+those declared binaries without rebuilding Cargo tools. Ruff, Ty, and pytest retain consumer-owned requirements and locked versions.
 
 Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates retain
 ranged and included tooling requirements, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations before committing.

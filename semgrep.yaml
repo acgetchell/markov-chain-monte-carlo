@@ -546,25 +546,6 @@ rules:
     patterns:
       - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@(?![a-fA-F0-9]{40}(?:\s+#|$))[^\s#]+'
 
-  - id: mcmc.github-actions.external-action-approved-allowlist
-    languages:
-      - regex
-    severity: WARNING
-    message: "Use only approved external GitHub Actions, or update the repository allowlist deliberately."
-    metadata:
-      category: security
-      rationale: "A small allowlist keeps workflow supply-chain review explicit."
-    paths:
-      include:
-        - "/.github/workflows/**/*.yml"
-        - "/.github/workflows/**/*.yaml"
-        - "/github-actions/**/*.yml"
-        - "/github-actions/**/*.yaml"
-        - "/tests/semgrep/github-actions/**/*.yml"
-        - "/tests/semgrep/github-actions/**/*.yaml"
-    patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)(?!(?:actions/checkout|actions/cache|actions/download-artifact|actions/upload-artifact|actions/setup-python|actions-rust-lang/setup-rust-toolchain|astral-sh/setup-uv|swatinem/rust-cache|taiki-e/cache-cargo-install-action|rust-lang/crates-io-auth-action|github/codeql-action/(?:upload-sarif|init|analyze)|codecov/codecov-action|zizmorcore/zizmor-action|acgetchell/research-repo-tools/\.github/workflows/dependabot-approve\.yml)@)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@'
-
   - id: mcmc.github-actions.external-action-version-comment
     languages:
       - regex
