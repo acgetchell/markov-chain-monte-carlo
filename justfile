@@ -18,7 +18,7 @@ _coverage_base_args := '''--ignore-filename-regex '(^|/)examples/' \
   --verbose'''
 
 # Examples
-_build-examples:
+_run-examples configuration:
     #!/usr/bin/env bash
     set -euo pipefail
     revision="$(git --no-pager rev-parse HEAD)"
@@ -27,7 +27,7 @@ _build-examples:
     if [ -n "$source_status" ]; then
         dirty=true
     fi
-    MCMC_SOURCE_REVISION="$revision" MCMC_SOURCE_DIRTY="$dirty" {{ _run }} cargo build --locked --all-features --examples
+    MCMC_SOURCE_REVISION="$revision" MCMC_SOURCE_DIRTY="$dirty" {{ _run }} research-repo-tools validation cargo-examples {{ quote(configuration) }}
 
 # System prerequisites remain outside the shared managed toolchain.
 _ensure-jq:
@@ -128,7 +128,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-version-check performance-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint workflow-allowlist-check zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-version-check performance-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -140,7 +140,7 @@ check-rust: fmt-check clippy
 # rustdoc doctests remain separate because nextest does not execute them.
 # Run repository validators, all-target Clippy, tests, docs, examples, and benchmark compilation.
 [group('workflows')]
-ci: changelog-check action-lint zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -219,8 +219,7 @@ example name:
 
 # Build and run every Rust example.
 [group('tests and coverage')]
-examples: _build-examples
-    {{ _run }} research-repo-tools validation run tooling/examples.toml
+examples: validate-examples
 
 # Fix (mutating): apply formatters
 [group('workflows')]
@@ -257,7 +256,7 @@ lint-code: fmt-check clippy python-check semgrep-test semgrep
 
 # Check JSON, TOML, YAML, GitHub Actions, and Just configuration.
 [group('validation')]
-lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint zizmor justfile-fmt-check
+lint-config: validate-json toml-fmt-check toml-lint yaml-check action-lint workflow-allowlist-check zizmor justfile-fmt-check
 
 # Check Markdown and spelling.
 [group('validation')]
@@ -540,7 +539,7 @@ test-integration:
 # Run Python consumer integration tests.
 [group('tests and coverage')]
 test-python: sync
-    uv run --locked --group dev pytest -q
+    {{ _run }} pytest -q
 
 # Broad Rust test workflow; doctests remain a separate cargo-test bucket.
 [group('tests and coverage')]
@@ -583,6 +582,11 @@ tools-check: _ensure-jq
 tools-clean *args:
     uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain clean "$@"
 
+# Install or repair verified release binaries without rebuilding Cargo tools.
+[group('build and setup')]
+tools-sync-binaries:
+    uv run --locked --no-sync --no-python-downloads python -I -X utf8 -m research_repo_tools toolchain sync-binaries
+
 # Upgrade tools, then Cargo and Python dependencies.
 [group('build and setup')]
 update: update-tools update-dependencies
@@ -608,9 +612,9 @@ update-dependencies: update-cargo-dependencies update-python-dependencies
 update-python-dependencies: _ensure-uv-stable
     uv run --locked --only-group tooling --inexact research-repo-tools deps update-python --all-projects
 
-# Upgrade uv and declared Cargo tools, then synchronize the declared environment.
+# Upgrade uv and declared tools without repeating contributor setup.
 [group('build and setup')]
-update-tools: update-uv update-cargo-tools setup
+update-tools: update-uv update-cargo-tools
 
 # Upgrade uv through its installation owner and reconcile the exact project pin.
 [group('build and setup')]
@@ -628,18 +632,21 @@ update-version tag *args:
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)
 [group('tests and coverage')]
-validate-examples: _build-examples validate-ising-example
-    {{ _run }} research-repo-tools validation run tooling/examples.toml detailed_balance normal_1d iterator_sampling delayed_chunked_telemetry additive_target_bias benchmark_distributions adaptive_normal
+validate-examples: validate-ising-example (_run-examples 'tooling/examples.toml')
 
 # Validate the Ising example output and produce its trace for notebook checks.
 [group('tests and coverage')]
-validate-ising-example: _build-examples
-    {{ _run }} research-repo-tools validation run tooling/examples.toml ising_1d
+validate-ising-example: (_run-examples 'tooling/ising-example.toml')
 
 # Validate tracked JSON files.
 [group('validation')]
 validate-json: _ensure-jq
     uv run --locked --group dev research-repo-tools files run --include '*.json' --batch-size 1 -- jq empty
+
+# Check external step and reusable-workflow identities against one strict policy.
+[group('validation')]
+workflow-allowlist-check:
+    uv run --locked --group dev research-repo-tools actions allowlist --policy .github/settings/actions-selected.json .github/workflows
 
 # YAML formatting check
 [group('validation')]

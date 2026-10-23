@@ -269,12 +269,14 @@ gh run list --workflow release-benchmarks.yml --limit 5
 gh run watch --exit-status
 ```
 
-Select the run titled `Release benchmark $TAG`. The workflow checks the stable
-mutable draft, measures a clean tagged checkout and attaches
+Select the run titled `Release benchmark $TAG`. Trusted preflight resolves the full tag commit and uses shared `release-draft --commit` to capture the
+repository, tag, release ID, commit, and title assertion. Trusted job outputs carry that target independently of benchmark files. The benchmark job checks
+out the captured commit, verifies HEAD and the local tag before setup, measures the clean checkout and attaches
 `markov-chain-monte-carlo-$TAG-criterion-baseline.tar.gz`. The benchmark job has
 read-only permissions and restores no dependency caches. Privileged validation
 and attachment jobs install only the exact published shared package, without
-checking out benchmark code. The workflow leaves the draft unpublished for review.
+checking out benchmark code. The writer restores the original target outside the checkout and supplies `release-upload --target`; a missing, malformed,
+or changed identity fails instead of selecting a fresh release. The workflow leaves the draft unpublished for review.
 Wait for success; do not move the tag or edit/publish the draft while it runs.
 
 ### 7. Publish the reviewed draft and approve Cargo publication

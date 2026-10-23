@@ -231,7 +231,9 @@ Ruff and Ty versions remain consumer-owned in the manifest and lock; `inherit-py
 Shared setup installs isolated Rust/Cargo tools, managed Python, and user-level Just, configures shell PATH, and synchronizes the locked dev environment. Git,
 Bash/sh, the native compiler/linker, jq, and uv remain system prerequisites; authenticated gh is needed for release operations.
 
-`just update` composes the shared uv owner upgrade, managed Cargo upgrades, setup, and Cargo/Python dependency updates. The uv startup bypasses stale project
+`just update` composes the shared uv owner upgrade, managed Cargo/release-binary upgrades, and Cargo/Python dependency updates. Setup remains explicit when
+declarations change. dprint and rumdl use `[tool.research-repo-tools.toolchain.binaries]`; `just tools-sync-binaries` repairs or installs that table without
+building Cargo tools. The uv startup bypasses stale project
 configuration so an externally upgraded supported uv can reconcile its pin. Unsupported uv owners receive manual guidance. Cargo upgrades publish verified exact
 TOML pins and retain previous managed versions on failure. `cargo-update` and the legacy Just pin reconciler are no longer used. Python-only updates retain the
 stable-uv preflight. The shared `deps update-python --all-projects` command refreshes the root lock and synchronizes dev, then refreshes and synchronizes
@@ -256,6 +258,12 @@ The [migration record](shared-maintenance-migration.md) records preserved consum
 the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
 
 ## Dependabot Automation
+
+`just workflow-allowlist-check` reads `.github/settings/actions-selected.json` through the shared YAML checker. It validates external step and reusable-workflow
+identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list.
+The shared CLI accepts workflow documents; a focused consumer test adapts the actual setup composite's steps to that same checker. SHA pinning, version
+comments, and zizmor security checks remain separate. The crates.io authentication step retains its exact reviewed SHA in the workflow and consumer test.
+The committed selected-actions payload is a proposed settings update; applying it to GitHub requires separate maintainer action and a readback.
 
 `.github/workflows/dependabot-auto-merge.yml` calls the shared
 [`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)

@@ -6,31 +6,32 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from research_repo_tools.cli import main
+from research_repo_tools.notebook_testing import isolated_project
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from research_repo_tools.notebook_testing import NotebookProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ISING_NOTEBOOK = REPO_ROOT / "notebooks" / "ising_trace_analysis.ipynb"
 
 
-def notebook_project(root: Path, monkeypatch: pytest.MonkeyPatch, source: Path = ISING_NOTEBOOK) -> Path:
-    """Borrow the locked test interpreter without creating another environment."""
+@pytest.fixture
+def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[NotebookProject]:
+    """Keep MCMC input selection explicit while borrowing the locked interpreter."""
     for name in ("MCMC_TRACE_PATH", "MCMC_REPO_ROOT", "MCMC_NOTEBOOK_OUTPUT_DIR", "MCMC_DIAGNOSTICS_PATH"):
         monkeypatch.delenv(name, raising=False)
-    notebook = root / "notebooks" / source.name
-    notebook.parent.mkdir(parents=True)
-    notebook.write_bytes(source.read_bytes())
-    for name in ("pyproject.toml", "uv.lock", ".python-version"):
-        (root / name).write_bytes((REPO_ROOT / name).read_bytes())
-    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", sys.prefix)
-    # These tests exercise Python notebook behavior without installing a Rust toolchain.
-    manifest = (root / "pyproject.toml").read_text(encoding="utf-8")
-    start = manifest.index("[tool.research-repo-tools.toolchain.cargo]")
-    end = manifest.index("[tool.research-repo-tools.notebooks]", start)
-    (root / "pyproject.toml").write_text(manifest[:start] + manifest[end:], encoding="utf-8", newline="\n")
-    return notebook
+    with isolated_project(
+        REPO_ROOT,
+        [Path("notebooks/ising_trace_analysis.ipynb"), Path("notebooks/diagnostic_plots.ipynb")],
+        parent=tmp_path,
+        environment=Path(sys.prefix),
+    ) as fixture:
+        yield fixture
 
 
 def write_ising_trace(path: Path) -> None:
@@ -38,9 +39,9 @@ def write_ising_trace(path: Path) -> None:
     path.write_bytes(b"chain_id,step,accepted,proposed,log_prob,energy,magnetization\n0,0,false,false,-1.0,-2.0,0.5\n")
 
 
-def test_notebook_lint_rejects_dependency_installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_notebook_lint_rejects_dependency_installation(project: NotebookProject, capsys: pytest.CaptureFixture[str]) -> None:
     """MCMC notebooks consume the locked environment rather than installing dependencies."""
-    notebook = notebook_project(tmp_path, monkeypatch)
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     payload = json.loads(notebook.read_bytes())
     payload["cells"].append(
         {
@@ -54,20 +55,16 @@ def test_notebook_lint_rejects_dependency_installation(tmp_path: Path, monkeypat
     )
     notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
     before = notebook.read_bytes()
-    assert main(["--root", str(tmp_path), "notebooks", "lint", str(notebook)]) == 1
+    assert main(["--root", str(project.root), "notebooks", "lint", str(notebook)]) == 1
     output = capsys.readouterr()
     assert "install" in output.out + output.err
     assert notebook.read_bytes() == before
 
 
-def execute(root: Path, notebook: Path) -> int:
-    return main(["--root", str(root), "notebooks", "execute", str(notebook)])
-
-
-def test_explicit_repository_root_never_falls_back_to_ambient_trace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime_root = tmp_path / "runtime"
+def test_explicit_repository_root_never_falls_back_to_ambient_trace(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime_root = project.root
     configured_root = tmp_path / "configured"
-    notebook = notebook_project(runtime_root, monkeypatch)
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     (configured_root / "examples").mkdir(parents=True)
     (configured_root / "Cargo.toml").write_bytes(b"[package]\nname = 'fixture'\n")
     (configured_root / "examples" / "ising_1d.rs").write_bytes(b"// fixture\n")
@@ -78,9 +75,10 @@ def test_explicit_repository_root_never_falls_back_to_ambient_trace(tmp_path: Pa
     monkeypatch.delenv("MCMC_NOTEBOOK_OUTPUT_DIR", raising=False)
     before = notebook.read_bytes()
 
-    assert execute(runtime_root, notebook) == 1
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
 
-    report = json.loads((runtime_root / "target/notebooks/notebooks/ising_trace_analysis.report.json").read_bytes())
+    report = execution.report
     assert report["status"] == "failed"
     assert report["failed_cell"] == {"index": 2, "id": "load-and-validate-trace"}
     assert str(configured_root / "target/ising_1d_trace.csv") in report["error"]["message"]
@@ -89,10 +87,10 @@ def test_explicit_repository_root_never_falls_back_to_ambient_trace(tmp_path: Pa
     assert not (configured_root / "target/notebooks/ising_energy_trace.png").exists()
 
 
-def test_explicit_trace_preserves_source_and_writes_only_selected_figure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / "runtime"
+def test_explicit_trace_preserves_source_and_writes_only_selected_figure(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = project.root
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(tmp_path / "ambient-missing.json"))
-    notebook = notebook_project(root, monkeypatch)
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     trace_path = tmp_path / "mounted-input" / "trace.csv"
     figure_root = tmp_path / "figure-output"
     write_ising_trace(trace_path)
@@ -102,17 +100,19 @@ def test_explicit_trace_preserves_source_and_writes_only_selected_figure(tmp_pat
     monkeypatch.setenv("MPLBACKEND", "TkAgg")
     before = notebook.read_bytes()
 
-    assert execute(root, notebook) == 0
+    execution = project.execute(notebook, env={"MCMC_DIAGNOSTICS_PATH": None})
+    assert execution.returncode == 0
 
     assert notebook.read_bytes() == before
     assert (figure_root / "ising_energy_trace.png").is_file()
     assert not (trace_path.parent / "notebooks/ising_energy_trace.png").exists()
     assert not (root / "target/notebooks/ising_energy_trace.png").exists()
+    assert not (project.artifacts / "ising_energy_trace.png").exists()
 
 
-def test_autocorrelation_known_values_and_unavailable_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_autocorrelation_known_values_and_unavailable_inputs(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exercise the actual notebook cells, including chain/spacing boundaries."""
-    notebook = notebook_project(tmp_path, monkeypatch)
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     trace_path = tmp_path / "target/ising_1d_trace.csv"
     trace_path.parent.mkdir(parents=True)
     lines = ["chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"]
@@ -183,7 +183,8 @@ for bad in ([], [left], [left, [1, 2]], [left, left + [1]], [left, [1] * 4], [le
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(tmp_path / "figures"))
     before = notebook.read_bytes()
 
-    assert execute(tmp_path, notebook) == 0
+    execution = project.execute(notebook)
+    assert execution.returncode == 0
     assert notebook.read_bytes() == before
 
 
@@ -204,11 +205,11 @@ _PRODUCTION_SCOPE = "production_including_observation_excluding_warmup_export_an
     ],
 )
 def test_ess_timing_requires_matching_analyzed_samples(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing_case: tuple[int, float, int, str | None, str | None, float | None, str]
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing_case: tuple[int, float, int, str | None, str | None, float | None, str]
 ) -> None:
     """Measured rates are available only for the complete matching workload."""
     samples, elapsed, discard, expected_error, scope, expected_rate, expected_status = timing_case
-    notebook = notebook_project(tmp_path, monkeypatch)
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     trace_path = tmp_path / "trace.csv"
     trace_path.write_text(
         "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"
@@ -265,9 +266,10 @@ for row in ess_rows:
     monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(tmp_path / "figures"))
-    assert execute(tmp_path, notebook) == (0 if expected_error is None else 1)
+    execution = project.execute(notebook)
+    assert execution.returncode == (0 if expected_error is None else 1)
     if expected_error is not None:
-        execution_report = json.loads((tmp_path / "target/notebooks/notebooks/ising_trace_analysis.report.json").read_bytes())
+        execution_report = execution.report
         assert execution_report["status"] == "failed"
         assert execution_report["failed_cell"]["id"] == "compute-effective-sample-sizes"
         assert execution_report["error"]["type"] == "CellExecutionError"
@@ -285,14 +287,15 @@ for row in ess_rows:
     ids=["unequal-lengths", "constant-half", "valid-odd-length"],
 )
 def test_rhat_export_counts_describe_analyzed_chains(
-    tmp_path: Path,
+    project: NotebookProject,
     monkeypatch: pytest.MonkeyPatch,
     chains: tuple[tuple[int, ...], ...],
     expected_count: str,
     expected_split: tuple[int, int] | None,
 ) -> None:
     """Export common input counts and successful split counts without inventing metadata."""
-    notebook = notebook_project(tmp_path, monkeypatch)
+    tmp_path = project.root
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     trace_path = tmp_path / "trace.csv"
     trace_path.write_text(
         "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"
@@ -306,7 +309,8 @@ def test_rhat_export_counts_describe_analyzed_chains(
     monkeypatch.delenv("MCMC_DIAGNOSTICS_PATH", raising=False)
     before = notebook.read_bytes()
 
-    assert execute(tmp_path, notebook) == 0
+    execution = project.execute(notebook)
+    assert execution.returncode == 0
 
     assert notebook.read_bytes() == before
     with (figure_root / "ising_rhat_summary.csv").open(encoding="utf-8", newline="") as stream:
@@ -417,8 +421,8 @@ def plot_report() -> dict[str, Any]:
     }
 
 
-def test_rank_notebook_preserves_missing_values_and_matching_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    notebook = notebook_project(tmp_path, monkeypatch, REPO_ROOT / "notebooks/diagnostic_plots.ipynb")
+def test_rank_notebook_preserves_missing_values_and_matching_evidence(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report_path = tmp_path / "source.json"
     # CRLF input must survive the evidence copy byte-for-byte on every platform.
     report_bytes = json.dumps(plot_report(), indent=2, allow_nan=False).replace("\n", "\r\n").encode("utf-8")
@@ -428,7 +432,8 @@ def test_rank_notebook_preserves_missing_values_and_matching_evidence(tmp_path: 
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
     monkeypatch.setenv("MPLBACKEND", "TkAgg")
     source = notebook.read_bytes()
-    assert execute(tmp_path, notebook) == 0
+    execution = project.execute(notebook)
+    assert execution.returncode == 0
     assert notebook.read_bytes() == source
     assert (output / "diagnostics.json").read_bytes() == report_bytes
     manifest = json.loads((output / "manifest.json").read_bytes())
@@ -454,8 +459,8 @@ def test_rank_notebook_preserves_missing_values_and_matching_evidence(tmp_path: 
     assert all(float(row["standard_error"]) == 0.0 and row["status"] == "estimated" for row in blocks)
 
 
-def test_rank_notebook_labels_cadence_and_each_unavailable_chain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    notebook = notebook_project(tmp_path, monkeypatch, REPO_ROOT / "notebooks/diagnostic_plots.ipynb")
+def test_rank_notebook_labels_cadence_and_each_unavailable_chain(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     run = report["runs"][0]
     run["recording_interval"] = 3
@@ -485,7 +490,8 @@ def test_rank_notebook_labels_cadence_and_each_unavailable_chain(tmp_path: Path,
         }
     )
     notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
-    assert execute(tmp_path, notebook) == 0
+    execution = project.execute(notebook)
+    assert execution.returncode == 0
     with (output / "blocked_errors.csv").open(encoding="utf-8", newline="") as stream:
         blocks = list(csv.DictReader(stream))
     assert [row["chain_id"] for row in blocks] == ["chain-0", "chain-1"]
@@ -497,8 +503,10 @@ def test_rank_notebook_labels_cadence_and_each_unavailable_chain(tmp_path: Path,
 
 
 @pytest.mark.parametrize("missing_field", ["status", "value"])
-def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_field: str) -> None:
-    notebook = notebook_project(tmp_path, monkeypatch, REPO_ROOT / "notebooks/diagnostic_plots.ipynb")
+def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_outputs(
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_field: str
+) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     del report["runs"][0]["prefixes"][-1]["mean_mcse"][missing_field]
     report_path = tmp_path / "incomplete.json"
@@ -510,8 +518,9 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
         (output / name).write_bytes(content)
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
-    assert execute(tmp_path, notebook) == 1
-    result = json.loads((tmp_path / "target/notebooks/notebooks/diagnostic_plots.report.json").read_bytes())
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
+    result = execution.report
     assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
     assert "Scalar metric requires status and value" in result["error"]["message"]
     assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
@@ -534,8 +543,10 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
         "cadence",
     ],
 )
-def test_rank_notebook_rejects_inconsistent_report_before_rendering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str) -> None:
-    notebook = notebook_project(tmp_path, monkeypatch, REPO_ROOT / "notebooks/diagnostic_plots.ipynb")
+def test_rank_notebook_rejects_inconsistent_report_before_rendering(
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     prefix = report["runs"][0]["prefixes"][0]
     if corruption == "chain_identity":
@@ -565,8 +576,9 @@ def test_rank_notebook_rejects_inconsistent_report_before_rendering(tmp_path: Pa
     output = tmp_path / "figures"
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
-    assert execute(tmp_path, notebook) == 1
-    result = json.loads((tmp_path / "target/notebooks/notebooks/diagnostic_plots.report.json").read_bytes())
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
+    result = execution.report
     assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
     assert "ValueError" in result["error"]["message"]
     assert not output.exists()

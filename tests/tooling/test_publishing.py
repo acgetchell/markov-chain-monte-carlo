@@ -5,15 +5,18 @@ import shlex
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from string import Template
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 from research_repo_tools.cli import main
 from research_repo_tools.config import load
+from research_repo_tools.just_inspect import dry_run, inspect_justfile
 from research_repo_tools.release_publishing import require_checks
 
-from .test_commands import _recipes, _run_just
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -21,13 +24,13 @@ COMMIT = "a" * 40
 
 
 def test_shared_release_interface_matches_delaunay() -> None:
-    recipes = _recipes()
+    recipes = inspect_justfile(ROOT).recipes
     assert {"update-version", "release-version-check", "tag", "release-package", "release-publish", "release-verify"} <= recipes.keys()
     assert not {"release-update", "release-check", "tag-release", "tag-preview", "publish"} & recipes.keys()
-    update = _run_just("--dry-run", "update-version", "v9.0.0", "--previous-release", "v8.0.0", "--date", "2099-01-01", "--offline", "--dry-run").stderr
+    update = dry_run(ROOT, "update-version", ["v9.0.0", "--previous-release", "v8.0.0", "--date", "2099-01-01", "--offline", "--dry-run"]).stderr
     assert 'research-repo-tools release update "$@"' in update
     assert "cargo publish" not in update
-    verification = shlex.split(_run_just("--dry-run", "release-verify", "v9.0.0").stderr)
+    verification = shlex.split(dry_run(ROOT, "release-verify", ["v9.0.0"]).stderr)
     assert verification[verification.index("research-repo-tools") :] == [
         "research-repo-tools",
         "release",
@@ -80,7 +83,7 @@ def test_publication_builds_without_credentials_then_rechecks_after_approval() -
         assert setup["with"]["cache"] == "false"
         assert any('just release-gate "$RELEASE_TAG"' in step.get("run", "") for step in steps)
     assert any(step.get("run") == "just release-package" for step in jobs["verify"]["steps"])
-    packages = _run_just("--dry-run", "release-package").stderr.splitlines()
+    packages = dry_run(ROOT, "release-package").stderr.splitlines()
     cargo = [line for line in packages if "cargo publish" in line]
     assert len(cargo) == 2
     for command in cargo:
@@ -101,6 +104,111 @@ def test_publication_builds_without_credentials_then_rechecks_after_approval() -
     verification = steps[upload + 1]
     assert verification["if"] == "${{ !cancelled() && steps.auth.outcome == 'success' }}"
     assert verification["run"] == 'just release-verify "$RELEASE_TAG"'
+
+
+def test_benchmark_workflow_binds_checkout_and_writer_to_trusted_preflight() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
+    preflight, baseline, writer = (jobs[name] for name in ("validate-release", "release-baseline", "publish-baseline"))
+    assert preflight["outputs"] == {"commit": "${{ steps.preflight.outputs.commit }}", "target": "${{ steps.preflight.outputs.target }}"}
+    capture = next(step for step in preflight["steps"] if step.get("id") == "preflight")
+    assert 'gh api "repos/$GH_REPO/commits/$RELEASE_TAG"' in capture["run"]
+    assert '--commit "$commit"' in capture["run"]
+    assert '--expected-title "$RELEASE_TAG"' in capture["run"]
+    assert '--output "$RUNNER_TEMP/release-target.json"' in capture["run"]
+    checkout = next(step for step in baseline["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"] == {"ref": "${{ needs.validate-release.outputs.commit }}", "fetch-depth": 0, "persist-credentials": False}
+    guard = next(step for step in baseline["steps"] if step.get("name") == "Require the captured checkout and unchanged tag")
+    assert guard["env"] == {"EXPECTED_COMMIT": "${{ needs.validate-release.outputs.commit }}"}
+    assert baseline["steps"].index(guard) < next(index for index, step in enumerate(baseline["steps"]) if "just performance-baseline" in step.get("run", ""))
+    assert set(writer["needs"]) == {"validate-release", "release-baseline"}
+    upload = writer["steps"][-1]
+    assert upload["env"]["RELEASE_TARGET"] == "${{ needs.validate-release.outputs.target }}"
+    assert 'test -n "$RELEASE_TARGET"' in upload["run"]
+    assert '--target "$RUNNER_TEMP/release-target.json"' in upload["run"]
+    assert "--publish" not in upload["run"]
+    assert all("actions/checkout@" not in step.get("uses", "") for job in (preflight, writer) for step in job["steps"])
+
+
+@pytest.mark.parametrize("change", ["missing", "malformed", "repository", "tag", "moved-tag", "replaced-release"])
+def test_real_benchmark_handoff_commands_reject_changed_or_missing_target(change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from research_repo_tools import release_assets
+
+    tag = "v0.5.2"
+    release = {
+        "id": 73,
+        "url": f"https://api.github.com/repos/{REPOSITORY}/releases/73",
+        "tag_name": tag,
+        "name": tag,
+        "draft": True,
+        "immutable": False,
+        "prerelease": False,
+        "assets": [],
+    }
+    requests: list[list[str]] = []
+    changed = False
+
+    def provider(executable: str | Path, arguments: Sequence[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        assert str(executable) == "gh"
+        args = list(arguments)
+        requests.append(args)
+        assert "--method" not in args
+        endpoint = args[-1]
+        if endpoint == f"repos/{REPOSITORY}/commits/{tag}":
+            payload = COMMIT
+        elif endpoint == f"repos/{REPOSITORY}/releases?per_page=100":
+            payload = [[release]]
+        elif endpoint.endswith("/assets?per_page=100"):
+            payload = [[]]
+        elif endpoint == f"repos/{REPOSITORY}/releases/73":
+            payload = {**release, "id": 74} if changed and change == "replaced-release" else release
+        else:
+            assert endpoint == f"repos/{REPOSITORY}/git/ref/tags/{tag}"
+            payload = {"ref": f"refs/tags/{tag}", "object": {"type": "commit", "sha": "b" * 40 if changed and change == "moved-tag" else COMMIT}}
+        return subprocess.CompletedProcess([str(executable), *args], 0, json.dumps(payload).encode("utf-8"), b"")
+
+    monkeypatch.setattr(release_assets, "run_command_bytes", provider)
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
+    capture = next(step for step in jobs["validate-release"]["steps"] if step.get("id") == "preflight")
+    writer = jobs["publish-baseline"]["steps"][-1]
+    values = {"GH_REPO": REPOSITORY, "RELEASE_TAG": tag, "RUNNER_TEMP": str(tmp_path), "commit": COMMIT, "RELEASE_ASSET": "baseline.tar.gz"}
+    commands = []
+    for step in (capture, writer):
+        command = next(line for line in step["run"].replace("\\\n", " ").splitlines() if line.strip().startswith("uvx "))
+        arguments = shlex.split(Template(command).substitute(values))
+        commands.append(arguments[arguments.index("research-repo-tools") + 1 :])
+    assert main(commands[0]) == 0
+    target = tmp_path / "release-target.json"
+    original = json.loads(target.read_bytes())
+    assert (original["repository"], original["tag"], original["release_id"], original["commit"]) == (REPOSITORY, tag, 73, COMMIT)
+    if change == "missing":
+        target.unlink()
+    elif change == "malformed":
+        target.write_bytes(b"{}")
+    elif change in {"repository", "tag"}:
+        original[change] = "other/repository" if change == "repository" else "v0.5.1"
+        target.write_text(json.dumps(original), encoding="utf-8", newline="\n")
+    changed = True
+    requests.clear()
+    (tmp_path / "baseline").mkdir()
+    (tmp_path / "baseline/baseline.tar.gz").write_bytes(b"inert archive fixture")
+    assert main(commands[1]) == 1
+    assert all("--method" not in request for request in requests)
+    if change in {"missing", "malformed", "repository", "tag"}:
+        assert not requests
+
+
+@pytest.mark.parametrize(("head", "tag_commit"), [(COMMIT, COMMIT), ("b" * 40, COMMIT), (COMMIT, "b" * 40)])
+def test_benchmark_checkout_guard_rejects_unexpected_commit(head: str, tag_commit: str) -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
+    guard = next(step for step in jobs["release-baseline"]["steps"] if step.get("name") == "Require the captured checkout and unchanged tag")
+    executable = shutil.which("bash")
+    assert executable is not None
+    providers = (
+        f"set -euo pipefail\nEXPECTED_COMMIT={COMMIT}\nRELEASE_TAG=v0.5.2\n"
+        f"git() {{ if [ \"$3\" = HEAD ]; then printf '%s' {head}; else printf '%s' {tag_commit}; fi; }}\n"
+    )
+    result = subprocess.run([executable], input=providers + guard["run"], check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - actual guard with inert Git observations.
+    assert (result.returncode == 0) == (head == tag_commit == COMMIT)
 
 
 @pytest.mark.parametrize("failure", ["missing", "pending", "failed", "provider", "commit", "ambiguous"])
@@ -162,7 +270,7 @@ def test_notes_check_executes_real_recipe_with_inert_providers(body: str, title:
     assert executable is not None
     payload = json.dumps({"tagName": "v0.5.1", "name": title, "body": body})
     providers = f"uv() {{ printf '%s\\n' 'Reviewed notes'; }}\ngh() {{ printf '%s' {shlex.quote(payload)}; }}\n"
-    script = _run_just("--dry-run", "_release-notes-check", "v0.5.1").stderr
+    script = dry_run(ROOT, "_release-notes-check", ["v0.5.1"]).stderr
     result = subprocess.run(  # noqa: S603 - resolved Bash runs the real recipe with inert process providers.
         [executable], input=providers + script, check=False, capture_output=True, encoding="utf-8"
     )
@@ -180,5 +288,5 @@ def test_settings_payloads_restrict_deployments_and_allow_only_pinned_authentica
     auth = [entry for entry in actions["patterns_allowed"] if entry.startswith("rust-lang/")]
     workflow = yaml.safe_load((ROOT / ".github/workflows/publish-crates.yml").read_bytes())
     step = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("id") == "auth")
-    assert auth == [step["uses"]]
-    assert "*" not in auth[0]
+    assert auth == ["rust-lang/crates-io-auth-action@*"]
+    assert step["uses"] == "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18"

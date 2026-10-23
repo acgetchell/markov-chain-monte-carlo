@@ -1,0 +1,9 @@
+schema = 1
+profile = "dev"
+timeout = 300
+build-timeout = 1800
+include = [ "ising_1d" ]
+
+[examples.ising_1d]
+features = [ "benchmarks", "serde", "tracing" ]
+expect = [ "<m>", "acceptance rate", "energy autocorrelation time:", "magnetization autocorrelation time:", "energy ESS:", "energy split R-hat:", "Multi-chain energy: pooled mean=", "Multi-chain magnetization: pooled mean=", "energy mean MCSE: Ok(", "magnetization mean MCSE: Ok(", "energy bulk ESS: Ok(", "magnetization bulk ESS: Ok(", "energy tail ESS: Ok(Some(", "magnetization tail ESS: Ok(Some(", "energy combined R-hat: Ok(Some(", "magnetization combined R-hat: Ok(Some(", "β=2", "Ising rank/ESS-efficiency data:", "diagnostics JSON:" ]

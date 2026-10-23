@@ -28,6 +28,44 @@ consumer-owned at their existing locked versions. Release preflight delegates ta
 version, metadata and release-note validation to `release check TAG`; the local
 recipe retains only the current-version default and MCMC crate-name assertion.
 
+## Remaining v0.2.3 capability adoption (#208 and #210)
+
+This follow-up consumes the same exact published package and notebook extra. Ruff, Ty, and pytest retain their consumer-owned requirements and locked
+versions; Python-tool inheritance remains disabled. Existing staged dependency updates are independent of this migration.
+
+- The shared Actions YAML checker now enforces the strict committed selected-actions policy in local checks and CI. Explicit GitHub-owned action identities
+  and CodeQL subpaths replace the broad exemption and duplicated Semgrep allowlist. Existing SHA and version-comment rules remain. The shared checker accepts
+  workflows, so a focused consumer test passes the actual setup composite's steps through the same policy. This is the only composite adaptation; no local
+  allowlist parser or production wrapper was added. The authentication workflow and its regression retain the exact reviewed commit.
+- Trusted benchmark preflight captures the repository, tag, release ID, full commit, and title assertion. Job outputs preserve that target independently of
+  measured checkout files. Checkout/HEAD/tag checks bind measurement to the captured commit; registry-only upload uses the original `--target` outside the
+  checkout. Focused integrations exercise the installed capture/upload commands, missing or malformed handoffs, changed identities, and checkout mismatches.
+- Notebook tests use public `notebook_testing.isolated_project`, `NotebookProject.execute`, and returned reports. They retain explicit MCMC environment
+  cleanup, source-byte preservation, injected scientific assertion cells, trace roots, timing/ACF/ESS/R-hat semantics, figures, and exact retained evidence.
+- Command and publication tests use public `just_inspect.inspect_justfile` and `dry_run`. Four generic helpers (`notebook_project`, `execute`, `_run_just`,
+  and `_recipes`) are removed. One consumer fixture retains notebook selection and MCMC environment cleanup. The command/notebook files retain all 56
+  collected cases and add three policy cases, for 59; no scientific cases were removed. The separate publishing file adds ten handoff cases to its existing
+  17. Generic copying, interpreter setup, TOML slicing, subprocess discovery, Just JSON parsing, and sidecar reconstruction now belong to the package.
+- Shared `validation cargo-examples` discovers binary targets and compiler-reported executable paths. The separate Ising selection prepares notebook inputs
+  first; the remaining plan discovers all other targets. Both retain all three features, development builds, 300-second execution and 1800-second build
+  budgets, unchanged scientific markers, and build-time revision/dirty-state provenance. CI checks Cargo metadata coverage and runs each example once.
+- dprint and rumdl move to checksum-verified managed release binaries at their existing versions. `tools-sync-binaries` supports installation/repair;
+  `update-tools` upgrades tools without repeating setup. Contributor setup remains explicit when declarations change.
+
+The report-inventory classifier remains locally owned under #209. Its prerequisite,
+[research-repo-tools #133](https://github.com/acgetchell/research-repo-tools/issues/133), is still open and absent from published v0.2.3 as checked on
+October 23, 2026. Retain initialized reproduction and empty/orphan/path regressions until an equivalent shared interface is published. This change does not
+acquire release benchmark measurements, regenerate retained performance evidence, modify the README, publish a release, or apply GitHub settings.
+Native Linux/Windows and hosted workflow execution still require CI on the eventual adoption revision; local validation records macOS arm64 only.
+
+On October 23, 2026, the uncommitted adoption worktree based on `53e42e1163db43a50e2576577a593e6d08be7f7e` passed `just ci` on native macOS arm64 with
+installed registry `research-repo-tools==0.2.3` and Python 3.15.1. This includes 160 Python consumer cases, 415 Rust nextest cases, 216 doctests,
+both scientific notebooks, all eight Cargo examples, benchmark compilation, and repository validators. Zizmor 1.31.1 used authenticated online audits.
+Focused installed-command
+handoff, composite-policy, inventory, and notebook integrations preceded the aggregate. Jupyter execution required local kernel sockets outside the sandbox;
+no regression was skipped or weakened. Both pre-existing staged uv lockfiles remain byte-for-byte unchanged. Linux/Windows and live release handoff remain
+pending their native/hosted execution; no throwaway release or release benchmark measurement was used as a handoff test.
+
 ## Artifact promotion assessment (#202)
 
 This adoption retains native Cargo build/package verification and the existing
@@ -83,7 +121,7 @@ they are verified. Trusted main-artifact promotion remains deferred.
 | Release workflow inline Python, packaging, draft checks, retry/upload/publish shell | Shared `performance baseline/release-draft/release-upload`; separate read-only benchmark and registry-only writer jobs |
 | Setup composite inline environment exporter | Shared `toolchain export`; uv/cache inputs remain thin workflow configuration |
 | Just file discovery, batching, prerequisites and metadata validation | Shared `files run` and `validation require/cargo-metadata` |
-| Example binary suffix detection and output loops | Shared `validation run`; scientific output contracts in `tooling/examples.toml` |
+| Example discovery, builds, executable paths and output loops | Shared `validation cargo-examples`; scientific contracts in `tooling/examples.toml` and `tooling/ising-example.toml` |
 | Notebook parser, kernel/lint/execution, cleanup and provenance | Shared notebook CLI; fast/slow selection, Ising trace ordering and figure destination remain in Just |
 | SARIF and coverage | Native report producers; shared `coverage report` validates and summarizes Cobertura, with no local parser or converter |
 | Obsolete managed installations | Shared `toolchain clean`; `tools-clean` previews by default and accepts other consumers' retention roots |

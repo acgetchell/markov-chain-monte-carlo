@@ -238,6 +238,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── tooling/
 │   ├── benchmark.toml
 │   ├── examples.toml
+│   ├── ising-example.toml
 │   ├── performance-interpretation.md
 │   ├── performance-readme.toml
 │   ├── performance-report.toml
@@ -481,8 +482,10 @@ New examples go in `examples/`. Each is a complete, runnable workflow:
 - `examples/iterator_sampling.rs` — by-value `Sampler` iterator API.
 - `examples/delayed_chunked_telemetry.rs` — delayed-step telemetry and post-step state recorded across resumable chunks.
 
-Keep examples deterministic when possible. The `validate-examples` recipe checks for expected output markers, so example output should remain stable enough for
-CI validation.
+Keep examples deterministic when possible. The shared Cargo runner discovers binary examples and resolves their compiler-reported executable paths.
+`tooling/ising-example.toml` selects Ising first to prepare notebook inputs; `tooling/examples.toml` discovers the remaining examples without a static include
+list. Both plans retain development-profile, all-feature execution, explicit build/run budgets, and scientific stdout markers. `_run-examples` supplies
+build-time source revision and dirty-state provenance. Consumer tests compare both selections with Cargo metadata and require every example once in CI.
 
 ## Notebooks
 
