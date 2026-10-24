@@ -109,16 +109,18 @@ changelog-archive: sync
 changelog-check: sync
     uv run --locked --group dev research-repo-tools changelog check
 
-# Preview generated history without publishing root or archive files
+# Preview generated history; tagged previews default to the prepared citation date.
 [group('release')]
 [positional-arguments]
 changelog-preview *args: sync
-    {{ _run }} research-repo-tools changelog generate --dry-run "$@"
+    {{ _run }} python tooling/release_changelog.py --dry-run "$@"
 
-# Generate a prospective release with an explicit ISO date
+# Generate a prospective release using the citation date unless an ISO date is supplied.
 [group('release')]
-changelog-release tag date: sync
-    {{ _run }} research-repo-tools changelog generate --tag {{ quote(tag) }} --date {{ quote(date) }}
+changelog-release tag date="": sync
+    {{ _run }} python tooling/release_changelog.py --tag {{ quote(tag) }} --date {{ quote(date) }}
+
+alias changelog-unreleased := changelog-release
 
 # Non-mutating validation gate
 [group('workflows')]
@@ -631,7 +633,6 @@ update-uv:
 update-version tag *args:
     {{ rrt }} release update "$@"
     {{ _run }} cargo metadata --locked --format-version 1 --no-deps > /dev/null
-    {{ rrt }} release check
 
 # Validate the Ising example once while generating the notebook input trace.
 # Validate example output (seeded, deterministic)

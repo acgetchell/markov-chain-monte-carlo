@@ -101,7 +101,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Rust
 
-- The current MSRV and pinned contributor/CI toolchain are Rust 1.99.0. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
+- The current MSRV and pinned contributor/CI toolchain are Rust 1.99.1. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
   changes deliberately.
 - Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take
   ownership or return `Vec`/allocated data when required.
@@ -118,18 +118,21 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - Use the exact published `research-repo-tools==0.2.3` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
+  The temporary `tooling/release_changelog.py` adapter follows la-stack's prepared citation-date default until research-repo-tools#130 is published and adopted.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
   baseline and retains a comparison of the prepared v0.5.1 tree against it. Shared reports and evidence use `docs/performance/v1/`, with the current report
   at `performance.md`. Keep `tooling/performance-readme.toml` independently reviewed and grounded in retained evidence before README publication.
   Preserve measurements and provenance; keep experiments distinct from release comparisons. See `docs/BENCHMARKING.md` for the current series and workflow.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version` as a checked mirror of the shared Python baseline, Rust in `rust-toolchain.toml`, and supported Cargo tools in
-  `[tool.research-repo-tools.toolchain.cargo]`. Keep `toolchain.inherit-python` enabled; Ruff and Ty infer their targets from project metadata.
+  `[tool.research-repo-tools.toolchain.cargo]`. Keep `toolchain.inherit-python` and `toolchain.inherit-python-tools` enabled. The shared `python-tools` extra
+  owns pytest, Ruff, and Ty versions; keep their direct dev requirements unversioned. Ruff and Ty infer their targets from project metadata.
   Run managed tools through the Just recipes or `research-repo-tools toolchain run --`; do not add duplicate installers or version parsing.
   The SARIF converters use the same shared Cargo
   catalog. See [the migration record](docs/dev/shared-maintenance-migration.md).
 - Adopt a newer shared package and its Python baseline with `just shared-python-plan VERSION`, then `just shared-python-update VERSION`. These standalone
-  commands update both exact package pins, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the Python mirrors.
+  commands update both exact package pins, shared Python-tool versions, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the
+  Python mirrors or add independent pytest, Ruff, or Ty version constraints.
   Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
 - Semgrep shares the root Python 3.15 environment and lockfile. Preserve its native-wheel requirement and the root compatibility overrides for PyJWT,
   MCP, OpenTelemetry, and Python 3.15 Windows wheels. Keep the Linux stack-limit workaround in local and SARIF scans until upstream fixes it.
@@ -221,8 +224,8 @@ At a glance:
 - `examples/` — complete runnable workflows.
 - `tests/` and `benches/` — integration validation and Criterion benchmarks.
 - `docs/` — topic guides.
-- `tooling/` — declarative shared-tool configuration and scientific performance prose.
-- `tests/tooling/` — focused consumer integration and scientific policy checks; no local Python package or support scripts.
+- `tooling/` — declarative shared-tool configuration, scientific performance prose, and the temporary changelog-date adapter tracked in research-repo-tools#130.
+- `tests/tooling/` — focused consumer integration and scientific policy checks; no local Python package.
 
 ## Documentation map
 

@@ -210,6 +210,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── test_notebooks.py
 │   │   ├── test_performance_evidence.py
 │   │   ├── test_publishing.py
+│   │   ├── test_release_changelog.py
 │   │   └── test_release_policy.py
 │   └── semgrep/
 │       ├── benches/
@@ -242,7 +243,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── ising-example.toml
 │   ├── performance-interpretation.md
 │   ├── performance-readme.toml
-│   └── performance-report.toml
+│   ├── performance-report.toml
+│   └── release_changelog.py
 ├── ty.toml
 ├── typos.toml
 └── uv.lock
@@ -266,9 +268,10 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, and scientific prose.
   `performance-readme.toml` selects the unthinned workloads and pins the reviewed evidence for README publication; update it when a new measured pair exists.
   Semgrep's dependency pin, compatibility overrides, and lockfile belong to the root Python environment.
+  `release_changelog.py` temporarily supplies la-stack's citation-date default to the installed shared CLI, pending research-repo-tools#130.
 - `tests/tooling/` — focused consumer configuration, command wiring, workload lifecycle, release policy, evidence transition and notebook checks.
 - `.github/settings/` — reviewed deployment-policy payloads; live account configuration and read-back evidence remain separate maintainer actions.
-  Reusable implementation and generic regressions live in the pinned shared package. No local Python package or support module remains.
+  Reusable implementation and generic regressions live in the pinned shared package; the temporary changelog-date adapter is tracked for upstream adoption.
 - `.gitattributes` — prevents checkout text conversion of byte-sensitive retained reports and scientific JSON fixtures used in provenance hashes.
 - Root configuration files (`Cargo.toml`, `rust-toolchain.toml`, `.python-version`, `pyproject.toml`, `uv.lock`, `justfile`, `semgrep.yaml`, `dprint.json`,
   `rumdl.toml`, `typos.toml`, `.config/nextest.toml`) — build, validation, formatting, release, and project-rule configuration.

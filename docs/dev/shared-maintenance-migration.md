@@ -22,15 +22,18 @@ and lock. Registry-only release jobs pin v0.2.3 and the declared
 uv version, with their resolution cutoff aligned to the adopted root lock.
 
 Python check, fix, and typecheck recipes now call the shared Python gates, including
-strict Ty diagnostics and the complete source/fixture inventory. Ruff and Ty remain
-consumer-owned at their existing locked versions. Release preflight delegates tag,
-version, metadata and release-note validation to `release check TAG`; the local
-recipe retains only the current-version default and MCMC crate-name assertion.
+strict Ty diagnostics and the complete source/fixture inventory. The shared `python-tools`
+extra owns pytest, Ruff, and Ty versions with `inherit-python-tools` enabled. Both exact
+shared-package requirements select that extra; direct tool requirements stay unversioned.
+The managed adoption command synchronizes those versions and the notebook kernel.
+Release preflight delegates tag, version, metadata and release-note validation to
+`release check TAG`; the local recipe retains only the current-version default and
+MCMC crate-name assertion.
 
 ## Remaining v0.2.3 capability adoption (#208 and #210)
 
-This follow-up consumes the same exact published package and notebook extra. Ruff, Ty, and pytest retain their consumer-owned requirements and locked
-versions; Python-tool inheritance remains disabled. Existing staged dependency updates are independent of this migration.
+This follow-up consumes the same exact published package with its notebook and Python-tool extras. The package owns tool versions; MCMC retains its lint,
+typing, and fixture policy. Other dependency updates remain independent of shared Python-tool adoption.
 
 - The shared Actions YAML checker now enforces the strict committed selected-actions policy in local checks and CI. Explicit GitHub-owned action identities
   and CodeQL subpaths replace the broad exemption and duplicated Semgrep allowlist. Existing SHA and version-comment rules remain. The shared checker accepts
