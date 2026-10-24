@@ -114,9 +114,9 @@ To adopt a newer published shared package and its Python baseline, run `just sha
 `just shared-python-update VERSION`. Use the package version, not the Python version. These standalone commands work outside the old environment and update
 both package pins, the Python mirrors, lockfile, environment, and notebook kernel together. `just update` retains the exact shared-package pin.
 
-The main environment uses Python 3.15. Semgrep retains a separate locked Python 3.14 environment in `tooling/semgrep/` until its published wheels support
-Python 3.15. The Semgrep recipes select that environment automatically. `just update-python-dependencies` refreshes and synchronizes both declared projects;
-the scanner keeps its exact dependency pin and compatibility overrides. Security scans and Dependabot cover both Python lockfiles.
+The main Python 3.15 environment includes Semgrep. Its exact dependency pin, native-wheel requirement, and compatibility overrides live in the root
+`pyproject.toml` and `uv.lock`. `just update-python-dependencies`, security scans, and Dependabot use that shared lockfile. Scanner recipes also retain the
+Linux stack-limit workaround required by Semgrep on Python 3.15.
 Keep the registry-only release workflow's package pin and resolution cutoff aligned with the adopted version; it selects a package-compatible Python.
 
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated

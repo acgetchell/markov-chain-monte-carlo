@@ -8,6 +8,10 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
 
+# Semgrep misreads Python 3.15's positive RLIM_INFINITY on Linux.
+# Keep its inherited stack finite until semgrep/semgrep#11979 is fixed.
+semgrep_stack_limit := if os() == "linux" { 'if [[ "$(ulimit -Hs)" == unlimited ]]; then ulimit -s 1048576; fi;' } else { "" }
+
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb notebooks/diagnostic_plots.ipynb"
 slow_notebooks := ""
 
@@ -59,7 +63,7 @@ action-lint:
 # Audit every maintained Python and Rust lockfile without executing dependency code.
 [group('security')]
 audit:
-    uv run --locked --only-group tooling research-repo-tools security osv uv.lock tooling/semgrep/uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
+    uv run --locked --only-group tooling research-repo-tools security osv uv.lock Cargo.lock benches/diagnostic_backends/Cargo.lock
 
 # Run the fixed-seed stepping benchmark suite.
 [group('benchmarks and performance')]
@@ -478,12 +482,12 @@ security-secrets:
 # Repository-owned Semgrep rules for project-specific diagnostics.
 [group('validation')]
 semgrep:
-    uv run --locked --project tooling/semgrep uv run --locked --project . --group dev research-repo-tools files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
+    {{ semgrep_stack_limit }} {{ rrt }} files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
 
 # Validate repository-owned Semgrep rules against annotated fixtures.
 [group('validation')]
 semgrep-test:
-    uv run --locked --project tooling/semgrep uv run --locked --project . --group dev research-repo-tools semgrep check-fixtures
+    {{ semgrep_stack_limit }} {{ rrt }} semgrep check-fixtures
 
 # Install managed tools and verify system prerequisites.
 [group('build and setup')]

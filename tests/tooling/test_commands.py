@@ -216,7 +216,7 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
     policy = json.loads(job["with"]["policy"])
     assert set(policy) == {"cargo", "uv", "github_actions"}
     assert set(policy["cargo"]["files"]) == {"Cargo.toml", "Cargo.lock"}
-    assert set(policy["uv"]["files"]) == {"pyproject.toml", "uv.lock", "tooling/semgrep/pyproject.toml", "tooling/semgrep/uv.lock"}
+    assert set(policy["uv"]["files"]) == {"pyproject.toml", "uv.lock"}
     actions = {
         path.relative_to(REPO_ROOT).as_posix()
         for directory in (REPO_ROOT / ".github/workflows", REPO_ROOT / ".github/actions")
@@ -383,8 +383,8 @@ def test_scanner_setup_installs_only_its_declared_plan(scanner: str, tmp_path: P
 def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> None:
     from research_repo_tools.selection import select_files
 
-    command = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr)
-    assert command[:7] == ["uv", "run", "--locked", "--project", "tooling/semgrep", "uv", "run"]
+    command = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.rsplit("fi; ", 1)[-1])
+    assert command[:8] == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "files", "run"]
     selection = command[: command.index("--")]
     excludes = tuple(selection[index + 1] for index, argument in enumerate(selection) if argument == "--exclude")
     selected = select_files(REPO_ROOT, exclude=excludes)
@@ -398,9 +398,9 @@ def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
     steps = workflow["jobs"]["semgrep-sarif"]["steps"]
     scan = next(step for step in steps if step.get("id") == "semgrep")
     script = scan["run"]
-    commands = [shlex.split(line) for line in script.replace("\\\n", " ").splitlines()]
+    commands = [shlex.split(line, comments=True) for line in script.replace("\\\n", " ").splitlines()]
     inventory = next(command for command in commands if "files" in command)
-    canonical = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr)
+    canonical = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.rsplit("fi; ", 1)[-1])
     canonical_selection = canonical[: canonical.index("--")]
     assert inventory[:8] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "research-repo-tools", "files"]
     assert inventory[8] == "list"
@@ -411,9 +411,10 @@ def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
     assert inventory[-3:] == ["--null", ">", "$RUNNER_TEMP/semgrep-inputs"]
     assert ["mapfile", "-d", "", "-t", "scan_paths", "<", "$RUNNER_TEMP/semgrep-inputs"] in commands
     assert script.index("files list") < script.index("mapfile") < script.index("set +e")
+    assert script.index("ulimit -s 1048576") < script.index("set +e")
     native = [command for command in commands if "semgrep" in command]
     assert len(native) == 1
-    assert native[0][:7] == ["uv", "run", "--locked", "--managed-python", "--project", "tooling/semgrep", "semgrep"]
+    assert native[0][:7] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "semgrep"]
     assert native[0][6:] == [
         *canonical[canonical.index("--") + 1 :],
         "--sarif",

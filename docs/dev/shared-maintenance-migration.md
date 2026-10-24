@@ -10,16 +10,15 @@ after #164; hosted CI and the first live release-asset pair remain separate evid
 
 The managed adoption command advances both shared-package pins and the root Python
 baseline to 3.15, refreshes the lock, and rebuilds the environment and notebook kernel.
-Following la-stack, Semgrep keeps an independent locked Python 3.14 project under
-`tooling/semgrep/` until published scanner wheels support Python 3.15. The scanner
-retains its exact pin, the existing PyJWT compatibility floor, and la-stack's patched
-MCP 1.x override; its source distribution cannot substitute for the native engine.
+Semgrep initially used an independent Python 3.14 project. Following Delaunay,
+it now shares the root Python 3.15 environment and lockfile, retaining its exact pin,
+PyJWT compatibility floor, patched MCP 1.x and OpenTelemetry family, and Python 3.15
+Windows wheels. Its source distribution cannot substitute for the native engine.
+Local scans and fixtures retain the Linux stack-limit workaround, as does SARIF.
 
-`deps.python-projects` declares that environment. `just update-python-dependencies`
-uses the shared `--all-projects` command to refresh and synchronize both projects
-while preserving the scanner's requirements. Local scans, rule fixtures and SARIF
-select the isolated scanner; OSV, Dependabot and the dependency approval file policy
-cover its manifest and lock. Registry-only release jobs pin v0.2.3 and the declared
+`just update-python-dependencies` refreshes the shared lock. Local scans, rule fixtures,
+SARIF, OSV, Dependabot and the dependency approval file policy use the root manifest
+and lock. Registry-only release jobs pin v0.2.3 and the declared
 uv version, with their resolution cutoff aligned to the adopted root lock.
 
 Python check, fix, and typecheck recipes now call the shared Python gates, including

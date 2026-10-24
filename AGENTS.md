@@ -131,8 +131,8 @@ changing numerical semantics, or changing acceptance/error behavior.
 - Adopt a newer shared package and its Python baseline with `just shared-python-plan VERSION`, then `just shared-python-update VERSION`. These standalone
   commands update both exact package pins, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the Python mirrors.
   Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
-- Semgrep uses its own locked Python 3.14 project in `tooling/semgrep/` until published scanner wheels support the shared Python 3.15 baseline. Keep it
-  declared in `deps.python-projects`; `just update-python-dependencies` refreshes both environments through the shared `--all-projects` workflow.
+- Semgrep shares the root Python 3.15 environment and lockfile. Preserve its native-wheel requirement and the root compatibility overrides for PyJWT,
+  MCP, OpenTelemetry, and Python 3.15 Windows wheels. Keep the Linux stack-limit workaround in local and SARIF scans until upstream fixes it.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
   newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
   bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.
