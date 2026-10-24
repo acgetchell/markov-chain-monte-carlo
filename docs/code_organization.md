@@ -133,7 +133,12 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │       ├── v0.5.1-vs-v0.5.0.comparison.json
 │   │       ├── v0.5.1-vs-v0.5.0.csv
 │   │       ├── v0.5.1-vs-v0.5.0.evidence.json
-│   │       └── v0.5.1-vs-v0.5.0.svg
+│   │       ├── v0.5.1-vs-v0.5.0.md
+│   │       ├── v0.5.1-vs-v0.5.0.svg
+│   │       ├── v0.5.2-vs-v0.5.1.comparison.json
+│   │       ├── v0.5.2-vs-v0.5.1.csv
+│   │       ├── v0.5.2-vs-v0.5.1.evidence.json
+│   │       └── v0.5.2-vs-v0.5.1.svg
 │   ├── roadmap.md
 │   ├── reviewer_guide.md
 │   └── scientific_basis.md

@@ -265,25 +265,25 @@ Use `just bench-save-baseline NAME` to save this checkout's local stepping measu
 
 <!-- PERFORMANCE:BEGIN -->
 
-![Baseline/current timing point ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.svg)
+![Baseline/current timing point ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.svg)
 
 Statistic: median. Unit: ns.
 
-| Benchmark | v0.5.0 | v0.5.1 (prepared tree) | Baseline/current | Time reduction (%) |
+| Benchmark | v0.5.1 | v0.5.2 (prepared tree) | Baseline/current | Time reduction (%) |
 | --- | --- | --- | --- | --- |
-| By-value step | 16.841 ns [16.8248, 16.8776] (0.95 confidence) | 18.1579 ns [17.6604, 18.426] (0.95 confidence) | 0.927479 | -7.8192 |
-| In-place accepted step | 13.7307 ns [13.6853, 13.7789] (0.95 confidence) | 14.8717 ns [14.3751, 15.1055] (0.95 confidence) | 0.923274 | -8.31024 |
-| In-place rollback step | 211.765 ns [207.992, 214.468] (0.95 confidence) | 217.209 ns [211.211, 220.952] (0.95 confidence) | 0.974937 | -2.57077 |
-| Delayed accepted step | 11.3523 ns [11.1183, 11.4854] (0.95 confidence) | 11.1298 ns [10.9418, 11.2921] (0.95 confidence) | 1.01999 | 1.96005 |
-| Delayed rejected step | 11.358 ns [11.2565, 11.625] (0.95 confidence) | 11.4297 ns [11.1473, 11.5677] (0.95 confidence) | 0.993729 | -0.631097 |
-| Delayed no-plan step | 0.778675 ns [0.768478, 0.800562] (0.95 confidence) | 0.779942 ns [0.765882, 0.793459] (0.95 confidence) | 0.998375 | -0.162723 |
-| By-value sampling (100 steps) | 1649.59 ns [1610.45, 1695.04] (0.95 confidence) | 1662.36 ns [1632.45, 1689.78] (0.95 confidence) | 0.99232 | -0.773988 |
-| In-place sampling (100 steps) | 1355.18 ns [1340.85, 1384.39] (0.95 confidence) | 1298 ns [1292.99, 1306.54] (0.95 confidence) | 1.04405 | 4.21942 |
-| Delayed sampling (100 steps) | 944.39 ns [922.456, 960.272] (0.95 confidence) | 902.976 ns [884.981, 917.641] (0.95 confidence) | 1.04586 | 4.38523 |
-| Buffered observation (100 steps) | 1905.93 ns [1879.32, 1935.43] (0.95 confidence) | 1902.02 ns [1868.84, 1938.52] (0.95 confidence) | 1.00206 | 0.20542 |
-| Manual online sum (100 steps) | 1382.36 ns [1363.68, 1401.71] (0.95 confidence) | 1363.82 ns [1334.29, 1400.46] (0.95 confidence) | 1.01359 | 1.34074 |
-| Online statistics (100 steps) | 1693.05 ns [1658.57, 1730.43] (0.95 confidence) | 1643.84 ns [1638.81, 1653.2] (0.95 confidence) | 1.02994 | 2.90687 |
-| Binning analysis (100 steps) | 2481.99 ns [2424.85, 2531.32] (0.95 confidence) | 2420.43 ns [2367.64, 2478.18] (0.95 confidence) | 1.02543 | 2.48007 |
+| By-value step | 16.7305 ns [16.6881, 16.7601] (0.95 confidence) | 16.8223 ns [16.8063, 16.8472] (0.95 confidence) | 0.994541 | -0.548916 |
+| In-place accepted step | 13.7211 ns [13.6794, 13.7666] (0.95 confidence) | 13.8022 ns [13.7574, 13.847] (0.95 confidence) | 0.994117 | -0.591771 |
+| In-place rollback step | 194.155 ns [193.632, 194.8] (0.95 confidence) | 198.85 ns [197.611, 199.265] (0.95 confidence) | 0.976388 | -2.41826 |
+| Delayed accepted step | 10.5007 ns [10.4679, 10.5179] (0.95 confidence) | 10.4465 ns [10.4261, 10.4882] (0.95 confidence) | 1.00519 | 0.516515 |
+| Delayed rejected step | 10.7442 ns [10.7239, 10.7782] (0.95 confidence) | 10.7075 ns [10.6851, 10.7249] (0.95 confidence) | 1.00343 | 0.341801 |
+| Delayed no-plan step | 0.726462 ns [0.726029, 0.727028] (0.95 confidence) | 0.725055 ns [0.724612, 0.725611] (0.95 confidence) | 1.00194 | 0.193617 |
+| By-value sampling (100 steps) | 1670.7 ns [1668.59, 1671.87] (0.95 confidence) | 1680.13 ns [1678.13, 1681.6] (0.95 confidence) | 0.994388 | -0.564403 |
+| In-place sampling (100 steps) | 1302.16 ns [1300.06, 1304.63] (0.95 confidence) | 1307.07 ns [1305.38, 1308.89] (0.95 confidence) | 0.996246 | -0.37681 |
+| Delayed sampling (100 steps) | 876.103 ns [873.82, 877.716] (0.95 confidence) | 877.842 ns [876.725, 879.467] (0.95 confidence) | 0.998018 | -0.198553 |
+| Buffered observation (100 steps) | 1720.73 ns [1718.93, 1726.78] (0.95 confidence) | 1716.39 ns [1713.72, 1720.61] (0.95 confidence) | 1.00253 | 0.252168 |
+| Manual online sum (100 steps) | 1275.03 ns [1271.02, 1277.33] (0.95 confidence) | 1270.34 ns [1267.26, 1273.32] (0.95 confidence) | 1.00369 | 0.368075 |
+| Online statistics (100 steps) | 1456.04 ns [1453.31, 1460.85] (0.95 confidence) | 1464.02 ns [1461.02, 1467.01] (0.95 confidence) | 0.994546 | -0.54838 |
+| Binning analysis (100 steps) | 2288.59 ns [2283.05, 2291.33] (0.95 confidence) | 2293.59 ns [2290.89, 2299] (0.95 confidence) | 0.997821 | -0.218398 |
 
 Coverage: 13 selected of 22 comparable; 0 current-only; 0 baseline-only benchmarks.
 
@@ -302,10 +302,10 @@ Local measurements require matching known host identities. Release-asset compari
 need separate hardware and workload review; GitHub runners can change between releases.
 Source and harness fingerprints come from the shared measurement workflow.
 
-- [Full timing report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/performance.md)
-- [Comparison evidence](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.comparison.json)
-- [Provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.evidence.json)
-- [CSV export](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.1/docs/performance/v1/v0.5.1-vs-v0.5.0.csv)
+- [Full timing report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/performance.md)
+- [Comparison evidence](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.comparison.json)
+- [Provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.evidence.json)
+- [CSV export](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.csv)
 
 <!-- PERFORMANCE:END -->
 

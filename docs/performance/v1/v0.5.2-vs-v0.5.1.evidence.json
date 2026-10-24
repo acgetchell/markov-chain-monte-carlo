@@ -1,0 +1,55 @@
+{
+  "payload_schema": "research-repo-tools/criterion-comparison/v1",
+  "payload_sha256": "f10a29ced767053747690d9b5f774de477f3adfc5187353f180d295aa0d7342d",
+  "schema": "research-repo-tools/evidence/v1",
+  "sources": {
+    "baseline": {
+      "context": {
+        "architecture": "arm64",
+        "command": "[\"cargo\", \"bench\", \"--locked\", \"--bench\", \"stepping\"]",
+        "cpu": "Apple M4 Max (arm64)",
+        "dependency.criterion": "0.8.2",
+        "fingerprint-schema": "research-repo-tools/files/v1",
+        "harness-inventory": "[\"benches/stepping.rs\"]",
+        "host": "{\"architecture\": \"arm64\", \"cpu\": \"Apple M4 Max (arm64)\", \"logical_threads\": 16, \"memory_bytes\": 68719476736, \"os\": \"macOS-27.0.1-arm64-arm-64bit-Mach-O\", \"physical_cores\": 16, \"schema\": \"research-repo-tools/host/v1\", \"tools\": {\"rustc\": \"rustc 1.99.1 (58cf8f9c3 2026-10-13)\\nbinary: rustc\\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\\ncommit-date: 2026-10-13\\nhost: aarch64-apple-darwin\\nrelease: 1.99.1\\nLLVM version: 23.1.1\"}}",
+        "host.logical_threads": "16",
+        "host.memory_bytes": "68719476736",
+        "host.physical_cores": "16",
+        "mode": "tag",
+        "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "release": "v0.5.1",
+        "scope": "release-signal",
+        "source-inventory": "[\"Cargo.lock\", \"Cargo.toml\", \"benches/stepping.rs\", \"rust-toolchain.toml\", \"src/adaptive.rs\", \"src/autocorrelation.rs\", \"src/benchmarks.rs\", \"src/chain.rs\", \"src/continuous_testing.rs\", \"src/convergence.rs\", \"src/diagnostics.rs\", \"src/error.rs\", \"src/ess.rs\", \"src/lib.rs\", \"src/numerics.rs\", \"src/observable.rs\", \"src/ranks.rs\", \"src/sampler.rs\", \"src/statistics.rs\", \"src/testing.rs\", \"src/traits.rs\"]",
+        "suite": "stepping",
+        "tool.rustc": "\"rustc 1.99.1 (58cf8f9c3 2026-10-13)\\nbinary: rustc\\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\\ncommit-date: 2026-10-13\\nhost: aarch64-apple-darwin\\nrelease: 1.99.1\\nLLVM version: 23.1.1\""
+      },
+      "harness_sha256": "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c",
+      "revision": "21c77b32163581ccb830c4ff79c5ec25fdacc69a",
+      "source_sha256": "43bcf4fd3e302cb234ad2327c83340c5ea648a3e9bbc784e772625f1979c8e27"
+    },
+    "current": {
+      "context": {
+        "architecture": "arm64",
+        "command": "[\"cargo\", \"bench\", \"--locked\", \"--bench\", \"stepping\"]",
+        "cpu": "Apple M4 Max (arm64)",
+        "dependency.criterion": "0.8.2",
+        "fingerprint-schema": "research-repo-tools/files/v1",
+        "harness-inventory": "[\"benches/stepping.rs\"]",
+        "host": "{\"architecture\": \"arm64\", \"cpu\": \"Apple M4 Max (arm64)\", \"logical_threads\": 16, \"memory_bytes\": 68719476736, \"os\": \"macOS-27.0.1-arm64-arm-64bit-Mach-O\", \"physical_cores\": 16, \"schema\": \"research-repo-tools/host/v1\", \"tools\": {\"rustc\": \"rustc 1.99.1 (58cf8f9c3 2026-10-13)\\nbinary: rustc\\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\\ncommit-date: 2026-10-13\\nhost: aarch64-apple-darwin\\nrelease: 1.99.1\\nLLVM version: 23.1.1\"}}",
+        "host.logical_threads": "16",
+        "host.memory_bytes": "68719476736",
+        "host.physical_cores": "16",
+        "mode": "working-tree",
+        "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "release": "v0.5.2",
+        "scope": "release-signal",
+        "source-inventory": "[\"Cargo.lock\", \"Cargo.toml\", \"benches/stepping.rs\", \"rust-toolchain.toml\", \"src/adaptive.rs\", \"src/autocorrelation.rs\", \"src/benchmarks.rs\", \"src/chain.rs\", \"src/continuous_testing.rs\", \"src/convergence.rs\", \"src/diagnostics.rs\", \"src/error.rs\", \"src/ess.rs\", \"src/lib.rs\", \"src/numerics.rs\", \"src/observable.rs\", \"src/ranks.rs\", \"src/sampler.rs\", \"src/statistics.rs\", \"src/testing.rs\", \"src/traits.rs\"]",
+        "suite": "stepping",
+        "tool.rustc": "\"rustc 1.99.1 (58cf8f9c3 2026-10-13)\\nbinary: rustc\\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\\ncommit-date: 2026-10-13\\nhost: aarch64-apple-darwin\\nrelease: 1.99.1\\nLLVM version: 23.1.1\""
+      },
+      "harness_sha256": "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c",
+      "revision": "69ece452919c88ed4369d3e3abc4bfd4264d0f17",
+      "source_sha256": "f1c62ac99e6f8b5b6a36ffdde278fa036057cc867ab6913a5c7f4b32b5146307"
+    }
+  }
+}

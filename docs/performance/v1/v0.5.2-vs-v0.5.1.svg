@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="798" height="526" viewBox="0 0 798 526" role="img" aria-labelledby="title description">
+<title id="title">v0.5.2 (prepared tree) against v0.5.1</title>
+<desc id="description">Baseline time / current time, point estimates. Greater than one means less current time. No significance test.</desc>
+<g font-family="sans-serif" font-size="14" fill="#222222">
+<text x="16" y="25">v0.5.2 (prepared tree) against v0.5.1</text>
+<text x="296" y="65" text-anchor="end">By-value step</text>
+<rect x="308" y="48" width="356.185391" height="24" fill="#267394"/>
+<text x="672.185391" y="65">0.994541</text>
+<text x="296" y="97" text-anchor="end">In-place accepted step</text>
+<rect x="308" y="80" width="356.033644" height="24" fill="#267394"/>
+<text x="672.033644" y="97">0.994117</text>
+<text x="296" y="129" text-anchor="end">In-place rollback step</text>
+<rect x="308" y="112" width="349.684263" height="24" fill="#267394"/>
+<text x="665.684263" y="129">0.976388</text>
+<text x="296" y="161" text-anchor="end">Delayed accepted step</text>
+<rect x="308" y="144" width="360.000000" height="24" fill="#267394"/>
+<text x="676.000000" y="161">1.00519</text>
+<text x="296" y="193" text-anchor="end">Delayed rejected step</text>
+<rect x="308" y="176" width="359.368875" height="24" fill="#267394"/>
+<text x="675.368875" y="193">1.00343</text>
+<text x="296" y="225" text-anchor="end">Delayed no-plan step</text>
+<rect x="308" y="208" width="358.835312" height="24" fill="#267394"/>
+<text x="674.835312" y="225">1.00194</text>
+<text x="296" y="257" text-anchor="end">By-value sampling (100 steps)</text>
+<rect x="308" y="240" width="356.130538" height="24" fill="#267394"/>
+<text x="672.130538" y="257">0.994388</text>
+<text x="296" y="289" text-anchor="end">In-place sampling (100 steps)</text>
+<rect x="308" y="272" width="356.796106" height="24" fill="#267394"/>
+<text x="672.796106" y="289">0.996246</text>
+<text x="296" y="321" text-anchor="end">Delayed sampling (100 steps)</text>
+<rect x="308" y="304" width="357.430858" height="24" fill="#267394"/>
+<text x="673.430858" y="321">0.998018</text>
+<text x="296" y="353" text-anchor="end">Buffered observation (100 steps)</text>
+<rect x="308" y="336" width="359.045945" height="24" fill="#267394"/>
+<text x="675.045945" y="353">1.00253</text>
+<text x="296" y="385" text-anchor="end">Manual online sum (100 steps)</text>
+<rect x="308" y="368" width="359.463643" height="24" fill="#267394"/>
+<text x="675.463643" y="385">1.00369</text>
+<text x="296" y="417" text-anchor="end">Online statistics (100 steps)</text>
+<rect x="308" y="400" width="356.187287" height="24" fill="#267394"/>
+<text x="672.187287" y="417">0.994546</text>
+<text x="296" y="449" text-anchor="end">Binning analysis (100 steps)</text>
+<rect x="308" y="432" width="357.360079" height="24" fill="#267394"/>
+<text x="673.360079" y="449">0.997821</text>
+<path d="M 666.140548 40 V 461" stroke="#555555" stroke-dasharray="4 4"/>
+<text x="16" y="506">Baseline/current point ratio; dashed line = 1</text>
+</g>
+</svg>

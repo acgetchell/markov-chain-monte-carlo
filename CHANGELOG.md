@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repository tooling and notebooks require Python 3.15; Semgrep retains its separate Python 3.14 environment.
 - Use update-version, release-version-check, tag, and release-publish in place of the retired release commands.
 - BinningAnalysis uses correctly rounded midpoint arithmetic, which can change floating-point block means for subnormal inputs.
+- Rust 1.99.1 is the minimum supported version, superseding the earlier 1.99.0 baseline.
 
 ### Merged Pull Requests
 
@@ -131,6 +132,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Apply the Linux stack-limit workaround to local and SARIF scans.
   - Align scanner commands, dependency automation, and contributor guidance.
   - Refresh the locked cc build dependency for release preparation.
+- [**breaking**] Require Rust 1.99.1 and align release tooling
+  [`69ece45`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/69ece452919c88ed4369d3e3abc4bfd4264d0f17)
+
+  - Align Rust declarations, shared Python tools, and release-date handling.
 
 ## [0.5.1] - 2026-10-02
 

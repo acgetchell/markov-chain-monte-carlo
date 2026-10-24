@@ -1,13 +1,13 @@
 schema = 1
 document = "README.md"
-payload = "docs/performance/v1/v0.5.1-vs-v0.5.0.comparison.json"
-manifest = "docs/performance/v1/v0.5.1-vs-v0.5.0.evidence.json"
-svg = "docs/performance/v1/v0.5.1-vs-v0.5.0.svg"
+payload = "docs/performance/v1/v0.5.2-vs-v0.5.1.comparison.json"
+manifest = "docs/performance/v1/v0.5.2-vs-v0.5.1.evidence.json"
+svg = "docs/performance/v1/v0.5.2-vs-v0.5.1.svg"
 begin = "<!-- PERFORMANCE:BEGIN -->"
 end = "<!-- PERFORMANCE:END -->"
 unit = "ns"
-baseline-label = "v0.5.0"
-current-label = "v0.5.1 (prepared tree)"
+baseline-label = "v0.5.1"
+current-label = "v0.5.2 (prepared tree)"
 repository = "acgetchell/markov-chain-monte-carlo"
 tag-policy = "prepare"
 prose-file = "tooling/performance-interpretation.md"
@@ -33,25 +33,25 @@ rows = [
 ]
 links = [
     { label = "Full timing report", path = "docs/performance/v1/performance.md" },
-    { label = "Comparison evidence", path = "docs/performance/v1/v0.5.1-vs-v0.5.0.comparison.json" },
-    { label = "Provenance", path = "docs/performance/v1/v0.5.1-vs-v0.5.0.evidence.json" },
-    { label = "CSV export", path = "docs/performance/v1/v0.5.1-vs-v0.5.0.csv" },
+    { label = "Comparison evidence", path = "docs/performance/v1/v0.5.2-vs-v0.5.1.comparison.json" },
+    { label = "Provenance", path = "docs/performance/v1/v0.5.2-vs-v0.5.1.evidence.json" },
+    { label = "CSV export", path = "docs/performance/v1/v0.5.2-vs-v0.5.1.csv" },
 ]
 
-# Baseline identities were checked against v0.5.0 Git blobs; current identities
+# Baseline identities were checked against v0.5.1 Git blobs; current identities
 # were checked against HEAD, Cargo metadata, and the measured working-tree bytes.
 [provenance.baseline]
-revision = "83f729c62dd959dc9afa2ca9c4146b0515465fae"
-release = "v0.5.0"
-source-sha256 = "6979500b7e7e8b0d9d174654c8f118cbfddc1acbd30efa5957b69566adfca104"
+revision = "21c77b32163581ccb830c4ff79c5ec25fdacc69a"
+release = "v0.5.1"
+source-sha256 = "43bcf4fd3e302cb234ad2327c83340c5ea648a3e9bbc784e772625f1979c8e27"
 harness-sha256 = "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c"
 verify-tag = true
 context = { mode = "tag", suite = "stepping", scope = "release-signal" }
 
 [provenance.current]
-revision = "9fc2479167aaa47c7bbe3ef5e43eb76393c9dc89"
-release = "v0.5.1"
-source-sha256 = "43bcf4fd3e302cb234ad2327c83340c5ea648a3e9bbc784e772625f1979c8e27"
+revision = "69ece452919c88ed4369d3e3abc4bfd4264d0f17"
+release = "v0.5.2"
+source-sha256 = "f1c62ac99e6f8b5b6a36ffdde278fa036057cc867ab6913a5c7f4b32b5146307"
 harness-sha256 = "a5fdc42d4aba98ad977398bfc01fae799cdd6f0d19dbc1adc0e969b298650b9c"
 context = { mode = "working-tree", suite = "stepping", scope = "release-signal" }
 
