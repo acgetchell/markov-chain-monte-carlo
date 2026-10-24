@@ -159,6 +159,10 @@ cwd = "tests/semgrep"
 "mcmc.rust.no-unwrap-expect-in-benches-examples" = 2
 
 [tool.research-repo-tools.semgrep.counts."tests/semgrep/github-actions/workflow_actions.yml"]
+"mcmc.github-actions.external-action-sha-pinned" = 3
+"mcmc.github-actions.external-action-version-comment" = 3
+
+[tool.research-repo-tools.semgrep.counts."tests/semgrep/github-actions/composite_action.yml"]
 "mcmc.github-actions.external-action-sha-pinned" = 2
 "mcmc.github-actions.external-action-version-comment" = 2
 

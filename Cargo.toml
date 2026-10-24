@@ -20,6 +20,7 @@ include = [
     "/Cargo.lock",
     "/Cargo.toml",
     "/CHANGELOG.md",
+    "/docs/archives/changelog/**",
     "/CITATION.cff",
     "/LICENSE",
     "/README.md",

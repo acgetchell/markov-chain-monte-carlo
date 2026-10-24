@@ -1,0 +1,27 @@
+name: Composite action policy fixtures
+description: Exercise both external action entry forms in a composite action.
+
+runs:
+  using: composite
+  steps:
+    # ruleid: mcmc.github-actions.external-action-sha-pinned
+    - uses: astral-sh/setup-uv@v10
+
+    # ruleid: mcmc.github-actions.external-action-version-comment
+    - uses: astral-sh/setup-uv@0123456789abcdef0123456789abcdef01234567
+
+    - name: Unpinned named step
+      # ruleid: mcmc.github-actions.external-action-sha-pinned
+      uses: actions/cache@v6
+
+    - name: Named step missing a version comment
+      # ruleid: mcmc.github-actions.external-action-version-comment
+      uses: actions/cache@0123456789abcdef0123456789abcdef01234567
+
+    # ok: mcmc.github-actions.external-action-sha-pinned
+    # ok: mcmc.github-actions.external-action-version-comment
+    - uses: astral-sh/setup-uv@0123456789abcdef0123456789abcdef01234567 # v10.1.0
+
+    # ok: mcmc.github-actions.external-action-sha-pinned
+    # ok: mcmc.github-actions.external-action-version-comment
+    - uses: ./local-action

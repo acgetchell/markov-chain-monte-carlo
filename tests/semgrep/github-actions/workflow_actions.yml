@@ -23,6 +23,16 @@ jobs:
   action-policy:
     runs-on: ubuntu-latest
     steps:
+      # ruleid: mcmc.github-actions.external-action-sha-pinned
+      - uses: actions/checkout@v7
+
+      # ruleid: mcmc.github-actions.external-action-version-comment
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567
+
+      # ok: mcmc.github-actions.external-action-sha-pinned
+      # ok: mcmc.github-actions.external-action-version-comment
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.0.1
+
       - name: Non-SHA external action
         # ruleid: mcmc.github-actions.external-action-sha-pinned
         uses: actions/checkout@v6

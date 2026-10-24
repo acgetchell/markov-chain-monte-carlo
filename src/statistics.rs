@@ -588,8 +588,7 @@ impl BinningLevel {
         self.stats.push_sample(block_mean)?;
         check_stats(&self.stats)?;
         if let Some(previous) = self.pending.take() {
-            FiniteSample::new(0.5_f64.mul_add(block_mean.into_inner(), 0.5 * previous.into_inner()))
-                .map(Some)
+            FiniteSample::new(block_mean.into_inner().midpoint(previous.into_inner())).map(Some)
         } else {
             self.pending = Some(block_mean);
             Ok(None)
@@ -1192,6 +1191,21 @@ mod tests {
             OnlineStats::try_from_iter([1.0, f64::NAN, 3.0]),
             Err(StatisticsError::NanSample)
         );
+    }
+
+    #[test]
+    fn binning_preserves_constant_subnormal_means_at_every_level() {
+        for sample in [f64::from_bits(1), -f64::from_bits(1)] {
+            for count in [2, 4, 8] {
+                let bins =
+                    BinningAnalysis::try_from_iter(std::iter::repeat_n(sample, count)).unwrap();
+                assert_eq!(bins.count(), count);
+                for estimate in bins.estimates() {
+                    assert_eq!(estimate.mean().to_bits(), sample.to_bits());
+                    assert_eq!(estimate.block_count(), count / estimate.block_size());
+                }
+            }
+        }
     }
 
     #[test]

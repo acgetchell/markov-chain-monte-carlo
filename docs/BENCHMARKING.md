@@ -90,9 +90,9 @@ live worktree measurement to the maintainer.
 
 ## Shared reports and the first baseline
 
-Release performance tracking starts with the current development version. Earlier reports, converted evidence, README timings, and the legacy
-release-asset adapter have been removed. The diagnostic-backend experiment remains under `docs/performance/v1/experiments/` because it records a
-current implementation decision, separate from the stepping release signal.
+The performance-series reset retired earlier reports, converted evidence, README timings, and the legacy release-asset adapter. The current series starts at
+v0.5.0 and retains the prepared v0.5.1 comparison described below. The diagnostic-backend experiment remains under `docs/performance/v1/experiments/` because it
+records a current implementation decision, separate from the stepping release signal.
 
 For local development, save the current checkout without modifying Git state:
 
@@ -179,7 +179,7 @@ The Actions artifact lasts 30 days; the release asset is durable.
 `just performance-github-assets CURRENT BASELINE` downloads native shared assets via authenticated GitHub CLI, checks provider hashes when available,
 and uses bounded extraction. It no longer accepts the former repository-specific legacy layout.
 
-The next release containing this reset creates the first shared baseline; its successor enables the first complete asset pair. Verify that pair before claiming
+The first two retained native shared release assets create the first complete asset pair. Verify that pair before claiming
 live asset adoption. No backfill runs implicitly. Runner hardware varies, so asset comparisons require manual compatibility review; the CLI does not certify
 them as controlled same-host measurements.
 

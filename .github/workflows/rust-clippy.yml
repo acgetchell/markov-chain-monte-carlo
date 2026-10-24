@@ -33,6 +33,7 @@ jobs:
         uses: $/.github/actions/setup-toolchain
 
       - name: Run clippy with SARIF output
+        shell: bash
         run: |
           uv run --locked --group dev research-repo-tools toolchain run -- cargo clippy --locked \
             --workspace \
@@ -43,7 +44,6 @@ jobs:
             clippy-sarif | \
             tee rust-clippy-results.sarif | \
             sarif-fmt
-        continue-on-error: true
 
       - name: Upload SARIF results
         if: >-

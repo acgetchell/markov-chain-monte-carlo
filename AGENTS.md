@@ -12,6 +12,12 @@ When making changes in this repo, prioritize (in order):
 
 ## Core Rules
 
+- **Scientific correctness is the acceptance criterion.** Passing tests alone do not establish mathematical or statistical validity. When a legitimate
+  regression test fails, agents MUST correct the production code while preserving the original input and intended behavior. Never weaken assertions,
+  substitute easier fixtures, reduce coverage, skip the test, or replace expected success with accepted failure merely to obtain a green run. Change a
+  test's contract only when independent evidence demonstrates that its mathematics, fixture, or expectation is wrong; explain that evidence and preserve
+  meaningful regression coverage. Typed errors and rollback are required safeguards, not substitutes for supported successful behavior.
+
 ### Git Operations
 
 - **Mutate version-control state only with explicit user approval.** Keep branch creation, staging, commits, pushes, tags, and other ref/index changes
@@ -112,10 +118,10 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 - Use the exact published `research-repo-tools==0.2.3` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
-- Release performance tracking starts with the current development version; earlier reports and converted legacy evidence were retired by maintainer
-  request. Shared reports and evidence use `docs/performance/v1/`, with the current report at `performance.md`. The next tagged release establishes the
-  baseline; publish comparisons only after a second release in that series. Create the independently reviewed `tooling/performance-readme.toml` selection
-  from actual evidence before README publication. Preserve newly retained measurements and provenance; keep experiments distinct from release comparisons.
+- Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
+  baseline and retains a comparison of the prepared v0.5.1 tree against it. Shared reports and evidence use `docs/performance/v1/`, with the current report
+  at `performance.md`. Keep `tooling/performance-readme.toml` independently reviewed and grounded in retained evidence before README publication.
+  Preserve measurements and provenance; keep experiments distinct from release comparisons. See `docs/BENCHMARKING.md` for the current series and workflow.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version` as a checked mirror of the shared Python baseline, Rust in `rust-toolchain.toml`, and supported Cargo tools in
   `[tool.research-repo-tools.toolchain.cargo]`. Keep `toolchain.inherit-python` enabled; Ruff and Ty infer their targets from project metadata.

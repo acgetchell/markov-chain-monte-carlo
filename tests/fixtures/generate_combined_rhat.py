@@ -15,9 +15,15 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
-# Inline dependencies are checked in the isolated script environment as well.
-import arviz as az  # ty: ignore[unresolved-import]
 import numpy as np
+
+
+def reference_tolerance(value: object) -> float:
+    """Bound fixture-controlled tolerance before evaluating the reference."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 5e-13:
+        message = "Combined R-hat relative tolerance must be a number in (0, 5e-13]"
+        raise ValueError(message)
+    return float(value)
 
 
 def verify_component(name: str, component: str, actual: float, expected: float | None, tolerance: float) -> None:
@@ -31,6 +37,7 @@ def verify_component(name: str, component: str, actual: float, expected: float |
 def main() -> None:
     """Print both components, their maximum, and the pinned runtime versions."""
     fixture = json.loads(Path(__file__).with_name("combined_rhat.json").read_bytes())
+    tolerance = reference_tolerance(fixture["reference"]["relative_tolerance"])
     reproduction = fixture["reproduction"]
     python_version = platform.python_version()
     if python_version != reproduction["python_version"]:
@@ -43,7 +50,9 @@ def main() -> None:
             message = f"{package} {expected} required; found {actual}"
             raise ValueError(message)
 
-    tolerance = fixture["reference"]["relative_tolerance"]
+    # Inline dependencies are checked in the isolated script environment as well.
+    import arviz as az  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated historical oracle, not needed for boundary tests.
+
     for case in fixture["cases"]:
         draws = np.asarray(case["chains"], dtype=np.float64)
         location = float(az.rhat(draws, method="z_scale"))
