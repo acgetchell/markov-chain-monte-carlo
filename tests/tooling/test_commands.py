@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 from research_repo_tools.cargo_examples import discover_examples
 from research_repo_tools.just_inspect import dry_run, inspect_justfile
 
@@ -141,7 +142,8 @@ def test_clippy_sarif_analysis_propagates_pipeline_failures(failure: str | None,
 
 def test_release_credentials_and_shared_commands_are_separated() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    shared_pin = manifest["dependency-groups"]["tooling"][0]
+    shared_requirement = Requirement(manifest["dependency-groups"]["tooling"][0])
+    shared_pin = f"{shared_requirement.name}{shared_requirement.specifier}"
     workflow = (REPO_ROOT / ".github/workflows/release-benchmarks.yml").read_text(encoding="utf-8")
     validation, rest = workflow.split("  validate-release:\n", 1)[1].split("  release-baseline:\n", 1)
     baseline, publication = rest.split("  publish-baseline:\n", 1)
@@ -275,8 +277,8 @@ def test_managed_update_preserves_python_tool_policy_without_setup() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_bytes().decode("utf-8"))
     config = manifest["tool"]["research-repo-tools"]
     assert config["toolchain"]["inherit-python"] is True
-    assert not config["toolchain"].get("inherit-python-tools", False)
-    assert not any("python-tools" in str(requirement) for group in manifest["dependency-groups"].values() for requirement in group)
+    assert config["toolchain"]["inherit-python-tools"] is True
+    assert all(tool in manifest["dependency-groups"]["dev"] for tool in ("pytest", "ruff", "ty"))
     for name in ("dprint", "rumdl"):
         assert name in config["toolchain"]["binaries"]
         assert name not in config["toolchain"]["cargo"]

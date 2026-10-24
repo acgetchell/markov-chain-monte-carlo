@@ -9,14 +9,18 @@ dependencies = [  ]
 dev = [
     { include-group = "tooling" },
     "actionlint-py==1.7.12.25",
-    "pytest>=9.1.1",
-    "ruff>=0.16.8",
+    "pytest",
+    "ruff",
     "semgrep==1.182.1",
-    "ty>=0.0.82",
+    "ty",
 ]
-notebook = [ "research-repo-tools[notebooks]==0.2.3", "matplotlib>=3.11.1", "polars>=1.43.2" ]
+notebook = [
+    "research-repo-tools[notebooks,python-tools]==0.2.3",
+    "matplotlib>=3.11.2",
+    "polars>=2.0.0",
+]
 
-tooling = [ "research-repo-tools==0.2.3" ]
+tooling = [ "research-repo-tools[python-tools]==0.2.3" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -79,6 +83,7 @@ count = 11
 
 [tool.research-repo-tools.toolchain]
 inherit-python = true
+inherit-python-tools = true
 
 [tool.research-repo-tools.toolchain.binaries]
 dprint = "0.64.3"
@@ -190,6 +195,7 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
+"tooling/release_changelog.py" = [ "INP001", "T201" ] # Temporary standalone CLI adapter with stderr diagnostics
 "tests/semgrep/tests/tooling/subprocess_mocks.py" = [
     "ERA001", # Semgrep ruleid/ok annotations are harness metadata
     "INP001", # Scanner input, not an importable package

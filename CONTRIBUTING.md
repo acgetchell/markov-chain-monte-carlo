@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.3` package owns setup and checked execution. It installs the declared Python, Rust 1.99.0 components/targets, and Cargo
+The published `research-repo-tools==0.2.3` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -183,7 +183,8 @@ just clean           # Clean build artifacts
 declared Cargo tools and release binaries, then updates Cargo and Python dependencies. Candidate pins are published only after every new tool installs and
 verifies successfully. Setup remains explicit when declarations change. Just and the shared package retain their explicit package pins. Unsupported uv
 installation owners receive manual update guidance. dprint and rumdl use checksum-verified release binaries; `just tools-sync-binaries` installs or repairs
-those declared binaries without rebuilding Cargo tools. Ruff, Ty, and pytest retain consumer-owned requirements and locked versions.
+those declared binaries without rebuilding Cargo tools. The pinned `research-repo-tools[python-tools]` extra owns Ruff, Ty, and pytest versions through
+`inherit-python-tools`; their direct dev requirements stay unversioned. Adopt a newer shared package to advance these tools together.
 
 Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates retain
 ranged and included tooling requirements, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations before committing.
@@ -233,7 +234,7 @@ scope and follow-up guidance. The default base must match the live remote; a sta
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.99.0 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.99.1 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 

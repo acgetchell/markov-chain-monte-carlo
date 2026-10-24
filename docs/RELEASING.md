@@ -20,6 +20,9 @@ later UTC date intentionally advances the declared release date. Crossing
 midnight alone requires no update: the `declared` date policy allows preparation
 and tagging on different UTC days when citation and changelog dates agree.
 Repeated `performance-release` runs can produce different measurements.
+With unchanged history and configuration, repeating `changelog-unreleased`
+reuses the declared citation date and preserves the generated contents,
+including when a rerun happens after UTC midnight.
 
 The command names, arguments and operational order follow Delaunay's release
 workflow. Published `research-repo-tools==0.2.3` implements common metadata,
@@ -98,22 +101,42 @@ historical evidence links retain their provenance. The Zenodo concept DOI remain
 
 The recipe accepts optional shared CLI arguments, including `--previous-release`,
 `--date`, `--offline` and `--dry-run`. It does not upgrade dependencies, generate
-the changelog or run benchmarks. Review its diff before continuing.
+the changelog or run benchmarks. The shared updater validates prepared metadata;
+final changelog validation runs after generation in step 6. Review its diff before continuing.
 
 ### 3. Generate the release changelog
 
 ```bash
-RELEASE_DATE="$(date -u +%F)"
-just changelog-release "$TAG" "$RELEASE_DATE"
+just changelog-unreleased "$TAG"
 ```
 
-This generates `CHANGELOG.md` as though the target tag already existed and
-archives completed minor series under `docs/archives/changelog/`. If preparation
-crossed UTC midnight, reuse the date in `CITATION.cff` or deliberately advance it
-with `just update-version "$TAG" --date "$RELEASE_DATE"` first. The final version
-check requires the changelog and citation dates to agree. Review generated notes
-and archives; never hand-edit them. Correct source commit messages or shared
-generator behavior and regenerate instead.
+This generates `CHANGELOG.md` as though the target tag already existed, archives
+completed minor series under `docs/archives/changelog/`, and defaults to the
+`date-released` already recorded in `CITATION.cff` by `update-version`.
+No `RELEASE_DATE` shell variable is needed, and generation does not read today's
+date or update package or citation metadata. The citation version must match
+the target tag, and its date must be a valid ISO `YYYY-MM-DD` date; missing or
+invalid metadata stops generation with preparation guidance. Reruns reuse the
+recorded date even after UTC midnight and preserve existing release dates.
+
+The optional explicit date remains supported. For troubleshooting, populate
+`RELEASE_DATE` manually and pass it as the second argument:
+
+```bash
+RELEASE_DATE="$(date -u +%F)"
+just changelog-unreleased "$TAG" "$RELEASE_DATE"
+```
+
+This override explicitly chooses today's UTC date; keep it consistent with
+`CITATION.cff`. To intentionally change the declared release date, update the
+metadata first with `just update-version "$TAG" --date "$RELEASE_DATE"`.
+You can also set `RELEASE_DATE` to a reviewed `YYYY-MM-DD` value instead of today.
+
+Use `just changelog-preview --tag "$TAG"` for a read-only preview, and
+`just changelog-check` to validate the root and every archive. Tagged previews
+use the same citation-date default; `--date YYYY-MM-DD` remains available as an
+explicit override. Review generated notes and archives; never hand-edit them.
+Correct source commit messages or shared generator behavior and regenerate instead.
 
 ### 4. Generate release performance measurements
 

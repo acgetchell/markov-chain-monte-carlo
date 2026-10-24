@@ -1,6 +1,6 @@
 # Developing in Rust
 
-This repository is a single Rust library crate using Rust 1.99.0 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
+This repository is a single Rust library crate using Rust 1.99.1 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
 
 ## Core Commands
 
@@ -186,10 +186,13 @@ completion status, valid fixes, and skipped findings with brief reasons.
 
 ## Rust 1.99.0 Audit
 
-The MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace use Rust 1.99.0. The feature assessment follows the
+The MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace use Rust 1.99.1. The feature assessment below follows the
 official [release notes](https://doc.rust-lang.org/stable/releases.html#version-1990-2026-10-01),
 [release announcement](https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/), and
 [Cargo changelog](https://doc.rust-lang.org/nightly/cargo/CHANGELOG.html#cargo-199-2026-10-01).
+
+The [Rust 1.99.1 patch](https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/) fixes missing `wcslen` symbols, x86_64 FFI Boolean return values, and macOS
+`rust-lld` library lookup. It adds no language or library features; the Rust 1.99.0 feature decisions below still apply.
 
 | Surface | Decision |
 | --- | --- |
@@ -227,7 +230,8 @@ pinned shared installer. `just tools-check` checks existing installations withou
 The authoritative declarations are `[tool.uv].required-version`, the installed shared Python baseline, `rust-toolchain.toml`, and
 `[tool.research-repo-tools.toolchain.cargo]`. With `toolchain.inherit-python = true`, `.python-version` and `project.requires-python` are checked mirrors.
 The shared Python gates check baseline drift before validation; Ruff and Ty infer their Python targets from project metadata.
-Ruff and Ty versions remain consumer-owned in the manifest and lock; `inherit-python-tools` stays disabled.
+With `inherit-python-tools = true`, the installed `research-repo-tools[python-tools]` extra owns pytest, Ruff, and Ty versions. Their direct dev requirements
+stay unversioned; shared gates check declarations, locked versions, and selected executables. Advance these tools through shared-package adoption.
 Shared setup installs isolated Rust/Cargo tools, managed Python, and user-level Just, configures shell PATH, and synchronizes the locked dev environment. Git,
 Bash/sh, the native compiler/linker, jq, and uv remain system prerequisites; authenticated gh is needed for release operations.
 
@@ -413,6 +417,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.
 - `tooling/` contains declarative benchmark, publication, and example policy; `tests/tooling/` protects consumer integration and scientific behavior.
   Shared maintenance, measurement, rendering, and notebook execution live in the registry-pinned `research-repo-tools` package.
+  The temporary `release_changelog.py` adapter supplies la-stack's prepared citation-date default until research-repo-tools#130 is published and adopted.
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.
