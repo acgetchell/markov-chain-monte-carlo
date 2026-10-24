@@ -11,6 +11,55 @@ import pytest
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
+@pytest.mark.parametrize("tolerance", [None, True, False, "5e-13", 0, -1e-13, 5e-12, 1.0, float("nan"), float("inf"), 10**1000])
+def test_combined_rhat_rejects_invalid_tolerance_before_oracle_import(monkeypatch: pytest.MonkeyPatch, tolerance: object) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
+    fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
+    fixture["reference"]["relative_tolerance"] = tolerance
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(fixture).encode("utf-8"))
+    with pytest.raises(ValueError, match="relative tolerance must be a number"):
+        namespace["main"]()
+
+
+def test_combined_rhat_retains_strict_numeric_comparisons() -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
+    fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
+    tolerance = namespace["reference_tolerance"](fixture["reference"]["relative_tolerance"])
+    for case in fixture["cases"]:
+        for component in ("location", "folded", "combined"):
+            expected = case[component]
+            actual = float("nan") if expected is None else expected
+            namespace["verify_component"](case["name"], component, actual, expected, tolerance)
+    with pytest.raises(ValueError, match=r"reference=2\.0"):
+        namespace["verify_component"]("drift", "combined", 1.0, 2.0, tolerance)
+
+
+@pytest.mark.parametrize("contents", [None, b"{broken JSON"])
+def test_plot_cli_reports_input_errors_on_stderr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], contents: bytes | None
+) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    main_globals = namespace["main"].__globals__
+    reference = namespace["REFERENCE"]
+    monkeypatch.setattr(main_globals["platform"], "python_version", lambda: reference["python"])
+    monkeypatch.setitem(main_globals, "version", lambda name: reference[name])
+    report = tmp_path / "report with spaces.json"
+    if contents is not None:
+        report.write_bytes(contents)
+    monkeypatch.setattr(main_globals["sys"], "argv", ["generate_diagnostic_plots.py", "--report", str(report)])
+    assert namespace["cli"]() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("generate_diagnostic_plots.py: ")
+    assert "Traceback" not in captured.err
+    if contents is None:
+        assert repr(str(report)) in captured.err
+        assert not report.exists()
+    else:
+        assert "Expecting property name" in captured.err
+        assert report.read_bytes() == contents
+
+
 @pytest.fixture
 def verifier(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, dict[str, Any]]:
     """Keep a fixed oracle response while mutating only the evidence under test."""
@@ -183,6 +232,56 @@ def test_exported_report_verification_checks_every_prefix(report_verifier: tuple
     verify(report)
     assert report == before
     assert capsys.readouterr().out == "Verified exported ranks and precision: independent\n"
+
+
+@pytest.mark.parametrize(
+    "corruption", [None, "root_list", "root_null", "run_null", "missing_id", "unhashable_id", "chains_null", "missing_metric", "metric_null", "huge_draw"]
+)
+def test_plot_report_cli_handles_json_structures(
+    report_verifier: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], corruption: str | None
+) -> None:
+    verify, report = report_verifier
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    main_globals = namespace["main"].__globals__
+    reference = namespace["REFERENCE"]
+    monkeypatch.setattr(main_globals["platform"], "python_version", lambda: reference["python"])
+    monkeypatch.setitem(main_globals, "version", lambda name: reference[name])
+    monkeypatch.setitem(main_globals, "verify_report", verify)
+    payload: object = report
+    run = report["runs"][0]
+    if corruption == "root_list":
+        payload = []
+    elif corruption == "root_null":
+        payload = None
+    elif corruption == "run_null":
+        report["runs"] = [None]
+    elif corruption == "missing_id":
+        del run["run_id"]
+    elif corruption == "unhashable_id":
+        run["run_id"] = []
+    elif corruption == "chains_null":
+        run["chains"] = None
+    elif corruption == "missing_metric":
+        del run["prefixes"][0]["ess"]
+    elif corruption == "metric_null":
+        run["prefixes"][0]["mean_mcse"] = None
+    elif corruption == "huge_draw":
+        run["chains"][0]["draws"][0] = 10**1000
+    path = tmp_path / "report with spaces.json"
+    original = json.dumps(payload).encode("utf-8")
+    path.write_bytes(original)
+    monkeypatch.setattr(main_globals["sys"], "argv", ["generate_diagnostic_plots.py", "--report", str(path)])
+    assert namespace["cli"]() == (0 if corruption is None else 1)
+    captured = capsys.readouterr()
+    if corruption is None:
+        assert captured.out == "Verified exported ranks and precision: independent\n"
+        assert captured.err == ""
+    else:
+        assert captured.out == ""
+        assert "invalid plot report structure" in captured.err
+        assert str(path) in captured.err
+        assert "Traceback" not in captured.err
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize(

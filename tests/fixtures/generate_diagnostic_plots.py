@@ -199,6 +199,16 @@ def verify_report(report: dict[str, Any]) -> None:
         sys.stdout.write(f"Verified exported ranks and precision: {run['scenario']}\n")
 
 
+def verify_report_file(path: Path) -> None:
+    """Normalize malformed JSON report structures at the external input boundary."""
+    report = json.loads(path.read_bytes())
+    try:
+        verify_report(report)
+    except (AttributeError, KeyError, OverflowError, TypeError) as error:
+        message = f"{path}: invalid plot report structure ({error})"
+        raise ValueError(message) from error
+
+
 def main() -> None:
     """Check exact oracle versions before verifying or emitting evidence."""
     if platform.python_version() != REFERENCE["python"] or any(version(name) != REFERENCE[name] for name in ("arviz", "numpy", "scipy")):
@@ -207,7 +217,7 @@ def main() -> None:
     if sys.argv[1:] == ["--emit"]:
         sys.stdout.write(json.dumps(fixture(), indent=2, allow_nan=False) + "\n")
     elif len(sys.argv) == 3 and sys.argv[1] == "--report":
-        verify_report(json.loads(Path(sys.argv[2]).read_bytes()))
+        verify_report_file(Path(sys.argv[2]))
     elif len(sys.argv) == 1:
         verify_fixture(json.loads((FIXTURES / "diagnostic_plots.json").read_bytes()))
     else:
@@ -215,5 +225,15 @@ def main() -> None:
         raise ValueError(message)
 
 
+def cli() -> int:
+    """Report ordinary input failures on stderr with a nonzero exit status."""
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        sys.stderr.write(f"generate_diagnostic_plots.py: {error}\n")
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(cli())

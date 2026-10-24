@@ -829,6 +829,13 @@ where
 /// probability by combining exact endpoint hits with each hit's undo-token-based
 /// log q-ratio.
 ///
+/// `S::clone` must isolate every part of the state that the proposal can mutate
+/// and that affects equality or target evaluation. Shared immutable storage is
+/// fine; a shallow clone of `Rc<Cell<_>>` or other shared mutable target state
+/// is insufficient because hypothetical moves could change the borrowed
+/// endpoints while they are being compared. Implement a deep clone for that
+/// storage before using this helper.
+///
 /// # Examples
 ///
 /// ```
@@ -972,6 +979,8 @@ where
 /// ```
 ///
 /// Per-transition failures are collected in [`DetailedBalanceBatchReport::failures`].
+/// Each endpoint must satisfy [`verify_detailed_balance_mut`]'s clone-isolation
+/// contract.
 pub fn verify_detailed_balance_mut_many<'a, S, T, P, R, I>(
     pairs: I,
     target: &T,
@@ -2935,6 +2944,70 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn in_place_verifier_preserves_deep_cloned_cell_endpoints() {
+        use std::rc::Rc;
+
+        #[derive(Debug)]
+        struct State(Rc<Cell<bool>>);
+
+        impl Clone for State {
+            fn clone(&self) -> Self {
+                Self(Rc::new(Cell::new(self.0.get())))
+            }
+        }
+
+        impl PartialEq for State {
+            fn eq(&self, other: &Self) -> bool {
+                self.0.get() == other.0.get()
+            }
+        }
+
+        struct Flat;
+        impl Target<State> for Flat {
+            fn log_prob(&self, _: &State) -> f64 {
+                0.0
+            }
+        }
+
+        struct Flip;
+        impl ProposalMut<State> for Flip {
+            type Undo = bool;
+            type Info = ();
+
+            fn propose_mut<R: Rng + ?Sized>(
+                &mut self,
+                state: &mut State,
+                _: &mut R,
+            ) -> Option<bool> {
+                Some(state.0.replace(!state.0.get()))
+            }
+
+            fn info(&self, _: &State, _: &bool) {}
+
+            fn undo(&mut self, state: &mut State, token: bool) {
+                state.0.set(token);
+            }
+        }
+
+        let current = State(Rc::new(Cell::new(false)));
+        let proposed = State(Rc::new(Cell::new(true)));
+        let report = verify_detailed_balance_mut(
+            &current,
+            &proposed,
+            &Flat,
+            &mut Flip,
+            &mut StdRng::seed_from_u64(42),
+            DetailedBalanceConfig::new(8, 0.0, 1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report.forward_hits, 8);
+        assert_eq!(report.reverse_hits, 8);
+        assert_eq!(report.log_balance_residual.to_bits(), 0.0_f64.to_bits());
+        assert!(!current.0.get());
+        assert!(proposed.0.get());
     }
 
     #[test]

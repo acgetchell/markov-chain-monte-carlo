@@ -111,6 +111,34 @@ def test_coverage_workflow_uses_shared_report_validation_after_generation() -> N
     assert upload["with"]["files"] == "coverage/cobertura.xml"
 
 
+@pytest.mark.parametrize("failure", [None, "cargo", "converter", "formatter"])
+def test_clippy_sarif_analysis_propagates_pipeline_failures(failure: str | None, tmp_path: Path) -> None:
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/rust-clippy.yml").read_bytes())
+    steps = workflow["jobs"]["clippy-sarif"]["steps"]
+    analysis = next(step for step in steps if step.get("name") == "Run clippy with SARIF output")
+    assert analysis["shell"] == "bash"
+    assert not analysis.get("continue-on-error", False)
+    executable = shutil.which("bash")
+    assert executable is not None
+    providers = (
+        f"uv() {{ printf '%s\\n' '{{}}'; return {7 if failure == 'cargo' else 0}; }}\n"
+        f"clippy-sarif() {{ cat; return {7 if failure == 'converter' else 0}; }}\n"
+        f"sarif-fmt() {{ cat; return {7 if failure == 'formatter' else 0}; }}\n"
+    )
+    result = subprocess.run(  # noqa: S603 - actual pipeline with inert providers under the Actions Bash policy.
+        [executable, "--noprofile", "--norc", "-e", "-o", "pipefail"],
+        input=(providers + analysis["run"]).encode("utf-8"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == (0 if failure is None else 7), result.stderr
+    assert (tmp_path / "rust-clippy-results.sarif").read_bytes() == b"{}\n"
+    upload = next(step for step in steps if step.get("name") == "Upload SARIF results")
+    assert "always()" in upload["if"]
+
+
 def test_release_credentials_and_shared_commands_are_separated() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     shared_pin = manifest["dependency-groups"]["tooling"][0]

@@ -110,6 +110,9 @@ Useful checks:
 - Use `verify_detailed_balance_mut_many` for batches of local moves.
 
 The detailed-balance helper clones each endpoint once and reuses that scratch state for its trials.
+Each clone must isolate mutable state that affects equality or target evaluation, as required by
+[`verify_detailed_balance_mut`](https://docs.rs/markov-chain-monte-carlo/latest/markov_chain_monte_carlo/fn.verify_detailed_balance_mut.html).
+Shared immutable storage is fine; shared mutable storage needs a deep clone.
 It calls `undo` after every concrete hypothetical proposal, even if the destination differs or scoring fails.
 It also consumes no-proposal telemetry.
 Each trial therefore begins from a clean endpoint and rollback-governed proposal transition state.

@@ -158,13 +158,13 @@ The maintainer requested a fresh start during #154. Earlier release-performance 
 and the old README comparison have been removed. The legacy asset-layout adapter and publication selection were also retired. This supersedes the original
 migration's historical-byte preservation requirement. No old measurements are relabeled as current data.
 
-The current checkout can produce local Criterion baselines without Git changes. The next tagged release records the first shared release baseline; its
-successor enables the first comparison. `performance-check` explicitly accepts an empty release inventory and rejects orphaned evidence without its
-report. Actual report validation still runs through shared `performance promote --check`.
+At the reset, the checkout could produce local Criterion baselines without Git changes; the next tagged release was to establish the shared baseline. The series
+now starts at v0.5.0, with a retained comparison of the prepared v0.5.1 tree against that baseline. `performance-check` explicitly accepts an empty release
+inventory and rejects orphaned evidence without its report. Actual report validation still runs through shared `performance promote --check`.
 
 New release evidence and generated navigation belong under `docs/performance/v1/`, with `performance.md` as the configured current report.
-`tooling/performance-readme.toml` will be created from a real, independently reviewed pair before publication. The diagnostic-backend experiment remains
-separate under `experiments/` because it records the current backend decision. See [benchmarking](../BENCHMARKING.md) for the first-baseline workflow.
+`tooling/performance-readme.toml` selects that retained pair for README publication. The diagnostic-backend experiment remains
+separate under `experiments/` because it records the current backend decision. See [benchmarking](../BENCHMARKING.md) for the current workflow.
 
 ## Regression ownership and reduction
 

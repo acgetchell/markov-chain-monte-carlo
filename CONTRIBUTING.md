@@ -416,8 +416,8 @@ just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. Release tracking starts with this development version: the next tagged release
-establishes the baseline, and its successor enables the first comparison. Release maintainers then use `just performance-release` to retain shared JSON/CSV
+Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. The current release-performance series starts at the tagged v0.5.0 baseline;
+the retained comparison measures the prepared v0.5.1 tree against it. Release maintainers use `just performance-release` to retain shared JSON/CSV
 under `docs/performance/v1/`, `just performance-doc` to reproduce `performance.md`, and `just performance-readme` to publish a reviewed selection created from
 actual evidence in `tooling/performance-readme.toml`. `just performance-github-assets CURRENT BASELINE` compares two native shared release assets. See
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
@@ -425,7 +425,7 @@ actual evidence in `tooling/performance-readme.toml`. `just performance-github-a
 Performance guidelines:
 
 - profile before optimizing
-- prefer borrowed APIs and constant-memory accumulators (`OnlineStats`, `BinningAnalysis`) for hot loops
+- prefer borrowed APIs and streaming accumulators (`OnlineStats` uses constant memory; `BinningAnalysis` uses logarithmic memory) for hot loops
 - avoid intermediate `Vec` allocations in step / observe paths
 - be honest about what hot-path work crosses the API boundary as log weights vs. internal exact arithmetic
 

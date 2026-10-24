@@ -539,12 +539,14 @@ rules:
       include:
         - "/.github/workflows/**/*.yml"
         - "/.github/workflows/**/*.yaml"
+        - "/.github/actions/**/*.yml"
+        - "/.github/actions/**/*.yaml"
         - "/github-actions/**/*.yml"
         - "/github-actions/**/*.yaml"
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@(?![a-fA-F0-9]{40}(?:\s+#|$))[^\s#]+'
+      - pattern-regex: '(?m)^[ \t]*(?:-[ \t]+)?uses:[ \t]*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@(?![a-fA-F0-9]{40}(?:[ \t]+#|[ \t]*$))[^\s#]+'
 
   - id: mcmc.github-actions.external-action-version-comment
     languages:
@@ -558,12 +560,14 @@ rules:
       include:
         - "/.github/workflows/**/*.yml"
         - "/.github/workflows/**/*.yaml"
+        - "/.github/actions/**/*.yml"
+        - "/.github/actions/**/*.yaml"
         - "/github-actions/**/*.yml"
         - "/github-actions/**/*.yaml"
         - "/tests/semgrep/github-actions/**/*.yml"
         - "/tests/semgrep/github-actions/**/*.yaml"
     patterns:
-      - pattern-regex: '(?m)^\s*uses:\s*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[a-fA-F0-9]{40}\s*$'
+      - pattern-regex: '(?m)^[ \t]*(?:-[ \t]+)?uses:[ \t]*(?!\./)(?!docker://)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[a-fA-F0-9]{40}[ \t]*$'
 
   - id: mcmc.docs.check-before-fix-command-order
     languages:
