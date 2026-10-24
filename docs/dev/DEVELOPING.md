@@ -123,7 +123,7 @@ those runs still execute the audit gate. Online zizmor audits own remote action 
 Exact native scanner versions live in `[tool.research-repo-tools.toolchain.binaries]`; `just setup` installs verified release binaries, and
 `just update-cargo-tools` also updates these managed binary pins through the shared toolchain updater.
 
-OSV-Scanner audits `uv.lock`, `tooling/semgrep/uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These include the
+OSV-Scanner audits `uv.lock`, the root `Cargo.lock`, and `benches/diagnostic_backends/Cargo.lock`. These include the
 isolated diagnostic comparison crate. Advisory queries need network access; Go/Rust call analysis is disabled so scans do not execute dependency build code.
 The existing Cargo audit workflow continues to check RustSec advisories separately.
 
@@ -137,9 +137,9 @@ its own cache namespace. These recipes use the `tooling` Python group; ordinary
 build and release jobs retain the complete contributor setup.
 
 Semgrep 1.182.1 accepts PyJWT `>=2.15.0,<3`, which covers
-[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The scanner project's `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
+[GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The root `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
 with its `crypto` extra to include the [Base64URL padding compatibility fix](https://pyjwt.readthedocs.io/en/stable/changelog.html#v2-15-1).
-Refresh that selection with `uv lock --project tooling/semgrep --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
+Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
 Remove the override when the pinned Semgrep release's minimum includes that compatibility fix.
 
 Gitleaks scans all reachable Git history plus a private snapshot of tracked and nonignored working files, including uncommitted files. CI fetches complete
@@ -239,9 +239,10 @@ TOML pins and retain previous managed versions on failure. `cargo-update` and th
 stable-uv preflight. The shared `deps update-python --all-projects` command refreshes the root lock and synchronizes dev, then refreshes and synchronizes
 the independent projects declared in `deps.python-projects`. Shared package and Just upgrades remain deliberate package-pin changes.
 
-The root environment uses Python 3.15. `tooling/semgrep/` owns a separate Python 3.14 manifest, interpreter mirror, and lock because the scanner's published
-wheels do not yet support Python 3.15. Native scans and SARIF use that environment; fixture checks expose its scanner to the main shared CLI.
-The scanner retains its exact pin, PyJWT compatibility floor, and patched MCP 1.x override during updates. OSV and Dependabot cover both Python locks.
+The root Python 3.15 environment owns Semgrep alongside the other development tools, following Delaunay's unified setup. Native scans, fixtures, and SARIF
+use the same lock. Preserve the scanner's exact pin and native-wheel requirement, PyJWT compatibility floor, patched MCP 1.x and matching OpenTelemetry
+family, and `pywin32` override for Python 3.15 Windows wheels. Local and SARIF scans cap an unlimited Linux stack until
+[Semgrep #11979](https://github.com/semgrep/semgrep/issues/11979) is fixed. OSV and Dependabot cover the unified Python lock.
 
 For a newer published shared package, run `just shared-python-plan VERSION`, then `just shared-python-update VERSION` after reviewing the preview.
 `VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.
