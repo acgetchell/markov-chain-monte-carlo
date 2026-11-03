@@ -1,10 +1,59 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.2.3` registry distribution.
+MCMC pins the published `research-repo-tools==0.2.5` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.2.5 adoption
+
+The managed migration preserves the Python 3.15 baseline and both exact registry
+requirements. The subsequent `just update` uses the shared downgrade guards and
+existing compatibility overrides: Semgrep advances to 1.183.0 while Click 8.4.2
+and Rich 15.0.0 remain unchanged. Generic updater code stays upstream.
+
+The published v0.2.5 scanner helper still expects its bundled Semgrep 1.182.1.
+An explicitly temporary local adapter selects exactly 1.183.0 for the shared
+setup and fixture commands and restores the module state afterward. The unchanged helper
+continues verifying Python, distribution and native executable versions.
+[Upstream #178](https://github.com/acgetchell/research-repo-tools/issues/178)
+targets v0.2.6; [MCMC #222](https://github.com/acgetchell/markov-chain-monte-carlo/issues/222)
+requires verified registry publication and adoption before removing the adapter.
+
+Citation-backed changelog dates now use the installed CLI directly. Consumer
+tests retain quoted leap dates, repeated generation, preview, explicit overrides,
+invalid/duplicate/mismatched metadata and byte-preserving failure cases.
+
+Hosted CI runs configuration, documentation and source-policy checks once on
+Linux. All three native jobs retain Python tests, notebooks, Clippy, Rust tests,
+doctests, examples, documentation and benchmark compilation. A trusted main-push
+attempt additionally verifies clean default/all-feature packages and signs its
+source-validation receipt. Publication freezes and revalidates that same receipt
+across approval. This is signed-source validation, not byte-identical archive
+promotion or cross-commit PR evidence reuse. Real main-push verification remains
+required before tagging; PR tests do not supply that evidence.
+
+The future tag-push workflow prepares the draft automatically through a narrow
+consumer orchestration of public shared APIs. It checks protected-main source,
+metadata, signed evidence, exact required checks, notes and release target
+identity before creation; an identical existing mutable draft is retained
+without editing its assets. This PR does not create a tag or draft.
+
+Future report promotion uses `docs/performance/current.md` and the dedicated
+`docs/performance/runs/` inventory. Frozen v1 reports remain validated through
+`tooling/performance-report-legacy.toml` and the existing first-use guard; its
+README/experiment exception is not expressible in the shared strict inventory.
+[#221](https://github.com/acgetchell/markov-chain-monte-carlo/issues/221) gates
+guard retirement on the verified v0.5.3 release and retained new-namespace evidence.
+No historical report or measurement is moved, regenerated or relabelled here.
+
+The new complete-run declaration retains all 22 stepping workloads with their
+original timed boundaries. `performance-prepare` captures independently verified
+identities, `performance-release` measures each phase once, and report/README
+commands consume that retained run. The package version and latest published
+stable predecessor supply labels and provenance automatically. The legacy
+single-tag baseline asset declaration and old README selection stay frozen.
 
 ## v0.2.3 adoption
 
@@ -164,7 +213,7 @@ At the reset, the checkout could produce local Criterion baselines without Git c
 now starts at v0.5.0, with a retained comparison of the prepared v0.5.1 tree against that baseline. `performance-check` explicitly accepts an empty release
 inventory and rejects orphaned evidence without its report. Actual report validation still runs through shared `performance promote --check`.
 
-New release evidence and generated navigation belong under `docs/performance/v1/`, with `performance.md` as the configured current report.
+That series retains its release evidence and generated navigation under `docs/performance/v1/`, with `performance.md` as its historical current report.
 `tooling/performance-readme.toml` selects that retained pair for README publication. The diagnostic-backend experiment remains
 separate under `experiments/` because it records the current backend decision. See [benchmarking](../BENCHMARKING.md) for the current workflow.
 

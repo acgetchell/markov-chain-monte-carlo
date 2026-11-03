@@ -11,6 +11,49 @@ import pytest
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
+def test_combined_rhat_retains_all_nine_regimes_without_mutation() -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
+    fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
+    original = deepcopy(fixture)
+    namespace["verify_case_inventory"](fixture["cases"])
+    assert len(fixture["cases"]) == 9
+    assert fixture == original
+
+
+@pytest.mark.parametrize(
+    "change", ["missing", "duplicate", "unknown", "not_list", "case_null", "missing_name", "unhashable_name", "missing_component", "malformed_chains"]
+)
+def test_combined_rhat_rejects_incomplete_or_malformed_cases_before_oracle_import(monkeypatch: pytest.MonkeyPatch, change: str) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
+    fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
+    cases = fixture["cases"]
+    if change == "missing":
+        cases.pop()
+    elif change == "duplicate":
+        cases.append(deepcopy(cases[0]))
+    elif change == "unknown":
+        cases[0]["name"] = "unknown"
+    elif change == "not_list":
+        fixture["cases"] = None
+    elif change == "case_null":
+        cases[0] = None
+    elif change == "missing_name":
+        del cases[0]["name"]
+    elif change == "unhashable_name":
+        cases[0]["name"] = []
+    elif change == "missing_component":
+        del cases[0]["combined"]
+    else:
+        cases[0]["chains"] = [None]
+    original = deepcopy(fixture)
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(fixture).encode("utf-8"))
+    monkeypatch.setitem(namespace["main"].__globals__, "version", lambda _name: pytest.fail("case validation must precede the oracle environment"))
+    expected_error = TypeError if change == "not_list" else ValueError
+    with pytest.raises(expected_error, match="case inventory changed or is malformed"):
+        namespace["main"]()
+    assert fixture == original
+
+
 @pytest.mark.parametrize("tolerance", [None, True, False, "5e-13", 0, -1e-13, 5e-12, 1.0, float("nan"), float("inf"), 10**1000])
 def test_combined_rhat_rejects_invalid_tolerance_before_oracle_import(monkeypatch: pytest.MonkeyPatch, tolerance: object) -> None:
     namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))

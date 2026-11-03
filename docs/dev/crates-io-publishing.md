@@ -1,7 +1,7 @@
 # crates.io deployment setup and evidence
 
 The repository source implements #176 and #182 using Delaunay's recipe interfaces
-and the published `research-repo-tools==0.2.3` release contract. This document records the intended
+and the published `research-repo-tools==0.2.5` release contract. This document records the intended
 deployment identity and the evidence still needed outside source control.
 The routine release commands live in [RELEASING.md](../RELEASING.md).
 
@@ -32,11 +32,17 @@ and [`crates-io-tags.json`](../../.github/settings/crates-io-tags.json). They re
 `acgetchell` (user ID `434849`) review, permit self-review, disable administrator
 bypass, and restrict deployment to `v*` tags. Keep `main` protected.
 The current [`actions-selected.json`](../../.github/settings/actions-selected.json) declares explicit action and reusable-workflow identities for the shared
-checker, including GitHub-owned actions and CodeQL subpaths. The authentication-action identity uses `@*` in this strict shared schema; its workflow and
-consumer regression still require the exact reviewed commit. This proposed local payload supersedes the original broad GitHub-owned exemption described
+checker, including GitHub-owned actions and CodeQL subpaths. The authentication-action identity, workflow and consumer regression all require the exact
+reviewed v1.0.6 commit. This proposed local payload supersedes the original broad GitHub-owned exemption described
 in the historical evidence below. It has not been applied by this migration. Re-read live settings before applying any payload and preserve newer
 reviewed identities. Publishing workflow updates are excluded from Dependabot automatic
 approval. Verify all account settings separately from reviewing source.
+
+On November 3, 2026, the live selected-actions entry was changed from the v1.0.5
+authentication SHA to `3268eb413133e2960fa4ae0e963ca76380c54cd9` and read back.
+All other live permissions were preserved, including the GitHub-owned exemption.
+That exemption already permits the CI evidence attestation action. This narrow
+update does not apply the broader proposed selected-actions payload.
 
 ## Evidence status
 

@@ -12,12 +12,21 @@ from research_repo_tools.evidence import Evidence, Provenance, publish_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORT = "docs/performance/v1/performance.md"
-CONFIGURATION = "tooling/performance-report.toml"
+CONFIGURATION = "tooling/performance-report-legacy.toml"
 
 
 def _project(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Use the actual recipe/configuration and the already locked test environment."""
-    for name in ("justfile", "pyproject.toml", "uv.lock", ".python-version", CONFIGURATION, "tooling/performance-interpretation.md"):
+    for name in (
+        "justfile",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+        CONFIGURATION,
+        "tooling/performance-report.toml",
+        "tooling/measurement-release-signal.toml",
+        "tooling/performance-interpretation.md",
+    ):
         destination = root / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes((ROOT / name).read_bytes())
@@ -47,6 +56,34 @@ def test_first_comparison_gate_allows_experiments_without_release_evidence(tmp_p
 
     assert result.returncode == 0, result.stderr
     assert "No release comparison yet" in result.stdout
+    assert not (tmp_path / REPORT).exists()
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        "docs/performance/runs/partial.comparison.json",
+        "docs/performance/runs/unexpected.txt",
+        "docs/performance/runs/empty-run",
+        "target/bench-reports/preparation.json",
+        "target/bench-reports/performance.run.json",
+        "target/bench-reports/performance.evidence.json",
+        "docs/assets/release-performance.csv",
+        "docs/assets/release-performance.svg",
+    ],
+)
+def test_new_namespace_rejects_every_orphan_without_changing_legacy_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str) -> None:
+    _project(tmp_path, monkeypatch)
+    destination = tmp_path / artifact
+    destination.parent.mkdir(parents=True)
+    if destination.name == "empty-run":
+        destination.mkdir()
+    else:
+        destination.write_bytes(b"incomplete output\r\n")
+    result = _check(tmp_path)
+    assert result.returncode != 0
+    assert "uninitialized report has orphaned inventory" in result.stderr
+    assert not (tmp_path / "docs/performance/current.md").exists()
     assert not (tmp_path / REPORT).exists()
 
 

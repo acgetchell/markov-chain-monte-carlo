@@ -52,13 +52,27 @@ def test_shared_release_interface_matches_delaunay() -> None:
         "### 4. Generate release performance measurements",
         "### 5. Publish the README performance snapshot",
         "## Step 2: Publish after the PR is merged",
-        "### 5. Create the draft GitHub release",
+        "### 5. Inspect the prepared draft GitHub release",
         "### 6. Run benchmarks and review the draft",
         "### 7. Publish the reviewed draft and approve Cargo publication",
         "### 8. Verify registry availability and downstream resolution",
     ]
     positions = [guide.index(heading) for heading in headings]
     assert positions == sorted(positions)
+
+
+def test_no_argument_evidence_verification_uses_a_new_temporary_output() -> None:
+    executable = shutil.which("bash")
+    assert executable is not None
+    command = dry_run(ROOT, "release-evidence").stderr
+    provider = (
+        'just() { [[ "$1 $2" == "_release-evidence verify" ]] || return 91; [[ ! -e "$3" ]] || return 92; printf \'%s\\n\' \'{"verified":true}\' > "$3"; }\n'
+    )
+    result = subprocess.run([executable], input=provider + command, check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - inert verifier exercises actual temporary-output lifecycle.
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"verified": True}
+    recipes = inspect_justfile(ROOT).recipes
+    assert "release-evidence" in {item["recipe"] for item in recipes["release-publish"]["dependencies"]}
 
 
 def test_publication_builds_without_credentials_then_rechecks_after_approval() -> None:
@@ -71,10 +85,10 @@ def test_publication_builds_without_credentials_then_rechecks_after_approval() -
     assert REPOSITORY in jobs["verify"]["if"]
     assert "!github.event.release.draft" in jobs["verify"]["if"]
     assert "!github.event.release.prerelease" in jobs["verify"]["if"]
-    assert jobs["verify"]["permissions"] == {"contents": "read", "checks": "read"}
+    assert jobs["verify"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read"}
     assert jobs["publish"]["needs"] == "verify"
     assert jobs["publish"]["environment"] == "crates-io"
-    assert jobs["publish"]["permissions"] == {"contents": "read", "checks": "read", "id-token": "write"}
+    assert jobs["publish"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read", "id-token": "write"}
     for job in jobs.values():
         steps = job["steps"]
         checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
@@ -107,7 +121,10 @@ def test_publication_builds_without_credentials_then_rechecks_after_approval() -
 
 
 def test_benchmark_workflow_binds_checkout_and_writer_to_trusted_preflight() -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
+    assert set(workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]) == {"tag"}
+    assert workflow["env"]["RELEASE_TAG"] == "${{ inputs.tag }}"
+    jobs = workflow["jobs"]
     preflight, baseline, writer = (jobs[name] for name in ("validate-release", "release-baseline", "publish-baseline"))
     assert preflight["outputs"] == {"commit": "${{ steps.preflight.outputs.commit }}", "target": "${{ steps.preflight.outputs.target }}"}
     capture = next(step for step in preflight["steps"] if step.get("id") == "preflight")
@@ -127,6 +144,33 @@ def test_benchmark_workflow_binds_checkout_and_writer_to_trusted_preflight() -> 
     assert '--target "$RUNNER_TEMP/release-target.json"' in upload["run"]
     assert "--publish" not in upload["run"]
     assert all("actions/checkout@" not in step.get("uses", "") for job in (preflight, writer) for step in job["steps"])
+
+
+@pytest.mark.parametrize(("tag", "status"), [("v0.5.3", 0), ("v0.5.3; printf injected", 0), ("v0.5.3", 29)])
+def test_benchmark_dispatch_forwards_one_literal_tag_and_propagates_failure(tag: str, status: int) -> None:
+    executable = shutil.which("bash")
+    assert executable is not None
+    command = dry_run(ROOT, "release-benchmarks", [tag]).stderr
+    provider = f"gh() {{ printf '%s\\0' \"$@\"; return {status}; }}\n"
+    result = subprocess.run([executable], input=(provider + command).encode("utf-8"), check=False, capture_output=True)  # noqa: S603 - inert provider exercises actual argument forwarding.
+    assert result.returncode == status
+    assert result.stdout.split(b"\0") == [
+        argument.encode("utf-8") for argument in ("workflow", "run", "release-benchmarks.yml", "--repo", REPOSITORY, "--ref", tag, "-f", f"tag={tag}", "")
+    ]
+
+
+@pytest.mark.parametrize(("ref", "sha"), [("refs/tags/v0.5.3", COMMIT), ("refs/heads/main", COMMIT), ("refs/tags/v0.5.3", "b" * 40)])
+def test_benchmark_preflight_requires_exact_workflow_tag_and_commit(ref: str, sha: str) -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
+    capture = next(step for step in workflow["jobs"]["validate-release"]["steps"] if step.get("id") == "preflight")
+    guard = capture["run"].split("uvx ", 1)[0]
+    executable = shutil.which("bash")
+    assert executable is not None
+    provider = (
+        f"set -euo pipefail\nGITHUB_REF={shlex.quote(ref)}\nGITHUB_SHA={sha}\nRELEASE_TAG=v0.5.3\nGH_REPO={REPOSITORY}\ngh() {{ printf '%s' {COMMIT}; }}\n"
+    )
+    result = subprocess.run([executable], input=provider + guard, check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - actual workflow guards with inert API observations.
+    assert (result.returncode == 0) == (ref == "refs/tags/v0.5.3" and sha == COMMIT)
 
 
 @pytest.mark.parametrize("change", ["missing", "malformed", "repository", "tag", "moved-tag", "replaced-release"])
@@ -217,6 +261,7 @@ def test_actual_required_scientific_checks_fail_closed(failure: str) -> None:
     assert settings is not None
     assert settings.required_assets == ("markov-chain-monte-carlo-v{version}-criterion-baseline.tar.gz",)
     assert {check.name for check in settings.required_checks} == {
+        "repository-tooling",
         "build (ubuntu-latest)",
         "build (macos-latest)",
         "build (windows-latest)",
@@ -240,7 +285,14 @@ def test_actual_required_scientific_checks_fail_closed(failure: str) -> None:
         runs[-1]["head_sha"] = "b" * 40
     else:
         runs.append({**runs[-1], "id": len(runs) + 1})
-    message = "different release commit" if failure == "commit" else "lacks one unambiguous successful result"
+    message = {
+        "missing": "missing",
+        "pending": "pending/running",
+        "failed": "unsuccessful",
+        "provider": "same name observed from app IDs",
+        "commit": "different release commit",
+        "ambiguous": "ambiguous",
+    }[failure]
     with pytest.raises(ValueError, match=message):
         require_checks([{"total_count": len(runs), "check_runs": runs}], COMMIT, settings.required_checks)
 
@@ -288,5 +340,11 @@ def test_settings_payloads_restrict_deployments_and_allow_only_pinned_authentica
     auth = [entry for entry in actions["patterns_allowed"] if entry.startswith("rust-lang/")]
     workflow = yaml.safe_load((ROOT / ".github/workflows/publish-crates.yml").read_bytes())
     step = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("id") == "auth")
-    assert auth == ["rust-lang/crates-io-auth-action@*"]
-    assert step["uses"] == "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18"
+    # Permit main and the independently reviewed #219 upgrade during adoption.
+    approved = {
+        "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18",
+        "rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9",
+    }
+    assert len(auth) == len(approved)
+    assert set(auth) == approved
+    assert step["uses"] in approved

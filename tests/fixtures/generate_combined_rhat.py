@@ -17,6 +17,38 @@ from pathlib import Path
 
 import numpy as np
 
+EXPECTED_CASES = frozenset(
+    {
+        "binary_folded_degeneracy",
+        "discrete_counts",
+        "heavy_tails",
+        "location",
+        "odd_median",
+        "odd_pooled_count",
+        "one_folded_half_constant",
+        "scale_only",
+        "well_mixed_control",
+    }
+)
+
+
+def verify_case_inventory(cases: object) -> None:
+    """Require the complete nine-regime corpus before importing the oracle."""
+    message = "Combined R-hat case inventory changed or is malformed"
+    if not isinstance(cases, list):
+        raise TypeError(message)
+    names: list[str] = []
+    required = {"name", "chains", "location", "folded", "combined"}
+    for case in cases:
+        if not isinstance(case, dict) or not required <= set(case) <= required | {"unavailable", "policy_difference"} or not isinstance(case["name"], str):
+            raise ValueError(message)
+        chains = case["chains"]
+        if not isinstance(chains, list) or not chains or any(not isinstance(chain, list) or not chain for chain in chains):
+            raise ValueError(message)
+        names.append(case["name"])
+    if len(names) != len(EXPECTED_CASES) or frozenset(names) != EXPECTED_CASES:
+        raise ValueError(message)
+
 
 def reference_tolerance(value: object) -> float:
     """Bound fixture-controlled tolerance before evaluating the reference."""
@@ -37,6 +69,7 @@ def verify_component(name: str, component: str, actual: float, expected: float |
 def main() -> None:
     """Print both components, their maximum, and the pinned runtime versions."""
     fixture = json.loads(Path(__file__).with_name("combined_rhat.json").read_bytes())
+    verify_case_inventory(fixture.get("cases"))
     tolerance = reference_tolerance(fixture["reference"]["relative_tolerance"])
     reproduction = fixture["reproduction"]
     python_version = platform.python_version()

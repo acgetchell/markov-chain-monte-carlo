@@ -26,7 +26,23 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  repository-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
+
+      - name: Run repository tooling checks
+        run: just ci-repository-tooling
+
   build:
+    needs: repository-tooling
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -38,6 +54,13 @@ jobs:
           - windows-latest
 
     steps:
+      - name: Require repository tooling success
+        if: needs.repository-tooling.result != 'success'
+        shell: bash
+        run: |
+          echo "Repository tooling did not succeed; native validation cannot pass."
+          exit 1
+
       - name: Disable Git autocrlf on Windows
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -53,4 +76,91 @@ jobs:
         uses: $/.github/actions/setup-toolchain
 
       - name: Run CI checks
-        run: just ci
+        run: just ci-native
+
+  package:
+    needs: [repository-tooling, build]
+    if: >-
+      github.repository == 'acgetchell/markov-chain-monte-carlo' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up declared toolchain
+        uses: $/.github/actions/setup-toolchain
+        with:
+          cache: "false"
+
+      - name: Verify clean default and all-feature packages
+        run: just release-package
+
+  release-evidence:
+    needs: [repository-tooling, build, package]
+    if: >-
+      github.repository == 'acgetchell/markov-chain-monte-carlo' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install registry tooling runner
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          version: "0.13.7"
+          enable-cache: false
+
+      - name: Capture successful validation identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-03T10:06:40Z \
+            --from research-repo-tools==0.2.5 python -I - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          from research_repo_tools.cli import main
+          from research_repo_tools.release_metadata import read_package_info
+          root = Path.cwd()
+          sys.exit(main([
+              "release", "evidence", "create", "tooling/release-evidence.toml",
+              "--checkout", str(root), "--commit", os.environ["GITHUB_SHA"],
+              "--version", read_package_info(root).version,
+              "--run-id", os.environ["GITHUB_RUN_ID"], "--attempt", os.environ["GITHUB_RUN_ATTEMPT"],
+              "--output", str(Path(os.environ["RUNNER_TEMP"]) / "release-evidence/validation.json"),
+          ]))
+          PY
+
+      - name: Sign original main validation evidence
+        id: validation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release-evidence/validation.json
+          create-storage-record: false
+
+      - name: Retain the signature bundle
+        env:
+          VALIDATION_BUNDLE: ${{ steps.validation.outputs.bundle-path }}
+        run: cp "$VALIDATION_BUNDLE" "$RUNNER_TEMP/release-evidence/validation.sigstore.json"
+
+      - name: Upload signed validation evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-evidence/
+          if-no-files-found: error
+          retention-days: 30

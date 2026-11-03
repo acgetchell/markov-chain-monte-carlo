@@ -22,8 +22,13 @@ def test_offline_reporting_and_explicit_measurement_boundary() -> None:
         assert "performance " in result.stderr
         assert "--allow-git-mutations" not in result.stderr
         assert "cargo bench" not in result.stderr
-    for name in ("performance-local", "performance-release"):
-        assert "--allow-git-mutations" in dry_run(REPO_ROOT, name).stderr
+    assert "--allow-git-mutations" in dry_run(REPO_ROOT, "performance-local").stderr
+    release = dry_run(REPO_ROOT, "performance-release").stderr
+    assert "performance release tooling/performance-release.toml" in release
+    assert "--allow-git-mutations" not in release
+    # Complete release acquisition exports sources; it does not mutate Git refs.
+    measurement = tomllib.loads((REPO_ROOT / "tooling/measurement-release-signal.toml").read_bytes().decode("utf-8"))
+    assert measurement["backend"] == "export"
     for gate in ("check", "ci", "setup", "update"):
         assert "research-repo-tools review " not in dry_run(REPO_ROOT, gate).stderr
 
@@ -160,7 +165,8 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert "research-repo-tools toolchain export" in setup
     assert "<<'PY'" not in workflow
     setup_steps = yaml.safe_load(setup)["runs"]["steps"]
-    installer = next(step for step in setup_steps if step.get("run", "").endswith("research-repo-tools setup"))
+    installer = next(step for step in setup_steps if step.get("run", "").endswith("python tooling/semgrep_latest.py setup"))
+    assert installer["run"] == "uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup"
     assert installer["env"]["GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - literal Actions expression, not a credential.
     scanner = next(step for step in setup_steps if step.get("name") == "Set up the declared scanner through the shared API")
     assert installer["if"] == "inputs.scanner == ''"
@@ -225,8 +231,8 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
         for path in directory.rglob("*")
         if path.suffix in {".yml", ".yaml"}
     }
-    # Credentialed publishing changes require maintainer review.
-    assert set(policy["github_actions"]["files"]) == actions - {".github/workflows/publish-crates.yml"}
+    # Draft creation and credentialed publication require maintainer review.
+    assert set(policy["github_actions"]["files"]) == actions - {".github/workflows/prepare-release.yml", ".github/workflows/publish-crates.yml"}
     for path in (REPO_ROOT / ".github").rglob("*"):
         if path.is_file():
             assert b"CODERABBIT_REVIEW_TOKEN" not in path.read_bytes()

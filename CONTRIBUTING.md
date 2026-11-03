@@ -93,9 +93,17 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.3` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
+The published `research-repo-tools==0.2.5` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
+
+Hosted CI runs repository configuration, documentation and source-policy checks
+once on Linux through `just ci-repository-tooling`. Each native Linux, macOS and
+Windows job runs `just ci-native`, retaining Python tests, notebooks, Rust tests,
+Clippy, docs, doctests, examples and benchmark compilation. Local `just ci`
+continues to run the complete gate. Main-push CI also packages clean source and
+signs its validation receipt; `just release-evidence` verifies that receipt
+before tagging. See [the release procedure](docs/RELEASING.md).
 
 | Declaration | Authority |
 | --- | --- |
