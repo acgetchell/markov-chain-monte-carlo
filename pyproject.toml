@@ -11,27 +11,29 @@ dev = [
     "actionlint-py==1.7.12.25",
     "pytest",
     "ruff",
-    "semgrep==1.182.1",
+    "semgrep==1.183.0",
     "ty",
 ]
 notebook = [
-    "research-repo-tools[notebooks,python-tools]==0.2.3",
+    "research-repo-tools[notebooks,python-tools]==0.2.5",
     "matplotlib>=3.11.2",
     "polars>=2.0.0",
 ]
 
-tooling = [ "research-repo-tools[python-tools]==0.2.3" ]
+tooling = [ "research-repo-tools[python-tools]==0.2.5" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
 repository = "markov-chain-monte-carlo"
 formatter = "rumdl.toml"
+date-source = "citation"
 
 [tool.research-repo-tools.publishing]
 registry = "crates-io"
 package = "markov-chain-monte-carlo"
 repository = "acgetchell/markov-chain-monte-carlo"
 required-checks = [
+    { name = "repository-tooling", app-id = 15368 },
     { name = "build (ubuntu-latest)", app-id = 15368 },
     { name = "build (macos-latest)", app-id = 15368 },
     { name = "build (windows-latest)", app-id = 15368 },
@@ -89,19 +91,19 @@ inherit-python-tools = true
 dprint = "0.64.3"
 gitleaks = "8.30.1"
 osv-scanner = "2.7.0"
-rumdl = "0.3.0"
+rumdl = "0.3.2"
 
 [tool.research-repo-tools.toolchain.cargo]
 cargo-audit = "0.22.2"
 cargo-edit = "0.13.14"
 cargo-llvm-cov = "0.9.1"
-cargo-nextest = "0.9.149"
+cargo-nextest = "0.9.151"
 clippy-sarif = "0.8.0"
 git-cliff = "2.14.2"
 sarif-fmt = "0.8.0"
 taplo-cli = "0.10.0"
-typos-cli = "1.51.1"
-zizmor = "1.31.1"
+typos-cli = "1.52.0"
+zizmor = "1.32.0"
 
 [tool.research-repo-tools.zizmor]
 persona = "regular"
@@ -195,7 +197,8 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
-"tooling/release_changelog.py" = [ "INP001", "T201" ] # Temporary standalone CLI adapter with stderr diagnostics
+"tooling/semgrep_latest.py" = [ "INP001" ] # Temporary standalone scanner-version adapter
+"tooling/prepare_release.py" = [ "INP001" ] # Standalone tag-triggered release orchestration
 "tests/semgrep/tests/tooling/subprocess_mocks.py" = [
     "ERA001", # Semgrep ruleid/ok annotations are harness metadata
     "INP001", # Scanner input, not an importable package
@@ -232,7 +235,7 @@ python_classes = [ "Test*" ]
 python_functions = [ "test_*" ]
 
 [tool.uv]
-required-version = "==0.13.5"
+required-version = "==0.13.7"
 package = false
 default-groups = [ "dev", "notebook" ]
 # Semgrep requires its wheel-bundled native engine.

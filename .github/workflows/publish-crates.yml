@@ -22,6 +22,9 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
+    outputs:
+      evidence: ${{ steps.evidence.outputs.identity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +46,12 @@ jobs:
       - name: Verify clean default and all-feature packages without uploading
         run: just release-package
 
+      - name: Freeze the exact main validation selection
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: just _release-evidence verify "$RUNNER_TEMP/release-selection.json"
+
   publish:
     needs: verify
     runs-on: ubuntu-latest
@@ -51,6 +60,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,7 +78,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          APPROVED_EVIDENCE: ${{ needs.verify.outputs.evidence }}
         run: |
+          test -n "$APPROVED_EVIDENCE"
+          printf '%s\n' "$APPROVED_EVIDENCE" > "$RUNNER_TEMP/approved-selection.json"
+          just _release-evidence verify "$RUNNER_TEMP/rechecked-selection.json" "$RUNNER_TEMP/approved-selection.json"
           just release-gate "$RELEASE_TAG"
           uv run --locked --group dev research-repo-tools release registry "$RELEASE_TAG" --expect absent
 

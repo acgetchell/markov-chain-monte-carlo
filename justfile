@@ -113,12 +113,19 @@ changelog-check: sync
 [group('release')]
 [positional-arguments]
 changelog-preview *args: sync
-    {{ _run }} python tooling/release_changelog.py --dry-run "$@"
+    {{ _run }} research-repo-tools changelog generate --dry-run "$@"
 
 # Generate a prospective release using the citation date unless an ISO date is supplied.
 [group('release')]
 changelog-release tag date="": sync
-    {{ _run }} python tooling/release_changelog.py --tag {{ quote(tag) }} --date {{ quote(date) }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=(--tag {{ quote(tag) }})
+    date={{ quote(date) }}
+    if [[ -n "$date" ]]; then
+        args+=(--date "$date")
+    fi
+    {{ _run }} research-repo-tools changelog generate "${args[@]}"
 
 alias changelog-unreleased := changelog-release
 
@@ -154,9 +161,14 @@ ci: changelog-check action-lint workflow-allowlist-check zizmor justfile-fmt-che
 ci-portability: check-fast test-rust-ci test-doc validate-examples
     @echo "✅ Portability CI checks complete!"
 
-# CI subset for repository tooling and support-script tests.
+# Native Rust, Python and notebook checks run on every supported operating system.
 [group('workflows')]
-ci-repository-tooling: check-repository-tooling test-python
+ci-native: python-check notebook-lint test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+    @echo "✅ Native CI checks complete!"
+
+# Platform-independent configuration, documentation and source policy checks.
+[group('workflows')]
+ci-repository-tooling: changelog-check action-lint workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check fmt-check semgrep-test semgrep
     @echo "✅ Repository tooling CI checks complete!"
 
 # CI subset for Rust correctness.
@@ -353,9 +365,10 @@ performance +args:
 performance-baseline tag:
     {{ _run }} research-repo-tools performance baseline tooling/benchmark.toml {{ quote(tag) }} {{ quote("markov-chain-monte-carlo-" + tag + "-criterion-baseline.tar.gz") }}
 
-# Check retained reports, allowing an empty inventory before the first comparison.
+# Preserve the v1 boundary until the first release using the new report namespace.
 [group('validation')]
-performance-check:
+[private]
+_performance-legacy-check:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s nullglob
@@ -367,13 +380,18 @@ performance-check:
         docs/performance/v1/v*-vs-v*.md
     )
     if [[ -e docs/performance/v1/performance.md || -L docs/performance/v1/performance.md ]]; then
-        uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
+        uv run --locked --group dev research-repo-tools performance promote tooling/performance-report-legacy.toml --check
     elif (( ${#artifacts[@]} )) || [[ -e tooling/performance-readme.toml || -L tooling/performance-readme.toml ]]; then
         echo "Release evidence exists without its current report; restore or promote the report." >&2
         exit 1
     else
         echo "No release comparison yet; the next tagged release establishes the baseline."
     fi
+
+# Check frozen v1 evidence and the strict shared inventory for future reports.
+[group('validation')]
+performance-check: _performance-legacy-check
+    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
 
 # Rebuild and promote the shared report from retained or explicitly saved evidence.
 [group('benchmarks and performance')]
@@ -396,14 +414,19 @@ performance-local: sync
 [group('benchmarks and performance')]
 [positional-arguments]
 performance-readme *args: sync
-    uv run --locked --group dev research-repo-tools performance publish tooling/performance-readme.toml "$@"
+    uv run --locked --group dev research-repo-tools performance readme tooling/performance-release.toml "$@"
 
-# Generate a release-to-release report, promote it, and archive the previous report.
+# Capture release identities and the reviewed measurement plan without measuring.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-release *tags: sync
-    {{ _run }} research-repo-tools performance measure tooling/benchmark.toml "$@" --order published --allow-git-mutations --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
-    uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
+performance-prepare *args: sync
+    uv run --locked --group dev research-repo-tools performance prepare tooling/performance-release.toml "$@"
+
+# Measure each release phase once, retain its complete run, and promote the report.
+[group('benchmarks and performance')]
+[positional-arguments]
+performance-release *args: sync
+    {{ _run }} research-repo-tools performance release tooling/performance-release.toml --progress-cadence 300 "$@"
 
 # Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
 [group('release')]
@@ -425,6 +448,45 @@ python-fix: sync
 [group('validation')]
 python-typecheck: sync
     uv run --locked --no-sync --no-python-downloads research-repo-tools python typecheck
+
+# Dispatch exact-tag release benchmarks without waiting or starting local measurements.
+[group('release')]
+release-benchmarks tag:
+    gh workflow run release-benchmarks.yml --repo acgetchell/markov-chain-monte-carlo --ref {{ quote(tag) }} -f {{ quote("tag=" + tag) }}
+
+# Verify retained main evidence without rebuilding, tagging, or publishing.
+[group('release')]
+release-evidence:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    temporary="$(mktemp -d)"
+    selection="$temporary/selection.json"
+    trap 'rm -rf "$temporary"' EXIT
+    just _release-evidence verify "$selection"
+    cat "$selection"
+
+# Run the registry verifier outside the observed checkout's Python environment.
+[group('release')]
+[positional-arguments]
+[private]
+[script("uvx", "--no-config", "--isolated", "--managed-python", "--exclude-newer", "2026-11-03T10:06:40Z", "--from", "research-repo-tools==0.2.5", "python", "-I")]
+_release-evidence operation output expected="":
+    import os
+    import sys
+    from pathlib import Path
+    from research_repo_tools.cli import main
+    from research_repo_tools.measurement import resolve_revision
+    from research_repo_tools.release_metadata import read_package_info
+    root = Path.cwd()
+    operation, output, expected = sys.argv[1:]
+    args = ["release", "evidence", operation, "tooling/release-evidence.toml", "--checkout", str(root), "--commit", resolve_revision(root, "HEAD"), "--version", read_package_info(root).version, "--output", str(Path(output).resolve())]
+    if operation == "create":
+        args.extend(["--run-id", os.environ["GITHUB_RUN_ID"], "--attempt", os.environ["GITHUB_RUN_ATTEMPT"]])
+    if expected:
+        args.extend(["--expected", str(Path(expected).resolve())])
+    if os.environ.get("GITHUB_OUTPUT"):
+        args.extend(["--github-output", os.environ["GITHUB_OUTPUT"]])
+    sys.exit(main(args))
 
 # Require the immutable release event and successful checks on its exact commit.
 [group('release')]
@@ -449,7 +511,7 @@ release-package:
 
 # Approve the reviewed draft GitHub Release and trigger registry publication.
 [group('release')]
-release-publish tag: (_release-notes-check tag)
+release-publish tag: release-evidence (_release-notes-check tag)
     {{ rrt }} release publish {{ quote(tag) }} --approve
 
 # Require the stable GitHub Release/assets and exact published registry version.
@@ -489,12 +551,12 @@ semgrep:
 # Validate repository-owned Semgrep rules against annotated fixtures.
 [group('validation')]
 semgrep-test:
-    {{ semgrep_stack_limit }} {{ rrt }} semgrep check-fixtures
+    {{ semgrep_stack_limit }} {{ _run }} python tooling/semgrep_latest.py semgrep check-fixtures
 
 # Install managed tools and verify system prerequisites.
 [group('build and setup')]
 setup: _ensure-jq
-    uv run --locked --managed-python --only-group tooling research-repo-tools setup
+    uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
 
 # Preview a shared-package/Python migration outside the current environment.
 [group('build and setup')]

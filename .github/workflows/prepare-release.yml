@@ -1,0 +1,59 @@
+name: Prepare GitHub release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'acgetchell/markov-chain-monte-carlo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require protected tag source before repository Python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          test "$(gh api repos/acgetchell/markov-chain-monte-carlo --jq .default_branch)" = main
+          test "$(gh api repos/acgetchell/markov-chain-monte-carlo/branches/main --jq .protected)" = true
+          git --no-pager merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "$(git --no-pager rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+          test "$(git --no-pager rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f tooling/prepare_release.py && test ! -L tooling/prepare_release.py
+          test -f tooling/release-evidence.toml && test ! -L tooling/release-evidence.toml
+
+      - name: Install registry tooling runner
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          version: "0.13.7"
+          enable-cache: false
+
+      - name: Verify signed source evidence and prepare stable draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-03T10:06:40Z \
+            --from research-repo-tools==0.2.5 python -I tooling/prepare_release.py "$RELEASE_TAG"

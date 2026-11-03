@@ -1,5 +1,11 @@
-schema = 1
-current = "docs/performance/v1/performance.md"
-archive = "docs/performance/v1"
-title = "MCMC benchmark timings"
-prose-file = "tooling/performance-interpretation.md"
+schema = 2
+current = "docs/performance/current.md"
+archive = "docs/performance/runs"
+title = "MCMC sequential benchmark timings (baseline then current)"
+measurement = "tooling/measurement-release-signal.toml"
+release = true
+
+[initialization]
+allow-empty = true
+directories = [  ]
+guards = [ "target/bench-reports/preparation.json", "target/bench-reports/performance.run.json", "target/bench-reports/performance.evidence.json", "docs/assets/release-performance.csv", "docs/assets/release-performance.svg" ]

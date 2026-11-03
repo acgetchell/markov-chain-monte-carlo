@@ -34,7 +34,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
-      run: uv run --locked --managed-python --only-group tooling research-repo-tools setup
+      run: uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
 
     - name: Set up the declared scanner through the shared API
       if: inputs.scanner != ''

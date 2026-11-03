@@ -13,19 +13,22 @@ the pinned shared package owns execution, evidence, release assets, and publicat
 | `just bench-compare [NAME]` | Compare saved samples; default baseline is `last` |
 | `just bench-latest-vs-last [NAME]` | Measure, then compare the saved baseline |
 | `just performance-local` | Measure the working tree against the latest published stable release |
-| `just performance-release CURRENT BASELINE` | Measure two releases from the new performance series and promote shared evidence |
+| `just performance-prepare` | Infer release identities and capture the plan without measuring |
+| `just performance-release` | Measure the prepared version against the latest published release and retain its complete run |
 | `just performance-github-assets [CURRENT BASELINE]` | Compare authenticated release assets without measuring |
 | `just performance-doc [--check or --preview]` | Rerender an existing shared report offline |
-| `just performance-readme [--check or --preview]` | Publish the explicitly configured README selection |
+| `just performance-readme [--check or --preview]` | Publish the declared README selection from the retained complete run |
 | `just performance-baseline TAG` | Measure a clean tagged checkout and package a shared release asset |
 | `just performance OPERATION ...` | Forward an explicit operation to the shared performance CLI |
 
 Saved comparison Markdown is written to `target/bench-reports/performance.md`.
 Local and asset comparisons write `local` and `github-assets` files with
 `.comparison.json`, `.evidence.json`, and `.md` suffixes in that directory.
-Release measurements write the `release` JSON pair before promotion.
-Both explicit release tags must be supplied together. Selection uses publication
-chronology, excluding drafts and prereleases.
+Release preparation infers the prospective version from package metadata and
+its baseline from published stable release chronology, excluding drafts and prereleases.
+`just performance-prepare` captures that pair; `just performance-release` retains
+`performance.run.json` and `performance.evidence.json` in `target/bench-reports/`
+before promotion. Neither command requires explicit release tags.
 
 ## Release-Signal Workloads
 
@@ -108,11 +111,16 @@ The shared release series starts at v0.5.0. The first retained comparison measur
 the README labels the current timings as a prepared tree. Do not backfill retired releases. `just performance-check` accepts an empty inventory before
 the first comparison and rejects release evidence or a publication selection without its current report.
 
-New reports use `docs/performance/v1/performance.md`; retained pairs and the generated archive index live beside it. Evidence uses
-`research-repo-tools/criterion-comparison/v1` inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
+The retained v1 reports and measurements stay byte-identical under `docs/performance/v1/`. New reports use `docs/performance/current.md`;
+retained pairs and the generated archive index use the dedicated `docs/performance/runs/` directory. Evidence uses
+the shared complete-run schema inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
 preserve points, bounds, confidence levels when known, units, and coverage. Source/harness inventories use shared versioned fingerprints.
 
-Once the first comparison exists, reproduce it without measuring:
+The strict shared inventory accepts only an empty new namespace before its first comparison. The v1 README and diagnostic experiments remain outside it.
+The legacy guard and existing README publication selection remain until the verified v0.5.3 release supplies new-namespace evidence; see
+[#221](https://github.com/acgetchell/markov-chain-monte-carlo/issues/221). Keep the README plan independently reviewed against the retained pair.
+
+Once the first new-namespace comparison exists, reproduce it without measuring:
 
 ```bash
 just performance-doc --check
@@ -122,7 +130,7 @@ just performance-doc
 For the first promotion, supply the measured pair explicitly so the renderer can discover its evidence:
 
 ```bash
-just performance-doc --payload target/bench-reports/release.comparison.json --manifest target/bench-reports/release.evidence.json
+just performance-doc --payload target/bench-reports/performance.run.json --manifest target/bench-reports/performance.evidence.json
 ```
 
 Promotion archives the previous shared report when present, rebases evidence links, refreshes the generated index, and publishes its outputs in one
@@ -131,23 +139,25 @@ not rewritten by Markdown formatters; new archived pairs are immutable.
 
 ## Release Preparation and README Publication
 
-For the first release after the reset, omit comparison and README publication commands; its tagged workflow records the baseline. For subsequent releases,
-pass both tags explicitly to `just performance-release CURRENT BASELINE`, choosing the previous baseline from the new series. Automatic release discovery
-does not know this repository's reset boundary. An unpublished newer Cargo version can use the working tree against the latest published baseline with
-`just performance-release` once that latest release belongs to the new series. Same-label development comparisons cannot be promoted.
+Set `TAG` once and prepare package metadata with `just update-version "$TAG"` as described in [releasing](RELEASING.md).
+Then use the same three-stage flow as Delaunay:
 
-After reviewing a real pair, update `tooling/performance-readme.toml` for the shared `performance publish` command. The current selection includes all
-13 unthinned stepping, sampler, and observation workloads, regardless of timing direction; the full report also retains the nine thinning cases.
-Use verified revisions and measured fingerprints. Configure:
+```bash
+just performance-prepare
+just performance-release
+```
 
-- `schema = 1`, `document = "README.md"`, `unit = "ns"`, and the existing `<!-- PERFORMANCE:BEGIN -->` / `<!-- PERFORMANCE:END -->` markers.
-- Retained comparison `payload` and evidence `manifest`, a pair-specific `svg`, `repository = "acgetchell/markov-chain-monte-carlo"`, and
-  `prose-file = "tooling/performance-interpretation.md"`.
-- Reviewed `rows` with benchmark names and readable labels, and `links` to the report, comparison, and provenance.
-- Both `provenance.baseline` and `provenance.current`, each with an independently verified `revision` and `release`.
-- `references` asserting the Cargo version and the report's current/baseline marker values against `version`, `tag`, and `previous-tag`.
-- `tag-policy = "prepare"` for prospective release evidence, with `current-sources` and `current-harness` matching `tooling/benchmark.toml`.
-  Use `"existing"` for tagged measurements; existing tags must contain the exact retained, referenced, linked, and generated bytes.
+`tooling/performance-release.toml` infers the prospective package version and its latest published stable predecessor. Preparation records independent
+source, harness and release assertions in ignored scratch storage without measuring. The schema-4 `tooling/measurement-release-signal.toml` uses the
+current public stepping harness for both source exports, with a minimum release of v0.5.2. Each phase discovers all 22 cases, runs an untimed native
+gate, and acquires one complete run with 100 samples per case, mean/median intervals and retained raw Criterion files. Fixture setup stays outside
+timing according to the harness's existing steady-state and fresh-batch contracts. Changed source or harness identities require fresh preparation.
+
+The legacy `tooling/benchmark.toml` remains the independent single-tag baseline-archive declaration used by GitHub release assets.
+The frozen `tooling/performance-readme.toml` still describes the old README evidence; neither it nor the old measurements are rewritten during adoption.
+For new publication, `tooling/performance-publication.toml` independently selects all 13 unthinned stepping, sampler and observation workflows regardless
+of timing direction. The complete report also retains all nine thinning cases. Labels, revisions and fingerprints come from the verified preparation
+and retained run, while the declaration owns row eligibility, units, references and the prospective `prepare` tag policy.
 
 Review the full report, host/toolchain metadata, and coverage before selecting a README subset. Then run:
 
@@ -157,7 +167,24 @@ just performance-readme
 ```
 
 The shared publisher checks the Cargo version, report identities, measured fingerprints, independently reviewed provenance, and exact existing-tag blobs.
-It rechecks inputs before updating the marked README section and SVG together. Keep linked artifacts in the release commit before creating its tag.
+It rechecks inputs before updating the marked README section, CSV and SVG together. It does not measure again. Keep linked artifacts in the release
+commit before creating its tag.
+
+### Measurement Order and Interpretation
+
+The pinned shared 0.2.5 runner measures the whole baseline phase before the current phase. Its public schema and CLI do not support alternating or
+randomizing phase order, and `order = "published"` controls release selection only. The retained phase samples and source/host provenance do not include
+an observed acquisition-order or phase-timestamp receipt. Do not infer order control from matching CPU, OS, compiler or harness identities.
+
+Treat ratios as descriptive sequential observations. Host temperature, frequency, power state and background load can drift between phases;
+Criterion's within-phase intervals do not account for that systematic drift. Preserve absolute timings and raw evidence, and withhold comparisons
+when actual conditions are incompatible. A causal release-performance or significance claim requires stronger experimental evidence.
+Counterbalanced trials, retained realized order and session timestamps require published shared-runner support and consumer validation.
+`tooling/performance-release-interpretation.md` carries these limitations into the generated README publication; the new report title states its order.
+
+[Shared #180](https://github.com/acgetchell/research-repo-tools/issues/180) targets that capability for v0.2.6.
+[MCMC #225](https://github.com/acgetchell/markov-chain-monte-carlo/issues/225) targets next-release adoption after verified publication.
+Until that adoption passes, preserve the current sequential observations and their qualified interpretation.
 
 ## GitHub Release Assets
 

@@ -116,12 +116,14 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.2.3` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.2.5` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
-  The temporary `tooling/release_changelog.py` adapter follows la-stack's prepared citation-date default until research-repo-tools#130 is published and adopted.
+  The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
-  baseline and retains a comparison of the prepared v0.5.1 tree against it. Shared reports and evidence use `docs/performance/v1/`, with the current report
-  at `performance.md`. Keep `tooling/performance-readme.toml` independently reviewed and grounded in retained evidence before README publication.
+  baseline and retains a comparison of the prepared v0.5.1 tree against it. Preserve `docs/performance/v1/` as frozen legacy evidence. Future reports use
+  `docs/performance/current.md` with retained artifacts under `docs/performance/runs/`. Keep the v1 guard until #221's post-v0.5.3 verification is complete.
+  Preserve `tooling/performance-readme.toml` with the frozen v1 evidence. New release preparation infers package and published-baseline identities through
+  `tooling/performance-release.toml`; independently review its complete workload declaration and `tooling/performance-publication.toml` before publication.
   Preserve measurements and provenance; keep experiments distinct from release comparisons. See `docs/BENCHMARKING.md` for the current series and workflow.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version` as a checked mirror of the shared Python baseline, Rust in `rust-toolchain.toml`, and supported Cargo tools in
@@ -136,6 +138,8 @@ changing numerical semantics, or changing acceptance/error behavior.
   Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
 - Semgrep shares the root Python 3.15 environment and lockfile. Preserve its native-wheel requirement and the root compatibility overrides for PyJWT,
   MCP, OpenTelemetry, and Python 3.15 Windows wheels. Keep the Linux stack-limit workaround in local and SARIF scans until upstream fixes it.
+  `tooling/semgrep_latest.py` temporarily bridges v0.2.5's older scanner expectation to the exact consumer Semgrep 1.183.0 pin without replacing its checks.
+  Remove it only after the published shared fix and normal adoption tracked in #222.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
   newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
   bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.
@@ -178,9 +182,12 @@ just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
 just release-version-check # Validate final current metadata and generated notes
 just release-package # Verify clean default and all-feature packages without uploading
+just release-evidence # Verify exact-source signed main CI evidence before tagging
+just release-benchmarks TAG # Dispatch benchmarks using the exact tag workflow
 just release-publish TAG # Publish the reviewed GitHub draft and trigger approved registry upload (maintainer)
 just release-verify TAG # Verify the published GitHub Release, required assets, and exact registry version
 just performance-release  # Persist, validate, and promote release benchmark evidence
+just performance-prepare # Infer release identities and capture the measurement plan without timing
 just performance-doc # Rebuild the curated report from saved release evidence
 just performance-readme # Publish the README table and SVG from retained evidence
 ```
@@ -224,7 +231,7 @@ At a glance:
 - `examples/` — complete runnable workflows.
 - `tests/` and `benches/` — integration validation and Criterion benchmarks.
 - `docs/` — topic guides.
-- `tooling/` — declarative shared-tool configuration, scientific performance prose, and the temporary changelog-date adapter tracked in research-repo-tools#130.
+- `tooling/` — declarative shared-tool, release-evidence and performance configuration, scientific performance prose, and narrow consumer adapters.
 - `tests/tooling/` — focused consumer integration and scientific policy checks; no local Python package.
 
 ## Documentation map

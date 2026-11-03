@@ -1,0 +1,38 @@
+schema = 1
+repository = "acgetchell/markov-chain-monte-carlo"
+package = "markov-chain-monte-carlo"
+workflow = ".github/workflows/ci.yml"
+workflow-name = "CI"
+branch = "main"
+artifact-prefix = "release-evidence"
+guarantee = "signed-source"
+path-in-vcs = ""
+
+[[jobs]]
+name = "repository-tooling"
+steps = [ "Run repository tooling checks" ]
+runner-labels = [ "ubuntu-latest" ]
+
+[[jobs]]
+name = "build (ubuntu-latest)"
+steps = [ "Run CI checks" ]
+runner-labels = [ "ubuntu-latest" ]
+
+[[jobs]]
+name = "build (macos-latest)"
+steps = [ "Run CI checks" ]
+runner-labels = [ "macos-latest" ]
+
+[[jobs]]
+name = "build (windows-latest)"
+steps = [ "Run CI checks" ]
+runner-labels = [ "windows-latest" ]
+
+[[jobs]]
+name = "package"
+steps = [ "Verify clean default and all-feature packages" ]
+runner-labels = [ "ubuntu-latest" ]
+
+[signing-job]
+name = "release-evidence"
+steps = [ "Capture successful validation identities", "Sign original main validation evidence", "Retain the signature bundle", "Upload signed validation evidence" ]

@@ -56,7 +56,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
    [Development Environment Setup](#development-environment-setup) for what gets installed or checked):
 
    ```bash
-   uv run --locked --managed-python --only-group tooling research-repo-tools setup
+   uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
    ```
 
    Run bare `just` to list every public recipe with its arguments and description.
@@ -93,9 +93,17 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.3` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
+The published `research-repo-tools==0.2.5` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
+
+Hosted CI runs repository configuration, documentation and source-policy checks
+once on Linux through `just ci-repository-tooling`. Each native Linux, macOS and
+Windows job runs `just ci-native`, retaining Python tests, notebooks, Rust tests,
+Clippy, docs, doctests, examples and benchmark compilation. Local `just ci`
+continues to run the complete gate. Main-push CI also packages clean source and
+signs its validation receipt; `just release-evidence` verifies that receipt
+before tagging. See [the release procedure](docs/RELEASING.md).
 
 | Declaration | Authority |
 | --- | --- |
@@ -411,6 +419,7 @@ Benchmarks live in [`benches/`](benches/) and use [Criterion](https://docs.rs/cr
 just bench                  # run the fixed-seed stepping benchmark suite
 just bench-latest-vs-last   # rerun and compare with the saved local baseline
 just performance-local      # compare the current tree with the latest stable release
+just performance-prepare    # infer release identities without measuring
 just performance-doc   # rebuild the curated report from saved release measurements
 just performance-readme    # publish the README table and SVG from retained evidence
 just bench-compile          # compile benchmark harness without measuring
@@ -418,10 +427,11 @@ cargo bench --bench stepping <filter>   # run a subset
 ```
 
 Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. The current release-performance series starts at the tagged v0.5.0 baseline;
-the retained comparison measures the prepared v0.5.1 tree against it. Release maintainers use `just performance-release` to retain shared JSON/CSV
-under `docs/performance/v1/`, `just performance-doc` to reproduce `performance.md`, and `just performance-readme` to publish a reviewed selection created from
-actual evidence in `tooling/performance-readme.toml`. `just performance-github-assets CURRENT BASELINE` compares two native shared release assets. See
-[`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
+the retained comparison measures the prepared v0.5.1 tree against it. Preserve that v1 evidence and `tooling/performance-readme.toml` as frozen history. For new
+release preparation, `just performance-prepare` infers the release pair, `just performance-release` retains complete evidence under `docs/performance/runs/`,
+and `just performance-doc` reproduces `docs/performance/current.md`. `just performance-readme` uses the independently reviewed
+`tooling/performance-publication.toml` selection and preparation identities. `just performance-github-assets CURRENT BASELINE` compares native shared release
+assets. See [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
 
 Performance guidelines:
 
@@ -545,15 +555,16 @@ For full tool citation metadata, see the [AI-assisted development tools](REFEREN
 The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Highlights:
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
-2. Set `TAG` and run `just update-version "$TAG"`, then generate the changelog with the matching declared date from committed history.
-3. For the first release after the performance reset, let the tagged workflow establish the baseline. For subsequent releases, follow
-   [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication) to measure a real pair, create the reviewed
-   `tooling/performance-readme.toml`, and publish the README table/SVG.
+2. Set `TAG` and run `just update-version "$TAG"`, then `just changelog-release "$TAG"` using the prepared citation date and committed history.
+3. Follow [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication): run `just performance-prepare` and
+   `just performance-release`, review the complete run and publication selection, then preview and publish the README table/CSV/SVG with
+   `just performance-readme`.
 4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci` and `just publish-check`.
-5. Commit and push the release PR. After merge, sync and verify the reviewed `main` commit. Run `just tag "$TAG"`, inspect the annotated tag, then push it.
-   Run `just release-package` to verify clean default and all-feature Cargo packaging.
-6. Create a draft GitHub Release and dispatch `Release Benchmarks` to attach the Criterion baseline. Review the draft and run `just release-publish "$TAG"`
-   in a human GitHub CLI session, then approve the crates.io deployment. Verify both publications and the durable attachment before deleting the release branch.
+5. Commit and push the release PR. After merge, sync and verify the exact reviewed `main` commit, require its trusted main-push validation and run
+   `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
+6. Inspect the automatically prepared stable draft, then run `just release-benchmarks "$TAG"` to attach the Criterion baseline. After it succeeds,
+   review the draft and run `just release-publish "$TAG"` in a human GitHub CLI session, then approve the crates.io deployment.
+   Run `just release-verify "$TAG"` and complete the guide's downstream/Zenodo checks before deleting the release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 

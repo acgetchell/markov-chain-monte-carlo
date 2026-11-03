@@ -1,7 +1,7 @@
 # Shared changelog adoption (#157)
 
 This record describes the original `research-repo-tools==0.1.1` changelog adoption,
-which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.2.3;
+which resolved four gaps found during the 0.1.0 pilot. The current pin is v0.2.5;
 the [maintenance migration](shared-maintenance-migration.md) covers its broader
 setup, release, review, and notebook ownership and consumer verification.
 
@@ -21,8 +21,9 @@ retains included tooling constraints and does not automatically upgrade this pin
 | `just changelog-check` | Strictly validate the root changelog and every archive |
 | `just release-notes TAG` | Extract notes and required links from root or archive |
 
-The pilot also exposed a `changelog-unreleased` alias. Release preparation now
-uses `changelog-release` directly, and the redundant alias has been removed.
+The `changelog-unreleased` alias and `changelog-release TAG [DATE]` share the
+published citation-date policy. A matching prepared `CITATION.cff` supplies an
+omitted date; an explicit ISO date remains available for troubleshooting.
 
 Preview accepts generation arguments, for example
 `just changelog-preview --tag v0.5.0 --date 2026-09-19`.

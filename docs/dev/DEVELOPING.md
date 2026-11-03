@@ -84,11 +84,13 @@ The named subsets remain available for focused timing or platform work, but `jus
 - `just ci-rust` - Rust formatting, core Clippy, documentation, broad release-profile Rust tests, doctests, and deterministic example-output validation.
 - `just ci-portability` - fast compile checking, broad release-profile Rust tests, doctests, and deterministic example-output validation for platform smoke
   checks.
-- `just ci-repository-tooling` - Python checks and tests, notebook linting, JSON, YAML, GitHub Actions, TOML, Markdown, spelling, Semgrep, and Semgrep rule
-  tests.
+- `just ci-repository-tooling` - changelog, release metadata and report checks, Rust formatting, JSON, YAML, GitHub Actions, TOML, Markdown, spelling,
+  Semgrep, and Semgrep rule tests.
+- `just ci-native` - Python checks/tests, notebook linting/execution, all-target Clippy, Rust tests, doctests, documentation, benchmark compilation and
+  deterministic example-output validation.
 
-The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
-comprehensive validation gate.
+The GitHub Actions `CI` workflow runs repository tooling once on Linux and native validation on Linux, macOS and Windows. Their combined validator
+coverage matches the comprehensive local `just ci`. Trusted main pushes additionally verify clean packages and sign exact-source release evidence.
 
 ### Python typing policy
 
@@ -168,7 +170,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.2.3` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.2.5` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -262,13 +264,36 @@ newer, and unknown installations and environments referenced by retained consume
 The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
 the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
 
+The v0.2.5 updater preserves consumer resolution policy and rejects both direct
+tool and transitive lockfile downgrades before synchronization. The registry-only
+release and evidence runtimes use the same exact package and reviewed resolution
+cutoff, outside the checkout's `.venv`.
+
+Setup and the fixture gate temporarily invoke `tooling/semgrep_latest.py` because v0.2.5's
+helper requires its bundled Semgrep 1.182.1 while the consumer uses latest
+Semgrep 1.183.0. The adapter changes only the exact process-local expectation;
+the shared interpreter, distribution and executable checks still run unchanged,
+including verification after a fresh setup installs the scanner.
+[MCMC #222](https://github.com/acgetchell/markov-chain-monte-carlo/issues/222)
+tracks retirement after the published v0.2.6 fix is adopted.
+
+Hosted CI separates `ci-repository-tooling` from `ci-native`; their validator
+dependency closures equal local `ci`. Python and notebook checks remain native.
+Clippy and repository-rule SARIF workflows retain their independent publication
+gates. Main-push package and signing jobs produce the signed-source receipt
+declared in `tooling/release-evidence.toml`, with 30-day artifact retention.
+No cross-commit PR evidence reuse is enabled. See [release evidence](../RELEASING.md#2-verify-the-release-commit)
+for exact-source, approval and rerun behavior.
+
 ## Dependabot Automation
 
 `just workflow-allowlist-check` reads `.github/settings/actions-selected.json` through the shared YAML checker. It validates external step and reusable-workflow
-identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list.
-The shared CLI accepts workflow documents; a focused consumer test adapts the actual setup composite's steps to that same checker. SHA pinning, version
-comments, and zizmor security checks remain separate. The crates.io authentication step retains its exact reviewed SHA in the workflow and consumer test.
-The committed selected-actions payload is a proposed settings update; applying it to GitHub requires separate maintainer action and a readback.
+identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list. The
+shared CLI accepts workflow and composite-action documents. A focused consumer test also exercises the setup composite's steps through that checker. SHA
+pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step still pins the reviewed v1.0.5 SHA.
+The proposed selected-actions payload and consumer regression allow exactly the reviewed v1.0.5 and v1.0.6 SHAs during adoption; #219 owns the separate
+workflow upgrade. See [publishing policy](crates-io-publishing.md) for both identities. The live authentication entry was updated to v1.0.6 and read back
+on November 3, 2026; the broader proposed policy has not been applied.
 
 `.github/workflows/dependabot-auto-merge.yml` calls the shared
 [`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)
@@ -402,7 +427,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.coderabbit.yml` configures CodeRabbit to use focused Rust, Actions, secret-scan, and Semgrep checks.
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
-- `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
+- `.github/workflows/ci.yml` runs `just ci-repository-tooling` once on Linux and `just ci-native` on Linux, macOS, and Windows.
+  Trusted main pushes also run `just release-package` and sign the retained release evidence.
 - `.github/actions/setup-toolchain` caches all declared managed tools, including both SARIF converters, by OS, architecture, and declarations.
   Its shared setup step uses the job's `GITHUB_TOKEN` for scanner release-metadata requests, with the caller's permissions and no token export to later steps.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
@@ -417,7 +443,7 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `rumdl.toml` configures Markdown linting and formatting with the repository's 160-column non-Rust line length.
 - `tooling/` contains declarative benchmark, publication, and example policy; `tests/tooling/` protects consumer integration and scientific behavior.
   Shared maintenance, measurement, rendering, and notebook execution live in the registry-pinned `research-repo-tools` package.
-  The temporary `release_changelog.py` adapter supplies la-stack's prepared citation-date default until research-repo-tools#130 is published and adopted.
+  The shared changelog CLI reads matching prepared citation metadata directly; no local date-selection implementation remains.
 - `rustfmt.toml` keeps stable Rust formatting explicit at 100 columns.
 - `.taplo.toml` keeps TOML formatting stable and Cargo-like with the repository's 160-column non-Rust line length.
 - `typos.toml` configures spellcheck exclusions and project vocabulary.
