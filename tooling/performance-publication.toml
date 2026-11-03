@@ -12,6 +12,7 @@ end = "<!-- PERFORMANCE:END -->"
 statistic = "median"
 unit = "ns"
 missing = "error"
+prose-file = "tooling/performance-release-interpretation.md"
 csv = "docs/assets/release-performance.csv"
 svg = "docs/assets/release-performance.svg"
 rows = [

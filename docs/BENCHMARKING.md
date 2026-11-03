@@ -24,9 +24,11 @@ the pinned shared package owns execution, evidence, release assets, and publicat
 Saved comparison Markdown is written to `target/bench-reports/performance.md`.
 Local and asset comparisons write `local` and `github-assets` files with
 `.comparison.json`, `.evidence.json`, and `.md` suffixes in that directory.
-Release measurements write the `release` JSON pair before promotion.
-Both explicit release tags must be supplied together. Selection uses publication
-chronology, excluding drafts and prereleases.
+Release preparation infers the prospective version from package metadata and
+its baseline from published stable release chronology, excluding drafts and prereleases.
+`just performance-prepare` captures that pair; `just performance-release` retains
+`performance.run.json` and `performance.evidence.json` in `target/bench-reports/`
+before promotion. Neither command requires explicit release tags.
 
 ## Release-Signal Workloads
 
@@ -167,6 +169,22 @@ just performance-readme
 The shared publisher checks the Cargo version, report identities, measured fingerprints, independently reviewed provenance, and exact existing-tag blobs.
 It rechecks inputs before updating the marked README section, CSV and SVG together. It does not measure again. Keep linked artifacts in the release
 commit before creating its tag.
+
+### Measurement Order and Interpretation
+
+The pinned shared 0.2.5 runner measures the whole baseline phase before the current phase. Its public schema and CLI do not support alternating or
+randomizing phase order, and `order = "published"` controls release selection only. The retained phase samples and source/host provenance do not include
+an observed acquisition-order or phase-timestamp receipt. Do not infer order control from matching CPU, OS, compiler or harness identities.
+
+Treat ratios as descriptive sequential observations. Host temperature, frequency, power state and background load can drift between phases;
+Criterion's within-phase intervals do not account for that systematic drift. Preserve absolute timings and raw evidence, and withhold comparisons
+when actual conditions are incompatible. A causal release-performance or significance claim requires stronger experimental evidence.
+Counterbalanced trials, retained realized order and session timestamps require published shared-runner support and consumer validation.
+`tooling/performance-release-interpretation.md` carries these limitations into the generated README publication; the new report title states its order.
+
+[Shared #180](https://github.com/acgetchell/research-repo-tools/issues/180) targets that capability for v0.2.6.
+[MCMC #225](https://github.com/acgetchell/markov-chain-monte-carlo/issues/225) targets next-release adoption after verified publication.
+Until that adoption passes, preserve the current sequential observations and their qualified interpretation.
 
 ## GitHub Release Assets
 

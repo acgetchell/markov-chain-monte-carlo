@@ -84,11 +84,13 @@ The named subsets remain available for focused timing or platform work, but `jus
 - `just ci-rust` - Rust formatting, core Clippy, documentation, broad release-profile Rust tests, doctests, and deterministic example-output validation.
 - `just ci-portability` - fast compile checking, broad release-profile Rust tests, doctests, and deterministic example-output validation for platform smoke
   checks.
-- `just ci-repository-tooling` - Python checks and tests, notebook linting, JSON, YAML, GitHub Actions, TOML, Markdown, spelling, Semgrep, and Semgrep rule
-  tests.
+- `just ci-repository-tooling` - changelog, release metadata and report checks, Rust formatting, JSON, YAML, GitHub Actions, TOML, Markdown, spelling,
+  Semgrep, and Semgrep rule tests.
+- `just ci-native` - Python checks/tests, notebook linting/execution, all-target Clippy, Rust tests, doctests, documentation, benchmark compilation and
+  deterministic example-output validation.
 
-The GitHub Actions `CI` workflow intentionally runs `just ci` on Linux, macOS, and Windows so all supported development platforms exercise the same
-comprehensive validation gate.
+The GitHub Actions `CI` workflow runs repository tooling once on Linux and native validation on Linux, macOS and Windows. Their combined validator
+coverage matches the comprehensive local `just ci`. Trusted main pushes additionally verify clean packages and sign exact-source release evidence.
 
 ### Python typing policy
 
@@ -288,9 +290,10 @@ for exact-source, approval and rerun behavior.
 `just workflow-allowlist-check` reads `.github/settings/actions-selected.json` through the shared YAML checker. It validates external step and reusable-workflow
 identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list. The
 shared CLI accepts workflow and composite-action documents. A focused consumer test also exercises the setup composite's steps through that checker. SHA
-pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step retains its exact reviewed SHA in the workflow and
-consumer test. The committed selected-actions payload is a proposed stricter identity policy. Its authentication action and workflow both pin the reviewed
-v1.0.6 SHA. The live authentication entry was updated and read back on November 3, 2026; the broader proposed policy has not been applied.
+pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step still pins the reviewed v1.0.5 SHA.
+The proposed selected-actions payload and consumer regression allow exactly the reviewed v1.0.5 and v1.0.6 SHAs during adoption; #219 owns the separate
+workflow upgrade. See [publishing policy](crates-io-publishing.md) for both identities. The live authentication entry was updated to v1.0.6 and read back
+on November 3, 2026; the broader proposed policy has not been applied.
 
 `.github/workflows/dependabot-auto-merge.yml` calls the shared
 [`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)
@@ -424,7 +427,8 @@ The lightweight tooling layer mirrors the useful parts of the `delaunay` repo:
 - `.coderabbit.yml` configures CodeRabbit to use focused Rust, Actions, secret-scan, and Semgrep checks.
 - `.codecov.yml` configures coverage thresholds and ignores examples.
 - `.github/workflows/codeql.yml` runs CodeQL for Rust and GitHub Actions.
-- `.github/workflows/ci.yml` runs `just ci` on Linux, macOS, and Windows.
+- `.github/workflows/ci.yml` runs `just ci-repository-tooling` once on Linux and `just ci-native` on Linux, macOS, and Windows.
+  Trusted main pushes also run `just release-package` and sign the retained release evidence.
 - `.github/actions/setup-toolchain` caches all declared managed tools, including both SARIF converters, by OS, architecture, and declarations.
   Its shared setup step uses the job's `GITHUB_TOKEN` for scanner release-metadata requests, with the caller's permissions and no token export to later steps.
 - `.github/workflows/semgrep-sarif.yml` uploads repository-owned Semgrep rule results to GitHub Code Scanning.
