@@ -231,8 +231,8 @@ def test_dependabot_caller_uses_shared_approval_without_personal_tokens() -> Non
         for path in directory.rglob("*")
         if path.suffix in {".yml", ".yaml"}
     }
-    # Draft creation and credentialed publication require maintainer review.
-    assert set(policy["github_actions"]["files"]) == actions - {".github/workflows/prepare-release.yml", ".github/workflows/publish-crates.yml"}
+    # Credentialed publication requires maintainer review.
+    assert set(policy["github_actions"]["files"]) == actions - {".github/workflows/publish-crates.yml"}
     for path in (REPO_ROOT / ".github").rglob("*"):
         if path.is_file():
             assert b"CODERABBIT_REVIEW_TOKEN" not in path.read_bytes()
