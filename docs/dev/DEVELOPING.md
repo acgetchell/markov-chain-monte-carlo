@@ -299,6 +299,7 @@ on November 3, 2026; the broader proposed policy has not been applied.
 [`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)
 at a reviewed commit. The caller supplies this repository's identity and exact Cargo, uv, workflow, and composite-action file allowlists.
 Dependabot maintains the shared workflow's SHA through its GitHub Actions updates. Keep the file policy current when adding or renaming those files.
+Release preparation is included; credentialed registry publication in `publish-crates.yml` requires maintainer review.
 
 The shared workflow uses only `GITHUB_TOKEN`, validates signed same-repository Dependabot updates at the current head, and enables native squash auto-merge.
 It runs from the trusted default branch through `pull_request_target` without checking out or executing PR code. Existing Dependabot schedules, groups,
