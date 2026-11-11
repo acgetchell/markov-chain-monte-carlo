@@ -82,10 +82,11 @@ def retained_evidence(monkeypatch: pytest.MonkeyPatch) -> tuple[dict[str, Any], 
 
     state["manifest"] = release_evidence.create_evidence_manifest(POLICY, "0.5.2", COMMIT, 29, 1, read)
 
-    def download(repository_name: str, identity: dict[str, Any], directory: Path, names: tuple[str, ...]) -> None:
+    def download(repository_name: str, identity: dict[str, Any], directory: Path, names: tuple[str, ...], **limits: int) -> None:
         assert repository_name == REPOSITORY
         assert identity["id"] == 41
         assert names == ("validation.json", "validation.sigstore.json")
+        assert limits == {"max_bytes": release_evidence.MAX_BYTES, "max_expanded_bytes": release_evidence.MAX_BYTES}
         directory.mkdir()
         (directory / names[0]).write_bytes(state["manifest"])
         (directory / names[1]).write_bytes(b"inert signature fixture")
@@ -203,6 +204,7 @@ def test_declared_policy_covers_real_workflow_steps_and_native_hosts() -> None:
     assert jobs["build"]["steps"][-1]["run"] == "just ci-native"
     assert jobs["repository-tooling"]["steps"][-1]["run"] == "just ci-repository-tooling"
     assert set(jobs["release-evidence"]["needs"]) == {"build", "repository-tooling", "package"}
+    assert jobs["package"]["needs"] == "repository-tooling"
     for name in ("package", "release-evidence"):
         assert "github.event_name == 'push'" in jobs[name]["if"]
         assert "github.ref == 'refs/heads/main'" in jobs[name]["if"]
@@ -231,12 +233,12 @@ def test_publication_rechecks_frozen_selection_before_registry_credentials() -> 
 def test_required_native_checks_fail_when_repository_tooling_does_not_succeed() -> None:
     job = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_bytes())["jobs"]["build"]
     assert job["needs"] == "repository-tooling"
-    # Run the required checks even after a failed dependency, then fail explicitly.
-    assert job["if"] == "${{ !cancelled() }}"
+    # A skipped required check can pass branch protection, including after cancellation.
+    assert job["if"] == "${{ always() }}"
     assert not job.get("continue-on-error", False)
     guard = job["steps"][0]
     assert guard["name"] == "Require repository tooling success"
-    assert guard["if"] == "needs.repository-tooling.result != 'success'"
+    assert guard["if"] == "${{ cancelled() || needs.repository-tooling.result != 'success' }}"
     assert guard["shell"] == "bash"
     assert not guard.get("continue-on-error", False)
     executable = shutil.which("bash")

@@ -30,7 +30,7 @@ runner-labels = [ "windows-latest" ]
 
 [[jobs]]
 name = "package"
-steps = [ "Verify clean default and all-feature packages" ]
+steps = [ "Verify published dependency provenance", "Verify clean default and all-feature packages" ]
 runner-labels = [ "ubuntu-latest" ]
 
 [signing-job]

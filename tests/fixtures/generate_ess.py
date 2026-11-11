@@ -13,9 +13,9 @@ import json
 import math
 import platform
 import sys
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -55,8 +55,69 @@ CASE_NAMES = (
     "one_constant_half",
 )
 
+type Draws = list[list[float]] | tuple[tuple[float, ...], ...]
 
-def references(chains: list[list[float]]) -> dict[str, float | None]:
+
+@dataclass(frozen=True, slots=True)
+class _EssCase:
+    """Immutable accepted case; parse_fixture owns the raw JSON boundary."""
+
+    name: str
+    chains: tuple[tuple[float, ...], ...]
+    reference: tuple[tuple[str, float | None], ...]
+    unavailable: tuple[tuple[str, str], ...]
+
+
+def finite_number(value: object, context: str) -> float:
+    """Parse one reference or draw without treating booleans as numbers."""
+    message = f"{context}: expected a finite number"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(message)
+    try:
+        number = float(value)
+    except OverflowError as error:
+        raise ValueError(message) from error
+    if not math.isfinite(number):
+        raise ValueError(message)
+    return number
+
+
+def parse_fixture(fixture: object) -> tuple[_EssCase, ...]:
+    """Accept the full fixture before evaluating any oracle or printing success."""
+    if not isinstance(fixture, dict) or fixture.get("reference") != REFERENCE:
+        message = "ESS reference provenance or tolerances changed"
+        raise ValueError(message)
+    cases = fixture.get("cases")
+    if not isinstance(cases, list) or any(not isinstance(case, dict) for case in cases) or tuple(case.get("name") for case in cases) != CASE_NAMES:
+        message = "ESS fixture case inventory changed"
+        raise ValueError(message)
+    parsed: list[_EssCase] = []
+    for case in cases:
+        name = case["name"]
+        chains = case.get("chains")
+        expected = case.get("reference")
+        errors = case.get("unavailable")
+        if not isinstance(name, str) or not isinstance(chains, list) or len(chains) < 2:
+            message = "ESS fixture requires named cases with at least two chains"
+            raise ValueError(message)
+        draws: list[tuple[float, ...]] = []
+        for chain in chains:
+            if not isinstance(chain, list) or len(chain) < 4 or (draws and len(chain) != len(draws[0])):
+                message = f"{name}: expected equal chains of at least four draws"
+                raise ValueError(message)
+            draws.append(tuple(finite_number(value, f"{name} draw") for value in chain))
+        if not isinstance(expected, dict) or any(not isinstance(key, str) for key in expected):
+            message = f"{name}: reference metric inventory changed"
+            raise ValueError(message)
+        values = tuple((key, None if value is None else finite_number(value, f"{name} {key}")) for key, value in expected.items())
+        if not isinstance(errors, dict) or any(not isinstance(key, str) or not isinstance(value, str) or not value for key, value in errors.items()):
+            message = f"{name}: invalid unavailable policy"
+            raise ValueError(message)
+        parsed.append(_EssCase(name, tuple(draws), values, tuple(errors.items())))
+    return tuple(parsed)
+
+
+def references(chains: Draws) -> dict[str, float | None]:
     """Evaluate public ArviZ estimators on the original, separately identified chains."""
     import arviz as az  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated historical oracle, not needed for contract tests.
 
@@ -74,7 +135,7 @@ def references(chains: list[list[float]]) -> dict[str, float | None]:
     return {name: value if math.isfinite(value) else None for name, value in result.items()}
 
 
-def unavailable(chains: list[list[float]], results: dict[str, float | None]) -> dict[str, str]:
+def unavailable(chains: Draws, results: dict[str, float | None]) -> dict[str, str]:
     """Record deliberate constant/indicator/collapsed-interval policy differences."""
     draws = np.asarray(chains, dtype=np.float64)
     half = draws.shape[1] // 2
@@ -129,30 +190,24 @@ def inputs() -> list[tuple[str, list[list[float]]]]:
     return cases
 
 
-def verify_fixture(fixture: dict[str, Any]) -> None:
+def verify_fixture(fixture: object) -> None:
     """Reject incomplete evidence or changed provenance before comparing numbers."""
-    if fixture["reference"] != REFERENCE:
-        message = "ESS reference provenance or tolerances changed"
-        raise ValueError(message)
-    if tuple(case["name"] for case in fixture["cases"]) != CASE_NAMES:
-        message = "ESS fixture case inventory changed"
-        raise ValueError(message)
-    for case in fixture["cases"]:
-        actual = references(case["chains"])
-        if case["reference"].keys() != actual.keys():
-            message = f"{case['name']}: reference metric inventory changed"
+    for case in parse_fixture(fixture):
+        actual = references(case.chains)
+        if dict(case.reference).keys() != actual.keys():
+            message = f"{case.name}: reference metric inventory changed"
             raise ValueError(message)
-        if unavailable(case["chains"], actual) != case["unavailable"]:
-            message = f"{case['name']}: unavailable policy changed"
+        if unavailable(case.chains, actual) != dict(case.unavailable):
+            message = f"{case.name}: unavailable policy changed"
             raise ValueError(message)
-        for metric, expected in case["reference"].items():
+        for metric, expected in case.reference:
             value = actual[metric]
             if value is None and expected is None:
                 continue
             if value is None or expected is None or not math.isclose(value, expected, rel_tol=2e-11, abs_tol=2e-13):
-                message = f"{case['name']} {metric}: actual={value}, reference={expected}"
+                message = f"{case.name} {metric}: actual={value}, reference={expected}"
                 raise ValueError(message)
-        sys.stdout.write(f"Verified {case['name']}\n")
+        sys.stdout.write(f"Verified {case.name}\n")
 
 
 def main() -> None:

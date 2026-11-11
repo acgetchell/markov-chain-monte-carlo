@@ -1,7 +1,7 @@
 schema = 2
 current = "docs/performance/current.md"
 archive = "docs/performance/runs"
-title = "MCMC sequential benchmark timings (baseline then current)"
+title = "MCMC stepping benchmark timings by trial"
 measurement = "tooling/measurement-release-signal.toml"
 release = true
 

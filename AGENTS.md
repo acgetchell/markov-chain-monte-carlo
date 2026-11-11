@@ -116,7 +116,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.2.5` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.2.8` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
   The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
@@ -137,9 +137,9 @@ changing numerical semantics, or changing acceptance/error behavior.
   Python mirrors or add independent pytest, Ruff, or Ty version constraints.
   Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
 - Semgrep shares the root Python 3.15 environment and lockfile. Preserve its native-wheel requirement and the root compatibility overrides for PyJWT,
-  MCP, OpenTelemetry, and Python 3.15 Windows wheels. Keep the Linux stack-limit workaround in local and SARIF scans until upstream fixes it.
-  `tooling/semgrep_latest.py` temporarily bridges v0.2.5's older scanner expectation to the exact consumer Semgrep 1.183.0 pin without replacing its checks.
-  Remove it only after the published shared fix and normal adoption tracked in #222.
+  MCP, OpenTelemetry, and Python 3.15 Windows wheels. Route scans and fixtures through the shared Semgrep commands, which own the Linux stack-limit workaround.
+  SARIF uses the same `just semgrep` scan and the shared current-report gate; keep its explicit Git glob scope aligned with the project rule paths.
+  The published shared setup and fixture commands verify the scanner selected by the root lock; no local version override is needed after #222's adoption.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed
   newer uv conflicting with `[tool.uv].required-version` is a reason to update the repository, not to keep using an older uv for validation. The update recipe
   bootstraps uv without the stale project pin. Do not bypass version requirements or hand-edit generated pins; resume validation after the managed update.

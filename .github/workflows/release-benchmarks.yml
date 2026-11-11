@@ -49,8 +49,8 @@ jobs:
           test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
           commit="$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)"
           test "$GITHUB_SHA" = "$commit"
-          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-03T10:06:40Z \
-            --from research-repo-tools==0.2.5 research-repo-tools --root "$RUNNER_TEMP" \
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
+            --from research-repo-tools==0.2.8 research-repo-tools --root "$RUNNER_TEMP" \
             performance release-draft "$GH_REPO" "$RELEASE_TAG" --commit "$commit" \
             --expected-title "$RELEASE_TAG" --output "$RUNNER_TEMP/release-target.json"
           printf 'commit=%s\n' "$(jq -er .commit "$RUNNER_TEMP/release-target.json")" >> "$GITHUB_OUTPUT"
@@ -78,6 +78,9 @@ jobs:
         uses: $/.github/actions/setup-toolchain
         with:
           cache: "false"
+
+      - name: Prepare native dependency provenance
+        run: just release-dependency-builds
 
       - name: Measure and package shared release baseline
         run: just performance-baseline "$RELEASE_TAG"
@@ -117,7 +120,7 @@ jobs:
         run: |
           test -n "$RELEASE_TARGET"
           printf '%s\n' "$RELEASE_TARGET" > "$RUNNER_TEMP/release-target.json"
-          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-03T10:06:40Z \
-            --from research-repo-tools==0.2.5 research-repo-tools --root "$RUNNER_TEMP" \
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
+            --from research-repo-tools==0.2.8 research-repo-tools --root "$RUNNER_TEMP" \
             performance release-upload "$GH_REPO" "$RELEASE_TAG" "$RUNNER_TEMP/baseline/$RELEASE_ASSET" \
             --target "$RUNNER_TEMP/release-target.json"

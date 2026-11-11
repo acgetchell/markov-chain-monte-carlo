@@ -28,7 +28,7 @@ def test_offline_reporting_and_explicit_measurement_boundary() -> None:
     assert "--allow-git-mutations" not in release
     # Complete release acquisition exports sources; it does not mutate Git refs.
     measurement = tomllib.loads((REPO_ROOT / "tooling/measurement-release-signal.toml").read_bytes().decode("utf-8"))
-    assert measurement["backend"] == "export"
+    assert all(suite["measurement"]["backend"] == "export" for suite in measurement["suites"])
     for gate in ("check", "ci", "setup", "update"):
         assert "research-repo-tools review " not in dry_run(REPO_ROOT, gate).stderr
 
@@ -165,8 +165,8 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     assert "research-repo-tools toolchain export" in setup
     assert "<<'PY'" not in workflow
     setup_steps = yaml.safe_load(setup)["runs"]["steps"]
-    installer = next(step for step in setup_steps if step.get("run", "").endswith("python tooling/semgrep_latest.py setup"))
-    assert installer["run"] == "uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup"
+    installer = next(step for step in setup_steps if step.get("run", "").endswith("research-repo-tools setup"))
+    assert installer["run"] == "uv run --locked --managed-python --only-group tooling research-repo-tools setup"
     assert installer["env"]["GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - literal Actions expression, not a credential.
     scanner = next(step for step in setup_steps if step.get("name") == "Set up the declared scanner through the shared API")
     assert installer["if"] == "inputs.scanner == ''"
@@ -391,50 +391,43 @@ def test_scanner_setup_installs_only_its_declared_plan(scanner: str, tmp_path: P
 def test_scan_excludes_nested_negative_fixtures_but_keeps_consumer_tests() -> None:
     from research_repo_tools.selection import select_files
 
-    command = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.rsplit("fi; ", 1)[-1])
-    assert command[:8] == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "files", "run"]
-    selection = command[: command.index("--")]
-    excludes = tuple(selection[index + 1] for index, argument in enumerate(selection) if argument == "--exclude")
-    selected = select_files(REPO_ROOT, exclude=excludes)
-    assert "tests/tooling/test_commands.py" in selected
+    command = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.replace("\\\n", " "))
+    assert command[:8] == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "semgrep", "scan"]
+    includes = tuple(command[index + 1] for index, argument in enumerate(command) if argument == "--include")
+    excludes = tuple(command[index + 1] for index, argument in enumerate(command) if argument == "--exclude")
+    rules = yaml.safe_load((REPO_ROOT / "semgrep.yaml").read_bytes())["rules"]
+    rule_paths = {path.removeprefix("/") for rule in rules for path in rule["paths"]["include"] if not path.startswith("/tests/semgrep/")}
+    assert set(includes) == {f":(glob){path}" if "*" in path else path for path in rule_paths}
+    selected = select_files(REPO_ROOT, include=includes, exclude=excludes)
+    assert {"src/lib.rs", "tests/public_api.rs", "tests/tooling/test_commands.py", "benches/diagnostic_backends/src/lib.rs", "docs/BENCHMARKING.md"} <= set(
+        selected
+    )
     assert not any(name.startswith("tests/semgrep/") for name in selected)
     assert not any(name.startswith("docs/performance/") for name in selected)
 
 
-def test_semgrep_sarif_uses_canonical_inventory_in_one_aggregate_scan() -> None:
+def test_semgrep_sarif_uses_canonical_scan_and_only_current_reports() -> None:
     workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/semgrep-sarif.yml").read_bytes())
     steps = workflow["jobs"]["semgrep-sarif"]["steps"]
     scan = next(step for step in steps if step.get("id") == "semgrep")
-    script = scan["run"]
-    commands = [shlex.split(line, comments=True) for line in script.replace("\\\n", " ").splitlines()]
-    inventory = next(command for command in commands if "files" in command)
-    canonical = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.rsplit("fi; ", 1)[-1])
-    canonical_selection = canonical[: canonical.index("--")]
-    assert inventory[:8] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "research-repo-tools", "files"]
-    assert inventory[8] == "list"
-    assert tuple(inventory[index + 1] for index, argument in enumerate(inventory) if argument == "--exclude") == tuple(
-        canonical_selection[index + 1] for index, argument in enumerate(canonical_selection) if argument == "--exclude"
-    )
-    assert "--include" not in inventory
-    assert inventory[-3:] == ["--null", ">", "$RUNNER_TEMP/semgrep-inputs"]
-    assert ["mapfile", "-d", "", "-t", "scan_paths", "<", "$RUNNER_TEMP/semgrep-inputs"] in commands
-    assert script.index("files list") < script.index("mapfile") < script.index("set +e")
-    assert script.index("ulimit -s 1048576") < script.index("set +e")
-    native = [command for command in commands if "semgrep" in command]
-    assert len(native) == 1
-    assert native[0][:7] == ["uv", "run", "--locked", "--managed-python", "--group", "dev", "semgrep"]
-    assert native[0][6:] == [
-        *canonical[canonical.index("--") + 1 :],
-        "--sarif",
-        "--output",
-        "semgrep-results.sarif",
-        "--",
-        "${scan_paths[@]}",
-    ]
-    assert script.index('"${scan_paths[@]}"') < script.index("status=$?") < script.index('echo "exit_code=$status"')
+    assert scan["run"] == "uv run --locked --managed-python --group dev just semgrep"
+    assert scan["continue-on-error"] is True
+    canonical = shlex.split(dry_run(REPO_ROOT, "semgrep").stderr.replace("\\\n", " "))
+    destination = canonical[canonical.index("--output") + 1]
+    reports = next(step for step in steps if step.get("id") == "reports")
+    assert reports["run"] == f"uv run --locked --managed-python --group dev research-repo-tools semgrep check-reports --output {destination}"
+    assert reports["if"] == "always() && !cancelled()"
+    assert reports["continue-on-error"] is True
+    settings = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["research-repo-tools"]["semgrep"]
+    assert settings["report-layout"] == "aggregate"
+    assert settings["target-timeout"] == 30
+    assert settings["inline-suppressions"] is True
     upload = next(step for step in steps if step.get("uses", "").startswith("github/codeql-action/upload-sarif@"))
-    assert upload["with"]["sarif_file"] == "semgrep-results.sarif"
+    assert upload["with"]["sarif_file"] == f"{destination}/semgrep.sarif"
+    assert upload["with"]["category"] == settings["report-category"]
     assert "always()" in upload["if"]
-    gate = next(step for step in steps if step.get("name") == "Fail on repository rule findings")
-    assert gate["if"] == "steps.semgrep.outputs.exit_code != '0'"
+    assert "steps.reports.outcome == 'success'" in upload["if"]
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in upload["if"]
+    gate = next(step for step in steps if step.get("name") == "Fail on repository rule findings or invalid reports")
+    assert gate["if"] == "always() && (steps.semgrep.outcome != 'success' || steps.reports.outcome != 'success')"
     assert gate["run"] == "exit 1"

@@ -41,45 +41,29 @@ jobs:
 
       - name: Run repository Semgrep rules
         id: semgrep
-        run: |
-          uv run --locked --managed-python --group dev research-repo-tools files list \
-            --exclude 'tests/semgrep/**' \
-            --exclude 'docs/performance/**' \
-            --null > "$RUNNER_TEMP/semgrep-inputs"
-          mapfile -d '' -t scan_paths < "$RUNNER_TEMP/semgrep-inputs"
-          # Semgrep misreads Python 3.15's positive RLIM_INFINITY on Linux.
-          # Keep its inherited stack finite until semgrep/semgrep#11979 is fixed.
-          if [[ "$(ulimit -Hs)" == unlimited ]]; then
-            ulimit -s 1048576
-          fi
-          set +e
-          uv run --locked --managed-python --group dev semgrep \
-            --metrics off \
-            --error \
-            --strict \
-            --timeout 30 \
-            --config semgrep.yaml \
-            --sarif \
-            --output semgrep-results.sarif \
-            -- "${scan_paths[@]}"
-          status=$?
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+        continue-on-error: true
+        run: uv run --locked --managed-python --group dev just semgrep
+
+      - name: Verify current Semgrep reports
+        id: reports
+        if: always() && !cancelled()
+        continue-on-error: true
+        run: uv run --locked --managed-python --group dev research-repo-tools semgrep check-reports --output target/security/semgrep
 
       - name: Upload SARIF results
         if: >-
           always() &&
-          hashFiles('semgrep-results.sarif') != '' &&
+          steps.reports.outcome == 'success' &&
           (
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.full_name == github.repository
           )
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
-          sarif_file: semgrep-results.sarif
+          sarif_file: target/security/semgrep/semgrep.sarif
           category: semgrep-repository-rules
           wait-for-processing: true
 
-      - name: Fail on repository rule findings
-        if: steps.semgrep.outputs.exit_code != '0'
+      - name: Fail on repository rule findings or invalid reports
+        if: always() && (steps.semgrep.outcome != 'success' || steps.reports.outcome != 'success')
         run: exit 1

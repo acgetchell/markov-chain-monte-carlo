@@ -37,6 +37,9 @@ jobs:
         with:
           cache: "false"
 
+      - name: Prepare native dependency provenance
+        run: just release-dependency-builds
+
       - name: Require reviewed release evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -73,6 +76,9 @@ jobs:
         uses: $/.github/actions/setup-toolchain
         with:
           cache: "false"
+
+      - name: Prepare native dependency provenance
+        run: just release-dependency-builds
 
       - name: Recheck evidence and registry absence after deployment approval
         env:

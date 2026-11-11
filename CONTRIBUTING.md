@@ -56,7 +56,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
    [Development Environment Setup](#development-environment-setup) for what gets installed or checked):
 
    ```bash
-   uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
+   uv run --locked --managed-python --only-group tooling research-repo-tools setup
    ```
 
    Run bare `just` to list every public recipe with its arguments and description.
@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.5` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
+The published `research-repo-tools==0.2.8` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -123,8 +123,8 @@ To adopt a newer published shared package and its Python baseline, run `just sha
 both package pins, the Python mirrors, lockfile, environment, and notebook kernel together. `just update` retains the exact shared-package pin.
 
 The main Python 3.15 environment includes Semgrep. Its exact dependency pin, native-wheel requirement, and compatibility overrides live in the root
-`pyproject.toml` and `uv.lock`. `just update-python-dependencies`, security scans, and Dependabot use that shared lockfile. Scanner recipes also retain the
-Linux stack-limit workaround required by Semgrep on Python 3.15.
+`pyproject.toml` and `uv.lock`. `just update-python-dependencies`, security scans, and Dependabot use that shared lockfile. Shared scan and fixture commands own
+the Linux stack-limit workaround required by Semgrep on Python 3.15. Local and SARIF validation use the same `just semgrep` recipe.
 Keep the registry-only release workflow's package pin and resolution cutoff aligned with the adopted version; it selects a package-compatible Python.
 
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated

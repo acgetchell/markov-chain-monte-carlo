@@ -97,20 +97,60 @@ fn check_committed_log_prob(scored: f64, committed: f64) -> Result<(), McmcError
 }
 
 /// Telemetry for a single Metropolis-Hastings step.
+///
+/// Produced by the [`Chain::step`], [`Chain::step_mut`], and
+/// [`Chain::step_delayed`] families. Every concrete proposal carries metadata
+/// and an evaluated log acceptance ratio; only acceptance carries a new cached
+/// log-probability. A no-proposal self-loop may still carry family metadata.
+/// Use [`Self::outcome`] to distinguish these cases, including acceptance that
+/// leaves the target score unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use markov_chain_monte_carlo::prelude::by_value::*;
+/// use rand::{Rng, SeedableRng, rngs::StdRng};
+///
+/// struct Flat;
+/// impl Target<i32> for Flat {
+///     fn log_prob(&self, _: &i32) -> f64 { 0.0 }
+/// }
+/// struct Identity;
+/// impl Proposal<i32> for Identity {
+///     fn propose<R: Rng + ?Sized>(&self, current: &i32, _: &mut R) -> i32 { *current }
+/// }
+/// let mut chain = Chain::new(4, &Flat)?;
+/// let mut rng = StdRng::seed_from_u64(42);
+/// let step = chain.step(&Flat, &Identity, &mut rng)?;
+/// assert_eq!(step.outcome(), StepOutcome::Accepted);
+/// assert_eq!(step.info(), Some(&()));
+/// assert_eq!(step.log_prob_after(), Some(step.log_prob_before()));
+/// # Ok::<(), McmcError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[must_use]
 pub struct Step<I> {
-    /// Step outcome encoded as a single invariant-bearing value.
-    outcome: StepOutcome,
-    /// Proposal-specific metadata for the concrete proposal or no-proposal outcome.
-    info: Option<I>,
     /// Cached log-probability before the step.
     log_prob_before: f64,
-    /// Cached log-probability after an accepted proposal.
-    log_prob_after: Option<f64>,
-    /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
-    log_alpha: Option<f64>,
+    details: StepDetails<I>,
+}
+
+/// Keep each outcome's required telemetry together, including metadata on self-loops.
+#[derive(Debug, Clone, PartialEq)]
+enum StepDetails<I> {
+    NoProposal {
+        info: Option<I>,
+    },
+    Accepted {
+        info: I,
+        log_prob_after: f64,
+        log_alpha: f64,
+    },
+    RejectedProposal {
+        info: I,
+        log_alpha: f64,
+    },
 }
 
 impl<I> Step<I> {
@@ -120,11 +160,8 @@ impl<I> Step<I> {
     /// in-place or delayed proposal produces no concrete transition.
     pub(crate) const fn no_proposal(info: Option<I>, log_prob_before: f64) -> Self {
         Self {
-            outcome: StepOutcome::NoProposal,
-            info,
             log_prob_before,
-            log_prob_after: None,
-            log_alpha: None,
+            details: StepDetails::NoProposal { info },
         }
     }
 
@@ -139,11 +176,12 @@ impl<I> Step<I> {
         log_alpha: f64,
     ) -> Self {
         Self {
-            outcome: StepOutcome::Accepted,
-            info: Some(info),
             log_prob_before,
-            log_prob_after: Some(log_prob_after),
-            log_alpha: Some(log_alpha),
+            details: StepDetails::Accepted {
+                info,
+                log_prob_after,
+                log_alpha,
+            },
         }
     }
 
@@ -153,11 +191,8 @@ impl<I> Step<I> {
     /// preserving the evaluated log-acceptance ratio for diagnostics.
     pub(crate) const fn rejected_proposal(info: I, log_prob_before: f64, log_alpha: f64) -> Self {
         Self {
-            outcome: StepOutcome::RejectedProposal,
-            info: Some(info),
             log_prob_before,
-            log_prob_after: None,
-            log_alpha: Some(log_alpha),
+            details: StepDetails::RejectedProposal { info, log_alpha },
         }
     }
 
@@ -167,13 +202,22 @@ impl<I> Step<I> {
     /// callers cannot create contradictory combinations such as an accepted
     /// step without a post-step log-probability.
     pub const fn outcome(&self) -> StepOutcome {
-        self.outcome
+        match &self.details {
+            StepDetails::NoProposal { .. } => StepOutcome::NoProposal,
+            StepDetails::Accepted { .. } => StepOutcome::Accepted,
+            StepDetails::RejectedProposal { .. } => StepOutcome::RejectedProposal,
+        }
     }
 
     /// Proposal-specific metadata for the concrete proposal or no-proposal outcome.
     #[must_use]
     pub const fn info(&self) -> Option<&I> {
-        self.info.as_ref()
+        match &self.details {
+            StepDetails::NoProposal { info } => info.as_ref(),
+            StepDetails::Accepted { info, .. } | StepDetails::RejectedProposal { info, .. } => {
+                Some(info)
+            }
+        }
     }
 
     /// Cached log-probability before the step.
@@ -188,7 +232,10 @@ impl<I> Step<I> {
     /// [`StepOutcome::Accepted`], even if the score equals the pre-step score.
     #[must_use]
     pub const fn log_prob_after(&self) -> Option<f64> {
-        self.log_prob_after
+        match &self.details {
+            StepDetails::Accepted { log_prob_after, .. } => Some(*log_prob_after),
+            StepDetails::NoProposal { .. } | StepDetails::RejectedProposal { .. } => None,
+        }
     }
 
     /// Metropolis-Hastings log acceptance ratio, when one was evaluated.
@@ -197,7 +244,11 @@ impl<I> Step<I> {
     /// when no proposal was available.
     #[must_use]
     pub const fn log_alpha(&self) -> Option<f64> {
-        self.log_alpha
+        match &self.details {
+            StepDetails::Accepted { log_alpha, .. }
+            | StepDetails::RejectedProposal { log_alpha, .. } => Some(*log_alpha),
+            StepDetails::NoProposal { .. } => None,
+        }
     }
 
     /// Why a step was rejected, or `None` when it was accepted.
@@ -261,7 +312,7 @@ impl<I> Step<I> {
     /// ```
     #[must_use]
     pub const fn rejection_reason(&self) -> Option<StepRejectionReason> {
-        match self.outcome {
+        match self.outcome() {
             StepOutcome::Accepted => None,
             StepOutcome::RejectedProposal => Some(StepRejectionReason::RejectedProposal),
             StepOutcome::NoProposal => Some(StepRejectionReason::NoProposal),
@@ -346,6 +397,10 @@ pub type DelayedStep<I> = Step<I>;
 /// With the `serde` feature, this type implements `Serialize` and `Deserialize`
 /// when `S` supports the corresponding trait. It contains no target, proposal,
 /// or RNG state; persist those separately when reproducing a continued run.
+/// This is transport data: construction and deserialization do not establish
+/// that `S` is a valid state for a target. [`Chain::from_checkpoint`] checks the
+/// target score before constructing a live chain; domain invariants inside `S`
+/// remain the state type's responsibility.
 /// See the [checkpoint example](crate#checkpoint-serialization) for a serialization round trip.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]

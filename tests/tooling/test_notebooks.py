@@ -277,6 +277,59 @@ for row in ess_rows:
         assert expected_error in execution_report["error"]["message"]
 
 
+@pytest.mark.parametrize("change", ["boolean_schema", "boolean_chain", "duplicate_observable", "overflow_elapsed", "overflow_tau", "missing_observables"])
+def test_invalid_timing_preserves_existing_analysis_outputs(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str) -> None:
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
+    trace_path = tmp_path / "trace.csv"
+    trace_path.write_text(
+        "chain_id,step,accepted,proposed,log_prob,energy,magnetization\n"
+        + "".join(f"{chain},{step},true,true,0,{step},{step}\n" for chain in range(2) for step in range(1, 5)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    report: dict[str, Any] = {
+        "schema_version": 1,
+        "timing_scope": _PRODUCTION_SCOPE,
+        "chains": [
+            {
+                "chain_id": chain,
+                "samples": 4,
+                "elapsed_seconds": 0.5,
+                "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
+            }
+            for chain in range(2)
+        ],
+    }
+    item: dict[str, Any] = report["chains"][0]
+    if change == "boolean_schema":
+        report["schema_version"] = True
+    elif change == "boolean_chain":
+        item["chain_id"] = False
+    elif change == "duplicate_observable":
+        item["observables"].append({"observable": "energy", "tau": 1.5})
+    elif change == "overflow_elapsed":
+        item["elapsed_seconds"] = 10**1000
+    elif change == "overflow_tau":
+        item["observables"][0]["tau"] = 10**1000
+    else:
+        del item["observables"]
+    report_path = tmp_path / "diagnostics.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8", newline="\n")
+    output = tmp_path / "figures"
+    output.mkdir()
+    retained = {name: f"existing {name}\r\n".encode() for name in ("ising_energy_trace.png", "ising_ess_summary.csv", "ising_rhat_summary.csv")}
+    for name, contents in retained.items():
+        (output / name).write_bytes(contents)
+    monkeypatch.setenv("MCMC_TRACE_PATH", str(trace_path))
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
+    assert execution.report["failed_cell"]["id"] == "compute-effective-sample-sizes"
+    assert "ValueError" in execution.report["error"]["message"]
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == retained
+
+
 @pytest.mark.parametrize(
     ("chains", "expected_count", "expected_split"),
     [
@@ -527,6 +580,40 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
 
 
 @pytest.mark.parametrize(
+    "metric",
+    [
+        None,
+        [],
+        {"status": "estimated", "value": 1.0, "reason": "failed"},
+        {"status": "estimated", "value": 10**1000},
+        {"status": "unavailable", "value": None, "reason": True},
+        {"status": "unavailable", "value": None, "reason": "  "},
+    ],
+)
+def test_rank_notebook_rejects_invalid_scalar_alternatives_without_replacing_evidence(
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metric: object
+) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
+    report = plot_report()
+    report["runs"][0]["prefixes"][-1]["mean_mcse"] = metric
+    report_path = tmp_path / "invalid scalar.json"
+    report_path.write_bytes(json.dumps(report).encode("utf-8"))
+    output = tmp_path / "figures"
+    output.mkdir()
+    previous = {"diagnostics.json": b"prior report\r\n", "manifest.json": b"prior manifest\n", "rank_overlays.png": b"prior figure"}
+    for name, content in previous.items():
+        (output / name).write_bytes(content)
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
+    result = execution.report
+    assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
+    assert "ValueError" in result["error"]["message"]
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
+
+
+@pytest.mark.parametrize(
     "corruption",
     [
         "chain_identity",
@@ -541,6 +628,10 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
         "acf_empty",
         "acf_unavailable_values",
         "cadence",
+        "boolean_count",
+        "measured_reason",
+        "unavailable_reason",
+        "acf_reason",
     ],
 )
 def test_rank_notebook_rejects_inconsistent_report_before_rendering(
@@ -561,6 +652,15 @@ def test_rank_notebook_rejects_inconsistent_report_before_rendering(
         prefix["ess"]["tail"]["estimate"]["value"] = 0.0
     elif corruption == "cadence":
         report["runs"][0]["recording_interval"] = True
+    elif corruption == "boolean_count":
+        prefix["omitted_middle_per_chain"] = True
+    elif corruption == "measured_reason":
+        run_full = report["runs"][0]["prefixes"][-1]
+        run_full["timing"]["reason"] = "not measured"
+    elif corruption == "unavailable_reason":
+        prefix["timing"]["reason"] = True
+    elif corruption == "acf_reason":
+        prefix["single_chain"][0]["acf"]["reason"] = "not estimated"
     elif corruption == "acf_unavailable_values":
         prefix["single_chain"][0]["acf"] = {"status": "unavailable", "values": [1.0], "reason": "fixture_unavailable"}
     else:

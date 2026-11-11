@@ -3,7 +3,7 @@ description: Install the locked shared tooling and synchronize the declared tool
 
 inputs:
   cache:
-    description: Restore and save uv and managed-tool caches.
+    description: Cache uv and managed Cargo compilation; release jobs disable caches.
     default: "true"
   scanner:
     description: Set up only zizmor, gitleaks, or osv-scanner; empty installs the full contributor toolchain.
@@ -20,13 +20,15 @@ runs:
         # Restored Windows Python homes can be inaccessible to ty.
         cache-python: ${{ runner.os != 'Windows' }}
 
-    - name: Cache declared Rust and Cargo tools
+    - name: Cache managed Cargo compilation
       if: inputs.cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ runner.temp }}/rrt
-        key: rrt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scanner && format('{0}-', inputs.scanner) || '' }}${{ hashFiles('rust-toolchain.toml', 'pyproject.toml', 'uv.lock', '.python-version') }}
-        restore-keys: rrt-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scanner && format('{0}-', inputs.scanner) || '' }}
+        path: ${{ runner.temp }}/rrt-cargo-build
+        key: >-
+          cargo-build-v1-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('rust-toolchain.toml', 'pyproject.toml', 'uv.lock', 'Cargo.lock', '.python-version')
+          }}
 
     - name: Set up declared tools and development environment
       if: inputs.scanner == ''
@@ -34,7 +36,8 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
-      run: uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
+        RESEARCH_REPO_TOOLS_CARGO_BUILD_HOME: ${{ runner.temp }}/rrt-cargo-build
+      run: uv run --locked --managed-python --only-group tooling research-repo-tools setup
 
     - name: Set up the declared scanner through the shared API
       if: inputs.scanner != ''
@@ -43,6 +46,7 @@ runs:
         SCANNER: ${{ inputs.scanner }}
         GITHUB_TOKEN: ${{ github.token }}
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
+        RESEARCH_REPO_TOOLS_CARGO_BUILD_HOME: ${{ runner.temp }}/rrt-cargo-build
       run: |
         uv run --locked --managed-python --only-group tooling python - <<'PY'
         import os

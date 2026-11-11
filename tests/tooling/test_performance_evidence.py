@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from research_repo_tools.cli import main
-from research_repo_tools.criterion import COMPARISON_SCHEMA, Estimate, Sample, compare_samples, serialize_comparison
+from research_repo_tools.criterion import COMPARISON_SCHEMA, ConfidenceInterval, Estimate, Sample, compare_samples, serialize_comparison
 from research_repo_tools.evidence import Evidence, Provenance, publish_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,7 +113,10 @@ def test_release_artifact_without_current_report_fails(tmp_path: Path, monkeypat
 
 def test_current_report_delegates_reproduction_and_drift_to_shared_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _project(tmp_path, monkeypatch)
-    comparison = compare_samples(Sample((("chain/step_by_value", Estimate(12)),)), Sample((("chain/step_by_value", Estimate(10)),)))
+    comparison = compare_samples(
+        Sample((("chain/step_by_value", Estimate(12, ConfidenceInterval(11, 13, 0.95))),)),
+        Sample((("chain/step_by_value", Estimate(10, ConfidenceInterval(9, 11, 0.95))),)),
+    )
     evidence = Evidence(
         serialize_comparison(comparison),
         COMPARISON_SCHEMA,

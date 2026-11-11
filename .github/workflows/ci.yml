@@ -42,7 +42,7 @@ jobs:
 
   build:
     needs: repository-tooling
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -55,10 +55,10 @@ jobs:
 
     steps:
       - name: Require repository tooling success
-        if: needs.repository-tooling.result != 'success'
+        if: ${{ cancelled() || needs.repository-tooling.result != 'success' }}
         shell: bash
         run: |
-          echo "Repository tooling did not succeed; native validation cannot pass."
+          echo "Repository tooling did not succeed or the workflow was cancelled."
           exit 1
 
       - name: Disable Git autocrlf on Windows
@@ -79,7 +79,7 @@ jobs:
         run: just ci-native
 
   package:
-    needs: [repository-tooling, build]
+    needs: repository-tooling
     if: >-
       github.repository == 'acgetchell/markov-chain-monte-carlo' &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -97,6 +97,12 @@ jobs:
         with:
           cache: "false"
 
+      - name: Prepare native dependency provenance
+        run: just release-dependency-builds
+
+      - name: Verify published dependency provenance
+        run: just release-dependencies
+
       - name: Verify clean default and all-feature packages
         run: just release-package
 
@@ -106,7 +112,7 @@ jobs:
       github.repository == 'acgetchell/markov-chain-monte-carlo' &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions:
       contents: read
       actions: read
@@ -124,12 +130,22 @@ jobs:
           version: "0.13.7"
           enable-cache: false
 
+      - name: Fetch locked Cargo inputs for read-only verification
+        run: |
+          toolchain="$(uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
+            --from research-repo-tools==0.2.8 python -I -c \
+            'from pathlib import Path; import tomllib; print(tomllib.loads(Path("rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          printf 'RUSTUP_TOOLCHAIN=%s\n' "$toolchain" >> "$GITHUB_ENV"
+          RUSTUP_TOOLCHAIN="$toolchain" cargo fetch --locked
+          RUSTUP_TOOLCHAIN="$toolchain" cargo fetch --locked --manifest-path benches/diagnostic_backends/Cargo.toml
+
       - name: Capture successful validation identities
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-03T10:06:40Z \
-            --from research-repo-tools==0.2.5 python -I - <<'PY'
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
+            --from research-repo-tools==0.2.8 python -I - <<'PY'
           import os
           import sys
           from pathlib import Path

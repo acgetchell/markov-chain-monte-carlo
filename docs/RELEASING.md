@@ -26,7 +26,7 @@ reuses the declared citation date and preserves the generated contents,
 including when a rerun happens after UTC midnight.
 
 The command names, arguments and operational order follow Delaunay's release
-workflow. Published `research-repo-tools==0.2.5` implements common metadata,
+workflow. Published `research-repo-tools==0.2.8` implements common metadata,
 changelog, tag, release-event, registry and asset operations. MCMC supplies its
 own scientific validation, feature selections and benchmark evidence policy.
 Main CI retains signed source-validation evidence. Byte-identical Cargo archive promotion remains deferred; see the
@@ -191,14 +191,16 @@ Correct source commit messages or shared generator behavior and regenerate inste
 Run this after the package version has been updated:
 
 ```bash
-just performance-prepare
-just performance-release
+just release-dependency-builds
+just performance-prepare --release-intent
+just performance-release --release-intent --checkpoint target/bench-reports/release-checkpoint
 ```
 
-Preparation captures independent source, harness and release assertions without
-timing. The release recipe measures the prospective package version against the
-latest stable published release, retains the complete run and provenance, and
-promotes the report to `docs/performance/current.md`, retaining its pair under
+Preparation verifies the published dependency inputs and captures independent
+source, harness and release assertions without timing. The release recipe measures
+the prospective package version against the latest stable published release in two
+paired trials with opposite phase orders. It promotes the report to
+`docs/performance/current.md` and retains the complete run and provenance under
 `docs/performance/runs/`. Existing v1 evidence stays frozen under
 `docs/performance/v1/`; the new declaration requires at least v0.5.2 and does not
 backfill retired releases. Review scientific workload validity, source
@@ -212,8 +214,8 @@ It does not measure again. Repeated measurements create new observations.
 
 ### 5. Publish the README performance snapshot
 
-Review the complete retained run and the independently declared 13-workload
-selection in `tooling/performance-publication.toml`. Then run:
+Review both retained trials and the independently declared 13-workload selection
+from trial 1 in `tooling/performance-publication.toml`. Then run:
 
 ```bash
 just performance-readme --preview

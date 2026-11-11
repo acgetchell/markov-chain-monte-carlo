@@ -1,10 +1,81 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.2.5` registry distribution.
+MCMC pins the published `research-repo-tools==0.2.8` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
-or private import is needed. This completes the local extraction planned in #166
+or private import is needed. This completes the initial local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.2.8 adoption
+
+The published scanner setup and fixture APIs now read the locked Semgrep version;
+the temporary version adapter from #222 has been removed. Runtime, notebook, and
+isolated workflow pins select the same published supplier. The reusable Dependabot
+workflow selects the v0.2.8 commit with unchanged reviewed workflow bytes.
+
+`dependency-sources.toml` owns the root Python and Cargo graphs and the locked
+source-build policy. Run `just release-dependency-builds` before
+`just release-dependencies` on each native release machine. This prepares Cargo's
+offline inputs for both Cargo locks and authenticates native Python wheels through
+locked builders. v0.2.8 supports the larger winapi archives from
+[upstream #214](https://github.com/acgetchell/research-repo-tools/issues/214)
+and declares the diagnostic benchmark as a standalone workspace owned by the
+root crate using [upstream #217](https://github.com/acgetchell/research-repo-tools/issues/217).
+The isolated evidence and draft runners use the shared external runtime API.
+
+Managed Cargo compilation has a separate cache keyed by OS, architecture,
+toolchain, declarations, and locks. Release jobs disable cache reuse. Fresh release
+jobs prepare their native inputs before the isolated registry verifier runs.
+
+Semgrep 1.185.0 still requires the OpenTelemetry 1.37 family in its published
+metadata. The aligned compatibility overrides remain necessary for #205.
+
+### Current ownership and remaining shared capabilities
+
+Local scans and SARIF now use the shared strict `semgrep scan` command through
+one canonical recipe. Explicit Git glob patterns cover the rule scopes, including
+both direct and nested files. Consumer tests keep this selection aligned with
+`semgrep.yaml`. RRT owns the locked scanner, Linux stack workaround, bounded native
+batches, paired reports, and report-currentness verification. The workflow retains
+only invocation, upload permissions, and the final findings/report gate.
+
+The remaining reusable adapters have upstream v0.2.9 issues. Keep them until a
+published shared replacement preserves their contracts; do not replace them with
+copied workflow programs or private package imports.
+
+| Local surface | Ownership and replacement |
+| --- | --- |
+| Scanner-only setup heredoc | Shared plan selection, installation and environment export belong in [RRT #225](https://github.com/acgetchell/research-repo-tools/issues/225). Scanner choice and workflow permissions remain local. |
+| `tooling/prepare_release.py` | Source verification and authenticated draft orchestration belong in [RRT #226](https://github.com/acgetchell/research-repo-tools/issues/226), building on the existing draft API and durable journal. Package/source policy remains local. |
+| Release title, notes and immutability shell checks | Declarative publication assertions belong in [RRT #227](https://github.com/acgetchell/research-repo-tools/issues/227). Keep the current checks until adoption. |
+| Retained benchmark handoff | Already tracked by [RRT #224](https://github.com/acgetchell/research-repo-tools/issues/224) and MCMC #223; acquisition, attachment and approval composition remain pending. |
+| Isolated runtime dependency graph | Already tracked by [RRT #223](https://github.com/acgetchell/research-repo-tools/issues/223); the current external runtime API remains in use. |
+| Evidence recipe arguments and example provenance | Thin consumer wiring supplies package/source assertions and MCMC build-time provenance to shared commands. |
+| Frozen v1 report guard | Temporary historical policy remains local until MCMC #221 permits retirement; new report inventories use the shared validator. |
+| Scientific fixtures, notebook calculations and performance declarations | MCMC owns the mathematics, workloads, thresholds and scientific evidence. RRT owns execution, maintenance, rendering and generic transport. |
+
+Consumer tests protect these declarations and representative integration behavior.
+Generic implementation and failure matrices move upstream with their replacement;
+scientific regression coverage stays in MCMC.
+
+### Hosted CI timing baseline
+
+GitHub job timestamps show the following historical runs. Elapsed time spans
+workflow creation through the last completed job. Runner time sums successful
+job start-to-completion intervals, including setup and cleanup.
+
+| Run | First job wait | Elapsed | Runner time |
+| --- | ---: | ---: | ---: |
+| [v0.5.2 PR, repeated tooling](https://github.com/acgetchell/markov-chain-monte-carlo/actions/runs/40064151056) | 0:02 | 49:45 | 106:05 |
+| [v0.5.2 main, repeated tooling](https://github.com/acgetchell/markov-chain-monte-carlo/actions/runs/40067414448) | 0:02 | 52:56 | 126:41 |
+| [November 9 PR, split tooling](https://github.com/acgetchell/markov-chain-monte-carlo/actions/runs/42644302879) | 0:02 | 15:40 | 34:36 |
+| [November 9 main, split tooling and evidence](https://github.com/acgetchell/markov-chain-monte-carlo/actions/runs/42644271585) | 0:02 | 46:28 | 62:07 |
+
+The November 9 main package job spent 22:30 in setup and 0:12 in Cargo package
+verification. The earlier runs used different revisions and cache states are
+unclassified, so these observations do not quantify the effect of splitting the
+jobs or enabling the compilation cache. Record matched cold and warm evidence
+for the adoption revision in [#229](https://github.com/acgetchell/markov-chain-monte-carlo/issues/229).
 
 ## v0.2.5 adoption
 
@@ -184,9 +255,9 @@ they are verified. Trusted main-artifact promotion remains deferred.
 | Generic parser, process, worktree, rendering, rollback and upload tests | Shared upstream; local duplicates removed |
 | Scientific workload, notebook, release policy and representative integration tests | Retained under `tests/tooling/` |
 
-No executable production Python remains. Shell is limited to native command composition,
+After the initial extraction, no executable production Python remained. Shell was limited to native command composition,
 explicit slow-notebook selection, coverage-directory creation, and normal CI pipelines.
-There is no replacement callback, workflow heredoc, copied renderer, or local framework.
+The later draft and scanner adapters are listed in the current ownership table above.
 
 ## Environment and release policy
 
@@ -275,8 +346,9 @@ that historical evidence series and replaced its preservation tests with first-r
 At that adoption, the registry-only release writer jobs used v0.1.7 and uv 0.12.19. Their resolution cutoff
 was after both v0.1.7 PyPI artifacts were uploaded. Native Rust, scientific notebook,
 benchmark lifecycle, project-rule fixtures and consumer security boundaries remain
-locally owned. The existing batched native Semgrep scan stays in place: the shared
-per-file JSON/SARIF scan is not a replacement for its command and performance contract.
+locally owned. At v0.1.7 adoption, the existing batched native Semgrep scan stayed in place:
+the then-shared per-file JSON/SARIF scan did not replace its command and performance contract.
+The v0.2.8 adoption above supersedes that limitation with shared bounded batches.
 Dependabot approval now calls the separately SHA-pinned shared workflow. The caller
 owns only repository identity and dependency-file policy; signed-head eligibility,
 approval and native auto-merge live upstream. The personal-token CodeRabbit request

@@ -69,11 +69,14 @@ impl fmt::Display for ChainId {
 }
 
 /// Acceptance/proposal outcome recorded for one trace row.
+///
+/// Uses the same three cases as [`StepOutcome`]. Convert a completed [`Step`]
+/// with [`From`] so acceptance and proposal presence describe that transition.
+/// This value alone does not prove which chain or step produced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct TraceStepOutcome {
-    accepted: bool,
-    proposed: bool,
+    outcome: StepOutcome,
 }
 
 impl TraceStepOutcome {
@@ -88,8 +91,7 @@ impl TraceStepOutcome {
     /// ```
     pub const fn accepted() -> Self {
         Self {
-            accepted: true,
-            proposed: true,
+            outcome: StepOutcome::Accepted,
         }
     }
 
@@ -104,8 +106,7 @@ impl TraceStepOutcome {
     /// ```
     pub const fn rejected_proposal() -> Self {
         Self {
-            accepted: false,
-            proposed: true,
+            outcome: StepOutcome::RejectedProposal,
         }
     }
 
@@ -120,8 +121,7 @@ impl TraceStepOutcome {
     /// ```
     pub const fn no_proposal() -> Self {
         Self {
-            accepted: false,
-            proposed: false,
+            outcome: StepOutcome::NoProposal,
         }
     }
 
@@ -154,23 +154,19 @@ impl TraceStepOutcome {
     /// Whether the step accepted and retained a concrete proposal.
     #[must_use]
     pub const fn is_accepted(self) -> bool {
-        self.accepted
+        self.outcome.is_accepted()
     }
 
     /// Whether the step included a concrete proposal.
     #[must_use]
     pub const fn has_proposal(self) -> bool {
-        self.proposed
+        self.outcome.has_proposal()
     }
 }
 
 impl From<StepOutcome> for TraceStepOutcome {
     fn from(outcome: StepOutcome) -> Self {
-        match outcome {
-            StepOutcome::Accepted => Self::accepted(),
-            StepOutcome::RejectedProposal => Self::rejected_proposal(),
-            StepOutcome::NoProposal => Self::no_proposal(),
-        }
+        Self { outcome }
     }
 }
 

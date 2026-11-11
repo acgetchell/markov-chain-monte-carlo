@@ -118,6 +118,8 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 ///
 /// The accumulator uses constant memory regardless of sample count.
 ///
+/// # Examples
+///
 /// ```
 /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 ///
@@ -611,6 +613,8 @@ impl BinningLevel {
 ///
 /// The hierarchy retains logarithmically many levels and does not retain the
 /// original samples, so memory grows as `O(log n)` for `n` measurements.
+///
+/// # Examples
 ///
 /// ```
 /// use markov_chain_monte_carlo::prelude::{BinningAnalysis, StatisticsError};

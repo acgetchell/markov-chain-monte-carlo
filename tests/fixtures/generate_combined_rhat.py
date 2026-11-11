@@ -12,6 +12,7 @@ import json
 import math
 import platform
 import sys
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 
@@ -32,22 +33,54 @@ EXPECTED_CASES = frozenset(
 )
 
 
-def verify_case_inventory(cases: object) -> None:
-    """Require the complete nine-regime corpus before importing the oracle."""
+@dataclass(frozen=True, slots=True)
+class _RhatCase:
+    """Owned input accepted by parse_cases; no mutable JSON aliases reach the oracle."""
+
+    name: str
+    chains: tuple[tuple[float, ...], ...]
+    components: tuple[float | None, ...]
+
+
+def parse_cases(cases: object) -> tuple[_RhatCase, ...]:
+    """Parse the complete nine-regime corpus before importing the oracle."""
     message = "Combined R-hat case inventory changed or is malformed"
     if not isinstance(cases, list):
         raise TypeError(message)
-    names: list[str] = []
+    parsed: list[_RhatCase] = []
     required = {"name", "chains", "location", "folded", "combined"}
     for case in cases:
         if not isinstance(case, dict) or not required <= set(case) <= required | {"unavailable", "policy_difference"} or not isinstance(case["name"], str):
             raise ValueError(message)
         chains = case["chains"]
-        if not isinstance(chains, list) or not chains or any(not isinstance(chain, list) or not chain for chain in chains):
+        if not isinstance(chains, list) or len(chains) < 2:
             raise ValueError(message)
-        names.append(case["name"])
+        draws: list[tuple[float, ...]] = []
+        for chain in chains:
+            if not isinstance(chain, list) or len(chain) < 4 or (draws and len(chain) != len(draws[0])):
+                raise ValueError(message)
+            values = tuple(parse_number(value) for value in chain)
+            draws.append(values)
+        components = tuple(None if case[key] is None else parse_number(case[key], positive=True) for key in ("location", "folded", "combined"))
+        parsed.append(_RhatCase(case["name"], tuple(draws), components))
+    names = [case.name for case in parsed]
     if len(names) != len(EXPECTED_CASES) or frozenset(names) != EXPECTED_CASES:
         raise ValueError(message)
+    return tuple(parsed)
+
+
+def parse_number(value: object, *, positive: bool = False) -> float:
+    """Accept finite scientific numbers, excluding JSON booleans and overflow."""
+    message = "Combined R-hat case inventory changed or is malformed: expected finite numeric draws and positive references"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(message)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(message) from error
+    if not math.isfinite(result) or (positive and result <= 0):
+        raise ValueError(message)
+    return result
 
 
 def reference_tolerance(value: object) -> float:
@@ -68,16 +101,23 @@ def verify_component(name: str, component: str, actual: float, expected: float |
 
 def main() -> None:
     """Print both components, their maximum, and the pinned runtime versions."""
-    fixture = json.loads(Path(__file__).with_name("combined_rhat.json").read_bytes())
-    verify_case_inventory(fixture.get("cases"))
-    tolerance = reference_tolerance(fixture["reference"]["relative_tolerance"])
-    reproduction = fixture["reproduction"]
+    fixture: object = json.loads(Path(__file__).with_name("combined_rhat.json").read_bytes())
+    if not isinstance(fixture, dict):
+        message = "Combined R-hat fixture must be an object"
+        raise TypeError(message)
+    cases = parse_cases(fixture.get("cases"))
+    reference = fixture.get("reference")
+    reproduction = fixture.get("reproduction")
+    if not isinstance(reference, dict) or not isinstance(reproduction, dict):
+        message = "Combined R-hat fixture requires reference and reproduction objects"
+        raise TypeError(message)
+    tolerance = reference_tolerance(reference.get("relative_tolerance"))
     python_version = platform.python_version()
-    if python_version != reproduction["python_version"]:
-        message = f"Python {reproduction['python_version']} required; found {python_version}"
+    if python_version != reproduction.get("python_version"):
+        message = f"Python {reproduction.get('python_version')} required; found {python_version}"
         raise ValueError(message)
     for package in ("arviz", "numpy", "scipy"):
-        expected = reproduction["version"] if package == "arviz" else reproduction[f"{package}_version"]
+        expected = reproduction.get("version" if package == "arviz" else f"{package}_version")
         actual = version(package)
         if actual != expected:
             message = f"{package} {expected} required; found {actual}"
@@ -86,17 +126,17 @@ def main() -> None:
     # Inline dependencies are checked in the isolated script environment as well.
     import arviz as az  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated historical oracle, not needed for boundary tests.
 
-    for case in fixture["cases"]:
-        draws = np.asarray(case["chains"], dtype=np.float64)
+    for case in cases:
+        draws = np.asarray(case.chains, dtype=np.float64)
         location = float(az.rhat(draws, method="z_scale"))
         # Fold all original draws before ArviZ splits/ranks, preserving odd middles.
         folded_draws = np.abs(draws - np.median(draws))
         # An entirely constant folded pool is undefined; avoid evaluating 0/0.
         folded = math.nan if np.all(folded_draws == folded_draws.flat[0]) else float(az.rhat(folded_draws, method="z_scale"))
         combined = max(location, folded) if math.isfinite(location) and math.isfinite(folded) else math.nan
-        for component, actual in (("location", location), ("folded", folded), ("combined", combined)):
-            verify_component(case["name"], component, actual, case[component], tolerance)
-        sys.stdout.write(f"{case['name']} location={location:.17g} folded={folded:.17g} combined={combined:.17g}\n")
+        for (component, actual), expected in zip((("location", location), ("folded", folded), ("combined", combined)), case.components, strict=True):
+            verify_component(case.name, component, actual, expected, tolerance)
+        sys.stdout.write(f"{case.name} location={location:.17g} folded={folded:.17g} combined={combined:.17g}\n")
 
     sys.stdout.write(f"Python {python_version}; ArviZ {version('arviz')}; NumPy {version('numpy')}; SciPy {version('scipy')}\n")
 

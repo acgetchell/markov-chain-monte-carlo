@@ -5,12 +5,24 @@
 # Use bash with strict error handling for all recipes
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# Prepare native source receipts and registry inputs before release provenance checks.
+release-dependency-builds:
+    uv sync --locked --group dev
+    {{ _run }} cargo fetch --locked
+    {{ _run }} cargo fetch --locked --manifest-path benches/diagnostic_backends/Cargo.toml
+    {{ _run }} research-repo-tools release dependency-builds
+
+# Authenticate declared registry graphs and this machine's installed dependency bytes.
+release-dependencies:
+    {{ _run }} research-repo-tools release dependencies
+
+# Preview a declared source change; pass --apply to reconcile its manifest and lock.
+[positional-arguments]
+dependency-source name *args:
+    {{ _run }} research-repo-tools deps source "$@"
+
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
-
-# Semgrep misreads Python 3.15's positive RLIM_INFINITY on Linux.
-# Keep its inherited stack finite until semgrep/semgrep#11979 is fixed.
-semgrep_stack_limit := if os() == "linux" { 'if [[ "$(ulimit -Hs)" == unlimited ]]; then ulimit -s 1048576; fi;' } else { "" }
 
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb notebooks/diagnostic_plots.ipynb"
 slow_notebooks := ""
@@ -469,24 +481,27 @@ release-evidence:
 [group('release')]
 [positional-arguments]
 [private]
-[script("uvx", "--no-config", "--isolated", "--managed-python", "--exclude-newer", "2026-11-03T10:06:40Z", "--from", "research-repo-tools==0.2.5", "python", "-I")]
+[script("uvx", "--no-config", "--isolated", "--managed-python", "--exclude-newer", "2026-11-10T07:56:26Z", "--from", "research-repo-tools==0.2.8", "python", "-I")]
 _release-evidence operation output expected="":
     import os
     import sys
     from pathlib import Path
     from research_repo_tools.cli import main
+    from research_repo_tools.config import load
     from research_repo_tools.measurement import resolve_revision
     from research_repo_tools.release_metadata import read_package_info
-    root = Path.cwd()
+    from research_repo_tools.release_runtime import isolated_release_runtime
+    root = Path.cwd().resolve()
     operation, output, expected = sys.argv[1:]
-    args = ["release", "evidence", operation, "tooling/release-evidence.toml", "--checkout", str(root), "--commit", resolve_revision(root, "HEAD"), "--version", read_package_info(root).version, "--output", str(Path(output).resolve())]
-    if operation == "create":
-        args.extend(["--run-id", os.environ["GITHUB_RUN_ID"], "--attempt", os.environ["GITHUB_RUN_ATTEMPT"]])
-    if expected:
-        args.extend(["--expected", str(Path(expected).resolve())])
-    if os.environ.get("GITHUB_OUTPUT"):
-        args.extend(["--github-output", os.environ["GITHUB_OUTPUT"]])
-    sys.exit(main(args))
+    with isolated_release_runtime(load(root=root)):
+        args = ["release", "evidence", operation, "tooling/release-evidence.toml", "--checkout", str(root), "--commit", resolve_revision(root, "HEAD"), "--version", read_package_info(root).version, "--output", str(Path(output).resolve())]
+        if operation == "create":
+            args.extend(["--run-id", os.environ["GITHUB_RUN_ID"], "--attempt", os.environ["GITHUB_RUN_ATTEMPT"]])
+        if expected:
+            args.extend(["--expected", str(Path(expected).resolve())])
+        if os.environ.get("GITHUB_OUTPUT"):
+            args.extend(["--github-output", os.environ["GITHUB_OUTPUT"]])
+        sys.exit(main(args))
 
 # Require the immutable release event and successful checks on its exact commit.
 [group('release')]
@@ -544,19 +559,28 @@ security-secrets:
     uv run --locked --only-group tooling research-repo-tools security secrets
 
 # Repository-owned Semgrep rules for project-specific diagnostics.
+# Git glob mode includes both direct and nested files; keep scope aligned with semgrep.yaml.
 [group('validation')]
 semgrep:
-    {{ semgrep_stack_limit }} {{ rrt }} files run --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --timeout 600 -- semgrep --metrics off --error --strict --timeout 30 --config semgrep.yaml
+    {{ rrt }} semgrep scan \
+        --include ':(glob)src/**/*.rs' --include ':(glob)tests/**/*.rs' \
+        --include ':(glob)examples/**/*.rs' --include ':(glob)benches/**/*.rs' \
+        --include ':(glob).github/workflows/**/*.yml' --include ':(glob).github/workflows/**/*.yaml' \
+        --include ':(glob).github/actions/**/*.yml' --include ':(glob).github/actions/**/*.yaml' \
+        --include ':(glob)github-actions/**/*.yml' --include ':(glob)github-actions/**/*.yaml' \
+        --include AGENTS.md --include CONTRIBUTING.md --include README.md \
+        --include ':(glob)docs/**/*.md' --include justfile --include ':(glob)tests/tooling/**/*.py' \
+        --exclude 'tests/semgrep/**' --exclude 'docs/performance/**' --output target/security/semgrep
 
 # Validate repository-owned Semgrep rules against annotated fixtures.
 [group('validation')]
 semgrep-test:
-    {{ semgrep_stack_limit }} {{ _run }} python tooling/semgrep_latest.py semgrep check-fixtures
+    {{ rrt }} semgrep check-fixtures
 
 # Install managed tools and verify system prerequisites.
 [group('build and setup')]
 setup: _ensure-jq
-    uv run --locked --managed-python --only-group tooling python tooling/semgrep_latest.py setup
+    uv run --locked --managed-python --only-group tooling research-repo-tools setup
 
 # Preview a shared-package/Python migration outside the current environment.
 [group('build and setup')]

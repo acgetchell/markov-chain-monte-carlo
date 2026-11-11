@@ -1,5 +1,17 @@
-# One unchanged public stepping harness for both phases. Criterion 0.8.2 defaults
-# to 100 samples; case inventory and counts are policy, never inferred from output.
+# One pair in each order, with the same public stepping harness in every phase.
+schema = 6
+outputs = [ "README.md", "docs/assets/release-performance.csv", "docs/assets/release-performance.svg" ]
+
+[schedule]
+order = "alternating"
+trials = 2
+
+[[suites]]
+name = "stepping"
+contract = "mcmc-stepping-v1"
+
+# Criterion 0.8.2 defaults to 100 samples; the case inventory and count are policy.
+[suites.measurement]
 schema = 4
 harness-mode = "common"
 backend = "export"
@@ -16,43 +28,40 @@ unit = "ns"
 timeout = 7200
 compatible = [ "context.os", "context.architecture", "context.cpu" ]
 
-[context]
+[suites.measurement.context]
 suite = "stepping"
 scope = "release-signal"
 
-[probes]
+[suites.measurement.probes]
 cargo = [ "cargo", "--version" ]
 rustc = [ "rustc", "--version", "--verbose" ]
 criterion = [ "python", "-c", "import json,tomllib; from pathlib import Path; d=tomllib.loads(Path('Cargo.lock').read_text(encoding='utf-8')); print(json.dumps([p for p in d['package'] if p['name']=='criterion'],sort_keys=True))" ]
 build-policy = [ "python", "-c", "import json,os,tomllib; from pathlib import Path; d=tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8')); print(json.dumps({'cargo':{k:d.get(k) for k in ('profile','features')},'environment':{k:v for k,v in os.environ.items() if k in ('RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTDOCFLAGS','CARGO_ENCODED_RUSTDOCFLAGS','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','RUSTUP_TOOLCHAIN','CARGO_INCREMENTAL','CARGO_BUILD_TARGET','CARGO_BUILD_RUSTFLAGS') or k.startswith('CARGO_PROFILE_') or (k.startswith('CARGO_TARGET_') and k.endswith(('_RUSTFLAGS','_LINKER','_RUNNER')))}},sort_keys=True))" ]
 
-# The published 0.2.5 runner always acquires baseline before current. Phase table
-# order does not configure execution order. Publication must disclose this
-# limitation; counterbalanced trials and observed order receipts need shared support.
-[phases.baseline]
+[suites.measurement.phases.baseline]
 command = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--save-baseline=retained", "--noplot" ]
 gate = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--test" ]
 environment = { CRITERION_HOME = "target/criterion", CARGO_TARGET_DIR = "target", CARGO_INCREMENTAL = "0" }
 
-[phases.baseline.discovery]
+[suites.measurement.phases.baseline.discovery]
 required = [ "chain/step_by_value", "chain/step_mut_accept", "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan", "sampler/run_by_value_100", "sampler/run_mut_100", "sampler/run_delayed_reflection_100", "sampler/run_by_value_thinned_100/1", "sampler/run_by_value_thinned_100/2", "sampler/run_by_value_thinned_100/16", "sampler/run_mut_thinned_100/1", "sampler/run_mut_thinned_100/2", "sampler/run_mut_thinned_100/16", "sampler/run_delayed_thinned_100/1", "sampler/run_delayed_thinned_100/2", "sampler/run_delayed_thinned_100/16", "observing/run_observing_buffer_100", "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" ]
 suites = [ { name = "stepping", command = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--list" ] } ]
 
-[phases.current]
+[suites.measurement.phases.current]
 command = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--save-baseline=retained", "--noplot" ]
 gate = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--test" ]
 environment = { CRITERION_HOME = "target/criterion", CARGO_TARGET_DIR = "target", CARGO_INCREMENTAL = "0" }
 
-[phases.current.discovery]
+[suites.measurement.phases.current.discovery]
 required = [ "chain/step_by_value", "chain/step_mut_accept", "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan", "sampler/run_by_value_100", "sampler/run_mut_100", "sampler/run_delayed_reflection_100", "sampler/run_by_value_thinned_100/1", "sampler/run_by_value_thinned_100/2", "sampler/run_by_value_thinned_100/16", "sampler/run_mut_thinned_100/1", "sampler/run_mut_thinned_100/2", "sampler/run_mut_thinned_100/16", "sampler/run_delayed_thinned_100/1", "sampler/run_delayed_thinned_100/2", "sampler/run_delayed_thinned_100/16", "observing/run_observing_buffer_100", "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" ]
 suites = [ { name = "stepping", command = [ "cargo", "bench", "--locked", "--bench", "stepping", "--", "--list" ] } ]
 
-[[series]]
+[[suites.measurement.series]]
 name = "baseline"
 phase = "baseline"
 select = { include = [ "*" ] }
 
-[[series]]
+[[suites.measurement.series]]
 name = "current"
 phase = "current"
 select = { include = [ "*" ] }

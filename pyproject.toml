@@ -6,21 +6,29 @@ requires-python = ">=3.14,>=3.15"
 dependencies = [  ]
 
 [dependency-groups]
+build = [
+    "cython==3.3.1",
+    "hatchling==1.32.4",
+    "requests==2.34.2",
+    "semver==3.1.1",
+    "setuptools==84.2.1",
+    "wheel==0.48.0",
+]
 dev = [
     { include-group = "tooling" },
     "actionlint-py==1.7.12.25",
     "pytest",
     "ruff",
-    "semgrep==1.183.0",
+    "semgrep==1.185.0",
     "ty",
 ]
 notebook = [
-    "research-repo-tools[notebooks,python-tools]==0.2.5",
+    "research-repo-tools[notebooks,python-tools]==0.2.8",
     "matplotlib>=3.11.2",
     "polars>=2.0.0",
 ]
 
-tooling = [ "research-repo-tools[python-tools]==0.2.5" ]
+tooling = [ "research-repo-tools[python-tools]==0.2.8" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -90,11 +98,11 @@ inherit-python-tools = true
 [tool.research-repo-tools.toolchain.binaries]
 dprint = "0.64.3"
 gitleaks = "8.30.1"
-osv-scanner = "2.7.0"
-rumdl = "0.3.2"
+osv-scanner = "2.7.1"
+rumdl = "0.3.3"
 
 [tool.research-repo-tools.toolchain.cargo]
-cargo-audit = "0.22.2"
+cargo-audit = "0.23.0"
 cargo-edit = "0.13.14"
 cargo-llvm-cov = "0.9.1"
 cargo-nextest = "0.9.151"
@@ -102,7 +110,7 @@ clippy-sarif = "0.8.0"
 git-cliff = "2.14.2"
 sarif-fmt = "0.8.0"
 taplo-cli = "0.10.0"
-typos-cli = "1.52.0"
+typos-cli = "1.52.2"
 zizmor = "1.32.0"
 
 [tool.research-repo-tools.zizmor]
@@ -121,6 +129,11 @@ config = "semgrep.yaml"
 fixtures = "tests/semgrep"
 namespace = "mcmc."
 cwd = "tests/semgrep"
+timeout = 600
+target-timeout = 30
+inline-suppressions = true
+report-category = "semgrep-repository-rules"
+report-layout = "aggregate"
 
 [tool.research-repo-tools.semgrep.counts."tests/semgrep/src/project_rules/rust_style.rs"]
 "mcmc.rust.no-stdio-diagnostics-in-src" = 2
@@ -197,7 +210,6 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
-"tooling/semgrep_latest.py" = [ "INP001" ] # Temporary standalone scanner-version adapter
 "tooling/prepare_release.py" = [ "INP001" ] # Standalone tag-triggered release orchestration
 "tests/semgrep/tests/tooling/subprocess_mocks.py" = [
     "ERA001", # Semgrep ruleid/ok annotations are harness metadata
