@@ -14,12 +14,14 @@ from functools import partial
 from pathlib import Path
 
 from research_repo_tools import changelog, config
+from research_repo_tools.dependency_provenance import check_release_dependencies
 from research_repo_tools.measurement import resolve_revision
 from research_repo_tools.process import ExecutableNotFoundError, format_exception_diagnostics, run_command
 from research_repo_tools.release_assets import preflight_release_target, require_release_checkout, revalidate_release_target
 from research_repo_tools.release_evidence import verify_release_evidence
 from research_repo_tools.release_interfaces import load_evidence_policy
 from research_repo_tools.release_publishing import check_metadata, require_checks
+from research_repo_tools.release_runtime import isolated_release_runtime
 from research_repo_tools.release_validation import api, parse_release_json, read_pages, redact_release_diagnostic
 
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -58,6 +60,7 @@ def prepare(root: Path, tag: str) -> int:
     """Create a draft only after all gates; retry without editing existing assets."""
     commit = require_tag_source(root, tag)
     settings = config.load(root=root)
+    check_release_dependencies(root, packages=settings.release.published_dependencies)
     check_metadata(settings, tag)
     policy = load_evidence_policy(root / "tooling/release-evidence.toml")
     if policy.validation.repository != REPOSITORY or policy.package != "markov-chain-monte-carlo" or policy.guarantee != "signed-source":
@@ -122,7 +125,9 @@ def main() -> int:
     parser.add_argument("tag")
     args = parser.parse_args()
     try:
-        identifier = prepare(Path.cwd(), args.tag)
+        root = Path.cwd().resolve()
+        with isolated_release_runtime(config.load(root=root)):
+            identifier = prepare(root, args.tag)
         sys.stdout.write(f"Verified mutable draft {identifier} for {args.tag}; review before publication.\n")
     except (ExecutableNotFoundError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         sys.stderr.write(f"Draft preparation failed: {redact_release_diagnostic(format_exception_diagnostics(error))}\n")

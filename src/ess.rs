@@ -109,6 +109,52 @@ pub enum EssEstimator {
     Quantile(f64),
 }
 
+/// Finite interior probability accepted before interpolation or beta arithmetic.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct QuantileProbability(f64);
+
+impl QuantileProbability {
+    const LOWER_TAIL: Self = Self(0.05);
+    const UPPER_TAIL: Self = Self(0.95);
+
+    fn parse(value: f64) -> Result<Self, MonteCarloError> {
+        if !value.is_finite() || value <= 0.0 || value >= 1.0 {
+            return Err(MonteCarloError::InvalidProbability);
+        }
+        Ok(Self(value))
+    }
+}
+
+/// Preserve a requested estimator's probability proof through all internal paths.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AcceptedEstimator {
+    Mean,
+    Bulk,
+    Quantile(QuantileProbability),
+}
+
+impl TryFrom<EssEstimator> for AcceptedEstimator {
+    type Error = MonteCarloError;
+
+    fn try_from(estimator: EssEstimator) -> Result<Self, Self::Error> {
+        match estimator {
+            EssEstimator::Mean => Ok(Self::Mean),
+            EssEstimator::Bulk => Ok(Self::Bulk),
+            EssEstimator::Quantile(p) => QuantileProbability::parse(p).map(Self::Quantile),
+        }
+    }
+}
+
+impl AcceptedEstimator {
+    const fn request(self) -> EssEstimator {
+        match self {
+            Self::Mean => EssEstimator::Mean,
+            Self::Bulk => EssEstimator::Bulk,
+            Self::Quantile(p) => EssEstimator::Quantile(p.0),
+        }
+    }
+}
+
 /// Positive finite multi-chain ESS and its estimator/sample metadata.
 ///
 /// Supply at least two comparable, independently initialized post-warmup chains
@@ -162,7 +208,7 @@ pub enum EssEstimator {
 #[must_use]
 pub struct EssEstimate {
     value: f64,
-    estimator: EssEstimator,
+    estimator: AcceptedEstimator,
     counts: SampleCounts,
     regularized: bool,
 }
@@ -178,7 +224,7 @@ impl EssEstimate {
     /// unresolved variances, and final arithmetic failures remain unavailable as
     /// documented on [`MonteCarloError`]. No missing estimate becomes a sentinel.
     pub fn estimate(chains: &[&[f64]], estimator: EssEstimator) -> Result<Self, MonteCarloError> {
-        check_estimator(estimator)?;
+        let estimator = AcceptedEstimator::try_from(estimator)?;
         let input = SplitRhatInput::parse(chains)?.ranked()?;
         estimate_input(&input, estimator)
     }
@@ -192,7 +238,7 @@ impl EssEstimate {
     /// Estimator identity, including the probability for a quantile ESS.
     #[must_use]
     pub const fn estimator(self) -> EssEstimator {
-        self.estimator
+        self.estimator.request()
     }
 
     /// Total retained draws used by split autocovariances and ESS/S.
@@ -289,11 +335,14 @@ impl TailEss {
         let input = SplitRhatInput::parse(chains)?.ranked()?;
         let (lower_cutoff, upper_cutoff) = {
             let sorted = sorted_original(&input);
-            (quantile(&sorted, 0.05), quantile(&sorted, 0.95))
+            (
+                quantile(&sorted, QuantileProbability::LOWER_TAIL),
+                quantile(&sorted, QuantileProbability::UPPER_TAIL),
+            )
         };
         Ok(Self {
-            lower: estimate_quantile(&input, 0.05, lower_cutoff),
-            upper: estimate_quantile(&input, 0.95, upper_cutoff),
+            lower: estimate_quantile(&input, QuantileProbability::LOWER_TAIL, lower_cutoff),
+            upper: estimate_quantile(&input, QuantileProbability::UPPER_TAIL, upper_cutoff),
             counts: SampleCounts::from_input(&input),
         })
     }
@@ -423,7 +472,7 @@ impl MeanMcse {
     /// ```
     pub fn estimate(chains: &[&[f64]]) -> Result<Self, MonteCarloError> {
         let input = SplitRhatInput::parse(chains)?.ranked()?;
-        let ess = estimate_input(&input, EssEstimator::Mean)?;
+        let ess = estimate_input(&input, AcceptedEstimator::Mean)?;
         let mut normalized: Vec<_> = chains
             .iter()
             .flat_map(|chain| chain.iter().copied())
@@ -502,12 +551,12 @@ impl QuantileMcse {
     /// # Ok::<(), MonteCarloError>(())
     /// ```
     pub fn estimate(chains: &[&[f64]], probability: f64) -> Result<Self, MonteCarloError> {
-        check_estimator(EssEstimator::Quantile(probability))?;
+        let probability = QuantileProbability::parse(probability)?;
         let input = SplitRhatInput::parse(chains)?.ranked()?;
         let sorted = sorted_original(&input);
         let ess = estimate_quantile(&input, probability, quantile(&sorted, probability))?;
-        let a = ess.value.mul_add(probability, 1.0);
-        let b = ess.value.mul_add(1.0 - probability, 1.0);
+        let a = ess.value.mul_add(probability.0, 1.0);
+        let b = ess.value.mul_add(1.0 - probability.0, 1.0);
         let lower_probability = beta_quantile(a, b, 0.158_655_3)?;
         let upper_probability = beta_quantile(a, b, 0.841_344_7)?;
         let size = count_as_f64(sorted.len());
@@ -705,16 +754,6 @@ impl SampleCounts {
     }
 }
 
-/// Carry accepted probability bounds into the quantile calculation.
-fn check_estimator(estimator: EssEstimator) -> Result<(), MonteCarloError> {
-    if let EssEstimator::Quantile(p) = estimator
-        && (!p.is_finite() || p <= 0.0 || p >= 1.0)
-    {
-        return Err(MonteCarloError::InvalidProbability);
-    }
-    Ok(())
-}
-
 /// Original-chain/first-half/last-half order, matching shared pooled ranking.
 fn retained<'a>(input: &'a RankedRhatInput<'_>) -> impl Iterator<Item = f64> + 'a {
     let n = input.samples_per_chain() / 2;
@@ -728,14 +767,14 @@ fn retained<'a>(input: &'a RankedRhatInput<'_>) -> impl Iterator<Item = f64> + '
 /// Estimate only after the shared parser has established storage/count bounds.
 fn estimate_input(
     input: &RankedRhatInput<'_>,
-    estimator: EssEstimator,
+    estimator: AcceptedEstimator,
 ) -> Result<EssEstimate, MonteCarloError> {
     match estimator {
-        EssEstimator::Mean => {
+        AcceptedEstimator::Mean => {
             estimate_values(&retained(input).collect::<Vec<_>>(), input, estimator)
         }
-        EssEstimator::Bulk => estimate_values(&input.normal_scores(), input, estimator),
-        EssEstimator::Quantile(p) => {
+        AcceptedEstimator::Bulk => estimate_values(&input.normal_scores(), input, estimator),
+        AcceptedEstimator::Quantile(p) => {
             estimate_quantile(input, p, quantile(&sorted_original(input), p))
         }
     }
@@ -748,14 +787,14 @@ fn estimate_input(
 )]
 fn estimate_quantile(
     input: &RankedRhatInput<'_>,
-    p: f64,
+    p: QuantileProbability,
     cutoff: f64,
 ) -> Result<EssEstimate, MonteCarloError> {
     let indicators: Vec<_> = retained(input).map(|x| f64::from(x <= cutoff)).collect();
     if indicators.iter().all(|&x| x == indicators[0]) {
         return Err(MonteCarloError::DegenerateIndicator);
     }
-    estimate_values(&indicators, input, EssEstimator::Quantile(p))
+    estimate_values(&indicators, input, AcceptedEstimator::Quantile(p))
 }
 
 /// Common shifted scaling; physical units are restored only for mean MCSE.
@@ -814,7 +853,7 @@ impl ScaledSamples {
 fn estimate_values(
     values: &[f64],
     input: &RankedRhatInput<'_>,
-    estimator: EssEstimator,
+    estimator: AcceptedEstimator,
 ) -> Result<EssEstimate, MonteCarloError> {
     let scaling = ScaledSamples::new(values)?;
     let n = input.samples_per_chain() / 2;
@@ -920,8 +959,8 @@ const fn order_index(value: f64) -> usize {
 }
 
 /// Type 7 with anchored/convex interpolation to avoid finite-range overflow.
-fn quantile(sorted: &[f64], p: f64) -> f64 {
-    let position = count_as_f64(sorted.len() - 1) * p;
+fn quantile(sorted: &[f64], p: QuantileProbability) -> f64 {
+    let position = count_as_f64(sorted.len() - 1) * p.0;
     let index = order_index(position.floor());
     let fraction = position - position.floor();
     let lower = sorted[index];

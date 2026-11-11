@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
-from research_repo_tools import release_assets
+from research_repo_tools import dependency_provenance, release_assets
 from research_repo_tools.config import load
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +17,13 @@ REPOSITORY = "acgetchell/markov-chain-monte-carlo"
 TAG = "v0.5.3"
 COMMIT = "a" * 40
 NOTES = "Reviewed release notes.\n"
+
+
+def _published_dependencies(root: Path, *, packages: tuple[str, ...] | None = None) -> tuple[dependency_provenance.DependencyIdentity, ...]:
+    """Separate the already-audited dependency graph from inert provider fixtures."""
+    assert root == ROOT
+    assert packages == ()
+    return (dependency_provenance.DependencyIdentity("research-repo-tools", "0.2.8", "https://pypi.org/simple"),)
 
 
 @pytest.fixture
@@ -96,6 +103,7 @@ def preparation(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     for name, provider in {
         "require_tag_source": lambda _root, _tag: COMMIT,
         "check_metadata": lambda _settings, _tag: None,
+        "check_release_dependencies": _published_dependencies,
         "api": read,
         "run_command": command,
         "verify_release_evidence": evidence,
@@ -104,6 +112,8 @@ def preparation(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(implementation["changelog"], "notes", lambda _settings, _tag: (NOTES, ROOT / "CHANGELOG.md", "heading"))
     monkeypatch.setattr(release_assets, "run_command_bytes", transport)
     monkeypatch.setattr(release_assets, "require_release_checkout", lambda _root, _commit: None)
+
+    monkeypatch.setattr(dependency_provenance, "check_release_dependencies", _published_dependencies)
     return state | {"state": state, "prepare": namespace["prepare"], "implementation": implementation}
 
 
@@ -209,5 +219,5 @@ def test_workflow_guards_source_before_isolated_python_without_oidc() -> None:
     assert guard < runner
     assert "tooling/release-evidence.toml" in steps[guard]["run"]
     assert "--no-config --isolated --managed-python" in steps[runner]["run"]
-    assert "research-repo-tools==0.2.5" in steps[runner]["run"]
+    assert "research-repo-tools==0.2.8" in steps[runner]["run"]
     assert all("semgrep_latest" not in step.get("run", "") for step in steps)

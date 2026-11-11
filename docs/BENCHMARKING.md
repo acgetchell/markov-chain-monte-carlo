@@ -140,24 +140,29 @@ not rewritten by Markdown formatters; new archived pairs are immutable.
 ## Release Preparation and README Publication
 
 Set `TAG` once and prepare package metadata with `just update-version "$TAG"` as described in [releasing](RELEASING.md).
-Then use the same three-stage flow as Delaunay:
+Prepare the release dependencies and the measurement plan before acquiring samples.
 
 ```bash
-just performance-prepare
-just performance-release
+just release-dependency-builds
+just performance-prepare --release-intent
+just performance-release --release-intent --checkpoint target/bench-reports/release-checkpoint
 ```
 
 `tooling/performance-release.toml` infers the prospective package version and its latest published stable predecessor. Preparation records independent
-source, harness and release assertions in ignored scratch storage without measuring. The schema-4 `tooling/measurement-release-signal.toml` uses the
-current public stepping harness for both source exports, with a minimum release of v0.5.2. Each phase discovers all 22 cases, runs an untimed native
-gate, and acquires one complete run with 100 samples per case, mean/median intervals and retained raw Criterion files. Fixture setup stays outside
-timing according to the harness's existing steady-state and fresh-batch contracts. Changed source or harness identities require fresh preparation.
+source, harness and release assertions in ignored scratch storage without measuring. The schema-6 `tooling/measurement-release-signal.toml` declares
+two paired trials using the current public stepping harness, with a minimum release of v0.5.2. Each phase discovers all 22 cases, runs an untimed
+native gate, and retains 100 samples per case, mean/median intervals and raw Criterion files. Fixture setup stays outside timing according to the
+harness's steady-state and fresh-batch contracts. Changed source or harness identities require fresh preparation and acquisition.
+
+The release-intent commands verify published dependency provenance. After an interruption, pass the same checkpoint path and `--resume`.
+The shared runner validates source, harness, host, inventory and schedule before timing. It preserves completed pairs and reacquires
+the interrupted pair in its declared order. Use the retained report and README commands for rendering retries after successful acquisition.
 
 The legacy `tooling/benchmark.toml` remains the independent single-tag baseline-archive declaration used by GitHub release assets.
 The frozen `tooling/performance-readme.toml` still describes the old README evidence; neither it nor the old measurements are rewritten during adoption.
-For new publication, `tooling/performance-publication.toml` independently selects all 13 unthinned stepping, sampler and observation workflows regardless
-of timing direction. The complete report also retains all nine thinning cases. Labels, revisions and fingerprints come from the verified preparation
-and retained run, while the declaration owns row eligibility, units, references and the prospective `prepare` tag policy.
+For new publication, `tooling/performance-publication.toml` selects trial 1 and all 13 unthinned stepping, sampler and observation workflows regardless
+of timing direction. The complete report retains both trials and all nine thinning cases. Labels, revisions and fingerprints come from the verified
+preparation and retained run. The declaration owns trial and row selection, units, references and the prospective `prepare` tag policy.
 
 Review the full report, host/toolchain metadata, and coverage before selecting a README subset. Then run:
 
@@ -172,19 +177,14 @@ commit before creating its tag.
 
 ### Measurement Order and Interpretation
 
-The pinned shared 0.2.5 runner measures the whole baseline phase before the current phase. Its public schema and CLI do not support alternating or
-randomizing phase order, and `order = "published"` controls release selection only. The retained phase samples and source/host provenance do not include
-an observed acquisition-order or phase-timestamp receipt. Do not infer order control from matching CPU, OS, compiler or harness identities.
+Trial 1 acquires baseline then current, and trial 2 reverses that order. Each trial uses fresh source exports and output trees. The report retains
+realized order and phase timestamps alongside each trial's source, host, toolchain and sample identities. The performance release configuration's
+`order = "published"` still selects the predecessor from release history. Earlier sequential observations retain their original interpretation.
 
-Treat ratios as descriptive sequential observations. Host temperature, frequency, power state and background load can drift between phases;
-Criterion's within-phase intervals do not account for that systematic drift. Preserve absolute timings and raw evidence, and withhold comparisons
-when actual conditions are incompatible. A causal release-performance or significance claim requires stronger experimental evidence.
-Counterbalanced trials, retained realized order and session timestamps require published shared-runner support and consumer validation.
-`tooling/performance-release-interpretation.md` carries these limitations into the generated README publication; the new report title states its order.
-
-[Shared #180](https://github.com/acgetchell/research-repo-tools/issues/180) targets that capability for v0.2.6.
-[MCMC #225](https://github.com/acgetchell/markov-chain-monte-carlo/issues/225) targets next-release adoption after verified publication.
-Until that adoption passes, preserve the current sequential observations and their qualified interpretation.
+Compare both trials before drawing conclusions from the README's trial 1 ratios. Host temperature, frequency, power state and background load
+can drift within or between pairs. Criterion's within-phase intervals describe timing variation within a phase. Two counterbalanced pairs can
+show sensitivity to order but provide limited evidence about between-trial uncertainty or causal release effects. Preserve absolute timings
+and raw evidence, and withhold comparisons when observed conditions are incompatible.
 
 ## GitHub Release Assets
 
@@ -193,6 +193,9 @@ draft. A read-only job measures a clean tagged checkout and packages
 `markov-chain-monte-carlo-TAG-criterion-baseline.tar.gz`. Separate jobs install the exact
 registry package for draft validation and attachment; they never check out
 benchmark code. The benchmark job has no write credentials.
+The shared handoff for deriving this asset from the accepted Step 1 acquisition
+is tracked in [MCMC #223](https://github.com/acgetchell/markov-chain-monte-carlo/issues/223)
+and [RRT #224](https://github.com/acgetchell/research-repo-tools/issues/224).
 
 Shared archives contain the complete selected Criterion sample and provenance in
 `sample.json` and `provenance.json`. They are compact retained estimates, not raw

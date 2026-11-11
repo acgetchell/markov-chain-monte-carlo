@@ -10,6 +10,10 @@ use rand::Rng;
 /// Grouping the selected move-family weight, the endpoint's total family
 /// weight, and the concrete-site count prevents forward and reverse positional
 /// arguments from being interleaved accidentally.
+///
+/// This is an unvalidated endpoint description. The forward and reverse roles
+/// have different admissible values, so [`DiscreteProposalRatio::from_endpoints`]
+/// checks their weights, normalizers, and counts together before computation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use]
 pub struct DiscreteProposalEndpoint {
@@ -20,6 +24,10 @@ pub struct DiscreteProposalEndpoint {
 
 impl DiscreteProposalEndpoint {
     /// Describe one endpoint of a weighted discrete proposal.
+    ///
+    /// Defers validation until [`DiscreteProposalRatio::from_endpoints`] assigns
+    /// the forward or reverse role. In particular, zero reverse mass is legal,
+    /// while a successfully selected forward proposal must have positive mass.
     pub const fn new(selected_weight: f64, total_weight: f64, site_count: usize) -> Self {
         Self {
             selected_weight,

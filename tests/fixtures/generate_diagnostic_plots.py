@@ -15,9 +15,10 @@ import math
 import platform
 import runpy
 import sys
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 import numpy as np
 
@@ -41,6 +42,44 @@ REFERENCE = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _Estimated:
+    """Finite scalar accepted by parse_estimate, without an unavailable reason."""
+
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class _Unavailable:
+    """Explicit absence accepted by parse_estimate, with a diagnostic reason."""
+
+    reason: str
+
+
+def parse_estimate(raw: object, context: str) -> _Estimated | _Unavailable:
+    """Parse a scalar alternative instead of trusting status plus optional fields."""
+    if not isinstance(raw, dict) or "value" not in raw:
+        message = f"{context}: invalid plot report structure: scalar requires status and value"
+        raise ValueError(message)
+    value = raw["value"]
+    reason = raw.get("reason")
+    if raw.get("status") == "estimated":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or reason is not None:
+            message = f"{context}: estimated scalar requires a finite number and no unavailable reason"
+            raise ValueError(message)
+        try:
+            number = float(value)
+        except OverflowError as error:
+            message = f"{context}: estimated scalar is outside the finite range"
+            raise ValueError(message) from error
+        if math.isfinite(number):
+            return _Estimated(number)
+    elif raw.get("status") == "unavailable" and value is None and isinstance(reason, str) and reason.strip():
+        return _Unavailable(reason)
+    message = f"{context}: expected estimated status with finite value or unavailable status with null value and reason"
+    raise ValueError(message)
+
+
 def reference(chains: list[list[float]]) -> dict[str, Any]:
     """Use SciPy ranks and the existing public-ArviZ reference harness."""
     from scipy.stats import rankdata  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated pinned oracle, not a notebook dependency.
@@ -56,20 +95,20 @@ def reference(chains: list[list[float]]) -> dict[str, Any]:
 
 def fixture() -> dict[str, Any]:
     """Reuse retained exact inputs; independently rerank and recompute each prefix."""
-    source = json.loads((FIXTURES / "ess.json").read_bytes())
+    source = ESS["parse_fixture"](json.loads((FIXTURES / "ess.json").read_bytes()))
     cases = []
     for name in CASE_NAMES:
-        original = next(case["chains"] for case in source["cases"] if case["name"] == name)
+        original = next(case.chains for case in source if case.name == name)
         cases.append(
             {
                 "name": name,
-                "prefixes": [{"draws_per_chain": length, **reference([chain[:length] for chain in original])} for length in PREFIXES],
+                "prefixes": [{"draws_per_chain": length, **reference([list(chain[:length]) for chain in original])} for length in PREFIXES],
             }
         )
     return {"reference": REFERENCE, "cases": cases}
 
 
-def check_number(actual: float | None, expected: float | None, label: str) -> None:
+def check_number(actual: object, expected: float | None, label: str) -> None:
     """Fail on availability changes as well as numeric drift."""
     if actual is None and expected is None:
         return
@@ -77,7 +116,8 @@ def check_number(actual: float | None, expected: float | None, label: str) -> No
         actual is None
         or expected is None
         or isinstance(actual, bool)
-        or not math.isfinite(actual)
+        or not isinstance(actual, (int, float))
+        or not -sys.float_info.max <= actual <= sys.float_info.max
         or not math.isclose(actual, expected, rel_tol=2e-11, abs_tol=2e-13)
     ):
         message = f"{label}: actual={actual}, expected={expected}"
@@ -148,18 +188,21 @@ def verify_report_inventory(report: dict[str, Any]) -> None:
                 raise ValueError(message)
 
 
-def verify_report_metric(result: dict[str, Any], oracle: dict[str, Any], metric: str, context: str) -> None:
+def verify_report_metric(result: object, oracle: dict[str, Any], metric: str, context: str) -> None:
     """Check numeric results and unavailable reasons against one oracle metric."""
     expected_error = oracle["unavailable"].get(metric)
-    if expected_error is not None:
-        if result.get("status") != "unavailable" or result["value"] is not None or result["reason"] != expected_error:
+    parsed = parse_estimate(result, f"{context} {metric}")
+    if isinstance(parsed, _Unavailable):
+        if expected_error is None or parsed.reason != expected_error:
             message = f"{context} {metric}: unavailable reason disagrees"
             raise ValueError(message)
-    else:
-        if result.get("status") != "estimated":
-            message = f"{context} {metric}: expected estimated status"
+    elif isinstance(parsed, _Estimated):
+        if expected_error is not None:
+            message = f"{context} {metric}: unavailable reason disagrees"
             raise ValueError(message)
-        check_number(result["value"], oracle["estimates"][metric], f"{context} {metric}")
+        check_number(parsed.value, oracle["estimates"][metric], f"{context} {metric}")
+    else:
+        assert_never(parsed)
 
 
 def verify_report(report: dict[str, Any]) -> None:
@@ -204,6 +247,9 @@ def verify_report_file(path: Path) -> None:
     report = json.loads(path.read_bytes())
     try:
         verify_report(report)
+    except ValueError as error:
+        message = f"{path}: {error}"
+        raise ValueError(message) from error
     except (AttributeError, KeyError, OverflowError, TypeError) as error:
         message = f"{path}: invalid plot report structure ({error})"
         raise ValueError(message) from error

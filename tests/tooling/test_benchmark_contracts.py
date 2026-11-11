@@ -16,6 +16,8 @@ from research_repo_tools.performance_release import load_performance_release
 from research_repo_tools.release_discovery import PublishedRelease
 from research_repo_tools.release_metadata import PackageInfo
 from research_repo_tools.report_inventory import check_report
+from research_repo_tools.suite_measurement import SuiteMeasurementPlan
+from research_repo_tools.trial_schedule import AlternatingOrder
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_HARNESS = REPO_ROOT / "benches" / "stepping.rs"
@@ -91,7 +93,14 @@ def test_measurement_configuration_preserves_the_release_signal() -> None:
 
 
 def test_complete_release_declaration_covers_every_native_workload() -> None:
-    plan = load_measurement(REPO_ROOT, "tooling/measurement-release-signal.toml")
+    scheduled = load_measurement(REPO_ROOT, "tooling/measurement-release-signal.toml")
+    assert isinstance(scheduled, SuiteMeasurementPlan)
+    assert scheduled.schedule is not None
+    assert isinstance(scheduled.schedule.order, AlternatingOrder)
+    assert scheduled.schedule.phases == (("baseline", "current"), ("current", "baseline"))
+    (suite,) = scheduled.suites
+    assert suite.name == "stepping"
+    plan = suite.measurement
     assert isinstance(plan, CompleteMeasurementPlan)
     assert (plan.schema, plan.harness_mode, plan.backend) == (4, "common", "export")
     source = BENCHMARK_HARNESS.read_text(encoding="utf-8")
@@ -120,6 +129,9 @@ def test_complete_release_declaration_covers_every_native_workload() -> None:
         assert len(phase.policy.discovery.suites) == 1
         assert phase.policy.discovery.suites[0].command == ("cargo", "bench", "--locked", "--bench", "stepping", "--", "--list")
     publication = tomllib.loads((REPO_ROOT / "tooling/performance-publication.toml").read_text(encoding="utf-8"))
+    assert publication["trial"] == 1
+    assert set(scheduled.outputs) == {publication[field] for field in ("document", "csv", "svg")}
+    assert {series["name"] for series in publication["series"]} == {"stepping/baseline", "stepping/current"}
     assert {row["key"] for row in publication["rows"]} == unthinned
     assert len(publication["rows"]) == 13
     for series in publication["series"]:
@@ -159,7 +171,12 @@ def test_new_report_inventory_preserves_legacy_evidence_without_promoting_it(tmp
 
 @pytest.mark.parametrize(
     ("recipe", "operation", "arguments"),
-    [("performance-prepare", "prepare", []), ("performance-release", "release", []), ("performance-readme", "readme", ["--preview"])],
+    [
+        ("performance-prepare", "prepare", []),
+        ("performance-release", "release", []),
+        ("performance-release", "release", ["--checkpoint", "target/bench-reports/release-checkpoint", "--resume"]),
+        ("performance-readme", "readme", ["--preview"]),
+    ],
 )
 def test_release_recipes_keep_preparation_measurement_and_publication_separate(recipe: str, operation: str, arguments: list[str]) -> None:
     commands = dry_run(REPO_ROOT, recipe, arguments).stderr.splitlines()

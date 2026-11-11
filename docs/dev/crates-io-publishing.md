@@ -1,7 +1,7 @@
 # crates.io deployment setup and evidence
 
 The repository source implements #176 and #182 using Delaunay's recipe interfaces
-and the published `research-repo-tools==0.2.5` release contract. This document records the intended
+and the published `research-repo-tools==0.2.8` release contract. This document records the intended
 deployment identity and the evidence still needed outside source control.
 The routine release commands live in [RELEASING.md](../RELEASING.md).
 

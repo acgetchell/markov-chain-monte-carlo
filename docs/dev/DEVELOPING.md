@@ -170,7 +170,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.2.5` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.2.8` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -247,8 +247,13 @@ the independent projects declared in `deps.python-projects`. Shared package and 
 
 The root Python 3.15 environment owns Semgrep alongside the other development tools, following Delaunay's unified setup. Native scans, fixtures, and SARIF
 use the same lock. Preserve the scanner's exact pin and native-wheel requirement, PyJWT compatibility floor, patched MCP 1.x and matching OpenTelemetry
-family, and `pywin32` override for Python 3.15 Windows wheels. Local and SARIF scans cap an unlimited Linux stack until
-[Semgrep #11979](https://github.com/semgrep/semgrep/issues/11979) is fixed. OSV and Dependabot cover the unified Python lock.
+family, and `pywin32` override for Python 3.15 Windows wheels. The shared scan and fixture launcher owns the unlimited Linux stack workaround for
+[Semgrep #11979](https://github.com/semgrep/semgrep/issues/11979). OSV and Dependabot cover the unified Python lock.
+
+`just semgrep` runs the shared strict scanner with one native invocation per bounded batch and paired JSON/SARIF reports under `target/security/semgrep/`.
+Its explicit Git glob patterns cover the paths governed by `semgrep.yaml`; the consumer scope test requires both declarations to stay aligned.
+The SARIF workflow runs that same recipe, verifies report currentness through `semgrep check-reports`, and preserves the findings/failure gate even when
+valid reports are uploaded. RRT owns batching, report validation, stale-report rejection, and the scanner environment.
 
 For a newer published shared package, run `just shared-python-plan VERSION`, then `just shared-python-update VERSION` after reviewing the preview.
 `VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.
@@ -269,21 +274,28 @@ tool and transitive lockfile downgrades before synchronization. The registry-onl
 release and evidence runtimes use the same exact package and reviewed resolution
 cutoff, outside the checkout's `.venv`.
 
-Setup and the fixture gate temporarily invoke `tooling/semgrep_latest.py` because v0.2.5's
-helper requires its bundled Semgrep 1.182.1 while the consumer uses latest
-Semgrep 1.183.0. The adapter changes only the exact process-local expectation;
-the shared interpreter, distribution and executable checks still run unchanged,
-including verification after a fresh setup installs the scanner.
-[MCMC #222](https://github.com/acgetchell/markov-chain-monte-carlo/issues/222)
-tracks retirement after the published v0.2.6 fix is adopted.
+Setup and the fixture gate invoke the published shared CLI directly. It selects
+the scanner from the consumer's lock and verifies its interpreter, installed
+distribution, executable, and native version. Adoption of v0.2.8 removes the
+temporary scanner-version adapter tracked by
+[MCMC #222](https://github.com/acgetchell/markov-chain-monte-carlo/issues/222).
 
-Hosted CI separates `ci-repository-tooling` from `ci-native`; their validator
-dependency closures equal local `ci`. Python and notebook checks remain native.
-Clippy and repository-rule SARIF workflows retain their independent publication
-gates. Main-push package and signing jobs produce the signed-source receipt
-declared in `tooling/release-evidence.toml`, with 30-day artifact retention.
-No cross-commit PR evidence reuse is enabled. See [release evidence](../RELEASING.md#2-verify-the-release-commit)
-for exact-source, approval and rerun behavior.
+Hosted CI runs configuration, Rust formatting, Markdown, spelling, changelog,
+release metadata, performance-report and Semgrep fixture/production checks once
+in `ci-repository-tooling`. After that gate, the three `ci-native` jobs run Python
+lint and tests, notebook lint and execution, all-target Clippy, Rust tests and
+doctests, documentation, examples and benchmark compilation. Their combined
+validator dependencies equal local `just ci`, which is the serial fallback.
+The independent Clippy and Semgrep SARIF gates still produce commit-bound
+reports for publishing. RRT's optional PR evidence reuse requires a separate
+reviewed policy and does not supply MCMC's signed main-push package evidence.
+
+The main-push package job runs alongside native checks after repository tooling
+passes. The signer waits for all of them and requires successful package
+provenance and both feature selections. It fetches the locked Cargo metadata
+inputs without setting up or running the consumer Python environment.
+See [release evidence](../RELEASING.md#2-verify-the-release-commit) for exact-source,
+approval and rerun behavior.
 
 ## Dependabot Automation
 
@@ -296,7 +308,7 @@ workflow upgrade. See [publishing policy](crates-io-publishing.md) for both iden
 on November 3, 2026; the broader proposed policy has not been applied.
 
 `.github/workflows/dependabot-auto-merge.yml` calls the shared
-[`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/cbb2ea6dee8866b3f0547bca935aef48fdd71707/.github/workflows/dependabot-approve.yml)
+[`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/b082da0b0fbd99436a418a3cc232434020558658/.github/workflows/dependabot-approve.yml)
 at a reviewed commit. The caller supplies this repository's identity and exact Cargo, uv, workflow, and composite-action file allowlists.
 Dependabot maintains the shared workflow's SHA through its GitHub Actions updates. Keep the file policy current when adding or renaming those files.
 Release preparation is included; credentialed registry publication in `publish-crates.yml` requires maintainer review.

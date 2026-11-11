@@ -4,19 +4,24 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 from string import Template
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
+from research_repo_tools import release_assets
 from research_repo_tools.cli import main
 from research_repo_tools.config import load
 from research_repo_tools.just_inspect import dry_run, inspect_justfile
 from research_repo_tools.release_publishing import require_checks
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
+
+    from research_repo_tools.config import Config
 
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -73,6 +78,45 @@ def test_no_argument_evidence_verification_uses_a_new_temporary_output() -> None
     assert json.loads(result.stdout) == {"verified": True}
     recipes = inspect_justfile(ROOT).recipes
     assert "release-evidence" in {item["recipe"] for item in recipes["release-publish"]["dependencies"]}
+
+
+def test_evidence_bootstrap_verifies_inside_the_shared_isolated_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from research_repo_tools import cli, measurement, release_runtime
+
+    recipe = inspect_justfile(ROOT).recipes["_release-evidence"]
+    script = "\n".join("".join(line) for line in recipe["body"])
+    alias = ROOT / "tests" / ".."
+    monkeypatch.setattr(Path, "cwd", classmethod(lambda _cls: alias))
+    monkeypatch.setattr(sys, "argv", ["evidence", "verify", str(tmp_path / "selection.json"), ""])
+    calls = []
+
+    @contextmanager
+    def isolated(settings: Config) -> Iterator[None]:
+        assert settings.root == ROOT
+        calls.append("enter")
+        try:
+            yield
+        finally:
+            calls.append("exit")
+
+    def resolve_revision(root: Path, revision: str) -> str:
+        assert (root, revision) == (ROOT, "HEAD")
+        calls.append("resolve")
+        return COMMIT
+
+    def verify(arguments: list[str]) -> int:
+        calls.append("verify")
+        assert arguments[arguments.index("--checkout") + 1] == str(ROOT)
+        assert arguments[arguments.index("--commit") + 1] == COMMIT
+        return 0
+
+    monkeypatch.setattr(release_runtime, "isolated_release_runtime", isolated)
+    monkeypatch.setattr(measurement, "resolve_revision", resolve_revision)
+    monkeypatch.setattr(cli, "main", verify)
+    with pytest.raises(SystemExit) as result:
+        exec(compile(script, str(ROOT / "justfile"), "exec"), {})  # noqa: S102 - execute the checked-in bootstrap with inert provider boundaries.
+    assert result.value.code == 0
+    assert calls == ["enter", "resolve", "verify", "exit"]
 
 
 def test_publication_builds_without_credentials_then_rechecks_after_approval() -> None:
@@ -175,8 +219,8 @@ def test_benchmark_preflight_requires_exact_workflow_tag_and_commit(ref: str, sh
 
 @pytest.mark.parametrize("change", ["missing", "malformed", "repository", "tag", "moved-tag", "replaced-release"])
 def test_real_benchmark_handoff_commands_reject_changed_or_missing_target(change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from research_repo_tools import release_assets
-
+    # Registry-only workflow jobs have no checkout or consumer dependency policy.
+    monkeypatch.chdir(tmp_path)
     tag = "v0.5.2"
     release = {
         "id": 73,

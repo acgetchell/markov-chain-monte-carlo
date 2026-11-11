@@ -15,7 +15,8 @@ def test_combined_rhat_retains_all_nine_regimes_without_mutation() -> None:
     namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
     fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
     original = deepcopy(fixture)
-    namespace["verify_case_inventory"](fixture["cases"])
+    cases = namespace["parse_cases"](fixture["cases"])
+    assert [case.name for case in cases] == [case["name"] for case in fixture["cases"]]
     assert len(fixture["cases"]) == 9
     assert fixture == original
 
@@ -77,6 +78,44 @@ def test_combined_rhat_retains_strict_numeric_comparisons() -> None:
         namespace["verify_component"]("drift", "combined", 1.0, 2.0, tolerance)
 
 
+@pytest.mark.parametrize(
+    ("invalid", "expected_error"),
+    [(True, TypeError), ("1.0", TypeError), (None, TypeError), (float("nan"), ValueError), (float("inf"), ValueError), (10**1000, ValueError)],
+)
+@pytest.mark.parametrize("field", ["draw", "reference"])
+def test_combined_rhat_parses_numeric_evidence_before_oracle_import(
+    invalid: object, expected_error: type[Exception], field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_combined_rhat.py"))
+    fixture = json.loads((FIXTURES / "combined_rhat.json").read_bytes())
+    if field == "draw":
+        fixture["cases"][-1]["chains"][0][0] = invalid
+    elif invalid is None:
+        # Null is the explicit unavailable alternative, not an invalid reference.
+        fixture["cases"][-1]["combined"] = {"value": None}
+    else:
+        fixture["cases"][-1]["combined"] = invalid
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(fixture).encode("utf-8"))
+    monkeypatch.setitem(namespace["main"].__globals__, "version", lambda _name: pytest.fail("numeric parsing must precede oracle loading"))
+    with pytest.raises(expected_error, match="expected finite numeric draws and positive references"):
+        namespace["main"]()
+
+
+@pytest.mark.parametrize(("script", "parser"), [("generate_combined_rhat.py", "parse_cases"), ("generate_ess.py", "parse_fixture")])
+def test_accepted_cases_do_not_alias_mutable_json(script: str, parser: str) -> None:
+    namespace = runpy.run_path(str(FIXTURES / script))
+    filename = "combined_rhat.json" if script == "generate_combined_rhat.py" else "ess.json"
+    fixture = json.loads((FIXTURES / filename).read_bytes())
+    parsed = namespace[parser](fixture["cases"] if parser == "parse_cases" else fixture)
+    original_draw = parsed[0].chains[0][0]
+    fixture["cases"][0]["chains"][0][0] = "changed after parsing"
+    fixture["cases"].clear()
+    assert parsed[0].chains[0][0] == original_draw
+    assert isinstance(parsed, tuple)
+    assert isinstance(parsed[0].chains, tuple)
+    assert isinstance(parsed[0].chains[0], tuple)
+
+
 @pytest.mark.parametrize("contents", [None, b"{broken JSON"])
 def test_plot_cli_reports_input_errors_on_stderr(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], contents: bytes | None
@@ -110,8 +149,8 @@ def verifier(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, dict[str, Any]]:
     fixture = json.loads((FIXTURES / "ess.json").read_bytes())
     original = deepcopy(fixture)
 
-    def reference_values(chains: list[list[float]]) -> dict[str, float | None]:
-        reference = next(case["reference"] for case in original["cases"] if case["chains"] == chains)
+    def reference_values(chains: tuple[tuple[float, ...], ...]) -> dict[str, float | None]:
+        reference = next(case["reference"] for case in original["cases"] if case["chains"] == [list(chain) for chain in chains])
         assert isinstance(reference, dict)
         values: dict[str, float | None] = {}
         for metric, value in reference.items():
@@ -169,6 +208,66 @@ def test_reference_drift_still_fails(verifier: tuple[Any, dict[str, Any]]) -> No
     fixture["cases"][0]["reference"]["mean_ess"] *= 2.0
     with pytest.raises(ValueError, match="independent mean_ess: actual="):
         verify(fixture)
+
+
+def test_plot_fixture_uses_the_accepted_ess_inputs_before_calling_oracles(monkeypatch: pytest.MonkeyPatch) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    source = json.loads((FIXTURES / "ess.json").read_bytes())
+    source["cases"][-1]["chains"][0][0] = True
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(source).encode("utf-8"))
+    monkeypatch.setitem(namespace["fixture"].__globals__, "reference", lambda _chains: pytest.fail("parse retained inputs before computing prefixes"))
+    with pytest.raises(TypeError, match="expected a finite number"):
+        namespace["fixture"]()
+
+
+@pytest.mark.parametrize(
+    ("invalid", "expected_error"),
+    [(True, TypeError), ("1.0", TypeError), (float("nan"), ValueError), (float("inf"), ValueError), (10**1000, ValueError)],
+)
+@pytest.mark.parametrize("field", ["draw", "reference"])
+def test_ess_rejects_malformed_numbers_before_any_oracle_or_success_output(
+    invalid: object, expected_error: type[Exception], field: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_ess.py"))
+    fixture = json.loads((FIXTURES / "ess.json").read_bytes())
+    if field == "draw":
+        fixture["cases"][-1]["chains"][0][0] = invalid
+    else:
+        fixture["cases"][-1]["reference"]["mean_ess"] = invalid
+    monkeypatch.setitem(namespace["verify_fixture"].__globals__, "references", lambda _chains: pytest.fail("parse every case before evaluating the oracle"))
+    with pytest.raises(expected_error, match="expected a finite number"):
+        namespace["verify_fixture"](fixture)
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"status": "estimated", "value": True},
+        {"status": "estimated", "value": None},
+        {"status": "estimated", "value": 1.0, "reason": "unavailable"},
+        {"status": "estimated", "value": float("nan")},
+        {"status": "estimated", "value": 10**1000},
+        {"status": "unavailable", "value": 1.0, "reason": "unavailable"},
+        {"status": "unavailable", "value": None, "reason": True},
+        {"status": "unavailable", "value": None, "reason": "  "},
+        {"status": "unknown", "value": 1.0},
+    ],
+)
+def test_report_scalar_parser_rejects_contradictory_alternatives(raw: object) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    with pytest.raises(ValueError, match="test metric:"):
+        namespace["parse_estimate"](raw, "test metric")
+
+
+def test_report_scalar_parser_preserves_both_legal_alternatives() -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    estimated = namespace["parse_estimate"]({"status": "estimated", "value": 1.25}, "test metric")
+    unavailable = namespace["parse_estimate"]({"status": "unavailable", "value": None, "reason": "ConstantSamples"}, "test metric")
+    assert isinstance(estimated, namespace["_Estimated"])
+    assert estimated.value == 1.25
+    assert isinstance(unavailable, namespace["_Unavailable"])
+    assert unavailable.reason == "ConstantSamples"
 
 
 @pytest.mark.parametrize("corruption", [None, "provenance", "rank", "prefix", "metric", "value", "availability"])

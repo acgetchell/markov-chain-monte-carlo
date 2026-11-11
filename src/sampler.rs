@@ -66,6 +66,8 @@ pub type TryThinnedObservedRunResult<O, StepError, ObservationError> =
 /// Constructing this type parses a raw `usize` once, allowing every thinned
 /// sampler method to rely on a nonzero divisor without repeating validation.
 ///
+/// # Examples
+///
 /// ```
 /// use markov_chain_monte_carlo::{InvalidThinningInterval, ThinningInterval};
 ///

@@ -10,6 +10,12 @@ use rand::{RngExt, SeedableRng};
 ///
 /// arima casts N to u32 internally; this experimental adapter rejects that
 /// additional unsupported domain rather than silently truncating it.
+///
+/// # Errors
+///
+/// Rejects fewer than two samples, a lag outside the trace, non-finite or
+/// constant samples, counts exceeding `u32`, backend errors, and non-finite
+/// backend correlations.
 pub fn arima_acf(samples: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
     let n = samples.len();
     if n < 2 {
@@ -45,6 +51,14 @@ pub fn arima_acf(samples: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
 }
 
 /// Reproduce the existing benchmark's AR(1) workload, outside timing.
+///
+/// Callers choose a finite coefficient with absolute value below one for a
+/// stationary workload. The first 2,000 generated states are discarded.
+///
+/// # Panics
+///
+/// Panics when the output exceeds `Vec`'s capacity limit or `count + 2_000` overflows in
+/// builds with overflow checks. Benchmark callers use bounded fixed counts.
 pub fn ar1(count: usize, coefficient: f64, seed: u64) -> Vec<f64> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut state = 0.0;
@@ -58,6 +72,10 @@ pub fn ar1(count: usize, coefficient: f64, seed: u64) -> Vec<f64> {
 
 /// Integer raw-moment oracle; bounded fixtures avoid any floating centering.
 /// Returns exact rational numerators and the common positive denominator.
+///
+/// # Panics
+///
+/// Requires 2 through 32 nonconstant samples, each in `-16..=17`.
 pub fn exact_covariances(samples: &[i16]) -> (Vec<i64>, i64) {
     assert!((2..=32).contains(&samples.len()));
     assert!(samples.iter().all(|x| (-16..=17).contains(x)));
@@ -88,6 +106,14 @@ pub fn exact_covariances(samples: &[i16]) -> (Vec<i64>, i64) {
 }
 
 /// Exact integer pair selection; returns numerator, window, and cap flag.
+///
+/// Inputs must come from [`exact_covariances`] to retain its integer overflow
+/// bounds. The cap flag is true when no nonpositive pair was observed.
+///
+/// # Panics
+///
+/// Panics if `max_lag` is outside `numerators` or unsupported integers overflow
+/// in a build with overflow checks.
 pub fn exact_time(
     numerators: &[i64],
     denominator: i64,
@@ -112,6 +138,12 @@ pub fn exact_time(
 }
 
 /// Independent raw-moment preflight for the bounded AR(1) benchmark fixtures.
+///
+/// # Panics
+///
+/// Requires a nonempty finite trace, `max_lag < samples.len()`, a positive finite
+/// raw-moment variance, and a mean-square term no greater than half the second
+/// moment. This last restriction keeps subtraction well conditioned.
 pub fn reference_acf(samples: &[f64], max_lag: usize) -> Vec<f64> {
     let n = samples.len() as f64;
     let mean = samples.iter().sum::<f64>() / n;
@@ -131,6 +163,11 @@ pub fn reference_acf(samples: &[f64], max_lag: usize) -> Vec<f64> {
 }
 
 /// Compare normalized correlations using a fixture-specific roundoff allowance.
+///
+/// # Panics
+///
+/// Panics on different lengths or when any absolute difference exceeds
+/// `tolerance` (including an unordered comparison with NaN).
 pub fn assert_acf(actual: &[f64], expected: &[f64], tolerance: f64) {
     assert_eq!(actual.len(), expected.len());
     for (lag, (&a, &e)) in actual.iter().zip(expected).enumerate() {

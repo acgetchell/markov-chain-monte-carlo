@@ -5,6 +5,7 @@ document = "README.md"
 archive = "docs/performance/runs"
 measurement = "tooling/measurement-release-signal.toml"
 release = true
+trial = 1
 repository = "acgetchell/markov-chain-monte-carlo"
 tag-policy = "prepare"
 begin = "<!-- PERFORMANCE:BEGIN -->"
@@ -31,14 +32,14 @@ rows = [
     { key = "observing/run_observing_into_binning_100", label = "Binning analysis (100 steps)" },
 ]
 series = [
-    { name = "baseline", label = "Baseline", label-version = "release", rows = { "chain/step_by_value" = "chain/step_by_value", "chain/step_mut_accept" = "chain/step_mut_accept", "chain/step_mut_reject_rollback" = "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection" = "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection" = "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan" = "chain/step_delayed_no_plan", "sampler/run_by_value_100" = "sampler/run_by_value_100", "sampler/run_mut_100" = "sampler/run_mut_100", "sampler/run_delayed_reflection_100" = "sampler/run_delayed_reflection_100", "observing/run_observing_buffer_100" = "observing/run_observing_buffer_100", "observing/manual_online_sum_100" = "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100" = "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" = "observing/run_observing_into_binning_100" } },
-    { name = "current", label = "Current", label-version = "release", rows = { "chain/step_by_value" = "chain/step_by_value", "chain/step_mut_accept" = "chain/step_mut_accept", "chain/step_mut_reject_rollback" = "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection" = "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection" = "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan" = "chain/step_delayed_no_plan", "sampler/run_by_value_100" = "sampler/run_by_value_100", "sampler/run_mut_100" = "sampler/run_mut_100", "sampler/run_delayed_reflection_100" = "sampler/run_delayed_reflection_100", "observing/run_observing_buffer_100" = "observing/run_observing_buffer_100", "observing/manual_online_sum_100" = "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100" = "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" = "observing/run_observing_into_binning_100" } },
+    { name = "stepping/baseline", label = "Baseline", label-version = "release", rows = { "chain/step_by_value" = "chain/step_by_value", "chain/step_mut_accept" = "chain/step_mut_accept", "chain/step_mut_reject_rollback" = "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection" = "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection" = "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan" = "chain/step_delayed_no_plan", "sampler/run_by_value_100" = "sampler/run_by_value_100", "sampler/run_mut_100" = "sampler/run_mut_100", "sampler/run_delayed_reflection_100" = "sampler/run_delayed_reflection_100", "observing/run_observing_buffer_100" = "observing/run_observing_buffer_100", "observing/manual_online_sum_100" = "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100" = "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" = "observing/run_observing_into_binning_100" } },
+    { name = "stepping/current", label = "Current", label-version = "release", rows = { "chain/step_by_value" = "chain/step_by_value", "chain/step_mut_accept" = "chain/step_mut_accept", "chain/step_mut_reject_rollback" = "chain/step_mut_reject_rollback", "chain/step_delayed_accept_reflection" = "chain/step_delayed_accept_reflection", "chain/step_delayed_reject_reflection" = "chain/step_delayed_reject_reflection", "chain/step_delayed_no_plan" = "chain/step_delayed_no_plan", "sampler/run_by_value_100" = "sampler/run_by_value_100", "sampler/run_mut_100" = "sampler/run_mut_100", "sampler/run_delayed_reflection_100" = "sampler/run_delayed_reflection_100", "observing/run_observing_buffer_100" = "observing/run_observing_buffer_100", "observing/manual_online_sum_100" = "observing/manual_online_sum_100", "observing/run_observing_into_online_stats_100" = "observing/run_observing_into_online_stats_100", "observing/run_observing_into_binning_100" = "observing/run_observing_into_binning_100" } },
 ]
-comparisons = [ { numerator = "baseline", denominator = "current" } ]
+comparisons = [ { numerator = "stepping/baseline", denominator = "stepping/current" } ]
 references = [
     { path = "Cargo.toml", pattern = '^version = "(?P<value>[^"]+)"\r?$', source = "version" },
-    { path = "docs/performance/current.md", pattern = '^- current: measured in \*\*current\*\* phase \((?P<value>[^)]+)\), revision', source = "tag" },
-    { path = "docs/performance/current.md", pattern = '^- baseline: measured in \*\*baseline\*\* phase \((?P<value>[^)]+)\), revision', source = "previous-tag" },
+    { path = "docs/performance/current.md", pattern = '^- current: available .*; release (?P<value>[^;]+); revision', source = "tag", count = 2 },
+    { path = "docs/performance/current.md", pattern = '^- baseline: available .*; release (?P<value>[^;]+); revision', source = "previous-tag", count = 2 },
 ]
 
 [table]

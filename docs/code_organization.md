@@ -220,7 +220,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── test_release_changelog.py
 │   │   ├── test_release_evidence.py
 │   │   ├── test_release_policy.py
-│   │   └── test_semgrep_latest.py
+│   │   └── test_semgrep_environment.py
 │   └── semgrep/
 │       ├── benches/
 │       │   ├── erased_error.rs
@@ -260,7 +260,6 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── performance-report.toml
 │   ├── prepare_release.py
 │   ├── release-evidence.toml
-│   └── semgrep_latest.py
 ├── ty.toml
 ├── typos.toml
 └── uv.lock
@@ -287,11 +286,11 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
   Preserve `performance-readme.toml` with the frozen v1 evidence.
   Semgrep's dependency pin, compatibility overrides, and lockfile belong to the root Python environment.
   `release-evidence.toml` binds trusted main-push jobs, native runner labels, successful steps and the signer to the shared signed-source verifier.
-  `semgrep_latest.py` temporarily selects the exact consumer scanner version for unchanged shared setup and fixture checks; #222 owns its retirement.
+  Published shared setup and fixture checks select the scanner from the locked consumer environment; the temporary version adapter from #222 is retired.
   `prepare_release.py` orchestrates shared source, evidence, required-check and draft identity checks for the tag-triggered draft workflow.
   `measurement-release-signal.toml` owns complete-run workload policy; `performance-release.toml` connects preparation, acquisition and publication,
   and `performance-publication.toml` selects the new README view. The older README declaration remains frozen with the v1 evidence.
-  `performance-release-interpretation.md` supplies the new publication's scientific scope and sequential-measurement limitations.
+  `performance-release-interpretation.md` supplies the new publication's scientific scope and limits of the two-trial schedule.
 - `tests/tooling/` — focused consumer configuration, command wiring, workload lifecycle, release policy, evidence transition and notebook checks.
 - `.github/settings/` — reviewed deployment-policy payloads; live account configuration and read-back evidence remain separate maintainer actions.
   Reusable implementation and generic regressions live in the pinned shared package.
