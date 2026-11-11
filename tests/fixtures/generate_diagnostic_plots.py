@@ -96,9 +96,14 @@ def reference(chains: list[list[float]]) -> dict[str, Any]:
 def fixture() -> dict[str, Any]:
     """Reuse retained exact inputs; independently rerank and recompute each prefix."""
     source = ESS["parse_fixture"](json.loads((FIXTURES / "ess.json").read_bytes()))
+    selected = tuple((name, next(case.chains for case in source if case.name == name)) for name in CASE_NAMES)
+    minimum_draws = max(PREFIXES)
+    for name, chains in selected:
+        if any(len(chain) < minimum_draws for chain in chains):
+            message = f"{name}: plot prefixes require at least {minimum_draws} draws per chain"
+            raise ValueError(message)
     cases = []
-    for name in CASE_NAMES:
-        original = next(case.chains for case in source if case.name == name)
+    for name, original in selected:
         cases.append(
             {
                 "name": name,

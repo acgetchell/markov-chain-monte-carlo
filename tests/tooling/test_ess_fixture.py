@@ -220,6 +220,47 @@ def test_plot_fixture_uses_the_accepted_ess_inputs_before_calling_oracles(monkey
         namespace["fixture"]()
 
 
+@pytest.mark.parametrize("case_name", ["independent", "counts"])
+def test_plot_fixture_rejects_short_selected_cases_before_any_oracle(
+    case_name: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    source = json.loads((FIXTURES / "ess.json").read_bytes())
+    minimum_draws = max(namespace["PREFIXES"])
+    selected = next(case for case in source["cases"] if case["name"] == case_name)
+    selected["chains"] = [chain[: minimum_draws - 1] for chain in selected["chains"]]
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(source).encode("utf-8"))
+    monkeypatch.setitem(namespace["fixture"].__globals__, "reference", lambda _chains: pytest.fail("check every selected case before computing any prefix"))
+    with pytest.raises(ValueError, match=rf"{case_name}: plot prefixes require at least {minimum_draws} draws per chain"):
+        namespace["fixture"]()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("draw_count", [31, 64])
+def test_plot_fixture_preserves_exact_prefix_inputs_and_evidence(draw_count: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
+    source = json.loads((FIXTURES / "ess.json").read_bytes())
+    saved = json.loads((FIXTURES / "diagnostic_plots.json").read_bytes())
+    originals = {case["name"]: case["chains"] for case in source["cases"]}
+    for case in source["cases"]:
+        if case["name"] in namespace["CASE_NAMES"]:
+            case["chains"] = [chain[:draw_count] for chain in case["chains"]]
+            assert all(len(chain) == draw_count for chain in case["chains"])
+    expected = [(case["name"], prefix) for case in saved["cases"] for prefix in case["prefixes"]]
+    calls = []
+
+    def reference(chains: list[list[float]]) -> dict[str, Any]:
+        name, prefix = expected[len(calls)]
+        assert chains == [chain[: prefix["draws_per_chain"]] for chain in originals[name]]
+        calls.append(chains)
+        return {key: deepcopy(value) for key, value in prefix.items() if key != "draws_per_chain"}
+
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: json.dumps(source).encode("utf-8"))
+    monkeypatch.setitem(namespace["fixture"].__globals__, "reference", reference)
+    assert namespace["fixture"]() == saved
+    assert len(calls) == len(expected)
+
+
 @pytest.mark.parametrize(
     ("invalid", "expected_error"),
     [(True, TypeError), ("1.0", TypeError), (float("nan"), ValueError), (float("inf"), ValueError), (10**1000, ValueError)],
