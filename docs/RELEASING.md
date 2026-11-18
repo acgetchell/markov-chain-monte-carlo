@@ -227,8 +227,17 @@ just performance-resume
 ```
 
 Complete suite pairs retain original bytes and sessions; an interrupted pair is
-recollected under the shared recovery contract. Changed measured inputs require
-a new reviewed acquisition. Preparation alone remains available through
+recollected under the shared recovery contract.
+
+If measured inputs change before tagging, retain the earlier checkpoint, raw
+evidence, external owner directory, and `owner.json`. Start from the reviewed
+revised release branch in a fresh clone at a new path. After setup, run
+`just release-dependency-builds` and `just performance-release` in that clone.
+The new checkout and checkpoint paths select a fresh owner and registration.
+Use that clone for README publication and the post-merge Step 2 commands so
+they recover the newly selected acquisition.
+
+Preparation alone remains available through
 `just performance-prepare`, without timing; fetching requires its explicit
 `--fetch-tags --allow-git-mutations` flags.
 
