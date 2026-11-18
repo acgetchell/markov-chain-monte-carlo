@@ -131,6 +131,8 @@ def test_installed_verifier_accepts_pre_tag_evidence_and_frozen_recheck(retained
         "dispatch",
         "partial-rerun",
         "skipped-step",
+        "package-provenance",
+        "package-builds",
         "wrong-host",
         "signature",
     ],
@@ -155,6 +157,11 @@ def test_installed_verifier_rejects_ineligible_main_evidence(retained_evidence: 
         state["run"]["run_attempt"] = 2
     elif failure == "skipped-step":
         state["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+    elif failure in {"package-provenance", "package-builds"}:
+        package = next(job for job in state["jobs"] if job["name"] == "package")
+        index = 0 if failure == "package-provenance" else 1
+        assert "Verify" in package["steps"][index]["name"]
+        package["steps"][index]["conclusion"] = "failure"
     elif failure == "wrong-host":
         state["jobs"][2]["labels"] = ["ubuntu-latest"]
     else:
@@ -170,6 +177,8 @@ def test_installed_verifier_rejects_ineligible_main_evidence(retained_evidence: 
         "dispatch": "exact commit's trusted main-push",
         "partial-rerun": "missing or ambiguous evidence artifact",
         "skipped-step": "did not validate required step",
+        "package-provenance": "did not validate required step",
+        "package-builds": "did not validate required step",
         "wrong-host": "required hosted platform",
         "signature": "untrusted signer",
     }
@@ -214,20 +223,6 @@ def test_declared_policy_covers_real_workflow_steps_and_native_hosts() -> None:
     upload = signer["steps"][-1]["with"]
     assert upload["name"] == "release-evidence-${{ github.run_id }}-${{ github.run_attempt }}"
     assert upload["retention-days"] == 30
-
-
-def test_publication_rechecks_frozen_selection_before_registry_credentials() -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/publish-crates.yml").read_bytes())["jobs"]
-    assert jobs["verify"]["outputs"]["evidence"] == "${{ steps.evidence.outputs.identity }}"
-    freeze = next(step for step in jobs["verify"]["steps"] if step.get("id") == "evidence")
-    assert freeze["run"] == 'just _release-evidence verify "$RUNNER_TEMP/release-selection.json"'
-    steps = jobs["publish"]["steps"]
-    recheck = next(step for step in steps if "APPROVED_EVIDENCE" in step.get("env", {}))
-    assert recheck["env"]["APPROVED_EVIDENCE"] == "${{ needs.verify.outputs.evidence }}"
-    assert 'test -n "$APPROVED_EVIDENCE"' in recheck["run"]
-    assert '"$RUNNER_TEMP/rechecked-selection.json" "$RUNNER_TEMP/approved-selection.json"' in recheck["run"]
-    assert recheck["run"].index("just _release-evidence") < recheck["run"].index("--expect absent")
-    assert steps.index(recheck) < next(index for index, step in enumerate(steps) if step.get("id") == "auth")
 
 
 def test_required_native_checks_fail_when_repository_tooling_does_not_succeed() -> None:

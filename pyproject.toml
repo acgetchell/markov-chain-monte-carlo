@@ -23,12 +23,12 @@ dev = [
     "ty",
 ]
 notebook = [
-    "research-repo-tools[notebooks,python-tools]==0.2.8",
+    "research-repo-tools[notebooks,python-tools]==0.2.9",
     "matplotlib>=3.11.2",
     "polars>=2.0.0",
 ]
 
-tooling = [ "research-repo-tools[python-tools]==0.2.8" ]
+tooling = [ "research-repo-tools[python-tools]==0.2.9" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -40,6 +40,9 @@ date-source = "citation"
 registry = "crates-io"
 package = "markov-chain-monte-carlo"
 repository = "acgetchell/markov-chain-monte-carlo"
+expected-title = "tag"
+generated-notes = true
+require-immutable = true
 required-checks = [
     { name = "repository-tooling", app-id = 15368 },
     { name = "build (ubuntu-latest)", app-id = 15368 },
@@ -53,6 +56,7 @@ required-assets = [ "markov-chain-monte-carlo-v{version}-criterion-baseline.tar.
 [tool.research-repo-tools.release]
 date-policy = "declared"
 tag-policy = "canonical-stable"
+published-dependencies = [ "research-repo-tools" ]
 required-files = [ "Cargo.lock", "benches/diagnostic_backends/Cargo.lock", "pyproject.toml", "uv.lock", "CITATION.cff", "CHANGELOG.md", "README.md", "REFERENCES.md" ]
 exclude = [ "docs/performance/**" ]
 
@@ -96,16 +100,16 @@ inherit-python = true
 inherit-python-tools = true
 
 [tool.research-repo-tools.toolchain.binaries]
-dprint = "0.64.3"
+dprint = "0.65.0"
 gitleaks = "8.30.1"
 osv-scanner = "2.7.1"
-rumdl = "0.3.3"
+rumdl = "0.3.4"
 
 [tool.research-repo-tools.toolchain.cargo]
 cargo-audit = "0.23.0"
 cargo-edit = "0.13.14"
 cargo-llvm-cov = "0.9.1"
-cargo-nextest = "0.9.151"
+cargo-nextest = "0.9.152"
 clippy-sarif = "0.8.0"
 git-cliff = "2.14.2"
 sarif-fmt = "0.8.0"
@@ -210,7 +214,7 @@ ignore = [
     "PLC0415", # test helpers may import inside functions
 ]
 "*.ipynb" = [ "T201" ] # Scientific notebook summaries
-"tooling/prepare_release.py" = [ "INP001" ] # Standalone tag-triggered release orchestration
+"tooling/release_candidate.py" = [ "INP001", "T201" ] # Standalone MCMC release orchestration; generic verification stays in RRT
 "tests/semgrep/tests/tooling/subprocess_mocks.py" = [
     "ERA001", # Semgrep ruleid/ok annotations are harness metadata
     "INP001", # Scanner input, not an importable package
@@ -247,7 +251,7 @@ python_classes = [ "Test*" ]
 python_functions = [ "test_*" ]
 
 [tool.uv]
-required-version = "==0.13.7"
+required-version = "==0.13.9"
 package = false
 default-groups = [ "dev", "notebook" ]
 # Semgrep requires its wheel-bundled native engine.
@@ -257,11 +261,11 @@ no-build-package = [ "semgrep" ]
 override-dependencies = [
     "pyjwt[crypto]>=2.15.1,<3",
     "mcp==1.30.0",
-    "opentelemetry-api==1.45.1",
-    "opentelemetry-sdk==1.45.1",
-    "opentelemetry-exporter-otlp-proto-http==1.45.1",
-    "opentelemetry-instrumentation-requests==0.66b1",
-    "opentelemetry-instrumentation-threading==0.66b1",
+    "opentelemetry-api==1.45.2",
+    "opentelemetry-sdk==1.45.2",
+    "opentelemetry-exporter-otlp-proto-http==1.45.2",
+    "opentelemetry-instrumentation-requests==0.66b2",
+    "opentelemetry-instrumentation-threading==0.66b2",
     "pywin32==312; sys_platform == 'win32'",
 ]
 

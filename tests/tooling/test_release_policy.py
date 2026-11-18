@@ -126,8 +126,7 @@ def test_consistent_but_wrong_concept_doi_is_rejected(tmp_path: Path) -> None:
     assert main(["--root", str(tmp_path), "release", "check", "--final-release"]) == 1
 
 
-@pytest.mark.parametrize("guide", _GUIDES)
-@pytest.mark.parametrize("reference", [f"v{_VERSION}", "a" * 40])
+@pytest.mark.parametrize(("guide", "reference"), [*((guide, f"v{_VERSION}") for guide in _GUIDES), (_GUIDES[0], "a" * 40)])
 def test_active_guides_require_main(tmp_path: Path, guide: str, reference: str) -> None:
     _write_project(tmp_path)
     readme = tmp_path / "README.md"

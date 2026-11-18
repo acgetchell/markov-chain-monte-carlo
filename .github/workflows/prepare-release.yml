@@ -2,60 +2,144 @@ name: Prepare GitHub release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - v*
 
 permissions:
   contents: read
+  actions: read
 
+# All cooperative draft writers serialize by repository/tag without cancellation.
 concurrency:
-  group: prepare-release-${{ github.ref }}
+  group: release-draft-${{ github.repository }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  prepare:
+  verify:
     if: github.repository == 'acgetchell/markov-chain-monte-carlo'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions:
-      contents: write
-      actions: read
-      checks: read
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      artifact-id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact-digest: ${{ steps.handoff.outputs.artifact-digest }}
+      validated-attempt: ${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Require protected tag source before repository Python
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          test "$GITHUB_EVENT_NAME" = push
-          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
-          test "$(gh api repos/acgetchell/markov-chain-monte-carlo --jq .default_branch)" = main
-          test "$(gh api repos/acgetchell/markov-chain-monte-carlo/branches/main --jq .protected)" = true
-          git --no-pager merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          test "$(git --no-pager rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
-          test "$(git --no-pager rev-parse HEAD)" = "$GITHUB_SHA"
-          test -f tooling/prepare_release.py && test ! -L tooling/prepare_release.py
-          test -f tooling/release-evidence.toml && test ! -L tooling/release-evidence.toml
-
-      - name: Install registry tooling runner
+      - name: Set up declared verification tools
         uses: $/.github/actions/setup-toolchain
         with:
           cache: "false"
-
       - name: Prepare native dependency provenance
         run: just release-dependency-builds
-
-      - name: Verify signed source evidence and prepare stable draft
+      - name: Verify tagged source and freeze native evidence and notes
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
-          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
-            --from research-repo-tools==0.2.8 python -I tooling/prepare_release.py "$RELEASE_TAG"
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == "refs/tags/$RELEASE_TAG" ]]
+          commit=$(git --no-pager rev-parse "$GITHUB_REF^{commit}")
+          [[ "$commit" == "$GITHUB_SHA" && "$(git --no-pager rev-parse HEAD)" == "$commit" ]]
+          git --no-pager merge-base --is-ancestor "$commit" origin/main
+          mkdir "$RUNNER_TEMP/handoff"
+          runtime=(uv run --no-config --no-project --isolated --no-cache --managed-python
+            --exclude-newer 2026-11-16T17:32:49Z
+            --with 'research-repo-tools==0.2.9'
+            python -I -m research_repo_tools)
+          "${runtime[@]}" --root "$GITHUB_WORKSPACE" release assets plan \
+            tooling/release-evidence.toml --repository "$GITHUB_REPOSITORY" \
+            --event "$GITHUB_EVENT_NAME" --tag "$RELEASE_TAG" --commit "$commit" \
+            --output "$RUNNER_TEMP/handoff/handoff.json" --github-output "$GITHUB_OUTPUT"
+      - name: Retain inert verified handoff
+        id: handoff
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: draft-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/handoff/*
+          if-no-files-found: error
+          retention-days: 30
+
+  prepare:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      # No checkout, local action, project environment or handoff code executes here.
+      - name: Install trusted package runner
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: false
+          cache-python: false
+      - name: Authenticate handoff and prepare the unpublished draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+          HANDOFF_ID: ${{ needs.verify.outputs.artifact-id }}
+          HANDOFF_SHA256: ${{ needs.verify.outputs.artifact-digest }}
+          VALIDATED_ATTEMPT: ${{ needs.verify.outputs.validated-attempt }}
+        working-directory: ${{ runner.temp }}
+        # Run Python from the runner's script file, avoiding actionlint #651's stdin deadlock.
+        shell: >-
+          uv run --no-config --no-project --isolated --no-cache --managed-python
+          --exclude-newer 2026-11-16T17:32:49Z
+          --with "research-repo-tools==0.2.9"
+          python -I "{0}"
+        run: |
+          import os
+          from pathlib import Path
+          from research_repo_tools.draft_workflow import DraftHandoffArtifact, prepare_authenticated_draft
+          from research_repo_tools.release_receipts import TagPushPolicy, TagSource
+
+          root = Path.cwd()
+          repository = os.environ["GITHUB_REPOSITORY"]
+          run = int(os.environ["GITHUB_RUN_ID"])
+          attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          if (repository != "acgetchell/markov-chain-monte-carlo" or attempt != 1
+              or os.environ["GITHUB_RUN_ATTEMPT"] != "1"
+              or os.environ["VALIDATED_ATTEMPT"] != str(attempt)
+              or os.environ["GITHUB_EVENT_NAME"] != "push"
+              or os.environ["GITHUB_REF"] != "refs/tags/" + os.environ["RELEASE_TAG"]
+              or os.environ["GITHUB_SHA"] != os.environ["RELEASE_COMMIT"]):
+              raise ValueError("draft preparation requires the original exact tag push")
+          policy = TagPushPolicy(
+              repository, ".github/workflows/prepare-release.yml", "Prepare GitHub release",
+              (("verify", ("Verify tagged source and freeze native evidence and notes",)),),
+              artifact_prefix="draft-handoff",
+              runner_labels=(("verify", ("ubuntu-latest",)),),
+          )
+          prepare_authenticated_draft(
+              root, policy, TagSource(os.environ["GITHUB_REF"], os.environ["RELEASE_COMMIT"]),
+              DraftHandoffArtifact(run, 1, int(os.environ["HANDOFF_ID"]), os.environ["HANDOFF_SHA256"]),
+              output=root / "draft-state", executing_run_id=run, executing_attempt=attempt, approve=True,
+          )
+      - name: Retain journal even after an unconfirmed creation
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: draft-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/draft-state/draft-receipt.json
+            ${{ runner.temp }}/draft-state/target.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Retain complete authenticated preparation state
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: draft-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/draft-state/*
+          if-no-files-found: ignore
+          retention-days: 30

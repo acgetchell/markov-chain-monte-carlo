@@ -1,0 +1,17 @@
+# Maintainers reconcile coupled pins through `just update-actions`; Dependabot
+# remains the routine update owner. Both commands scan workflows and composites.
+[actions]
+"astral-sh/setup-uv" = "latest"
+# CodeQL's repository also publishes bundle releases. Select the reviewed Action
+# tag explicitly and advance these three targets together before reconciliation.
+"github/codeql-action/init" = "v4.39.3"
+"github/codeql-action/analyze" = "v4.39.3"
+"github/codeql-action/upload-sarif" = "v4.39.3"
+
+[consistency]
+actions = [
+    "astral-sh/setup-uv",
+    "github/codeql-action/init",
+    "github/codeql-action/analyze",
+    "github/codeql-action/upload-sarif",
+]

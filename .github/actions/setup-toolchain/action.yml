@@ -2,6 +2,9 @@ name: Set up declared toolchain
 description: Install the locked shared tooling and synchronize the declared toolchain.
 
 inputs:
+  tool:
+    description: Optional catalog selection; release upload selects only minimal Rust and Cargo.
+    default: ""
   cache:
     description: Cache uv and managed Cargo compilation; release jobs disable caches.
     default: "true"
@@ -13,7 +16,7 @@ runs:
   using: composite
   steps:
     - name: Install declared uv
-      uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version-file: pyproject.toml
         enable-cache: ${{ inputs.cache == 'true' }}
@@ -31,13 +34,25 @@ runs:
           }}
 
     - name: Set up declared tools and development environment
-      if: inputs.scanner == ''
+      if: inputs.scanner == '' && inputs.tool == ''
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
         RESEARCH_REPO_TOOLS_CARGO_BUILD_HOME: ${{ runner.temp }}/rrt-cargo-build
       run: uv run --locked --managed-python --only-group tooling research-repo-tools setup
+
+    - name: Set up selected tools and development environment
+      if: inputs.scanner == '' && inputs.tool != ''
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
+        RESEARCH_REPO_TOOLS_CARGO_BUILD_HOME: ${{ runner.temp }}/rrt-cargo-build
+        SELECTED_TOOL: ${{ inputs.tool }}
+      run: |
+        uv sync --locked --managed-python --group dev
+        uv run --locked --no-sync research-repo-tools toolchain sync --tool "$SELECTED_TOOL"
 
     - name: Set up the declared scanner through the shared API
       if: inputs.scanner != ''
@@ -84,4 +99,8 @@ runs:
       shell: bash
       env:
         RESEARCH_REPO_TOOLS_HOME: ${{ runner.temp }}/rrt
-      run: uv run --locked --group dev research-repo-tools toolchain export
+        SELECTED_TOOL: ${{ inputs.tool }}
+      run: |
+        args=()
+        if [[ -n "$SELECTED_TOOL" ]]; then args+=(--tool "$SELECTED_TOOL"); fi
+        uv run --locked --no-sync --no-python-downloads research-repo-tools toolchain export "${args[@]}"

@@ -50,6 +50,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 ├── .gitattributes
 ├── .github/
 │   ├── CODEOWNERS
+│   ├── action-updates.toml
 │   ├── actions/
 │   │   └── setup-toolchain/
 │   │       └── action.yml
@@ -122,6 +123,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── dev/
 │   │   ├── DEVELOPING.md
 │   │   ├── crates-io-publishing.md
+│   │   ├── release-flow-integration.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
 │   ├── performance/
@@ -183,6 +185,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── testing.rs
 │   └── traits.rs
 ├── tests/
+│   ├── __init__.py
 │   ├── adaptive.rs
 │   ├── autocorrelation.rs
 │   ├── benchmark_distributions.rs
@@ -210,15 +213,21 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── tracing.rs
 │   ├── tooling/
 │   │   ├── __init__.py
+│   │   ├── support_evidence.py
+│   │   ├── test_actions.py
 │   │   ├── test_benchmark_contracts.py
+│   │   ├── test_candidate_integration.py
+│   │   ├── test_candidate_transfer.py
 │   │   ├── test_commands.py
 │   │   ├── test_ess_fixture.py
 │   │   ├── test_notebooks.py
 │   │   ├── test_performance_evidence.py
-│   │   ├── test_prepare_release.py
 │   │   ├── test_publishing.py
+│   │   ├── test_release_acquisition.py
 │   │   ├── test_release_changelog.py
+│   │   ├── test_release_context.py
 │   │   ├── test_release_evidence.py
+│   │   ├── test_release_flow.py
 │   │   ├── test_release_policy.py
 │   │   └── test_semgrep_environment.py
 │   └── semgrep/
@@ -248,6 +257,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │               └── rust_style.rs
 ├── tooling/
 │   ├── benchmark.toml
+│   ├── draft-receipt.toml
 │   ├── examples.toml
 │   ├── ising-example.toml
 │   ├── measurement-release-signal.toml
@@ -258,7 +268,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── performance-release.toml
 │   ├── performance-report-legacy.toml
 │   ├── performance-report.toml
-│   ├── prepare_release.py
+│   ├── release_candidate.py
 │   ├── release-evidence.toml
 ├── ty.toml
 ├── typos.toml
@@ -282,12 +292,13 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
   Regenerate the analysis guide's rank and ESS figures with `just diagnostic-plots-figures`, and the Ising figure with `just notebook-ising-figure`.
 - `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, and scientific prose.
+  `release_candidate.py` retains la-stack v0.5.4's operator selection protocol; published RRT owns verification, archive and provider operations.
+  `draft-receipt.toml` declares the exact authenticated draft producer/writer jobs and steps.
   `performance-publication.toml` selects the reviewed README workloads, and `performance-release.toml` binds publication to the prepared release pair.
   Preserve `performance-readme.toml` with the frozen v1 evidence.
   Semgrep's dependency pin, compatibility overrides, and lockfile belong to the root Python environment.
   `release-evidence.toml` binds trusted main-push jobs, native runner labels, successful steps and the signer to the shared signed-source verifier.
   Published shared setup and fixture checks select the scanner from the locked consumer environment; the temporary version adapter from #222 is retired.
-  `prepare_release.py` orchestrates shared source, evidence, required-check and draft identity checks for the tag-triggered draft workflow.
   `measurement-release-signal.toml` owns complete-run workload policy; `performance-release.toml` connects preparation, acquisition and publication,
   and `performance-publication.toml` selects the new README view. The older README declaration remains frozen with the v1 evidence.
   `performance-release-interpretation.md` supplies the new publication's scientific scope and limits of the two-trial schedule.

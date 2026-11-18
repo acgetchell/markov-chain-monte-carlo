@@ -15,7 +15,6 @@ from research_repo_tools.measurement import MeasurementConfig, load_measurement
 from research_repo_tools.performance_release import load_performance_release
 from research_repo_tools.release_discovery import PublishedRelease
 from research_repo_tools.release_metadata import PackageInfo
-from research_repo_tools.report_inventory import check_report
 from research_repo_tools.suite_measurement import SuiteMeasurementPlan
 from research_repo_tools.trial_schedule import AlternatingOrder
 
@@ -151,30 +150,10 @@ def test_preparation_infers_both_releases_from_package_and_published_history(mon
     assert (pair.current, pair.baseline, working_tree) == ("v0.5.3", "v0.5.2", True)
 
 
-def test_new_report_inventory_preserves_legacy_evidence_without_promoting_it(tmp_path: Path) -> None:
-    workflow = load_performance_release(REPO_ROOT, "tooling/performance-release.toml")
-    for relative in (workflow.measurement, workflow.report):
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes((REPO_ROOT / relative).read_bytes())
-    legacy = tmp_path / "docs/performance/v1/README.md"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_bytes(b"Retained historical series\r\n")
-    assert check_report(tmp_path, workflow.report).status == "uninitialized"
-    assert legacy.read_bytes() == b"Retained historical series\r\n"
-    assert not (tmp_path / "docs/performance/current.md").exists()
-    partial = tmp_path / "docs/performance/runs/partial"
-    partial.mkdir(parents=True)
-    with pytest.raises(ValueError, match="orphaned inventory"):
-        check_report(tmp_path, workflow.report)
-
-
 @pytest.mark.parametrize(
     ("recipe", "operation", "arguments"),
     [
         ("performance-prepare", "prepare", []),
-        ("performance-release", "release", []),
-        ("performance-release", "release", ["--checkpoint", "target/bench-reports/release-checkpoint", "--resume"]),
         ("performance-readme", "readme", ["--preview"]),
     ],
 )
@@ -190,8 +169,5 @@ def test_release_recipes_keep_preparation_measurement_and_publication_separate(r
     )
     command = result.stdout.decode("utf-8").rstrip("\0").split("\0")
     start = command.index("performance")
-    expected = ["performance", operation, "tooling/performance-release.toml"]
-    if operation == "release":
-        expected += ["--progress-cadence", "300"]
-    assert command[start:] == [*expected, *arguments]
+    assert command[start:] == ["performance", operation, "tooling/performance-release.toml", *arguments]
     assert not {"--allow-git-mutations", "--fetch-tags", "--current", "--baseline"} & set(command)

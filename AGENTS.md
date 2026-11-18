@@ -101,7 +101,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Rust
 
-- The current MSRV and pinned contributor/CI toolchain are Rust 1.99.1. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
+- The current MSRV and pinned contributor/CI toolchain are Rust 1.100.0. Keep `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` aligned when that baseline
   changes deliberately.
 - Prefer borrowed APIs by default: take references (`&T`, `&mut T`, `&[T]`) as arguments and return borrowed views (`&T`, `&[T]`) when possible. Only take
   ownership or return `Vec`/allocated data when required.
@@ -116,7 +116,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.2.8` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.2.9` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
   The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
@@ -184,7 +184,8 @@ just release-version-check # Validate final current metadata and generated notes
 just release-package # Verify clean default and all-feature packages without uploading
 just release-evidence # Verify exact-source signed main CI evidence before tagging
 just release-benchmarks TAG # Dispatch benchmarks using the exact tag workflow
-just release-publish TAG # Publish the reviewed GitHub draft and trigger approved registry upload (maintainer)
+just release-publish TAG # Publish the reviewed GitHub draft (maintainer)
+just release-upload TAG # Dispatch registry upload with the independently reviewed acceptance
 just release-verify TAG # Verify the published GitHub Release, required assets, and exact registry version
 just performance-release  # Persist, validate, and promote release benchmark evidence
 just performance-prepare # Infer release identities and capture the measurement plan without timing

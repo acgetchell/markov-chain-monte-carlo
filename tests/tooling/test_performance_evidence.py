@@ -56,6 +56,7 @@ def test_first_comparison_gate_allows_experiments_without_release_evidence(tmp_p
 
     assert result.returncode == 0, result.stderr
     assert "No release comparison yet" in result.stdout
+    assert "Report inventory: uninitialized." in result.stdout
     assert not (tmp_path / REPORT).exists()
 
 
@@ -72,17 +73,24 @@ def test_first_comparison_gate_allows_experiments_without_release_evidence(tmp_p
         "docs/assets/release-performance.svg",
     ],
 )
-def test_new_namespace_rejects_every_orphan_without_changing_legacy_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str) -> None:
+def test_new_namespace_rejects_every_orphan_without_changing_legacy_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], artifact: str
+) -> None:
     _project(tmp_path, monkeypatch)
+    legacy = tmp_path / "docs/performance/v1/README.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"Retained historical series\r\n")
     destination = tmp_path / artifact
     destination.parent.mkdir(parents=True)
     if destination.name == "empty-run":
         destination.mkdir()
     else:
         destination.write_bytes(b"incomplete output\r\n")
-    result = _check(tmp_path)
-    assert result.returncode != 0
-    assert "uninitialized report has orphaned inventory" in result.stderr
+    assert main(["--root", str(tmp_path), "performance", "promote", "tooling/performance-report.toml", "--check"]) == 1
+    diagnostic = capsys.readouterr().err
+    assert "uninitialized report has orphaned inventory" in diagnostic
+    assert artifact in diagnostic
+    assert legacy.read_bytes() == b"Retained historical series\r\n"
     assert not (tmp_path / "docs/performance/current.md").exists()
     assert not (tmp_path / REPORT).exists()
 
