@@ -8,9 +8,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # Prepare native source receipts and registry inputs before release provenance checks.
 release-dependency-builds:
     uv sync --locked --group dev
-    {{ _run }} cargo fetch --locked
-    {{ _run }} cargo fetch --locked --manifest-path benches/diagnostic_backends/Cargo.toml
-    {{ _run }} research-repo-tools release dependency-builds
+    uv run --locked --no-sync research-repo-tools toolchain run --tool cargo -- cargo fetch --locked
+    uv run --locked --no-sync research-repo-tools toolchain run --tool cargo -- cargo fetch --locked --manifest-path benches/diagnostic_backends/Cargo.toml
+    uv run --locked --no-sync research-repo-tools toolchain run --tool cargo -- research-repo-tools release dependency-builds
 
 # Authenticate declared registry graphs and this machine's installed dependency bytes.
 release-dependencies:
@@ -23,6 +23,18 @@ dependency-source name *args:
 
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
+actions_inputs := quote(".github/workflows") + " " + quote(".github/actions/setup-toolchain/action.yml")
+
+# Validate coupled Actions pins without network access or environment sync.
+[group('validation')]
+actions-check:
+    uv run --no-sync --no-python-downloads --offline research-repo-tools actions check --policy .github/action-updates.toml {{ actions_inputs }}
+
+# Preview with --dry-run; reconcile each selected Action across the same inputs.
+[group('build and setup')]
+[positional-arguments]
+update-actions *args:
+    uv run --locked --only-group tooling --inexact research-repo-tools actions update --policy .github/action-updates.toml {{ actions_inputs }} "$@"
 
 fast_notebooks := "notebooks/ising_trace_analysis.ipynb notebooks/diagnostic_plots.ipynb"
 slow_notebooks := ""
@@ -54,17 +66,6 @@ _ensure-uv-stable:
 
 _notebook-all mode:
     uv run --locked --group dev --group notebook research-repo-tools files run --include '*.ipynb' --exclude '*/.ipynb_checkpoints/*' -- research-repo-tools notebooks {{ quote(mode) }}
-
-[private]
-_release-notes-check tag:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tag={{ quote(tag) }}
-    notes="$(mktemp)"
-    trap 'rm -f "$notes"' EXIT
-    {{ rrt }} changelog notes "$tag" > "$notes"
-    gh release view "$tag" --repo acgetchell/markov-chain-monte-carlo --json tagName,name,body |
-        jq -e --arg tag "$tag" --rawfile notes "$notes" '.tagName == $tag and .name == $tag and ((.body | gsub("\r\n"; "\n") | rtrimstr("\n")) == ($notes | rtrimstr("\n")))' > /dev/null
 
 # GitHub Actions workflow validation
 [group('validation')]
@@ -153,7 +154,7 @@ check-fast:
 
 # Repository tooling that does not need to be repeated across operating systems.
 [group('validation')]
-check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint workflow-allowlist-check zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-version-check performance-check semgrep-test semgrep
+check-repository-tooling: changelog-check python-check notebook-lint validate-json yaml-check action-lint actions-check workflow-allowlist-check zizmor justfile-fmt-check toml-fmt-check toml-lint markdown-check spell-check release-version-check performance-check semgrep-test semgrep
     @echo "✅ Repository tooling checks complete!"
 
 # Rust validation that is meaningful for source portability and user-facing API correctness.
@@ -165,7 +166,7 @@ check-rust: fmt-check clippy
 # rustdoc doctests remain separate because nextest does not execute them.
 # Run repository validators, all-target Clippy, tests, docs, examples, and benchmark compilation.
 [group('workflows')]
-ci: changelog-check action-lint workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
+ci: changelog-check action-lint actions-check workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check python-check notebook-lint fmt-check semgrep-test semgrep test-python notebook-check clippy-all-targets doc test-rust-ci test-doc bench-compile validate-examples
     @echo "🎯 CI checks complete!"
 
 # CI subset for macOS and Windows portability confidence.
@@ -180,7 +181,7 @@ ci-native: python-check notebook-lint test-python notebook-check clippy-all-targ
 
 # Platform-independent configuration, documentation and source policy checks.
 [group('workflows')]
-ci-repository-tooling: changelog-check action-lint workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check fmt-check semgrep-test semgrep
+ci-repository-tooling: changelog-check action-lint actions-check workflow-allowlist-check zizmor justfile-fmt-check markdown-check spell-check release-version-check performance-check validate-json toml-fmt-check toml-lint yaml-check fmt-check semgrep-test semgrep
     @echo "✅ Repository tooling CI checks complete!"
 
 # CI subset for Rust correctness.
@@ -411,7 +412,7 @@ performance-check: _performance-legacy-check
 performance-doc *args: sync
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml "$@"
 
-# Compare stored GitHub Release benchmark assets without local benchmark runs.
+# Compare historical two-file GitHub Release assets without local benchmark runs.
 [group('benchmarks and performance')]
 [positional-arguments]
 performance-github-assets *tags: sync
@@ -434,17 +435,41 @@ performance-readme *args: sync
 performance-prepare *args: sync
     uv run --locked --group dev research-repo-tools performance prepare tooling/performance-release.toml "$@"
 
-# Measure each release phase once, retain its complete run, and promote the report.
+# Acquire once under the original external owner; resume uses the same checkpoint.
+[group('benchmarks and performance')]
+performance-release progress="human" cadence="300" checkpoint="target/bench-reports/release-checkpoint" mode="fresh": sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/bench-reports/release-signal
+    started=$(date +%s)
+    trap 'status=$?; elapsed=$(($(date +%s) - started)); printf "performance-release: %s seconds; exit %s\n" "$elapsed" "$status" | tee target/bench-reports/release-signal/runtime.txt' EXIT
+    args=(--checkpoint {{ quote(checkpoint) }})
+    case {{ quote(mode) }} in
+        fresh)
+            if [[ -e {{ quote(checkpoint) }} ]]; then
+                echo "Checkpoint exists; use performance-resume or select a new checkpoint." >&2
+                exit 2
+            fi
+            {{ _run }} research-repo-tools performance prepare tooling/performance-release.toml --fetch-tags --allow-git-mutations --release-intent
+            ;;
+        resume) args+=(--resume) ;;
+        *) echo "mode must be fresh or resume" >&2; exit 2 ;;
+    esac
+    {{ _run }} python -I tooling/release_candidate.py acquire --progress {{ quote(progress) }} --progress-cadence {{ quote(cadence) }} "${args[@]}"
+
+# Resume eligible missing work without repeating complete suite pairs.
+[group('benchmarks and performance')]
+performance-resume checkpoint="target/bench-reports/release-checkpoint" progress="human" cadence="300": (performance-release progress cadence checkpoint "resume")
+
+# Retry original receipt capture independently of acquisition and report promotion.
 [group('benchmarks and performance')]
 [positional-arguments]
-performance-release *args: sync
-    {{ _run }} research-repo-tools performance release tooling/performance-release.toml --progress-cadence 300 "$@"
+performance-capture owner *args:
+    uv run --locked --no-sync python -I tooling/release_candidate.py capture "$@"
 
-# Pre-publish validation: checks crates.io metadata rules that cargo publish --dry-run does NOT catch
+# Verify the same clean default/all-feature package contract as main CI.
 [group('release')]
-publish-check:
-    {{ _run }} research-repo-tools validation cargo-metadata
-    {{ _run }} cargo publish --locked --allow-dirty --dry-run
+publish-check: release-package
 
 # Check all Python files and fixtures with the complete configured Ruff and Ty policy.
 [group('validation')]
@@ -461,30 +486,74 @@ python-fix: sync
 python-typecheck: sync
     uv run --locked --no-sync --no-python-downloads research-repo-tools python typecheck
 
-# Dispatch exact-tag release benchmarks without waiting or starting local measurements.
+# Dispatch retained archive attachment from the original Step 1 transfer.
 [group('release')]
-release-benchmarks tag:
-    gh workflow run release-benchmarks.yml --repo acgetchell/markov-chain-monte-carlo --ref {{ quote(tag) }} -f {{ quote("tag=" + tag) }}
-
-# Verify retained main evidence without rebuilding, tagging, or publishing.
-[group('release')]
-release-evidence:
+release-benchmarks tag: _ensure-jq
     #!/usr/bin/env bash
     set -euo pipefail
-    temporary="$(mktemp -d)"
-    selection="$temporary/selection.json"
-    trap 'rm -rf "$temporary"' EXIT
-    just _release-evidence verify "$selection"
-    cat "$selection"
+    tag={{ quote(tag) }}
+    [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "A canonical stable tag is required." >&2; exit 2; }
+    transfer="${CANDIDATE_TRANSFER_FILE-$(just --quiet _release-candidate record transfer)}"
+    [[ -f "$transfer" && -r "$transfer" ]] || { echo "The selected transfer must be a readable file." >&2; exit 2; }
+    jq -e --arg tag "$tag" '.schema == 1 and .target.repository == "acgetchell/markov-chain-monte-carlo" and .target.tag == $tag and .target.expected_title == $tag' -- "$transfer" >/dev/null
+    gh workflow run release-benchmarks.yml --repo acgetchell/markov-chain-monte-carlo --ref "$tag" -f "tag=$tag" -F "candidate=@$transfer"
 
-# Run the registry verifier outside the observed checkout's Python environment.
+# Bind the original acquisition to clean HEAD and signed native/package evidence.
+[group('release')]
+release-evidence owner="" selection="reviewed": (_release-candidate "verify" owner "--selection" selection)
+
+# Run the released reference's local orchestration from an external supplier runtime.
 [group('release')]
 [positional-arguments]
 [private]
-[script("uvx", "--no-config", "--isolated", "--managed-python", "--exclude-newer", "2026-11-10T07:56:26Z", "--from", "research-repo-tools==0.2.8", "python", "-I")]
-_release-evidence operation output expected="":
-    import os
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
+_release-candidate *args:
+    import runpy
+    from pathlib import Path
+    from research_repo_tools.config import load
+    from research_repo_tools.release_runtime import isolated_release_runtime
+    root = Path.cwd().resolve()
+    with isolated_release_runtime(load(root=root)):
+        runpy.run_path(str(root / "tooling/release_candidate.py"), run_name="__main__")
+
+# Derive the accepted archive offline from the retained original measurements.
+[group('release')]
+release-archive owner="" selection="reviewed": (_release-candidate "archive" owner "--selection" selection)
+
+# Retrieve authenticated draft receipts or resume an original shared writer journal.
+[group('release')]
+[positional-arguments]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
+release-assets +args:
     import sys
+    from research_repo_tools.cli import main
+    sys.exit(main(["release", "--isolated-runtime", "assets", *sys.argv[1:]]))
+
+# Stage accepted inert files and retain their original provider IDs and hashes.
+[group('release')]
+release-stage owner="" target="" selection="reviewed": (_release-candidate "stage" owner "--selection" selection "--target" target)
+
+# Freeze the canonical attachment before publishing an immutable release.
+[group('release')]
+release-publication owner="" selection="reviewed": (_release-candidate "seal" owner "--selection" selection)
+
+# Verify independent maintainer dispatch inputs without builds or acquisition.
+[group('release')]
+[positional-arguments]
+release-receive destination *args:
+    just _release-candidate receive "$@"
+
+# Dispatch Cargo publication from the existing independently reviewed acceptance.
+[group('release')]
+release-upload tag owner="" selection="reviewed": (_release-candidate "upload" tag owner "--selection" selection)
+
+# Native-only diagnostic; candidate reuse requires release-evidence.
+[group('release')]
+[positional-arguments]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
+release-native-evidence *args:
+    import sys
+    import tempfile
     from pathlib import Path
     from research_repo_tools.cli import main
     from research_repo_tools.config import load
@@ -492,25 +561,13 @@ _release-evidence operation output expected="":
     from research_repo_tools.release_metadata import read_package_info
     from research_repo_tools.release_runtime import isolated_release_runtime
     root = Path.cwd().resolve()
-    operation, output, expected = sys.argv[1:]
-    with isolated_release_runtime(load(root=root)):
-        args = ["release", "evidence", operation, "tooling/release-evidence.toml", "--checkout", str(root), "--commit", resolve_revision(root, "HEAD"), "--version", read_package_info(root).version, "--output", str(Path(output).resolve())]
-        if operation == "create":
-            args.extend(["--run-id", os.environ["GITHUB_RUN_ID"], "--attempt", os.environ["GITHUB_RUN_ATTEMPT"]])
-        if expected:
-            args.extend(["--expected", str(Path(expected).resolve())])
-        if os.environ.get("GITHUB_OUTPUT"):
-            args.extend(["--github-output", os.environ["GITHUB_OUTPUT"]])
-        sys.exit(main(args))
+    with isolated_release_runtime(load(root=root)), tempfile.TemporaryDirectory(prefix="mcmc-native-evidence-") as temporary:
+        sys.exit(main(["release", "evidence", "verify", "tooling/release-evidence.toml", "--checkout", str(root), "--commit", resolve_revision(root, "HEAD"), "--version", read_package_info(root).version, "--output", str(Path(temporary).resolve() / "selection.json"), *sys.argv[1:]]))
 
-# Require the immutable release event and successful checks on its exact commit.
+# Require the exact reviewed immutable release and shared publishing assertions.
 [group('release')]
-release-gate tag: (_release-notes-check tag)
-    #!/usr/bin/env bash
-    set -euo pipefail
+release-gate tag:
     {{ rrt }} release gate {{ quote(tag) }}
-    release_id="$(jq -er '.release.id' "$GITHUB_EVENT_PATH")"
-    gh api "repos/acgetchell/markov-chain-monte-carlo/releases/$release_id" | jq -e '.immutable == true' > /dev/null
 
 # Extract release notes from the root changelog or its archives
 [group('release')]
@@ -524,9 +581,9 @@ release-package:
     {{ _run }} cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --dry-run
     {{ _run }} cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --dry-run --all-features
 
-# Approve the reviewed draft GitHub Release and trigger registry publication.
+# Approve GitHub publication after rechecking the existing review and archive.
 [group('release')]
-release-publish tag: release-evidence (_release-notes-check tag)
+release-publish tag owner="" selection="reviewed": (_release-candidate "reviewed" ("--tag=" + tag) owner "--selection" selection) (release-publication owner selection)
     {{ rrt }} release publish {{ quote(tag) }} --approve
 
 # Require the stable GitHub Release/assets and exact published registry version.
@@ -606,7 +663,7 @@ sync:
 
 # Create an annotated tag from validated release notes (maintainer only).
 [group('release')]
-tag version: release-version-check
+tag version owner="" selection="reviewed": release-version-check (_release-candidate "reviewed" owner "--selection" selection)
     {{ rrt }} changelog tag {{ quote(version) }}
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.

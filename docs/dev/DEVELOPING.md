@@ -1,6 +1,6 @@
 # Developing in Rust
 
-This repository is a single Rust library crate using Rust 1.99.1 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
+This repository is a single Rust library crate using Rust 1.100.0 and edition 2024. Auxiliary tooling uses the installed shared Python baseline through uv.
 
 ## Core Commands
 
@@ -13,6 +13,8 @@ just ci-portability   # Portability subset
 just ci-repository-tooling  # Repository tooling subset
 just fix              # Apply formatters/auto-fixes (mutating)
 just lint             # All lint groups
+just actions-check    # Offline coupled Actions pin consistency
+just update-actions --dry-run  # Preview the shared Actions update
 just setup            # Install managed tools / verify system prerequisites
 just update           # Update dependencies, managed Cargo tools, and tool pins
 just test             # Focused unit + doc tests
@@ -136,7 +138,8 @@ managed environment. Gitleaks and OSV need no Rust installation. zizmor needs
 only minimal host Rust and its own Cargo package; contributor components,
 cross-compilation targets and other Cargo tools are excluded. Each scanner has
 its own cache namespace. These recipes use the `tooling` Python group; ordinary
-build and release jobs retain the complete contributor setup.
+build jobs retain the complete contributor setup. Registry publication selects only
+managed Cargo through the action's `tool` input; it does not install unrelated contributor tools.
 
 Semgrep 1.182.1 accepts PyJWT `>=2.15.0,<3`, which covers
 [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The root `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
@@ -170,7 +173,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.2.8` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.2.9` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -186,10 +189,17 @@ Verify each finding against current code, fix still-valid issues, and run the af
 review data. CLI failures propagate: authentication, service, and allowance failures mean the review is unavailable, not clean. Report the review scope,
 completion status, valid fixes, and skipped findings with brief reasons.
 
-## Rust 1.99.0 Audit
+## Rust 1.100.0 Baseline
 
-The MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace use Rust 1.99.1. The feature assessment below follows the
-official [release notes](https://doc.rust-lang.org/stable/releases.html#version-1990-2026-10-01),
+The MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace use Rust 1.100.0. This upgrade follows the official
+[release announcement](https://blog.rust-lang.org/2026/11/12/Rust-1.100.0/). No new language or library APIs are adopted in this tooling update; the
+scientific arithmetic policy and earlier feature decisions remain in effect. The full validation gate covers the compiler, Clippy, rustfmt, rustdoc,
+tests, examples, and benchmark compilation on the local validation platform.
+
+### Retained Rust 1.99 Decisions
+
+The previous MSRV, contributor/CI toolchain, Clippy baseline, and independent diagnostic-backend workspace used Rust 1.99.1. The feature assessment below
+follows the official [release notes](https://doc.rust-lang.org/stable/releases.html#version-1990-2026-10-01),
 [release announcement](https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/), and
 [Cargo changelog](https://doc.rust-lang.org/nightly/cargo/CHANGELOG.html#cargo-199-2026-10-01).
 
@@ -294,15 +304,34 @@ The main-push package job runs alongside native checks after repository tooling
 passes. The signer waits for all of them and requires successful package
 provenance and both feature selections. It fetches the locked Cargo metadata
 inputs without setting up or running the consumer Python environment.
-See [release evidence](../RELEASING.md#2-verify-the-release-commit) for exact-source,
+See [release evidence](../RELEASING.md#2-verify-the-final-release-commit) for exact-source,
 approval and rerun behavior.
+
+## Coupled GitHub Actions pins
+
+`just actions-check` runs the installed RRT offline consistency checker without
+sync or network access. `.github/action-updates.toml` owns the coupled groups:
+`astral-sh/setup-uv` and all three CodeQL `init`, `analyze`, `upload-sarif`
+subpaths. The checker and `just update-actions [--dry-run]` share the exact scope:
+`.github/workflows` plus `.github/actions/setup-toolchain/action.yml`.
+Both local and hosted repository tooling run this check alongside actionlint and zizmor.
+
+Dependabot owns routine SHA/version bumps under the existing review policy.
+Maintainers reconcile partial groups through the shared updater, review its diff,
+and rerun `just actions-check`. Setup-uv resolves the latest stable release.
+CodeQL's repository latest release is a bundle rather than an Action version;
+advance all three explicit stable targets together in the policy before running
+the updater. Never resolve subpaths independently or maintain a second pin list.
+The consistency gate checks cross-file equality, full SHAs and version comments;
+zizmor's online audit checks remote SHA/version identity. Publishing workflow
+changes still require maintainer review.
 
 ## Dependabot Automation
 
 `just workflow-allowlist-check` reads `.github/settings/actions-selected.json` through the shared YAML checker. It validates external step and reusable-workflow
 identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list. The
 shared CLI accepts workflow and composite-action documents. A focused consumer test also exercises the setup composite's steps through that checker. SHA
-pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step still pins the reviewed v1.0.5 SHA.
+pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step pins the reviewed v1.0.6 SHA.
 The proposed selected-actions payload and consumer regression allow exactly the reviewed v1.0.5 and v1.0.6 SHAs during adoption; #219 owns the separate
 workflow upgrade. See [publishing policy](crates-io-publishing.md) for both identities. The live authentication entry was updated to v1.0.6 and read back
 on November 3, 2026; the broader proposed policy has not been applied.
@@ -485,8 +514,9 @@ Follow [RELEASING.md](../RELEASING.md) for the shared dependency refresh,
 preparation, retained-evidence publication, and post-merge order.
 
 Use `just release-publish "$TAG"` in a human GitHub CLI session to publish the
-reviewed draft after its benchmark asset is attached. This triggers the crates.io
-workflow, which requires environment approval before its Cargo upload.
+reviewed draft after its benchmark asset is attached. Then use
+`just release-upload "$TAG"` to dispatch the crates.io workflow with the existing
+reviewed acceptance. It requires environment approval before its Cargo upload.
 `just release-verify "$TAG"` requires the published
 stable GitHub Release, required asset and exact registry version. See
 [deployment setup](crates-io-publishing.md) for the publisher identity and pending

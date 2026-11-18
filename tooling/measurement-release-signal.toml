@@ -29,6 +29,8 @@ timeout = 7200
 compatible = [ "context.os", "context.architecture", "context.cpu" ]
 
 [suites.measurement.context]
+repository = "acgetchell/markov-chain-monte-carlo"
+acquisition-owner = "local"
 suite = "stepping"
 scope = "release-signal"
 

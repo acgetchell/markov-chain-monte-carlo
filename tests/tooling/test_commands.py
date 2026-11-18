@@ -23,12 +23,6 @@ def test_offline_reporting_and_explicit_measurement_boundary() -> None:
         assert "--allow-git-mutations" not in result.stderr
         assert "cargo bench" not in result.stderr
     assert "--allow-git-mutations" in dry_run(REPO_ROOT, "performance-local").stderr
-    release = dry_run(REPO_ROOT, "performance-release").stderr
-    assert "performance release tooling/performance-release.toml" in release
-    assert "--allow-git-mutations" not in release
-    # Complete release acquisition exports sources; it does not mutate Git refs.
-    measurement = tomllib.loads((REPO_ROOT / "tooling/measurement-release-signal.toml").read_bytes().decode("utf-8"))
-    assert all(suite["measurement"]["backend"] == "export" for suite in measurement["suites"])
     for gate in ("check", "ci", "setup", "update"):
         assert "research-repo-tools review " not in dry_run(REPO_ROOT, gate).stderr
 
@@ -149,29 +143,32 @@ def test_release_credentials_and_shared_commands_are_separated() -> None:
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     shared_requirement = Requirement(manifest["dependency-groups"]["tooling"][0])
     shared_pin = f"{shared_requirement.name}{shared_requirement.specifier}"
-    workflow = (REPO_ROOT / ".github/workflows/release-benchmarks.yml").read_text(encoding="utf-8")
-    validation, rest = workflow.split("  validate-release:\n", 1)[1].split("  release-baseline:\n", 1)
-    baseline, publication = rest.split("  publish-baseline:\n", 1)
-    for writer, command in ((validation, "release-draft"), (publication, "release-upload")):
-        assert "contents: write" in writer
-        assert "actions/checkout@" not in writer
-        assert f"{shared_pin} research-repo-tools --root" in writer
-        assert f"performance {command}" in writer
-    assert "--publish" not in publication
-    assert "GH_TOKEN:" not in baseline
-    assert "persist-credentials: false" in baseline
-    assert 'just performance-baseline "$RELEASE_TAG"' in baseline
-    setup = (REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
-    assert "research-repo-tools toolchain export" in setup
-    assert "<<'PY'" not in workflow
-    setup_steps = yaml.safe_load(setup)["runs"]["steps"]
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
+    jobs = workflow["jobs"]
+    assert set(jobs) == {"fetch", "verify", "attach"}
+    for name in ("fetch", "attach"):
+        writer = jobs[name]
+        assert writer["permissions"]["contents"] == "write"
+        assert all("actions/checkout@" not in step.get("uses", "") for step in writer["steps"])
+        assert shared_pin in yaml.safe_dump(writer)
+    verifier = jobs["verify"]
+    assert verifier["permissions"] == {"contents": "read", "checks": "read", "actions": "read"}
+    assert "persist-credentials: false" in yaml.safe_dump(verifier)
+    assert 'just release-receive "$RUNNER_TEMP/accepted-candidate"' in yaml.safe_dump(verifier)
+    assert "performance-baseline" not in yaml.safe_dump(jobs)
+    assert "performance measure" not in yaml.safe_dump(jobs)
+    setup = yaml.safe_load((REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_bytes())
+    setup_steps = setup["runs"]["steps"]
     installer = next(step for step in setup_steps if step.get("run", "").endswith("research-repo-tools setup"))
     assert installer["run"] == "uv run --locked --managed-python --only-group tooling research-repo-tools setup"
     assert installer["env"]["GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - literal Actions expression, not a credential.
     scanner = next(step for step in setup_steps if step.get("name") == "Set up the declared scanner through the shared API")
-    assert installer["if"] == "inputs.scanner == ''"
+    selected = next(step for step in setup_steps if "SELECTED_TOOL" in step.get("env", {}))
+    assert installer["if"] == "inputs.scanner == '' && inputs.tool == ''"
+    assert selected["if"] == "inputs.scanner == '' && inputs.tool != ''"
+    assert 'toolchain sync --tool "$SELECTED_TOOL"' in selected["run"]
     assert scanner["if"] == "inputs.scanner != ''"
-    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step not in (installer, scanner))
+    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in setup_steps if step not in (installer, scanner, selected))
 
 
 def test_release_version_check_uses_shared_final_metadata_validation(capsys: pytest.CaptureFixture[str]) -> None:

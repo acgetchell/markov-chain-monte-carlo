@@ -1,17 +1,32 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.2.8` registry distribution.
+MCMC pins the published `research-repo-tools==0.2.9` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the initial local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
 
-## v0.2.8 adoption
+## v0.2.9 adoption
+
+The official `shared-python-plan 0.2.9` and `shared-python-update 0.2.9` recipes
+advance both exact registry pins and the lockfile while retaining the shared
+Python 3.15 baseline and inherited Python tools. Rust moves to 1.100.0 across the
+library, contributor toolchain, Clippy configuration, and diagnostic workspace.
+The OpenTelemetry overrides advance together to 1.45.2 and matching 0.66b2
+instrumentation, resolving the API trace-context parsing advisory
+[GHSA-mf5v-w3w3-f6cg](https://github.com/open-telemetry/opentelemetry-python/security/advisories/GHSA-mf5v-w3w3-f6cg).
+
+`just update` refreshes the managed tool declarations and dependency locks. The
+isolated registry runners use the adopted package and uv pin, with their resolution
+cutoff after every upload retained in the root lockfile. The reusable Dependabot
+workflow selects the v0.2.9 commit; its bytes are unchanged from v0.2.8.
+
+### Retained v0.2.8 integration
 
 The published scanner setup and fixture APIs now read the locked Semgrep version;
 the temporary version adapter from #222 has been removed. Runtime, notebook, and
 isolated workflow pins select the same published supplier. The reusable Dependabot
-workflow selects the v0.2.8 commit with unchanged reviewed workflow bytes.
+workflow retains the reviewed implementation adopted with v0.2.8.
 
 `dependency-sources.toml` owns the root Python and Cargo graphs and the locked
 source-build policy. Run `just release-dependency-builds` before
@@ -39,16 +54,16 @@ both direct and nested files. Consumer tests keep this selection aligned with
 batches, paired reports, and report-currentness verification. The workflow retains
 only invocation, upload permissions, and the final findings/report gate.
 
-The remaining reusable adapters have upstream v0.2.9 issues. Keep them until a
-published shared replacement preserves their contracts; do not replace them with
-copied workflow programs or private package imports.
+The ownership table distinguishes adopted shared capabilities from remaining
+consumer wiring. No private package imports or local generic verification engine
+are needed.
 
 | Local surface | Ownership and replacement |
 | --- | --- |
 | Scanner-only setup heredoc | Shared plan selection, installation and environment export belong in [RRT #225](https://github.com/acgetchell/research-repo-tools/issues/225). Scanner choice and workflow permissions remain local. |
-| `tooling/prepare_release.py` | Source verification and authenticated draft orchestration belong in [RRT #226](https://github.com/acgetchell/research-repo-tools/issues/226), building on the existing draft API and durable journal. Package/source policy remains local. |
-| Release title, notes and immutability shell checks | Declarative publication assertions belong in [RRT #227](https://github.com/acgetchell/research-repo-tools/issues/227). Keep the current checks until adoption. |
-| Retained benchmark handoff | Already tracked by [RRT #224](https://github.com/acgetchell/research-repo-tools/issues/224) and MCMC #223; acquisition, attachment and approval composition remain pending. |
+| Draft preparation | Adopted the installed `release assets plan` and authenticated shared writer from la-stack v0.5.4; retired `tooling/prepare_release.py`. Package/source and receipt policy remain declarative. |
+| Release title, notes and immutability | Adopted shared publishing declarations; removed the superseded local notes shell checker. |
+| Retained benchmark handoff | Adopted the published candidate APIs and la-stack v0.5.4 operator orchestration for MCMC #223. One local acquisition supplies reports, README and archive; final acceptance and approval freeze its original identities. |
 | Isolated runtime dependency graph | Already tracked by [RRT #223](https://github.com/acgetchell/research-repo-tools/issues/223); the current external runtime API remains in use. |
 | Evidence recipe arguments and example provenance | Thin consumer wiring supplies package/source assertions and MCMC build-time provenance to shared commands. |
 | Frozen v1 report guard | Temporary historical policy remains local until MCMC #221 permits retirement; new report inventories use the shared validator. |
@@ -76,6 +91,20 @@ verification. The earlier runs used different revisions and cache states are
 unclassified, so these observations do not quantify the effect of splitting the
 jobs or enabling the compilation cache. Record matched cold and warm evidence
 for the adoption revision in [#229](https://github.com/acgetchell/markov-chain-monte-carlo/issues/229).
+
+### Release flow and Actions consistency (#220, #223, #231)
+
+The current flow adopts published la-stack v0.5.4 at
+`560b8dd736cdc83441e888e36c25dc5ddc069fea`, using the normally resolved RRT 0.2.9
+distribution. See the [integration record](release-flow-integration.md) for the
+command map, justified MCMC differences and remaining hosted acceptance.
+Step 2 verifies retained candidate and signed native/package evidence without
+sampling or repeating Cargo verification builds. Immutable publication, independent
+asset IDs/hashes and full acceptance remain frozen across environment approval.
+
+The shared offline Actions checker and updater use one policy and scan scope.
+Setup-uv occurrences advance together; the three CodeQL subpaths share one explicit
+stable target. Dependabot ownership and publication review rules are preserved.
 
 ## v0.2.5 adoption
 
@@ -194,7 +223,7 @@ This adoption retains native Cargo build/package verification and the existing
 registry publication controls. Trusted main-artifact promotion is deferred:
 shared immutable-selection/download primitives do not establish native package
 validity, scientific correctness, benchmark freshness, or source/harness provenance.
-The current release process still measures and attaches the tagged benchmark
+The earlier release process measured and attached the tagged benchmark
 baseline before publishing the draft GitHub Release.
 
 Rust artifact reuse needs a separately reviewed producer, native validation and

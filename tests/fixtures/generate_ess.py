@@ -55,6 +55,8 @@ CASE_NAMES = (
     "one_constant_half",
 )
 
+QUANTILES = (("q05", 0.05), ("q50", 0.5), ("q95", 0.95))
+
 type Draws = list[list[float]] | tuple[tuple[float, ...], ...]
 
 
@@ -128,7 +130,7 @@ def references(chains: Draws) -> dict[str, float | None]:
         "tail_ess": float(az.ess(draws, method="tail")),
         "mean_mcse": float(az.mcse(draws, method="mean")),
     }
-    for label, probability in (("q05", 0.05), ("q50", 0.5), ("q95", 0.95)):
+    for label, probability in QUANTILES:
         result[f"{label}_ess"] = float(az.ess(draws, method="quantile", prob=probability))
         result[f"{label}_mcse"] = float(az.mcse(draws, method="quantile", prob=probability))
         result[f"{label}_value"] = float(np.quantile(draws, probability, method="linear"))
@@ -147,7 +149,7 @@ def unavailable(chains: Draws, results: dict[str, float | None]) -> dict[str, st
         errors.update(mean_ess="NoWithinChainVariation", bulk_ess="NoWithinChainVariation")
     if "mean_ess" in errors:
         errors["mean_mcse"] = errors["mean_ess"]
-    for label, probability in (("q05", 0.05), ("q50", 0.5), ("q95", 0.95)):
+    for label, probability in QUANTILES:
         indicators = split <= np.quantile(draws, probability, method="linear")
         if np.all(indicators == indicators.flat[0]):
             errors[f"{label}_ess"] = "DegenerateIndicator"

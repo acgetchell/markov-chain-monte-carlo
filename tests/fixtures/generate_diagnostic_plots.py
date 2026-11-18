@@ -188,7 +188,7 @@ def verify_report_inventory(report: dict[str, Any]) -> None:
             if [row["chain_id"] for row in prefix["ranks"]] != [chain["chain_id"] for chain in chains]:
                 message = "Rank rows do not preserve original chain identity"
                 raise ValueError(message)
-            if [quantile["probability"] for quantile in prefix["quantiles"]] != [0.05, 0.5, 0.95]:
+            if [quantile["probability"] for quantile in prefix["quantiles"]] != [probability for _, probability in ESS["QUANTILES"]]:
                 message = "Unsupported report quantile inventory"
                 raise ValueError(message)
 
@@ -230,7 +230,7 @@ def verify_report(report: dict[str, Any]) -> None:
                 "tail_ess": prefix["ess"]["tail"]["estimate"],
                 "mean_mcse": prefix["mean_mcse"],
             }
-            for label, quantile in zip(("q05", "q50", "q95"), prefix["quantiles"], strict=True):
+            for (label, _), quantile in zip(ESS["QUANTILES"], prefix["quantiles"], strict=True):
                 metrics[f"{label}_ess"] = quantile["ess"]["estimate"]
                 metrics[f"{label}_mcse"] = quantile["mcse"]
                 if f"{label}_mcse" not in oracle["unavailable"]:

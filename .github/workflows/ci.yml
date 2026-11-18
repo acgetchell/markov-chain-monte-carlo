@@ -127,13 +127,13 @@ jobs:
       - name: Install registry tooling runner
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.7"
+          version: "0.13.9"
           enable-cache: false
 
       - name: Fetch locked Cargo inputs for read-only verification
         run: |
-          toolchain="$(uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
-            --from research-repo-tools==0.2.8 python -I -c \
+          toolchain="$(uvx --no-config --isolated --managed-python --exclude-newer 2026-11-16T17:32:49Z \
+            --from research-repo-tools==0.2.9 python -I -c \
             'from pathlib import Path; import tomllib; print(tomllib.loads(Path("rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"])')"
           rustup toolchain install "$toolchain" --profile minimal --no-self-update
           printf 'RUSTUP_TOOLCHAIN=%s\n' "$toolchain" >> "$GITHUB_ENV"
@@ -144,8 +144,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-10T07:56:26Z \
-            --from research-repo-tools==0.2.8 python -I - <<'PY'
+          uvx --no-config --isolated --managed-python --exclude-newer 2026-11-16T17:32:49Z \
+            --from research-repo-tools==0.2.9 python -I - <<'PY'
           import os
           import sys
           from pathlib import Path

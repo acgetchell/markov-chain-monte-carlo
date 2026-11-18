@@ -1,34 +1,307 @@
-"""MCMC's shared release interface, scientific gates, and credential boundaries."""
+"""Exercise markov-chain-monte-carlo's published release contract without credentials or uploads."""
 
 import json
+import os
 import shlex
-import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
+import tomllib
+from dataclasses import replace
 from pathlib import Path
-from string import Template
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 import yaml
-from research_repo_tools import release_assets
+from research_repo_tools import changelog, config, dependency_provenance, release_publishing
 from research_repo_tools.cli import main
-from research_repo_tools.config import load
 from research_repo_tools.just_inspect import dry_run, inspect_justfile
+from research_repo_tools.process import run_command
 from research_repo_tools.release_publishing import require_checks
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+from tests.tooling.support_evidence import install_clean_checkout
 
-    from research_repo_tools.config import Config
-
-ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ROOT = REPO_ROOT
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
 COMMIT = "a" * 40
+WORKFLOW = REPO_ROOT / ".github/workflows/publish-crates.yml"
+SHA = "a" * 40
+POLICY = config.load(root=REPO_ROOT)
+VERSION = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+TAG = f"v{VERSION}"
+CHECKS = (
+    "repository-tooling",
+    "build (ubuntu-latest)",
+    "build (macos-latest)",
+    "build (windows-latest)",
+    "Clippy SARIF Analysis",
+    "Repository Rule SARIF Analysis",
+)
 
 
-def test_shared_release_interface_matches_delaunay() -> None:
+def test_publishing_policy_requires_native_scientific_gates_and_the_criterion_asset() -> None:
+    assert POLICY.release.published_dependencies == ("research-repo-tools",)
+    assert POLICY.publishing is not None
+    assert (POLICY.publishing.registry, POLICY.publishing.package, POLICY.publishing.repository) == (
+        "crates-io",
+        "markov-chain-monte-carlo",
+        "acgetchell/markov-chain-monte-carlo",
+    )
+    assert tuple((check.name, check.app_id) for check in POLICY.publishing.required_checks) == tuple((name, 15368) for name in CHECKS)
+    assert POLICY.publishing.required_assets == ("markov-chain-monte-carlo-v{version}-criterion-baseline.tar.gz",)
+    assert POLICY.publishing.expected_title == "tag"
+    assert POLICY.publishing.generated_notes
+    assert POLICY.publishing.require_immutable
+
+
+@pytest.fixture
+def release_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Supply only provider/read-only Git evidence to the installed release CLI."""
+    event = {
+        "action": "published",
+        "repository": {"full_name": "acgetchell/markov-chain-monte-carlo"},
+        "release": {"id": 42, "tag_name": TAG, "draft": False, "prerelease": False},
+    }
+    event_file = tmp_path / "event.json"
+    event_file.write_text(json.dumps(event), encoding="utf-8", newline="\n")
+    for key, value in {
+        "GITHUB_EVENT_NAME": "release",
+        "GITHUB_REPOSITORY": "acgetchell/markov-chain-monte-carlo",
+        "GITHUB_SHA": SHA,
+        "GITHUB_REF": f"refs/tags/{TAG}",
+        "GITHUB_EVENT_PATH": str(event_file),
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    def git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert args in (["--no-pager", "rev-parse", "HEAD"], ["--no-pager", "status", "--porcelain", "--untracked-files=all"])
+        return subprocess.CompletedProcess(args, 0, stdout=SHA if "rev-parse" in args else "", stderr="")
+
+    checks = [
+        {"id": index, "name": name, "head_sha": SHA, "app": {"id": 15368}, "status": "completed", "conclusion": "success"}
+        for index, name in enumerate(CHECKS, 1)
+    ]
+    responses: dict[str, object] = {
+        "": {"full_name": "acgetchell/markov-chain-monte-carlo", "default_branch": "main"},
+        "branches/main": {"name": "main", "protected": True},
+        f"compare/{SHA}...main": {"status": "identical"},
+        f"commits/{SHA}/check-runs?filter=latest&per_page=100": [{"total_count": len(checks), "check_runs": checks}],
+    }
+    monkeypatch.setattr(release_publishing, "run_git_command", git)
+
+    # These fixtures model a published supplier while testing native release
+    # identities. Separate consumer tests exercise the real development-pin gate.
+    def published(root: Path, *, packages: tuple[str, ...] | None = None) -> tuple[dependency_provenance.DependencyIdentity, ...]:
+        assert root == REPO_ROOT
+        assert packages == ("research-repo-tools",)
+        return (dependency_provenance.DependencyIdentity("research-repo-tools", "0.2.9", "https://pypi.org/simple"),)
+
+    monkeypatch.setattr(dependency_provenance, "check_release_dependencies", published)
+    install_clean_checkout(monkeypatch, REPO_ROOT, SHA)
+    monkeypatch.setattr(release_publishing, "_api", lambda _root, _repo, endpoint, **_kwargs: responses[endpoint])
+    monkeypatch.setattr(release_publishing, "_remote_commit", lambda *_args: SHA)
+    release = release_publishing.GitHubRelease(
+        repository="acgetchell/markov-chain-monte-carlo",
+        tag=TAG,
+        identifier=42,
+        draft=False,
+        immutable=True,
+        prerelease=False,
+        assets=((f"markov-chain-monte-carlo-{TAG}-criterion-baseline.tar.gz", 7, 100, "digest"),),
+        title=TAG,
+        body=changelog.notes(POLICY, TAG)[0],
+    )
+    monkeypatch.setattr(release_publishing, "lookup_release", lambda *_args: release)
+    return {"checks": checks, "release": release}
+
+
+@pytest.mark.usefixtures("release_event")
+def test_installed_gate_accepts_actual_metadata_and_required_native_results() -> None:
+    assert main(["--root", str(REPO_ROOT), "release", "gate", TAG]) == 0
+
+
+@pytest.mark.parametrize("name", CHECKS)
+def test_each_configured_native_check_is_required(release_event: dict[str, Any], capsys: pytest.CaptureFixture[str], name: str) -> None:
+    check = next(item for item in release_event["checks"] if item["name"] == name)
+    check["name"] = "unrelated check"
+    assert main(["--root", str(REPO_ROOT), "release", "gate", TAG]) == 1
+    diagnostic = capsys.readouterr().err
+    assert f"Unmet release checks on exact commit {SHA}:" in diagnostic
+    assert f"required check {name!r} (app ID 15368): missing" in diagnostic
+
+
+@pytest.mark.parametrize("immutable", [True, False, None])
+def test_installed_gate_requires_immutable_publication(
+    release_event: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *, immutable: bool | None
+) -> None:
+    release = replace(release_event["release"], immutable=immutable)
+    monkeypatch.setattr(release_publishing, "lookup_release", lambda *_args: release)
+    assert main(["--root", str(REPO_ROOT), "release", "gate", TAG]) == (0 if immutable is True else 1)
+    if immutable is not True:
+        assert ("must be immutable" if immutable is False else "lifecycle fields") in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mismatch", ["none", "title", "notes", "crlf"])
+def test_installed_gate_checks_generated_body_and_title(
+    release_event: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mismatch: str
+) -> None:
+    release = release_event["release"]
+    body = release.body.replace("\n", "\r\n") if mismatch == "crlf" else "wrong" if mismatch == "notes" else release.body
+    release = replace(release, title="wrong" if mismatch == "title" else TAG, body=body)
+    monkeypatch.setattr(release_publishing, "lookup_release", lambda *_args: release)
+    assert main(["--root", str(REPO_ROOT), "release", "gate", TAG]) == (0 if mismatch in {"none", "crlf"} else 1)
+    if mismatch in {"title", "notes"}:
+        assert ("release title differs" if mismatch == "title" else "release body differs") in capsys.readouterr().err
+
+
+def test_release_notes_stdout_excludes_setup_diagnostics() -> None:
+    # The real notes recipe must produce only the installed generator's notes.
+    script = dry_run(REPO_ROOT, "release-notes", [TAG]).stderr
+    runner = (
+        "uv() {\n"
+        '  if [[ "$*" == "run --locked --no-sync --no-python-downloads research-repo-tools deps check-uv" ]]; then\n'
+        "    printf '%s\\n' 'fixture setup diagnostic'\n"
+        '  elif [[ "$*" == "sync --locked --group dev" ]]; then\n'
+        "    return 0\n"
+        "  else\n"
+        '    [[ "$1 $2 $3 $4 $5" == "run --locked --group dev research-repo-tools" ]] || return 90\n'
+        "    shift 5\n"
+        f'    {shlex.quote(sys.executable)} -m research_repo_tools --root {shlex.quote(str(REPO_ROOT))} "$@"\n'
+        "  fi\n"
+        "}\n"
+    )
+    result = run_command("bash", ["--noprofile", "--norc", "-euc", runner + script], cwd=REPO_ROOT, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == changelog.notes(POLICY, TAG)[0]
+
+
+def test_publish_recipe_passes_explicit_approval(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested: list[str] = []
+
+    def publish(settings: config.Config, tag: str, *, reuse_evidence: object = None) -> None:
+        assert settings.root == REPO_ROOT
+        assert reuse_evidence is None
+        requested.append(tag)
+
+    # Exercise the installed argument parser and dispatch, replacing only the
+    # irreversible publication boundary with an in-memory request recorder.
+    monkeypatch.setattr(release_publishing, "publish_reviewed_release", publish)
+    # Shared publishing policy owns the separately tested title/notes assertions.
+    command = shlex.split(dry_run(REPO_ROOT, "release-publish", [TAG, "/independent-owner"]).stderr.splitlines()[-1])
+    assert command[:8] == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "release", "publish"]
+    assert main(["--root", str(REPO_ROOT), *command[6:]]) == 0
+    assert requested == [TAG]
+
+
+def test_workflow_requires_approval_revalidation_and_absence_before_oidc() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
+    assert set(workflow[True]) == {"workflow_dispatch"}
+    assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {"tag", "candidate", "acceptance"}
+    assert workflow["concurrency"] == {"group": "publish-crates-markov-chain-monte-carlo", "cancel-in-progress": False}
+    jobs = workflow["jobs"]
+    assert jobs["publish"]["needs"] == "verify"
+    assert jobs["publish"]["environment"] == "crates-io"
+    assert jobs["verify"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read"}
+    assert jobs["publish"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read", "id-token": "write"}
+    assert "github.repository == 'acgetchell/markov-chain-monte-carlo'" in jobs["verify"]["if"]
+    assert "github.triggering_actor == 'acgetchell'" in jobs["verify"]["if"]
+    assert "CARGO_REGISTRY_TOKEN" not in yaml.safe_dump(jobs["verify"])
+    for job in jobs.values():
+        assert job["steps"][0]["with"] == {"ref": "${{ github.sha }}", "fetch-depth": 0, "persist-credentials": False}
+        assert job["steps"][1]["with"]["cache"] == "false"
+        gate = next(step for step in job["steps"] if "just release-receive" in step.get("run", ""))
+        assert gate["env"]["CANDIDATE_TRANSFER"] == "${{ inputs.candidate }}"
+        assert gate["env"]["CANDIDATE_ACCEPTANCE"] == "${{ inputs.acceptance }}"
+        assert 'just release-receive "$RUNNER_TEMP/accepted-candidate" --published' in gate["run"]
+        assert job["steps"][1]["with"]["tool"] == "cargo"
+    steps = jobs["publish"]["steps"]
+    assert jobs["verify"]["steps"][3]["id"] == "approval"
+    assert jobs["verify"]["steps"][3]["with"]["path"].endswith("/acceptance.json")
+    assert steps[2]["env"]["ARTIFACT_DIGEST"] == "${{ needs.verify.outputs.artifact-digest }}"
+    assert steps[3]["with"]["artifact-ids"] == "${{ needs.verify.outputs.artifact-id }}"
+    assert '--expected "$RUNNER_TEMP/approved-acceptance/acceptance.json"' in steps[4]["run"]
+    assert 'release registry "$RELEASE_TAG" --expect absent' in steps[4]["run"]
+    assert steps[5]["id"] == "auth"
+    assert steps[6]["run"].endswith("toolchain run --tool cargo -- cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --no-verify")
+    assert [index for index, step in enumerate(steps) if "CARGO_REGISTRY_TOKEN" in step.get("env", {})] == [6]
+    assert steps[7]["if"] == "${{ !cancelled() && steps.auth.outcome == 'success' }}"
+    assert steps[7]["run"] == 'just release-verify "$RELEASE_TAG"'
+    assert "continue-on-error" not in WORKFLOW.read_text(encoding="utf-8")
+    commands = dry_run(REPO_ROOT, "publish-check").stderr
+    assert commands.count("--package markov-chain-monte-carlo --registry crates-io --dry-run") == 2
+    assert "--all-features" in commands
+    assert "--allow-dirty" not in commands
+    assert "--no-verify" not in commands
+    preparation = dry_run(REPO_ROOT, "release-dependency-builds").stderr
+    managed = [shlex.split(line) for line in preparation.splitlines() if "toolchain run" in line]
+    assert len(managed) == 3
+    assert all(command[command.index("toolchain") :][:5] == ["toolchain", "run", "--tool", "cargo", "--"] for command in managed)
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_exit"), [("none", 0), ("dependency-builds", 1), ("evidence", 1), ("candidate", 1), ("present", 1), ("unavailable", 2)]
+)
+def test_actual_preupload_shell_requires_evidence_and_proven_absence(tmp_path: Path, failure: str, expected_exit: int) -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
+    script = next(
+        step["run"] for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Recheck evidence and registry absence after deployment approval"
+    )
+    marker = tmp_path / "upload-reached"
+    gate = "just() { return 1; }" if failure == "evidence" else "just() { return 0; }"
+    if failure == "dependency-builds":
+        gate = 'just() { [[ "$1" != release-dependency-builds ]]; }'
+    if failure == "candidate":
+        gate = 'just() { [[ "$1" != release-receive ]]; }'
+    registry_exit = expected_exit if failure in {"present", "unavailable"} else 0
+    registry = f"uv() {{ return {registry_exit}; }}"
+    script = f"{gate}\n{registry}\n{script}\ntouch {shlex.quote(marker.as_posix())}"
+    result = run_command(
+        "bash",
+        ["--noprofile", "--norc", "-euc", script],
+        env={
+            **{key: value for key, value in os.environ.items() if key not in {"BASH_ENV", "SHELLOPTS", "BASHOPTS"}},
+            "RELEASE_TAG": TAG,
+            "CANDIDATE_TRANSFER": '{"schema": 1}',
+            "RUNNER_TEMP": tmp_path.as_posix(),
+        },
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
+    assert marker.exists() == (failure == "none")
+
+
+@pytest.mark.parametrize("failure", ["none", "attempt", "identifier", "digest", "expired", "different-digest", "different-run"])
+def test_actual_approval_artifact_guard_rejects_drift(tmp_path: Path, failure: str) -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
+    script = next(step["run"] for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Require this exact approval receipt")
+    metadata = {
+        "expired": failure == "expired",
+        "digest": "sha256:" + ("b" if failure == "different-digest" else "a") * 64,
+        "workflow_run": {"id": 99 if failure == "different-run" else 42},
+    }
+    supplied = tmp_path / "artifact metadata.json"
+    supplied.write_text(json.dumps(metadata), encoding="utf-8", newline="\n")
+    marker = tmp_path / "approval-reached"
+    provider = f'gh() {{ [[ "$*" == "api repos/acgetchell/markov-chain-monte-carlo/actions/artifacts/7" ]] && cat {shlex.quote(supplied.as_posix())}; }}'
+    result = run_command(
+        "bash",
+        ["--noprofile", "--norc", "-euc", f"{provider}\n{script}\ntouch {shlex.quote(marker.as_posix())}"],
+        env={
+            **{key: value for key, value in os.environ.items() if key not in {"BASH_ENV", "SHELLOPTS", "BASHOPTS"}},
+            "VALIDATED_ATTEMPT": "1" if failure == "attempt" else "2",
+            "GITHUB_RUN_ATTEMPT": "2",
+            "ARTIFACT_ID": "07" if failure == "identifier" else "7",
+            "ARTIFACT_DIGEST": "invalid" if failure == "digest" else "a" * 64,
+            "GITHUB_RUN_ID": "42",
+            "GITHUB_REPOSITORY": "acgetchell/markov-chain-monte-carlo",
+        },
+        check=False,
+    )
+    assert result.returncode == (0 if failure == "none" else 1), result.stderr
+    assert marker.exists() == (failure == "none")
+
+
+def test_shared_release_interface_matches_released_reference() -> None:
     recipes = inspect_justfile(ROOT).recipes
     assert {"update-version", "release-version-check", "tag", "release-package", "release-publish", "release-verify"} <= recipes.keys()
     assert not {"release-update", "release-check", "tag-release", "tag-preview", "publish"} & recipes.keys()
@@ -54,11 +327,11 @@ def test_shared_release_interface_matches_delaunay() -> None:
         "## Step 1: Prepare the release PR",
         "### 2. Update release metadata",
         "### 3. Generate the release changelog",
-        "### 4. Generate release performance measurements",
+        "### 4. Generate the release performance comparison",
         "### 5. Publish the README performance snapshot",
         "## Step 2: Publish after the PR is merged",
-        "### 5. Inspect the prepared draft GitHub release",
-        "### 6. Run benchmarks and review the draft",
+        "### 5. Wait for the draft GitHub release",
+        "### 6. Attach accepted benchmarks and review the draft",
         "### 7. Publish the reviewed draft and approve Cargo publication",
         "### 8. Verify registry availability and downstream resolution",
     ]
@@ -66,260 +339,15 @@ def test_shared_release_interface_matches_delaunay() -> None:
     assert positions == sorted(positions)
 
 
-def test_no_argument_evidence_verification_uses_a_new_temporary_output() -> None:
-    executable = shutil.which("bash")
-    assert executable is not None
-    command = dry_run(ROOT, "release-evidence").stderr
-    provider = (
-        'just() { [[ "$1 $2" == "_release-evidence verify" ]] || return 91; [[ ! -e "$3" ]] || return 92; printf \'%s\\n\' \'{"verified":true}\' > "$3"; }\n'
-    )
-    result = subprocess.run([executable], input=provider + command, check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - inert verifier exercises actual temporary-output lifecycle.
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"verified": True}
-    recipes = inspect_justfile(ROOT).recipes
-    assert "release-evidence" in {item["recipe"] for item in recipes["release-publish"]["dependencies"]}
-
-
-def test_evidence_bootstrap_verifies_inside_the_shared_isolated_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from research_repo_tools import cli, measurement, release_runtime
-
-    recipe = inspect_justfile(ROOT).recipes["_release-evidence"]
-    script = "\n".join("".join(line) for line in recipe["body"])
-    alias = ROOT / "tests" / ".."
-    monkeypatch.setattr(Path, "cwd", classmethod(lambda _cls: alias))
-    monkeypatch.setattr(sys, "argv", ["evidence", "verify", str(tmp_path / "selection.json"), ""])
-    calls = []
-
-    @contextmanager
-    def isolated(settings: Config) -> Iterator[None]:
-        assert settings.root == ROOT
-        calls.append("enter")
-        try:
-            yield
-        finally:
-            calls.append("exit")
-
-    def resolve_revision(root: Path, revision: str) -> str:
-        assert (root, revision) == (ROOT, "HEAD")
-        calls.append("resolve")
-        return COMMIT
-
-    def verify(arguments: list[str]) -> int:
-        calls.append("verify")
-        assert arguments[arguments.index("--checkout") + 1] == str(ROOT)
-        assert arguments[arguments.index("--commit") + 1] == COMMIT
-        return 0
-
-    monkeypatch.setattr(release_runtime, "isolated_release_runtime", isolated)
-    monkeypatch.setattr(measurement, "resolve_revision", resolve_revision)
-    monkeypatch.setattr(cli, "main", verify)
-    with pytest.raises(SystemExit) as result:
-        exec(compile(script, str(ROOT / "justfile"), "exec"), {})  # noqa: S102 - execute the checked-in bootstrap with inert provider boundaries.
-    assert result.value.code == 0
-    assert calls == ["enter", "resolve", "verify", "exit"]
-
-
-def test_publication_builds_without_credentials_then_rechecks_after_approval() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/publish-crates.yml").read_bytes())
-    assert workflow.get("on", workflow.get(True)) == {"release": {"types": ["published"]}}
-    assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["concurrency"] == {"group": "publish-crates-markov-chain-monte-carlo", "cancel-in-progress": False}
-    jobs = workflow["jobs"]
-    assert set(jobs) == {"verify", "publish"}
-    assert REPOSITORY in jobs["verify"]["if"]
-    assert "!github.event.release.draft" in jobs["verify"]["if"]
-    assert "!github.event.release.prerelease" in jobs["verify"]["if"]
-    assert jobs["verify"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read"}
-    assert jobs["publish"]["needs"] == "verify"
-    assert jobs["publish"]["environment"] == "crates-io"
-    assert jobs["publish"]["permissions"] == {"contents": "read", "checks": "read", "actions": "read", "id-token": "write"}
-    for job in jobs.values():
-        steps = job["steps"]
-        checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
-        assert checkout["with"] == {"ref": "${{ github.sha }}", "fetch-depth": 0, "persist-credentials": False}
-        setup = next(step for step in steps if step.get("uses") == "$/.github/actions/setup-toolchain")
-        assert setup["with"]["cache"] == "false"
-        assert any('just release-gate "$RELEASE_TAG"' in step.get("run", "") for step in steps)
-    assert any(step.get("run") == "just release-package" for step in jobs["verify"]["steps"])
-    packages = dry_run(ROOT, "release-package").stderr.splitlines()
-    cargo = [line for line in packages if "cargo publish" in line]
-    assert len(cargo) == 2
-    for command in cargo:
-        arguments = shlex.split(command)
-        assert {"--locked", "--dry-run", "--package", "markov-chain-monte-carlo", "--registry", "crates-io"} <= set(arguments)
-        assert not {"--allow-dirty", "--no-verify"} & set(arguments)
-    assert sum("--all-features" in command for command in cargo) == 1
-    steps = jobs["publish"]["steps"]
-    absence = next(index for index, step in enumerate(steps) if "--expect absent" in step.get("run", ""))
-    auth = next(index for index, step in enumerate(steps) if step.get("id") == "auth")
-    upload = next(index for index, step in enumerate(steps) if "cargo publish" in step.get("run", ""))
-    assert absence < auth < upload
-    assert "--no-verify" in steps[upload]["run"]
-    assert "--allow-dirty" not in steps[upload]["run"]
-    token = steps[upload]["env"]["CARGO_REGISTRY_TOKEN"]
-    assert token == "${{ steps.auth.outputs.token }}"  # noqa: S105 - literal Actions expression, not a credential.
-    assert all("CARGO_REGISTRY_TOKEN" not in step.get("env", {}) for step in steps[:upload])
-    verification = steps[upload + 1]
-    assert verification["if"] == "${{ !cancelled() && steps.auth.outcome == 'success' }}"
-    assert verification["run"] == 'just release-verify "$RELEASE_TAG"'
-
-
-def test_benchmark_workflow_binds_checkout_and_writer_to_trusted_preflight() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
-    assert set(workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]) == {"tag"}
-    assert workflow["env"]["RELEASE_TAG"] == "${{ inputs.tag }}"
-    jobs = workflow["jobs"]
-    preflight, baseline, writer = (jobs[name] for name in ("validate-release", "release-baseline", "publish-baseline"))
-    assert preflight["outputs"] == {"commit": "${{ steps.preflight.outputs.commit }}", "target": "${{ steps.preflight.outputs.target }}"}
-    capture = next(step for step in preflight["steps"] if step.get("id") == "preflight")
-    assert 'gh api "repos/$GH_REPO/commits/$RELEASE_TAG"' in capture["run"]
-    assert '--commit "$commit"' in capture["run"]
-    assert '--expected-title "$RELEASE_TAG"' in capture["run"]
-    assert '--output "$RUNNER_TEMP/release-target.json"' in capture["run"]
-    checkout = next(step for step in baseline["steps"] if step.get("uses", "").startswith("actions/checkout@"))
-    assert checkout["with"] == {"ref": "${{ needs.validate-release.outputs.commit }}", "fetch-depth": 0, "persist-credentials": False}
-    guard = next(step for step in baseline["steps"] if step.get("name") == "Require the captured checkout and unchanged tag")
-    assert guard["env"] == {"EXPECTED_COMMIT": "${{ needs.validate-release.outputs.commit }}"}
-    assert baseline["steps"].index(guard) < next(index for index, step in enumerate(baseline["steps"]) if "just performance-baseline" in step.get("run", ""))
-    assert set(writer["needs"]) == {"validate-release", "release-baseline"}
-    upload = writer["steps"][-1]
-    assert upload["env"]["RELEASE_TARGET"] == "${{ needs.validate-release.outputs.target }}"
-    assert 'test -n "$RELEASE_TARGET"' in upload["run"]
-    assert '--target "$RUNNER_TEMP/release-target.json"' in upload["run"]
-    assert "--publish" not in upload["run"]
-    assert all("actions/checkout@" not in step.get("uses", "") for job in (preflight, writer) for step in job["steps"])
-
-
-@pytest.mark.parametrize(("tag", "status"), [("v0.5.3", 0), ("v0.5.3; printf injected", 0), ("v0.5.3", 29)])
-def test_benchmark_dispatch_forwards_one_literal_tag_and_propagates_failure(tag: str, status: int) -> None:
-    executable = shutil.which("bash")
-    assert executable is not None
-    command = dry_run(ROOT, "release-benchmarks", [tag]).stderr
-    provider = f"gh() {{ printf '%s\\0' \"$@\"; return {status}; }}\n"
-    result = subprocess.run([executable], input=(provider + command).encode("utf-8"), check=False, capture_output=True)  # noqa: S603 - inert provider exercises actual argument forwarding.
-    assert result.returncode == status
-    assert result.stdout.split(b"\0") == [
-        argument.encode("utf-8") for argument in ("workflow", "run", "release-benchmarks.yml", "--repo", REPOSITORY, "--ref", tag, "-f", f"tag={tag}", "")
-    ]
-
-
-@pytest.mark.parametrize(("ref", "sha"), [("refs/tags/v0.5.3", COMMIT), ("refs/heads/main", COMMIT), ("refs/tags/v0.5.3", "b" * 40)])
-def test_benchmark_preflight_requires_exact_workflow_tag_and_commit(ref: str, sha: str) -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
-    capture = next(step for step in workflow["jobs"]["validate-release"]["steps"] if step.get("id") == "preflight")
-    guard = capture["run"].split("uvx ", 1)[0]
-    executable = shutil.which("bash")
-    assert executable is not None
-    provider = (
-        f"set -euo pipefail\nGITHUB_REF={shlex.quote(ref)}\nGITHUB_SHA={sha}\nRELEASE_TAG=v0.5.3\nGH_REPO={REPOSITORY}\ngh() {{ printf '%s' {COMMIT}; }}\n"
-    )
-    result = subprocess.run([executable], input=provider + guard, check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - actual workflow guards with inert API observations.
-    assert (result.returncode == 0) == (ref == "refs/tags/v0.5.3" and sha == COMMIT)
-
-
-@pytest.mark.parametrize("change", ["missing", "malformed", "repository", "tag", "moved-tag", "replaced-release"])
-def test_real_benchmark_handoff_commands_reject_changed_or_missing_target(change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Registry-only workflow jobs have no checkout or consumer dependency policy.
-    monkeypatch.chdir(tmp_path)
-    tag = "v0.5.2"
-    release = {
-        "id": 73,
-        "url": f"https://api.github.com/repos/{REPOSITORY}/releases/73",
-        "tag_name": tag,
-        "name": tag,
-        "draft": True,
-        "immutable": False,
-        "prerelease": False,
-        "assets": [],
-    }
-    requests: list[list[str]] = []
-    changed = False
-
-    def provider(executable: str | Path, arguments: Sequence[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        assert str(executable) == "gh"
-        args = list(arguments)
-        requests.append(args)
-        assert "--method" not in args
-        endpoint = args[-1]
-        if endpoint == f"repos/{REPOSITORY}/commits/{tag}":
-            payload = COMMIT
-        elif endpoint == f"repos/{REPOSITORY}/releases?per_page=100":
-            payload = [[release]]
-        elif endpoint.endswith("/assets?per_page=100"):
-            payload = [[]]
-        elif endpoint == f"repos/{REPOSITORY}/releases/73":
-            payload = {**release, "id": 74} if changed and change == "replaced-release" else release
-        else:
-            assert endpoint == f"repos/{REPOSITORY}/git/ref/tags/{tag}"
-            payload = {"ref": f"refs/tags/{tag}", "object": {"type": "commit", "sha": "b" * 40 if changed and change == "moved-tag" else COMMIT}}
-        return subprocess.CompletedProcess([str(executable), *args], 0, json.dumps(payload).encode("utf-8"), b"")
-
-    monkeypatch.setattr(release_assets, "run_command_bytes", provider)
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
-    capture = next(step for step in jobs["validate-release"]["steps"] if step.get("id") == "preflight")
-    writer = jobs["publish-baseline"]["steps"][-1]
-    values = {"GH_REPO": REPOSITORY, "RELEASE_TAG": tag, "RUNNER_TEMP": str(tmp_path), "commit": COMMIT, "RELEASE_ASSET": "baseline.tar.gz"}
-    commands = []
-    for step in (capture, writer):
-        command = next(line for line in step["run"].replace("\\\n", " ").splitlines() if line.strip().startswith("uvx "))
-        arguments = shlex.split(Template(command).substitute(values))
-        commands.append(arguments[arguments.index("research-repo-tools") + 1 :])
-    assert main(commands[0]) == 0
-    target = tmp_path / "release-target.json"
-    original = json.loads(target.read_bytes())
-    assert (original["repository"], original["tag"], original["release_id"], original["commit"]) == (REPOSITORY, tag, 73, COMMIT)
-    if change == "missing":
-        target.unlink()
-    elif change == "malformed":
-        target.write_bytes(b"{}")
-    elif change in {"repository", "tag"}:
-        original[change] = "other/repository" if change == "repository" else "v0.5.1"
-        target.write_text(json.dumps(original), encoding="utf-8", newline="\n")
-    changed = True
-    requests.clear()
-    (tmp_path / "baseline").mkdir()
-    (tmp_path / "baseline/baseline.tar.gz").write_bytes(b"inert archive fixture")
-    assert main(commands[1]) == 1
-    assert all("--method" not in request for request in requests)
-    if change in {"missing", "malformed", "repository", "tag"}:
-        assert not requests
-
-
-@pytest.mark.parametrize(("head", "tag_commit"), [(COMMIT, COMMIT), ("b" * 40, COMMIT), (COMMIT, "b" * 40)])
-def test_benchmark_checkout_guard_rejects_unexpected_commit(head: str, tag_commit: str) -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())["jobs"]
-    guard = next(step for step in jobs["release-baseline"]["steps"] if step.get("name") == "Require the captured checkout and unchanged tag")
-    executable = shutil.which("bash")
-    assert executable is not None
-    providers = (
-        f"set -euo pipefail\nEXPECTED_COMMIT={COMMIT}\nRELEASE_TAG=v0.5.2\n"
-        f"git() {{ if [ \"$3\" = HEAD ]; then printf '%s' {head}; else printf '%s' {tag_commit}; fi; }}\n"
-    )
-    result = subprocess.run([executable], input=providers + guard["run"], check=False, capture_output=True, encoding="utf-8")  # noqa: S603 - actual guard with inert Git observations.
-    assert (result.returncode == 0) == (head == tag_commit == COMMIT)
-
-
-@pytest.mark.parametrize("failure", ["missing", "pending", "failed", "provider", "commit", "ambiguous"])
+@pytest.mark.parametrize("failure", ["pending", "failed", "provider", "commit", "ambiguous"])
 def test_actual_required_scientific_checks_fail_closed(failure: str) -> None:
-    settings = load(root=ROOT).publishing
+    settings = POLICY.publishing
     assert settings is not None
-    assert settings.required_assets == ("markov-chain-monte-carlo-v{version}-criterion-baseline.tar.gz",)
-    assert {check.name for check in settings.required_checks} == {
-        "repository-tooling",
-        "build (ubuntu-latest)",
-        "build (macos-latest)",
-        "build (windows-latest)",
-        "Clippy SARIF Analysis",
-        "Repository Rule SARIF Analysis",
-    }
     runs: list[dict[str, Any]] = [
         {"id": index, "name": check.name, "head_sha": COMMIT, "status": "completed", "conclusion": "success", "app": {"id": check.app_id}}
         for index, check in enumerate(settings.required_checks, 1)
     ]
-    require_checks([{"total_count": len(runs), "check_runs": runs}], COMMIT, settings.required_checks)
-    if failure == "missing":
-        runs.pop()
-    elif failure == "pending":
+    if failure == "pending":
         runs[-1].update(status="in_progress", conclusion=None)
     elif failure == "failed":
         runs[-1]["conclusion"] = "failure"
@@ -330,7 +358,6 @@ def test_actual_required_scientific_checks_fail_closed(failure: str) -> None:
     else:
         runs.append({**runs[-1], "id": len(runs) + 1})
     message = {
-        "missing": "missing",
         "pending": "pending/running",
         "failed": "unsuccessful",
         "provider": "same name observed from app IDs",
@@ -355,22 +382,6 @@ def test_consumer_gate_rejects_invalid_event_before_network(tmp_path: Path, monk
     }.items():
         monkeypatch.setenv(key, value)
     assert main(["--root", str(ROOT), "release", "gate", "v0.5.1"]) == 1
-
-
-@pytest.mark.parametrize(
-    ("body", "title", "expected"),
-    [("Reviewed notes\n", "v0.5.1", 0), ("Reviewed notes\r\n", "v0.5.1", 0), ("Changed notes", "v0.5.1", 1), ("Reviewed notes\n", "Other title", 1)],
-)
-def test_notes_check_executes_real_recipe_with_inert_providers(body: str, title: str, expected: int) -> None:
-    executable = shutil.which("bash")
-    assert executable is not None
-    payload = json.dumps({"tagName": "v0.5.1", "name": title, "body": body})
-    providers = f"uv() {{ printf '%s\\n' 'Reviewed notes'; }}\ngh() {{ printf '%s' {shlex.quote(payload)}; }}\n"
-    script = dry_run(ROOT, "_release-notes-check", ["v0.5.1"]).stderr
-    result = subprocess.run(  # noqa: S603 - resolved Bash runs the real recipe with inert process providers.
-        [executable], input=providers + script, check=False, capture_output=True, encoding="utf-8"
-    )
-    assert result.returncode == expected
 
 
 def test_settings_payloads_restrict_deployments_and_allow_only_pinned_authentication() -> None:

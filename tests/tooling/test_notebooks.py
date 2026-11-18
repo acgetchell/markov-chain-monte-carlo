@@ -13,7 +13,7 @@ from research_repo_tools.cli import main
 from research_repo_tools.notebook_testing import isolated_project
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from research_repo_tools.notebook_testing import NotebookProject
 
@@ -512,7 +512,7 @@ def test_rank_notebook_preserves_missing_values_and_matching_evidence(project: N
     assert all(float(row["standard_error"]) == 0.0 and row["status"] == "estimated" for row in blocks)
 
 
-def test_rank_notebook_labels_cadence_and_each_unavailable_chain(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rank_notebook_renders_short_prefix_cadence_and_unavailable_chains(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     run = report["runs"][0]
@@ -525,8 +525,10 @@ def test_rank_notebook_labels_cadence_and_each_unavailable_chain(project: Notebo
     output = tmp_path / "figures"
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
-    # Inspect the actual rendered axes in the notebook kernel, where plotting dependencies live.
     payload = json.loads(notebook.read_bytes())
+    rank_source = next(cell["source"] for cell in payload["cells"] if cell["id"] == "render-original-chain-rank-overlays")
+    rank_source[rank_source.index('rank_prefix = report["prefixes"][-1]\n')] = "rank_prefix = 7\n"
+    # Inspect the actual rendered axes in the notebook kernel, where plotting dependencies live.
     payload["cells"].append(
         {
             "cell_type": "code",
@@ -545,6 +547,13 @@ def test_rank_notebook_labels_cadence_and_each_unavailable_chain(project: Notebo
     notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
     execution = project.execute(notebook)
     assert execution.returncode == 0
+    manifest = json.loads((output / "manifest.json").read_bytes())
+    assert manifest["rank_prefix_per_chain"] == 7
+    with (output / "rank_bins.csv").open(encoding="utf-8", newline="") as stream:
+        bins = list(csv.DictReader(stream))
+    assert {row["original_prefix_per_chain"] for row in bins} == {"7"}
+    for chain, expected_draws in (("chain-0", 7), ("chain-1", 7), ("pooled reference", 14)):
+        assert sum(int(row["count"]) for row in bins if row["chain_id"] == chain) == expected_draws
     with (output / "blocked_errors.csv").open(encoding="utf-8", newline="") as stream:
         blocks = list(csv.DictReader(stream))
     assert [row["chain_id"] for row in blocks] == ["chain-0", "chain-1"]
@@ -555,20 +564,39 @@ def test_rank_notebook_labels_cadence_and_each_unavailable_chain(project: Notebo
         assert row["block_size"] == row["block_count"] == row["used_draws"] == row["standard_error"] == ""
 
 
-@pytest.mark.parametrize("missing_field", ["status", "value"])
-def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_outputs(
-    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_field: str
-) -> None:
-    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
-    report = plot_report()
-    del report["runs"][0]["prefixes"][-1]["mean_mcse"][missing_field]
-    report_path = tmp_path / "incomplete.json"
-    report_path.write_text(json.dumps(report), encoding="utf-8", newline="\n")
-    output = tmp_path / "figures"
+@pytest.fixture(scope="module")
+def validate_plot_report() -> Callable[[dict[str, Any], Path], None]:
+    """Execute the actual validation and write cells in a fresh namespace."""
+    notebook = REPO_ROOT / "notebooks/diagnostic_plots.ipynb"
+    source = {cell["id"]: "".join(cell["source"]) for cell in json.loads(notebook.read_bytes())["cells"]}
+    instructions = tuple(
+        compile(source[cell_id], f"{notebook}:{cell_id}", "exec") for cell_id in ("validate-numeric-availability", "validate-report-and-preserve-evidence")
+    )
+
+    def validate(report: dict[str, Any], output: Path) -> None:
+        namespace = {"math": math, "sys": sys, "report": report, "report_bytes": json.dumps(report).encode("utf-8"), "output_dir": output}
+        for cell in instructions:
+            exec(cell, namespace)  # noqa: S102 - run the checked-in notebook validation cells.
+
+    return validate
+
+
+def prior_plot_outputs(output: Path) -> dict[str, bytes]:
     output.mkdir()
     previous = {"diagnostics.json": b"prior report\r\n", "manifest.json": b"prior manifest\n", "rank_overlays.png": b"prior figure"}
     for name, content in previous.items():
         (output / name).write_bytes(content)
+    return previous
+
+
+def test_rank_notebook_rejects_invalid_report_before_replacing_outputs(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
+    report = plot_report()
+    del report["runs"][0]["prefixes"][-1]["mean_mcse"]["status"]
+    report_path = tmp_path / "incomplete.json"
+    report_path.write_bytes(json.dumps(report).encode("utf-8"))
+    output = tmp_path / "figures"
+    previous = prior_plot_outputs(output)
     monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
     execution = project.execute(notebook)
@@ -576,6 +604,16 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
     result = execution.report
     assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
     assert "Scalar metric requires status and value" in result["error"]["message"]
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
+
+
+def test_rank_notebook_rejects_missing_scalar_value(validate_plot_report: Callable[[dict[str, Any], Path], None], tmp_path: Path) -> None:
+    report = plot_report()
+    del report["runs"][0]["prefixes"][-1]["mean_mcse"]["value"]
+    output = tmp_path / "figures"
+    previous = prior_plot_outputs(output)
+    with pytest.raises(ValueError, match="Scalar metric requires status and value"):
+        validate_plot_report(report, output)
     assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
 
 
@@ -591,25 +629,14 @@ def test_rank_notebook_rejects_incomplete_scalar_metrics_before_replacing_output
     ],
 )
 def test_rank_notebook_rejects_invalid_scalar_alternatives_without_replacing_evidence(
-    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metric: object
+    validate_plot_report: Callable[[dict[str, Any], Path], None], tmp_path: Path, metric: object
 ) -> None:
-    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     report["runs"][0]["prefixes"][-1]["mean_mcse"] = metric
-    report_path = tmp_path / "invalid scalar.json"
-    report_path.write_bytes(json.dumps(report).encode("utf-8"))
     output = tmp_path / "figures"
-    output.mkdir()
-    previous = {"diagnostics.json": b"prior report\r\n", "manifest.json": b"prior manifest\n", "rank_overlays.png": b"prior figure"}
-    for name, content in previous.items():
-        (output / name).write_bytes(content)
-    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
-    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
-    execution = project.execute(notebook)
-    assert execution.returncode == 1
-    result = execution.report
-    assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
-    assert "ValueError" in result["error"]["message"]
+    previous = prior_plot_outputs(output)
+    with pytest.raises(ValueError, match=r"Scalar metric requires status and value|Diagnostic availability/value/reason mismatch"):
+        validate_plot_report(report, output)
     assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
 
 
@@ -635,9 +662,8 @@ def test_rank_notebook_rejects_invalid_scalar_alternatives_without_replacing_evi
     ],
 )
 def test_rank_notebook_rejects_inconsistent_report_before_rendering(
-    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+    validate_plot_report: Callable[[dict[str, Any], Path], None], tmp_path: Path, corruption: str
 ) -> None:
-    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
     report = plot_report()
     prefix = report["runs"][0]["prefixes"][0]
     if corruption == "chain_identity":
@@ -671,14 +697,8 @@ def test_rank_notebook_rejects_inconsistent_report_before_rendering(
             "acf_lag_zero": [0.9, 0.5],
             "acf_empty": [],
         }[corruption]
-    report_path = tmp_path / "invalid.json"
-    report_path.write_text(json.dumps(report), encoding="utf-8", newline="\n")
     output = tmp_path / "figures"
-    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report_path))
-    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
-    execution = project.execute(notebook)
-    assert execution.returncode == 1
-    result = execution.report
-    assert result["failed_cell"]["id"] == "validate-report-and-preserve-evidence"
-    assert "ValueError" in result["error"]["message"]
+    diagnostics = r"Diagnostic rows|Prefix original/split counts|Measured timing|Diagnostic availability|Recording interval|Invalid (?:ACF|unavailable timing)"
+    with pytest.raises(ValueError, match=diagnostics):
+        validate_plot_report(report, output)
     assert not output.exists()

@@ -15,7 +15,7 @@ the pinned shared package owns execution, evidence, release assets, and publicat
 | `just performance-local` | Measure the working tree against the latest published stable release |
 | `just performance-prepare` | Infer release identities and capture the plan without measuring |
 | `just performance-release` | Measure the prepared version against the latest published release and retain its complete run |
-| `just performance-github-assets [CURRENT BASELINE]` | Compare authenticated release assets without measuring |
+| `just performance-github-assets [CURRENT BASELINE]` | Compare historical two-file release assets without measuring |
 | `just performance-doc [--check or --preview]` | Rerender an existing shared report offline |
 | `just performance-readme [--check or --preview]` | Publish the declared README selection from the retained complete run |
 | `just performance-baseline TAG` | Measure a clean tagged checkout and package a shared release asset |
@@ -145,7 +145,7 @@ Prepare the release dependencies and the measurement plan before acquiring sampl
 ```bash
 just release-dependency-builds
 just performance-prepare --release-intent
-just performance-release --release-intent --checkpoint target/bench-reports/release-checkpoint
+just performance-release
 ```
 
 `tooling/performance-release.toml` infers the prospective package version and its latest published stable predecessor. Preparation records independent
@@ -154,11 +154,11 @@ two paired trials using the current public stepping harness, with a minimum rele
 native gate, and retains 100 samples per case, mean/median intervals and raw Criterion files. Fixture setup stays outside timing according to the
 harness's steady-state and fresh-batch contracts. Changed source or harness identities require fresh preparation and acquisition.
 
-The release-intent commands verify published dependency provenance. After an interruption, pass the same checkpoint path and `--resume`.
+The release-intent commands verify published dependency provenance. After an interruption, run `just performance-resume` with the same checkpoint.
 The shared runner validates source, harness, host, inventory and schedule before timing. It preserves completed pairs and reacquires
 the interrupted pair in its declared order. Use the retained report and README commands for rendering retries after successful acquisition.
 
-The legacy `tooling/benchmark.toml` remains the independent single-tag baseline-archive declaration used by GitHub release assets.
+The legacy `tooling/benchmark.toml` remains available for explicit single-tag experiments. Release attachment derives the accepted Step 1 archive.
 The frozen `tooling/performance-readme.toml` still describes the old README evidence; neither it nor the old measurements are rewritten during adoption.
 For new publication, `tooling/performance-publication.toml` selects trial 1 and all 13 unthinned stepping, sampler and observation workflows regardless
 of timing direction. The complete report retains both trials and all nine thinning cases. Labels, revisions and fingerprints come from the verified
@@ -188,30 +188,46 @@ and raw evidence, and withhold comparisons when observed conditions are incompat
 
 ## GitHub Release Assets
 
-The manually dispatched `Release Benchmarks` workflow requires a mutable stable
-draft. A read-only job measures a clean tagged checkout and packages
-`markov-chain-monte-carlo-TAG-criterion-baseline.tar.gz`. Separate jobs install the exact
-registry package for draft validation and attachment; they never check out
-benchmark code. The benchmark job has no write credentials.
-The shared handoff for deriving this asset from the accepted Step 1 acquisition
-is tracked in [MCMC #223](https://github.com/acgetchell/markov-chain-monte-carlo/issues/223)
-and [RRT #224](https://github.com/acgetchell/research-repo-tools/issues/224).
+Step 1's `performance-release` freezes the original acquisition, policy and
+publisher receipt under an external owner before promoting its report. README
+publication consumes that retained run separately. The owner and independently
+reviewed full acceptance are described in [releasing](RELEASING.md#reusable-ci-evidence).
 
-Shared archives contain the complete selected Criterion sample and provenance in
-`sample.json` and `provenance.json`. They are compact retained estimates, not raw
-Criterion time-series archives. Preserve local raw Criterion output separately when
-needed for independent reanalysis. An identical attachment retry succeeds; different
-bytes fail without overwrite. The workflow leaves the release in draft for review.
-After attachment verification, the maintainer runs `just release-publish "$TAG"`
-to trigger the separately approved crates.io upload; see [RELEASING.md](RELEASING.md).
-The Actions artifact lasts 30 days; the release asset is durable.
+After merge, `just release-evidence` accepts the original measured source against
+the final clean commit and signed native/default/all-feature CI. Changed relevant
+source, harness, dependencies, policy, provenance or retained bytes block reuse.
+Declared report/README outputs are accepted only through the shared publication
+contract; original measured and final accepted source identities remain distinct.
 
-`just performance-github-assets CURRENT BASELINE` downloads native shared assets via authenticated GitHub CLI, checks provider hashes when available,
-and uses bounded extraction. It no longer accepts the former repository-specific legacy layout.
+`just release-stage` stages four inert assets against the authenticated mutable
+draft. `just release-benchmarks "$TAG"` dispatches `Release Benchmarks` at that tag
+with the independently recorded transfer. Checkout-free jobs fetch and attach
+exact original IDs/hashes; the read-only checkout verifies and derives the archive
+without sampling. The immutable verified handoff is selected by artifact ID,
+digest and original attempt. Identical retries retain existing assets; conflicts
+stop without overwrite.
 
-The first two retained native shared release assets create the first complete asset pair. Verify that pair before claiming
-live asset adoption. No backfill runs implicitly. Runner hardware varies, so asset comparisons require manual compatibility review; the CLI does not certify
-them as controlled same-host measurements.
+The candidate archive retains the complete paired schedule, every original
+Criterion raw file, source/host/toolchain provenance, and the final acceptance
+binding. It preserves both trials and all 22 workloads rather than reducing the
+release asset to the README subset. After review, `just release-publish "$TAG"`
+publishes the immutable GitHub Release. The separate `just release-upload "$TAG"`
+dispatches Cargo publication with the reviewed acceptance before deployment approval.
+Actions handoffs last 30 days; release assets are durable. Preserve the external
+owner and its independent backup for recovery.
+
+`just performance-github-assets CURRENT BASELINE` remains an inspector for historical
+two-file `sample.json`/`provenance.json` assets. RRT 0.2.9's `performance assets`
+reader does not accept the new complete candidate archive; do not use it for a
+candidate-archive pair or convert paired evidence into a synthetic single sample.
+Inspect the retained complete run and report for the new series. Historical
+downloads use authenticated GitHub CLI, provider hashes when available, and bounded
+extraction; the former repository-specific legacy layout remains unsupported.
+
+For historical two-file assets, verify the first complete native shared pair before
+claiming live adoption of that inspector. This does not validate candidate-archive
+support. No backfill runs implicitly. Runner hardware varies, so asset comparisons
+require manual compatibility review; the CLI does not certify controlled same-host measurements.
 
 Timing ratios and marginal bounds do not establish significance, convergence, mixing,
 or effective sample size. Research comparisons need invariant-distribution or equilibrium

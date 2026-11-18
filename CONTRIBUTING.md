@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.8` package owns setup and checked execution. It installs the declared Python, Rust 1.99.1 components/targets, and Cargo
+The published `research-repo-tools==0.2.9` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -242,7 +242,7 @@ scope and follow-up guidance. The default base must match the live remote; a sta
 ### Rust Code Style
 
 - **Edition**: Rust 2024
-- **MSRV**: 1.99.1 (pinned in `rust-toolchain.toml`)
+- **MSRV**: 1.100.0 (pinned in `rust-toolchain.toml`)
 - **Formatting**: `cargo fmt --all` (configured in `rustfmt.toml`)
 - **Linting**: strict clippy with warnings as errors
 
@@ -499,7 +499,7 @@ descriptions or review notes instead.
 - [ ] Doctests pass (`cargo test --doc`)
 - [ ] Relevant `docs/*.md` updated
 - [ ] No long-form API/contract content duplicated between the README and `src/lib.rs //!`; short landing-summary overlap is fine
-- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `zizmor`,
+- [ ] `just check` passes (`fmt-check`, `clippy`, `python-check`, `notebook-lint`, `validate-json`, `yaml-check`, `action-lint`, `actions-check`, `zizmor`,
       `justfile-fmt-check`, `toml-fmt-check`, `toml-lint`, `markdown-check`, `spell-check`, `release-version-check`, `semgrep`, `semgrep-test`)
 - [ ] `just security` passes (OSV dependency audit and Gitleaks secret scan); resolve all findings before submitting the PR
 - [ ] Commit message follows the Conventional Commits format above
@@ -559,12 +559,14 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 3. Follow [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication): run `just performance-prepare` and
    `just performance-release`, review the complete run and publication selection, then preview and publish the README table/CSV/SVG with
    `just performance-readme`.
-4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci` and `just publish-check`.
+4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci`, commit the reviewed artifacts, then run `just publish-check`
+   on the clean commit.
 5. Commit and push the release PR. After merge, sync and verify the exact reviewed `main` commit, require its trusted main-push validation and run
    `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
-6. Inspect the automatically prepared stable draft, then run `just release-benchmarks "$TAG"` to attach the Criterion baseline. After it succeeds,
-   review the draft and run `just release-publish "$TAG"` in a human GitHub CLI session, then approve the crates.io deployment.
-   Run `just release-verify "$TAG"` and complete the guide's downstream/Zenodo checks before deleting the release branch.
+6. Inspect the automatically prepared stable draft, run `just release-stage`, then `just release-benchmarks "$TAG"` to attach the accepted Step 1 archive
+   without measuring again. Review the draft and run `just release-publish "$TAG"` in a human GitHub CLI session. Run `just release-upload "$TAG"` with that
+   reviewed acceptance, then approve the crates.io deployment. Run `just release-verify "$TAG"` and complete the guide's downstream/Zenodo checks before
+   deleting the release branch.
 
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
