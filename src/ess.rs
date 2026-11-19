@@ -554,7 +554,8 @@ impl QuantileMcse {
         let probability = QuantileProbability::parse(probability)?;
         let input = SplitRhatInput::parse(chains)?.ranked()?;
         let sorted = sorted_original(&input);
-        let ess = estimate_quantile(&input, probability, quantile(&sorted, probability))?;
+        let cutoff = quantile(&sorted, probability);
+        let ess = estimate_quantile(&input, probability, cutoff)?;
         let a = ess.value.mul_add(probability.0, 1.0);
         let b = ess.value.mul_add(1.0 - probability.0, 1.0);
         let lower_probability = beta_quantile(a, b, 0.158_655_3)?;
@@ -574,7 +575,7 @@ impl QuantileMcse {
         positive(value)?;
         Ok(Self {
             value,
-            quantile: quantile(&sorted, probability),
+            quantile: cutoff,
             interval: [lower, upper],
             ess,
         })

@@ -1,10 +1,33 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.2.9` registry distribution.
+MCMC pins the published `research-repo-tools==0.3.0` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the initial local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.3.0 adoption
+
+The managed upgrade advances both registry pins on the existing Python 3.15
+baseline. The isolated runners use the same package with a cutoff after the
+latest upload in the lockfile. `just update` refreshes the root Cargo and Python
+lockfiles and advances Semgrep to 1.186.0 and rumdl to 0.3.5. The diagnostic
+backend comparison uses its own lockfile to pin the experiment. The generated
+changelog archives retain their list spacing through a file-scoped rumdl rule
+exception.
+
+The draft job invokes `release assets prepare-authenticated` from the isolated
+supplier. Post-upload CI passes the previously verified target to `release verify`
+to recheck generated notes, the release ID, the tag commit, and registry visibility.
+The separate `release-visibility` recipe provides a remote asset and registry check.
+`just tag` forwards an explicit `--force` after checking final metadata and the
+selected evidence.
+
+`tooling/release_candidate.py` still owns MCMC's external acquisition owner,
+review selection, and four-asset transfer. Release measurements invoke the
+stepping benchmark through `cargo bench`. RRT's opt-in preparation reuse
+requires an export-relative benchmark executable named directly by both
+discovery and sampling.
 
 ## v0.2.9 adoption
 
@@ -94,7 +117,7 @@ for the adoption revision in [#229](https://github.com/acgetchell/markov-chain-m
 
 ### Release flow and Actions consistency (#220, #223, #231)
 
-The current flow adopts published la-stack v0.5.4 at
+The original integration adopted published la-stack v0.5.4 at
 `560b8dd736cdc83441e888e36c25dc5ddc069fea`, using the normally resolved RRT 0.2.9
 distribution. See the [integration record](release-flow-integration.md) for the
 command map, justified MCMC differences and remaining hosted acceptance.
@@ -228,21 +251,20 @@ baseline before publishing the draft GitHub Release.
 
 Rust artifact reuse needs a separately reviewed producer, native validation and
 promotion contract bound to the exact commit, artifact IDs and digests. The
-reviewed publication flow remains tracked in #176; #182 still owns adopting the
-shared release-guide procedure and the remaining publishing/verification recipes.
-This migration does not publish packages or replace released artifacts.
+reviewed publication flow was tracked in #176. Issue #182 owned adoption of the
+shared release-guide procedure and publishing/verification recipes.
 
 ## Reviewed release adoption (#176 and #182)
 
-The v0.5.2 implementation uses Delaunay's release procedure and recipe interfaces,
+The v0.5.2 implementation used Delaunay's release procedure and recipe interfaces,
 backed by the already-published v0.2.3 shared implementation. `update-version TAG`,
 `release-version-check`, `tag TAG`, `release-package`, `release-publish TAG` and
 `release-verify TAG` replace transitional wrappers. CI delegates final metadata
 checks to the shared CLI without a local Cargo version/name parser. Each crate
 retains its scientific validation, feature selections and benchmark evidence.
 
-Benchmark preparation now attaches its asset and leaves the release in draft.
-Human-reviewed GitHub publication triggers a separate crates.io workflow using
+Benchmark preparation attached its asset and left the release in draft.
+Human-reviewed GitHub publication triggered a separate crates.io workflow using
 the shared event gate, actual native CI check/provider identities, clean native
 Cargo package verification and environment-scoped OIDC. The consumer also binds
 the published GitHub title/notes to the tag and shared changelog output, and
@@ -250,11 +272,10 @@ requires an immutable published release. Registry checks block
 already-published versions and uncertain lookup results; post-upload verification
 still runs after a Cargo visibility timeout. No second manual upload is needed.
 
-The existing exact package pins, lock and inherited Python baseline already
-satisfy the published-package prerequisite and remain in place. Live deployment
-settings and first-release evidence are tracked separately in
-[crates.io deployment setup](crates-io-publishing.md); #176 remains open until
-they are verified. Trusted main-artifact promotion remains deferred.
+The existing exact package pins, lock and inherited Python baseline satisfied
+the published-package prerequisite. Historical settings evidence lives in
+[crates.io deployment setup](crates-io-publishing.md). See [release tracking](release-flow-integration.md#release-tracking)
+for current validation. Trusted main-artifact promotion remains deferred.
 
 ## Ownership inventory
 

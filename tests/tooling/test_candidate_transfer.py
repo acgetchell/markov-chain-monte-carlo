@@ -3,6 +3,7 @@
 import hashlib
 import json
 import runpy
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,8 @@ from typing import Any
 
 import pytest
 import yaml
-from research_repo_tools import release_staging
+from research_repo_tools import release_publishing, release_staging
+from research_repo_tools.config import load as load_config
 from research_repo_tools.release_assets import GitHubRelease, ReleaseTarget, serialize_release_target
 from tooling import release_candidate as candidate
 
@@ -429,6 +431,79 @@ def test_publication_pins_canonical_archive_and_full_acceptance(
             candidate.receive(root, output, assertions, source=candidate.ReviewedAcceptance(digest))
         assert selections == ([None] if failure == "reviewed-digest" else [])
         assert not (output / "acceptance.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("drift", "diagnostic"),
+    [
+        ("none", None),
+        ("acceptance", "saved transfer acceptance differs"),
+        ("prepared-target", "saved transfer target differs"),
+        ("asset", "candidate asset identity changed"),
+        ("draft", "release identity differs from captured target"),
+    ],
+)
+def test_publish_requires_the_reviewed_draft_and_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transfer: dict[str, Any], drift: str, diagnostic: str | None
+) -> None:
+    root, owner = tmp_path / "checkout", tmp_path / "owner"
+    root.mkdir()
+    final = candidate.final_directory(owner, SHA, "independent")
+    final.mkdir(parents=True)
+    target = transfer["target"]
+    assert isinstance(target, ReleaseTarget)
+    payloads, data, calls = transfer["payloads"], transfer["data"], transfer["calls"]
+    acceptance = final / "acceptance.json"
+    acceptance.write_bytes(payloads["acceptance"] + (b"replacement" if drift == "acceptance" else b""))
+    (final / "target.json").write_bytes(serialize_release_target(replace(target, release_id=43) if drift == "prepared-target" else target))
+    (final / "transfer.json").write_bytes(json.dumps(data).encode())
+    payloads["attached"] = payloads["archive"]
+    data["assets"]["attached"] = {"name": candidate.archive_name(TAG), "id": 50, "sha256": data["assets"]["archive"]["sha256"]}
+
+    def verify(checkout: Path, selected_owner: Path, selection: str, *, commit: str) -> Path:
+        assert (checkout, selected_owner, selection, commit) == (root, owner, "independent", SHA)
+        calls.append("review")
+        return acceptance
+
+    def download(*args: Any, **kwargs: Any) -> None:
+        transfer["download"](*args, **kwargs)
+        if drift == "asset":
+            data["assets"]["policy"]["id"] = 99
+
+    published: list[ReleaseTarget] = []
+
+    def publish(_root: Path, selected: ReleaseTarget) -> GitHubRelease:
+        published.append(selected)
+        observed = transfer["release"]()
+        assert isinstance(observed, GitHubRelease)
+        return replace(observed, draft=False, immutable=True)
+
+    options = candidate.argument_parser().parse_args(["publish", TAG, str(owner), "--selection", "independent"])
+    monkeypatch.setattr(candidate, "release_tag", lambda _root: TAG)
+    monkeypatch.setattr(candidate, "resolve_revision", lambda *_args: SHA)
+    monkeypatch.setattr(candidate, "verify_existing", verify)
+    monkeypatch.setattr(candidate, "revalidate_release_target", transfer["release"])
+    monkeypatch.setattr(candidate, "download_release_asset", download)
+    monkeypatch.setattr(candidate, "load_config", lambda **_kwargs: load_config(root=ROOT))
+    monkeypatch.setattr(release_publishing, "run_git_command", lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, SHA, ""))
+    monkeypatch.setattr(release_publishing, "check_release_source", lambda *_args, **_kwargs: SHA)
+    monkeypatch.setattr(release_publishing, "lookup_release", lambda *_args: replace(transfer["release"](), identifier=43 if drift == "draft" else 42))
+    monkeypatch.setattr(release_publishing, "revalidate_release_target", transfer["release"])
+    monkeypatch.setattr(release_publishing, "_release_assertions", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(release_publishing, "_publish_release", publish)
+
+    receipt = final / "publication-transfer.json"
+    if diagnostic is None:
+        candidate.run_owner_operation(root, options)
+        assert published == [target]
+        selected = candidate.require_publication_transfer(candidate.parse_transfer(receipt.read_bytes()))
+        assert (selected.original.target, selected.attached.identifier) == (target, 50)
+    else:
+        with pytest.raises(ValueError, match=diagnostic):
+            candidate.run_owner_operation(root, options)
+        assert not published
+        assert receipt.exists() == (drift == "draft")
+    assert calls[0] == "review"
 
 
 @pytest.mark.parametrize("failure", ["missing", "malformed", "replaced"])

@@ -294,21 +294,29 @@ def test_managed_update_preserves_python_tool_policy_without_setup() -> None:
 
 @pytest.mark.parametrize("unapproved", [False, True])
 def test_shared_allowlist_covers_the_actual_composite_action(tmp_path: Path, *, unapproved: bool) -> None:
-    """The shared CLI accepts workflows; adapt this consumer's composite steps only."""
+    """Exercise the composite document through the same gate as CI."""
     from research_repo_tools.cli import main
 
     action = yaml.safe_load((REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_bytes())
     if unapproved:
         action["runs"]["steps"][0]["uses"] = "untrusted/setup-uv@" + "a" * 40
-    workflow = tmp_path / "setup.yml"
-    workflow.write_text(yaml.safe_dump({"jobs": {"setup": {"steps": action["runs"]["steps"]}}}), encoding="utf-8", newline="\n")
+    composite = tmp_path / "action.yml"
+    composite.write_text(yaml.safe_dump(action), encoding="utf-8", newline="\n")
     policy = tmp_path / "actions.json"
     policy.write_bytes((REPO_ROOT / ".github/settings/actions-selected.json").read_bytes())
-    assert main(["--root", str(tmp_path), "actions", "allowlist", "--policy", str(policy), str(workflow)]) == int(unapproved)
+    assert main(["--root", str(tmp_path), "actions", "allowlist", "--policy", str(policy), str(composite)]) == int(unapproved)
     recipes = inspect_justfile(REPO_ROOT).recipes
     for gate in ("ci", "check-repository-tooling"):
         assert "workflow-allowlist-check" in {item["recipe"] for item in recipes[gate]["dependencies"]}
-    assert "actions allowlist --policy .github/settings/actions-selected.json .github/workflows" in dry_run(REPO_ROOT, "workflow-allowlist-check").stderr
+    command = shlex.split(dry_run(REPO_ROOT, "workflow-allowlist-check").stderr)
+    assert command[command.index("actions") :] == [
+        "actions",
+        "allowlist",
+        "--policy",
+        ".github/settings/actions-selected.json",
+        ".github/workflows",
+        ".github/actions/setup-toolchain/action.yml",
+    ]
 
 
 def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:

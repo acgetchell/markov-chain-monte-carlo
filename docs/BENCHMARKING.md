@@ -216,18 +216,24 @@ dispatches Cargo publication with the reviewed acceptance before deployment appr
 Actions handoffs last 30 days; release assets are durable. Preserve the external
 owner and its independent backup for recovery.
 
-`just performance-github-assets CURRENT BASELINE` remains an inspector for historical
-two-file `sample.json`/`provenance.json` assets. RRT 0.2.9's `performance assets`
-reader does not accept the new complete candidate archive; do not use it for a
-candidate-archive pair or convert paired evidence into a synthetic single sample.
-Inspect the retained complete run and report for the new series. Historical
-downloads use authenticated GitHub CLI, provider hashes when available, and bounded
-extraction; the former repository-specific legacy layout remains unsupported.
+Use `just performance-github-assets CURRENT BASELINE` for historical two-file
+`sample.json`/`provenance.json` assets. It downloads with authenticated GitHub CLI,
+checks provider hashes when available, and bounds extraction. Verify a complete
+native two-file pair before claiming live adoption of that inspector. Review host
+and workload compatibility independently before comparing its results.
 
-For historical two-file assets, verify the first complete native shared pair before
-claiming live adoption of that inspector. This does not validate candidate-archive
-support. No backfill runs implicitly. Runner hardware varies, so asset comparisons
-require manual compatibility review; the CLI does not certify controlled same-host measurements.
+For a complete candidate archive, use the policy and acceptance from the
+independently reviewed selection to inspect its format, release, schema, and run
+ID. Set `ARCHIVE`, `FINAL_POLICY`, and `ACCEPTANCE` to those three files.
+
+```bash
+uv run --locked --group dev research-repo-tools release evidence archive inspect \
+  --archive "$ARCHIVE" --policy "$FINAL_POLICY" --acceptance "$ACCEPTANCE"
+```
+
+Use the retained complete run and report for performance comparisons. Keep both
+trials and their provenance together.
+[RRT candidate archive interfaces](https://github.com/acgetchell/research-repo-tools/blob/v0.3.0/docs/candidate-reuse-api.md#public-interfaces)
 
 Timing ratios and marginal bounds do not establish significance, convergence, mixing,
 or effective sample size. Research comparisons need invariant-distribution or equilibrium

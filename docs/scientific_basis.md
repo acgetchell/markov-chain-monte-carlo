@@ -57,9 +57,10 @@ worked usage. The [proposal-validation guide](VALIDATING_PROPOSALS.md) owns kern
 - A proposal reports `log q(x | y) - log q(y | x)`. This correction describes the same concrete move that was generated, including move selection and
   reverse availability. It is distinct from any bias or additional target term.
 - Numerical values use `f64` arithmetic, preferring fused multiply-add where a formula permits one rounding. Compensated sums retain the separate
-  operations needed to recover rounding error. Log-space acceptance avoids exponentiating tiny
-  probabilities, but does not make target differences exact or eliminate finite-precision limitations. Target log weights and proposal log ratios may be
-  finite or negative infinity; `NaN` and positive infinity produce errors. A `NaN` assembled acceptance ratio, including `-inf - (-inf)`, rejects the move.
+  operations needed to recover rounding error. When a finite Hastings correction opposes the target difference, the acceptance calculation pairs opposing
+  terms first and retains rounding errors to recover small residuals. Log-space acceptance avoids exponentiating tiny probabilities. Target log weights
+  and proposal log ratios may be finite or negative infinity. `NaN` and positive infinity produce errors. A `NaN` assembled acceptance ratio, including
+  `-inf - (-inf)`, rejects the move.
 - Production diagnostics refer to one observable after discarded warmup unless a method explicitly compares multiple chains. Preserve repeated states from
   rejection and no-proposal self-loops, temporal order, and constant recording intervals. Thinning advances through all intervening transitions.
 
@@ -402,9 +403,9 @@ mean = mean_old + delta / n
 M2 = M2_old + delta * (x - mean)
 ```
 
-The implementation uses a fused multiply-add for the `M2` update. It avoids subtracting two separately accumulated large sums to obtain a variance, but
-finite inputs can still overflow intermediate arithmetic. A failed update leaves the accumulator unchanged; batch accumulation retains earlier successful
-samples. These are numerical and mutation policies of this crate, rather than guarantees that the statistical estimator is appropriate for a given chain.
+The implementation retains the rounding error of the running mean so deviations can resolve variation between nearby measurements. It uses a fused
+multiply-add for the `M2` update. Finite inputs can still overflow intermediate arithmetic. A failed update leaves the accumulator unchanged. Batch
+accumulation retains earlier successful samples.
 
 Population variance is `M2 / n` for at least one sample, and sample variance is `M2 / (n - 1)` for at least two. The latter is unbiased for independent,
 identically distributed samples with finite variance; this statement does not extend to arbitrary correlated MCMC output. The standard error

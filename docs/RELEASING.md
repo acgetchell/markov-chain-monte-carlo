@@ -9,7 +9,6 @@ original archive. Publish the reviewed draft, explicitly dispatch
 `Publish to crates.io` with the independent publication selection, then approve
 its `crates-io` deployment.
 
-This is the same process and published RRT tooling used by la-stack v0.5.4.
 Benchmark attachment and Cargo publication require the maintainer's authenticated
 dispatch against the exact tag. Step 2 reuses evidence without measuring.
 The changelog is generated before the tag exists; no temporary local tag is needed.
@@ -32,8 +31,9 @@ provenance through capture, staging, attachment and publication recovery.
 
 ## Reusable CI evidence
 
-MCMC follows the released [la-stack v0.5.4 process](https://github.com/acgetchell/la-stack/blob/v0.5.4/docs/RELEASING.md)
-at commit `560b8dd736cdc83441e888e36c25dc5ddc069fea`, using published RRT 0.2.9.
+MCMC adapted the released [la-stack v0.5.4 process](https://github.com/acgetchell/la-stack/blob/v0.5.4/docs/RELEASING.md)
+at commit `560b8dd736cdc83441e888e36c25dc5ddc069fea`. The current RRT pin and its
+adoption history are recorded in the [shared maintenance record](dev/shared-maintenance-migration.md).
 `tooling/release_candidate.py` retains the same operator selection and transfer
 protocol; RRT owns verification, signatures, archive handling and provider effects.
 
@@ -77,13 +77,14 @@ again after protected-environment approval and before OIDC credentials.
 | `release-version-check` | Require synchronized final metadata and generated notes |
 | `publish-check` | Verify clean default/all-feature Cargo packages |
 | `release-evidence [OWNER] [SELECTION]` | Verify original acquisition and exact native/package evidence without rebuilding |
-| `tag TAG [OWNER] [SELECTION]` | Require an existing reviewed selection and create the annotated tag |
+| `tag TAG [OWNER] [SELECTION] [--force]` | Require an existing reviewed selection and create or explicitly replace the local annotated tag |
 | `release-notes TAG` | Print generated notes used by automatic draft preparation |
 | `release-stage [OWNER] [TARGET] [SELECTION]` | Stage original inert records against the authenticated draft target |
 | `release-benchmarks TAG` | Dispatch retained archive attachment at the explicit tag |
-| `release-publish TAG [OWNER] [SELECTION]` | Revalidate acceptance and canonical assets, then publish the draft |
+| `release-publish TAG [OWNER] [SELECTION]` | Revalidate acceptance and asset identities, then publish the captured draft |
 | `release-upload TAG [OWNER] [SELECTION]` | Dispatch Cargo publication with the independent existing acceptance |
-| `release-verify TAG` | Verify stable GitHub assets and the exact registry version |
+| `release-verify TAG [TARGET]` | Verify generated notes, stable GitHub assets, and the exact registry version, optionally bound to a captured release target |
+| `release-visibility TAG [TARGET]` | Check immutable GitHub assets and the exact registry version, optionally bound to a captured release target |
 
 MCMC-specific declarations retain all-feature checks, its scientific workload
 and paired-trial policy, the independent diagnostic workspace, Zenodo identity
@@ -404,8 +405,13 @@ just tag "$TAG"
 
 `just tag` first runs `release-version-check` and revalidates the existing reviewed
 acceptance for clean HEAD. A different commit or missing receipt requires an
-explicit `release-evidence` review before tagging. It then builds the annotation from the matching active or archived changelog
-section. For a changelog larger than 125 kB, it links that section.
+explicit `release-evidence` review before tagging. The recipe builds the annotation
+from the matching active or archived changelog section. It links that section
+when the annotation exceeds 125,000 bytes.
+
+Use `just tag "$TAG" --force` only for an explicitly reviewed local tag replacement.
+The same metadata and evidence checks run first. For a tag already pushed to
+GitHub, follow [draft preparation recovery](#draft-preparation-recovery).
 
 ### 4. Push the tag
 
@@ -427,7 +433,7 @@ The read-only job checks the exact tagged source, main ancestry, final metadata
 and retained signed native evidence, then freezes that selection and generated
 notes. An isolated pinned writer with no checkout authenticates the handoff by
 immutable artifact ID, digest, run and attempt, revalidates the same native
-selection and creates the unpublished draft through the shared authenticated API.
+selection and creates the unpublished draft with `release assets prepare-authenticated`.
 
 Retain the handoff and separate draft-receipt artifact IDs, ZIP digests and
 producer run/attempts in independent release review notes. Preserve the captured
@@ -500,10 +506,10 @@ From the clean tagged checkout and your human GitHub CLI session:
 just release-publish "$TAG"
 ```
 
-This verifies acceptance and remote notes, freezes the canonical attached archive
-ID/hash in `publication-transfer.json`, then publishes the reviewed draft
-through the shared gate. It authorizes GitHub Release publication. The release
-must become immutable before Cargo publication.
+This revalidates the reviewed acceptance and the identities of the staged assets
+and canonical archive. It freezes those assertions in `publication-transfer.json`
+and authorizes the shared gate to check the remote notes and publish the captured
+draft by ID. The release must become immutable before Cargo publication.
 
 Dispatch Cargo publication from that independently retained selection:
 
@@ -542,30 +548,40 @@ After the publishing workflow completes:
 just release-verify "$TAG"
 ```
 
-This requires the published stable GitHub release, nonempty durable baseline
-asset and exact non-yanked crates.io version with a checksum. It retries only
-proven registry absence, never an upload. A short-lived Actions artifact or a
-published GitHub release alone is insufficient.
+This checks the generated notes against the checkout and requires the published
+stable GitHub release, a nonempty durable baseline asset, and the exact non-yanked
+crates.io version with a checksum. The workflow passes its captured `target.json`
+to also check the reviewed release ID and tag commit. A confirmed registry 404
+allows another poll, and individual lookups allow bounded transient HTTP retries.
+
+For a remote asset and registry check from the repository, use
+`just release-visibility "$TAG"`. Both recipes accept a captured target file as
+their second argument. From outside a checkout, use the installed RRT CLI.
+[RRT publication visibility](https://github.com/acgetchell/research-repo-tools/blob/v0.3.0/README.md#releases)
 
 Check a clean consumer with a fresh Cargo home:
 
 ```bash
-CONSUMER="$(mktemp -d)"
-CARGO_HOME="$(mktemp -d)"; export CARGO_HOME
-RELEASE_CRATE="markov-chain-monte-carlo@=${TAG#v}"
-cargo init --vcs none --name mcmc_release_check "$CONSUMER"
-cargo add --manifest-path "$CONSUMER/Cargo.toml" "$RELEASE_CRATE"
-cargo check --locked --manifest-path "$CONSUMER/Cargo.toml"
-cargo add --manifest-path "$CONSUMER/Cargo.toml" "$RELEASE_CRATE" --all-features
-cargo check --locked --manifest-path "$CONSUMER/Cargo.toml"
+(
+  set -eu
+  CONSUMER="$(mktemp -d)"
+  CARGO_HOME="$(mktemp -d)"
+  export CARGO_HOME
+  RELEASE_CRATE="markov-chain-monte-carlo@=${TAG#v}"
+  cargo init --vcs none --name mcmc_release_check "$CONSUMER"
+  printf '%s\n' 'use markov_chain_monte_carlo as _;' 'fn main() {}' > "$CONSUMER/src/main.rs"
+  cargo add --manifest-path "$CONSUMER/Cargo.toml" "$RELEASE_CRATE"
+  cargo check --locked --manifest-path "$CONSUMER/Cargo.toml"
+  cargo add --manifest-path "$CONSUMER/Cargo.toml" "$RELEASE_CRATE" --features benchmarks,serde,tracing
+  cargo check --locked --manifest-path "$CONSUMER/Cargo.toml"
+)
 ```
 
-Use a disposable shell for this check. Preserve the output and record the tag,
-commit, benchmark run, publishing run, registry URL/checksum and consumer results
-in the current release's tracking issue or merged release PR. Close the release
-tracker when its agreed validation boundary is satisfied. If a maintainer accepts
-an unresolved verification failure, record the failed or unperformed check and
-link its follow-up issue explicitly; do not mark it passed or silently drop it.
+Preserve the output and record the tag, commit, benchmark run, publishing run,
+registry URL/checksum, and consumer results in the current release tracker.
+Link the merged release PR and any follow-up issue for an explicitly accepted
+verification gap. Close the tracker when its agreed validation boundary is
+satisfied. See [release tracking](dev/release-flow-integration.md#release-tracking).
 
 Hosted jobs restore no dependency caches. The checkout verifier has read-only
 repository permissions. Draft retrieval and attachment require write access
@@ -643,14 +659,16 @@ success and failure. A pending journal means creation may have happened; a
 captured journal binds the existing release ID. A missing or edited draft is not
 permission to create a replacement.
 
-Recover the exact original artifacts by independently recorded immutable IDs,
-verify their ZIP digests and producer run/attempts, and retain the original policy,
-selection, notes and receipt. Follow the supplying package's
-[recovery](https://github.com/acgetchell/research-repo-tools/blob/v0.2.9/docs/PREPARING_DRAFTS.md#retry-and-recovery).
-After independent provider/audit review, its `release assets prepare` CLI accepts
-`--recover-release-id REVIEWED_ID` with the original pending receipt and frozen
-inputs; recovery performs no POST. A captured ID cannot be replaced. This is an
-explicit maintainer recovery, not another automatic preparation attempt.
+Recover the original artifacts by their independently recorded immutable IDs and
+verify their ZIP digests and producer run/attempts. Restore the writer state as a
+unit (`producer.json`, `handoff.json`, `draft-receipt.json`, and `target.json` if
+captured). Run an explicitly reviewed recovery in a GitHub Actions job outside
+the checkout. Pass the restored state, original producer and artifact assertions,
+and current executing run and attempt to `release assets prepare-authenticated`.
+For a pending journal, independent provider review can authorize
+`--recover-release-id REVIEWED_ID` to record the existing draft without creating
+another release. See the
+[RRT recovery procedure](https://github.com/acgetchell/research-repo-tools/blob/v0.3.0/docs/PREPARING_DRAFTS.md#retry-and-recovery).
 
 The workflow retains records for 30 days; hard runner termination or upload
 failure may prevent journal retention. GitHub history guards are not a permanent
@@ -689,16 +707,13 @@ verification. These retries perform no timings.
 
 Upload retries reuse the original draft ID and identical bytes. Conflicting
 or incomplete assets stop without overwriting or deletion. Inspect failures
-before manual correction. A replacement draft requires explicitly authorized
-preparation recovery and an authenticated new target; a new review selection
-alone does not authorize replacement. Never move a published tag or replace independent digests with values
-from received files.
+before manual correction. Keep published tags and independently captured
+digests fixed throughout recovery.
 
 A rerun uses the tagged workflow. A later workflow fix requires a reviewed new
 candidate. If Cargo reports an ambiguous timeout, inspect exact registry
 visibility before retrying; a present version must not be uploaded again.
-`just release-verify "$TAG"` checks the release and registry with bounded
-retries. Keep protected deployment approval and all pre-upload checks enabled.
+See [registry and downstream verification](#8-verify-registry-availability-and-downstream-resolution).
 
 ### 9. Verify the Zenodo release metadata
 
@@ -728,5 +743,6 @@ existing entries. Draft preparation and publishing workflow changes require main
 than Dependabot automatic approval. No long-lived registry token is needed.
 
 Source configuration does not establish that account settings are applied.
-Verify the actual trusted publisher, environment, permissions and action policy
-before release and record the evidence in #176.
+Verify the trusted publisher, environment, permissions and action policy before
+release, then record the evidence in the current release tracker. See
+[release tracking](dev/release-flow-integration.md#release-tracking).

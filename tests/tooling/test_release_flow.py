@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import os
-import runpy
 import shlex
 import subprocess
 import sys
@@ -22,12 +21,65 @@ from research_repo_tools.process import run_command
 
 from tests.tooling.support_evidence import COMMIT, POLICY, REPOSITORY, EvidenceProvider, install_clean_checkout
 
-TOOLING_REQUIREMENT = "research-repo-tools==0.2.9"
-TOOLING_CUTOFF = "2026-11-16T17:32:49Z"
+TOOLING_REQUIREMENT = "research-repo-tools==0.3.0"
+TOOLING_CUTOFF = "2026-11-19T04:26:14Z"
 
 ROOT = Path(__file__).resolve().parents[2]
 TAG = "v0.5.42"
 WORKFLOW = ROOT / ".github/workflows/prepare-release.yml"
+DRAFT_WRITER_ENV = {
+    "GITHUB_REPOSITORY": REPOSITORY,
+    "GITHUB_RUN_ID": "77",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "GITHUB_EVENT_NAME": "push",
+    "GITHUB_REF": f"refs/tags/{TAG}",
+    "GITHUB_SHA": COMMIT,
+    "RELEASE_TAG": TAG,
+    "RELEASE_COMMIT": COMMIT,
+    "HANDOFF_ID": "88",
+    "HANDOFF_SHA256": "d" * 64,
+    "VALIDATED_ATTEMPT": "1",
+}
+
+
+def capture_uv_call(script: str, cwd: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run the real shell step with a recorder that preserves empty and quoted arguments."""
+    return run_command(
+        "bash",
+        ["--noprofile", "--norc", "-euc", "uv() { printf '%s\\0' \"$@\"; }\n" + script],
+        cwd=cwd,
+        env={key: value for key, value in os.environ.items() if key not in {"BASH_ENV", "SHELLOPTS", "BASHOPTS"}} | environment,
+        check=False,
+    )
+
+
+def release_arguments(stdout: str) -> list[str]:
+    arguments = stdout.split("\0")
+    prefix = [
+        "run",
+        "--no-config",
+        "--no-project",
+        "--isolated",
+        "--no-cache",
+        "--managed-python",
+        "--exclude-newer",
+        TOOLING_CUTOFF,
+        "--with",
+        TOOLING_REQUIREMENT,
+        "python",
+        "-I",
+        "-m",
+        "research_repo_tools",
+    ]
+    assert arguments[: len(prefix)] == prefix
+    assert arguments[-1] == ""
+    return arguments[len(prefix) : -1]
+
+
+def capture_draft_writer(cwd: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
+    script = next(step["run"] for step in workflow["jobs"]["prepare"]["steps"] if "run" in step)
+    return capture_uv_call(script, cwd, environment)
 
 
 def test_draft_verification_handoff_uses_the_installed_cli_path_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,30 +97,17 @@ def test_draft_verification_handoff_uses_the_installed_cli_path_contract(tmp_pat
     )
     policy = (ROOT / "tooling/release-evidence.toml").read_bytes()
     (checkout / "tooling/release-evidence.toml").write_bytes(policy)
-    calls = tmp_path / "calls.jsonl"
-    recorder = tmp_path / "record.py"
-    recorder.write_text(
-        "import json, os, pathlib, sys\n"
-        'with pathlib.Path(os.environ["FIXTURE_CALLS"]).open("a", encoding="utf-8", newline="\\n") as stream:\n'
-        '    stream.write(json.dumps(sys.argv[1:]) + "\\n")\n',
-        encoding="utf-8",
-        newline="\n",
-    )
     workflow = yaml.safe_load(WORKFLOW.read_bytes())
     step = next(step for step in workflow["jobs"]["verify"]["steps"] if step.get("id") == "source")
     shell = (
-        'git() { if [[ "$2" == rev-parse ]]; then printf "%s\\n" "$GITHUB_SHA"; '
-        'else [[ "$2" == merge-base && "$3" == --is-ancestor ]]; fi; }\n'
-        f'uv() {{ {shlex.quote(Path(sys.executable).as_posix())} {shlex.quote(recorder.as_posix())} "$@"; }}\n' + step["run"]
+        'git() { if [[ "$2" == rev-parse ]]; then printf "%s\\n" "$GITHUB_SHA"; else [[ "$2" == merge-base && "$3" == --is-ancestor ]]; fi; }\n' + step["run"]
     )
     output = runner / "github-output"
     output.touch()
-    result = run_command(
-        "bash",
-        ["--noprofile", "--norc", "-euc", shell],
-        cwd=checkout,
-        env={
-            **{key: value for key, value in os.environ.items() if key not in {"BASH_ENV", "SHELLOPTS", "BASHOPTS"}},
+    result = capture_uv_call(
+        shell,
+        checkout,
+        {
             "GITHUB_WORKSPACE": checkout.as_posix(),
             "RUNNER_TEMP": runner.as_posix(),
             "RELEASE_TAG": TAG,
@@ -77,17 +116,11 @@ def test_draft_verification_handoff_uses_the_installed_cli_path_contract(tmp_pat
             "GITHUB_SHA": COMMIT,
             "GITHUB_REPOSITORY": REPOSITORY,
             "GITHUB_OUTPUT": output.as_posix(),
-            "FIXTURE_CALLS": calls.as_posix(),
         },
-        check=False,
     )
     assert result.returncode == 0, result.stderr
-    invocations = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
-    assert len(invocations) == 1
-    cutoff = invocations[0].index("--exclude-newer")
-    assert invocations[0][cutoff + 1] == TOOLING_CUTOFF
-    arguments = invocations[0][invocations[0].index("--root") :]
-    assert arguments[2:5] == ["release", "assets", "plan"]
+    arguments = release_arguments(result.stdout)
+    assert arguments[:5] == ["--root", checkout.as_posix(), "release", "assets", "plan"]
     provider = EvidenceProvider()
     provider.install(monkeypatch)
     install_clean_checkout(monkeypatch, checkout, COMMIT)
@@ -199,12 +232,12 @@ def draft_provider(state: dict[str, Any], args: list[str]) -> bytes:
     if endpoint.endswith(f"git/ref/tags/{TAG}"):
         return json.dumps({"ref": f"refs/tags/{TAG}", "object": {"type": "tag", "sha": "b" * 40}}).encode()
     assert endpoint.endswith("git/tags/" + "b" * 40), args
-    return json.dumps({"sha": "b" * 40, "object": {"type": "commit", "sha": state.get("remote", COMMIT)}}).encode()
+    return json.dumps({"sha": "b" * 40, "object": {"type": "commit", "sha": COMMIT}}).encode()
 
 
 @pytest.fixture
 def draft_handoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Keep the real evidence verifier, draft API, receipt and workflow writer."""
+    """Keep the real evidence verifier, draft CLI, receipt and workflow shell."""
     provider = EvidenceProvider()
     provider.install(monkeypatch)
     selection = release_evidence.verify_release_evidence(POLICY, "0.5.42", COMMIT, lambda endpoint: provider.api(endpoint, repository=REPOSITORY))
@@ -232,20 +265,8 @@ def draft_handoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
         "size_in_bytes": 512,
         "workflow_run": {"id": 77, "head_branch": TAG, "head_sha": COMMIT, "repository_id": 11, "head_repository_id": 11},
     }
-    state: dict[str, Any] = {"release": None, "posts": [], "current": current, "artifact": artifact, "history": [deepcopy(current)], "selection": selection}
-    for key, value in {
-        "GITHUB_REPOSITORY": REPOSITORY,
-        "GITHUB_RUN_ID": "77",
-        "GITHUB_RUN_ATTEMPT": "1",
-        "GITHUB_EVENT_NAME": "push",
-        "GITHUB_REF": f"refs/tags/{TAG}",
-        "GITHUB_SHA": COMMIT,
-        "RELEASE_TAG": TAG,
-        "RELEASE_COMMIT": COMMIT,
-        "HANDOFF_ID": "88",
-        "HANDOFF_SHA256": "d" * 64,
-        "VALIDATED_ATTEMPT": "1",
-    }.items():
+    state: dict[str, Any] = {"release": None, "posts": [], "current": current, "artifact": artifact, "history": [deepcopy(current)]}
+    for key, value in DRAFT_WRITER_ENV.items():
         monkeypatch.setenv(key, value)
     monkeypatch.chdir(tmp_path)
     workflow_bytes = WORKFLOW.read_bytes()
@@ -333,22 +354,26 @@ def draft_handoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setattr(release_publishing, "_remote_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(release_assets, "_gh", gh)
     monkeypatch.setattr(release_drafts, "_gh", gh)
-    # Step 2 must never launch builds, tests or acquisition, even on retries.
-    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: pytest.fail("draft inspection must launch no build/test/acquisition command"))
-    workflow = yaml.safe_load(WORKFLOW.read_bytes())
-    source = next(step["run"] for step in workflow["jobs"]["prepare"]["steps"] if "run" in step)
-    script = tmp_path / "writer.py"
-    script.write_text(source, encoding="utf-8", newline="\n")
-    return {**state, "state": state, "provider": provider, "script": script}
+
+    def run_writer() -> int:
+        result = capture_draft_writer(tmp_path, DRAFT_WRITER_ENV)
+        assert result.returncode == 0, result.stderr
+        arguments = release_arguments(result.stdout)
+        assert arguments[:3] == ["release", "assets", "prepare-authenticated"]
+        with monkeypatch.context() as cli:
+            # Step 2 must never launch builds, tests or acquisition, even on retries.
+            cli.setattr(subprocess, "run", lambda *_args, **_kwargs: pytest.fail("draft inspection must launch no build/test/acquisition command"))
+            return shared_main(arguments)
+
+    return {**state, "provider": provider, "run_writer": run_writer}
 
 
 @pytest.mark.parametrize("suffix", ["", "@refs/tags/" + TAG, "@" + TAG])
 def test_actual_writer_creates_once_and_retains_exact_draft(draft_handoff: dict[str, Any], tmp_path: Path, suffix: str) -> None:
     draft_handoff["current"]["path"] += suffix
-    script = draft_handoff["script"]
-    runpy.run_path(str(script), run_name="__main__")
+    assert draft_handoff["run_writer"]() == 0
     original = (tmp_path / "draft-state/draft-receipt.json").read_bytes()
-    runpy.run_path(str(script), run_name="__main__")
+    assert draft_handoff["run_writer"]() == 0
     assert len(draft_handoff["posts"]) == 1
     assert (tmp_path / "draft-state/draft-receipt.json").read_bytes() == original
     assert {path.name for path in (tmp_path / "draft-state").iterdir()} == {"producer.json", "handoff.json", "draft-receipt.json", "target.json"}
@@ -357,18 +382,39 @@ def test_actual_writer_creates_once_and_retains_exact_draft(draft_handoff: dict[
 
 
 @pytest.mark.parametrize(
-    "failure", ["ref", "commit", "attempt", "attempt-spelling", "validated-attempt", "artifact", "digest", "expired", "history", "workflow", "native"]
+    ("variable", "value"),
+    [
+        ("GITHUB_REF", "refs/tags/v0.5.43"),
+        ("GITHUB_SHA", "b" * 40),
+        ("GITHUB_RUN_ATTEMPT", "2"),
+        ("GITHUB_RUN_ATTEMPT", "01"),
+        ("VALIDATED_ATTEMPT", "01"),
+    ],
+    ids=["ref", "commit", "attempt", "attempt-spelling", "validated-attempt"],
+)
+def test_writer_rejects_drifted_tag_push_before_invoking_uv(tmp_path: Path, variable: str, value: str) -> None:
+    result = capture_draft_writer(tmp_path, DRAFT_WRITER_ENV | {variable: value})
+    assert result.returncode == 2
+    assert "original exact tag push" in result.stderr
+    assert result.stdout == ""
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "diagnostic"),
+    [
+        ("artifact", "handoff artifact differs from independent ID/digest assertions"),
+        ("digest", "handoff artifact differs from independent ID/digest assertions"),
+        ("expired", "missing, expired or mismatched draft-handoff"),
+        ("history", "missing or ambiguous original tag-push run"),
+        ("workflow", "expected the exact source's original tag-push run"),
+        ("native", "did not succeed"),
+    ],
 )
 def test_writer_rejects_changed_handoff_without_creating_a_draft(
-    draft_handoff: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    draft_handoff: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: str, diagnostic: str
 ) -> None:
-    if failure in {"attempt-spelling", "validated-attempt"}:
-        monkeypatch.setenv("GITHUB_RUN_ATTEMPT" if failure == "attempt-spelling" else "VALIDATED_ATTEMPT", "01")
-    elif failure in {"ref", "commit", "attempt"}:
-        monkeypatch.setenv({"ref": "GITHUB_REF", "commit": "GITHUB_SHA", "attempt": "GITHUB_RUN_ATTEMPT"}[failure], "changed")
-        if failure == "attempt":
-            monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
-    elif failure in {"artifact", "digest", "expired"}:
+    if failure in {"artifact", "digest", "expired"}:
         key, value = {"artifact": ("id", 89), "digest": ("digest", "sha256:" + "e" * 64), "expired": ("expired", True)}[failure]
         draft_handoff["artifact"][key] = value
     elif failure == "history":
@@ -377,13 +423,8 @@ def test_writer_rejects_changed_handoff_without_creating_a_draft(
         draft_handoff["current"]["path"] = ".github/workflows/other.yml"
     else:
         draft_handoff["provider"].jobs[0]["conclusion"] = "failure"
-    diagnostic = (
-        "original exact tag push"
-        if failure in {"ref", "commit", "attempt", "attempt-spelling", "validated-attempt"}
-        else "handoff|original tag-push|artifact|workflow|did not succeed"
-    )
-    with pytest.raises(ValueError, match=diagnostic):
-        runpy.run_path(str(draft_handoff["script"]), run_name="__main__")
+    assert draft_handoff["run_writer"]() == 1
+    assert diagnostic in capsys.readouterr().err
     assert draft_handoff["posts"] == []
     assert not (tmp_path / "draft-state").exists()
 
@@ -397,24 +438,7 @@ def test_draft_workflow_keeps_the_writer_isolated_and_recovery_explicit() -> Non
     assert writer["permissions"] == {"actions": "read", "contents": "write"}
     assert all(not step.get("uses", "").startswith("./") and "checkout@" not in step.get("uses", "") for step in writer["steps"])
     step = writer["steps"][1]
-    # Custom shells use .NET argument parsing; single quotes are not delimiters.
-    command = shlex.split(step["shell"], posix=False)
-    assert command == [
-        "uv",
-        "run",
-        "--no-config",
-        "--no-project",
-        "--isolated",
-        "--no-cache",
-        "--managed-python",
-        "--exclude-newer",
-        TOOLING_CUTOFF,
-        "--with",
-        f'"{TOOLING_REQUIREMENT}"',
-        "python",
-        "-I",
-        '"{0}"',
-    ]
+    assert step["shell"] == "bash"
     assert step["working-directory"] == "${{ runner.temp }}"
     assert writer["steps"][-1]["if"] == "always()"
     assert "draft-state/*" in writer["steps"][-1]["with"]["path"]

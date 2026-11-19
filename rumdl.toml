@@ -11,3 +11,7 @@ reflow = true
 
 [MD033]
 allowed-elements = [ "a" ]
+
+[per-file-ignores]
+# Keep the generated changelog archives in their original format.
+"docs/archives/changelog/*.md" = [ "MD076" ]

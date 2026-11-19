@@ -48,8 +48,8 @@ jobs:
           CANDIDATE_TRANSFER: ${{ inputs.candidate }}
         run: |
           set -euo pipefail
-          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-16T17:32:49Z \
-            --with 'research-repo-tools==0.2.9' \
+          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-19T04:26:14Z \
+            --with 'research-repo-tools==0.3.0' \
             python -I - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -194,8 +194,8 @@ jobs:
           CANDIDATE_TRANSFER: ${{ inputs.candidate }}
         run: |
           set -euo pipefail
-          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-16T17:32:49Z \
-            --with 'research-repo-tools==0.2.9' \
+          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-19T04:26:14Z \
+            --with 'research-repo-tools==0.3.0' \
             python -I - <<'PY'
           import hashlib, json, os
           from pathlib import Path

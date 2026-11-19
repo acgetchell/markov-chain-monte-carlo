@@ -1,9 +1,9 @@
 # crates.io deployment setup and evidence
 
-The repository source implements #176, #182, #220 and #223 using la-stack v0.5.4's release process
-and the published `research-repo-tools==0.2.9` release contract. This document records the intended
-deployment identity and the evidence still needed outside source control.
-The routine release commands live in [RELEASING.md](../RELEASING.md).
+Implementation issues #176, #182, #220 and #223 established the deployment
+contract. This document records the intended publisher identity and historical
+settings evidence. See [RELEASING.md](../RELEASING.md) for the procedure and
+[release tracking](release-flow-integration.md#release-tracking) for current evidence.
 
 ## Publisher identity
 
@@ -18,8 +18,8 @@ The routine release commands live in [RELEASING.md](../RELEASING.md).
 | Approval | Required maintainer reviewer before registry upload; disable administrator bypass |
 | OIDC permission | `id-token: write` on the upload job only |
 
-The crate already exists, so configure its Trusted Publisher on crates.io as an
-owner using the exact workflow filename, repository and environment above.
+Verify the crate's Trusted Publisher on crates.io using the exact workflow
+filename, repository and environment above. Configure the publisher if it is missing.
 Follow [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing)
 for current account and first-publication requirements. The official
 [authentication action](https://github.com/rust-lang/crates-io-auth-action)
@@ -59,9 +59,9 @@ and read back through the API on the same date. Environment ID `25076265562`
 requires reviewer `acgetchell`, permits self-review, and disables administrator
 bypass. Its only deployment policy (ID `64027043`) permits `v*` tags. The Actions
 allowlist retains its previous entries and adds the exact authentication-action
-commit. `main` remains protected. The optional crates.io setting requiring
-Trusted Publishing for all new versions is currently disabled.
-The last completed main-branch CI for
+commit. `main` remained protected at inspection. The optional crates.io setting
+requiring Trusted Publishing for all new versions was disabled at inspection.
+The inspected main-branch CI run for
 `e273e5c48f375518c387b97ddcf0c567167ac858` exposed the actual checks
 `build (ubuntu-latest)`, `build (macos-latest)` and `build (windows-latest)` from
 GitHub Actions app ID `15368`; these names/provider are declared in publishing
@@ -78,13 +78,13 @@ release validation.
 | Native checks for the final release commit | Pending reviewed release commit |
 | Clean default/all-feature Cargo verification | Required in final main-push CI before tagging |
 | Required baseline attached to draft | Pending release preparation |
-| Approved deployment and successful upload run | Pending first approved release |
+| Approved deployment and successful upload run | Required for the intended release |
 | Exact registry version and clean downstream resolution | Pending successful publication |
 
 Record the actual reviewer/branch-policy API evidence, crates.io publisher
-settings, release tag, full SHA, run URL and registry/downstream results in #176.
-Do not close it based solely on merged source, a GitHub Release, or local checks.
-Do not publish a throwaway version to test the workflow.
+settings, release tag, full SHA, run URL and registry/downstream results in the
+current release tracker. Complete the validation against the intended release.
+See [release tracking](release-flow-integration.md#release-tracking).
 
 ## Gate and recovery contract
 
@@ -95,7 +95,7 @@ independently retained publication transfer and full reviewed acceptance SHA-256
 Both the actor and triggering actor must be `acgetchell`.
 
 The installed RRT verifier requires the exact remote tag/checkout, protected-main
-ancestry, synchronized metadata, generated title/notes, immutable published
+ancestry, synchronized metadata, tag title, generated notes, immutable published
 release, required original asset IDs/hashes and unambiguous successful exact-SHA
 checks. It binds the Step 1 acquisition and final signed main CI evidence.
 The first job freezes that full acceptance in an immutable Actions artifact.
@@ -105,8 +105,8 @@ and proves registry absence before requesting OIDC credentials.
 
 Publication is serialized across all versions of this crate. Registry lookup errors
 and an existing exact version block upload. If Cargo times out after upload,
-the final verification step still checks visibility with bounded attempts;
-inspect its results before retrying anything. This follows
+the final verification step still checks the captured release target, generated
+notes and registry visibility. Inspect its results before retrying. See
 [Cargo's documented post-upload polling behavior](https://doc.rust-lang.org/cargo/commands/cargo-publish.html).
 Original main CI owns default/all-feature package builds and the required scientific
 checks. Publication verifies retained evidence and performs only Cargo's clean

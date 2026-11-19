@@ -51,6 +51,24 @@ impl CompensatedSum {
     }
 }
 
+/// Return a rounded sum and its rounding error, using `FastTwoSum`.
+///
+/// Ordering by magnitude makes the decomposition exact for a finite sum.
+/// An overflowing sum is returned directly so callers can handle its range.
+pub(crate) fn sum_with_roundoff(left: f64, right: f64) -> (f64, f64) {
+    let (larger, smaller) = if left.abs() >= right.abs() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let sum = larger + smaller;
+    if sum.is_finite() {
+        (sum, smaller - (sum - larger))
+    } else {
+        (sum, 0.0)
+    }
+}
+
 /// Convert an observation, lag-pair, chain, or bin count to floating point.
 ///
 /// This is the shared integer-to-float boundary for diagnostics and streaming

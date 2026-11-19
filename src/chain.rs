@@ -12,7 +12,48 @@ use serde::{Serialize, Serializer};
 
 use crate::{
     DelayedCommitLogProbMismatch, DelayedProposal, McmcError, Proposal, ProposalMut, Target,
+    numerics::sum_with_roundoff,
 };
+
+/// Combine the target difference and Hastings correction for validated log weights.
+///
+/// A finite correction that opposes the target difference can expose rounding
+/// error or recover from overflow in that difference. Cancel against the
+/// largest opposing term first and retain both additions' rounding errors.
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "share the acceptance calculation with diagnostics while keeping it internal"
+)]
+pub(crate) fn log_acceptance_ratio(current: f64, proposed: f64, log_q: f64) -> f64 {
+    let target_difference = proposed - current;
+    if log_q == 0.0
+        || target_difference.is_sign_negative() == log_q.is_sign_negative()
+        || !log_q.is_finite()
+        || !current.is_finite()
+        || !proposed.is_finite()
+    {
+        return target_difference + log_q;
+    }
+
+    let (opposing, remaining) = if current.is_sign_negative() == log_q.is_sign_negative()
+        && (proposed.is_sign_negative() == log_q.is_sign_negative()
+            || current.abs() > proposed.abs())
+    {
+        (-current, proposed)
+    } else {
+        (proposed, -current)
+    };
+    let (partial, partial_error) = sum_with_roundoff(opposing, log_q);
+    let (sum, sum_error) = sum_with_roundoff(partial, remaining);
+    if sum.is_finite() {
+        sum + (partial_error + sum_error)
+    } else {
+        // Near the overflow boundary, apply the correction in half units
+        // before rounding back into the original range.
+        let (half, half_error) = sum_with_roundoff(partial * 0.5, remaining * 0.5);
+        2.0 * (half + partial_error.mul_add(0.5, half_error))
+    }
+}
 
 /// Decide acceptance from a precomputed `log(u)`.
 ///
@@ -1089,7 +1130,7 @@ impl<S> Chain<S> {
         let log_q = proposal.log_q_ratio(&self.state, &proposed);
         check_log_q_ratio(log_q)?;
 
-        let log_alpha = log_prob_new - self.log_prob + log_q;
+        let log_alpha = log_acceptance_ratio(log_prob_before, log_prob_new, log_q);
 
         let accept = accept_log_alpha(log_alpha, rng);
 
@@ -1219,7 +1260,7 @@ impl<S> Chain<S> {
             .log_q_ratio(rollback.state(), rollback.token()?);
         check_log_q_ratio(log_q)?;
 
-        let log_alpha = log_prob_new - log_prob_before + log_q;
+        let log_alpha = log_acceptance_ratio(log_prob_before, log_prob_new, log_q);
         let captured = M::capture(rollback.proposal(), rollback.state(), rollback.token()?);
 
         let accept = accept_log_alpha(log_alpha, rng);
@@ -1393,7 +1434,7 @@ impl<S> Chain<S> {
             .map_err(DelayedStepError::LogQRatio)?;
         check_log_q_ratio(log_q).map_err(DelayedStepError::Mcmc)?;
 
-        let log_alpha = log_prob_new - self.log_prob + log_q;
+        let log_alpha = log_acceptance_ratio(log_prob_before, log_prob_new, log_q);
         let accept = accept_log_alpha(log_alpha, rng);
         let captured = M::capture(proposal, &plan);
 
@@ -1548,7 +1589,7 @@ impl<S> Chain<S> {
             .map_err(DelayedStepError::LogQRatio)?;
         check_log_q_ratio(log_q).map_err(DelayedStepError::Mcmc)?;
 
-        let log_alpha = log_prob_new - self.log_prob + log_q;
+        let log_alpha = log_acceptance_ratio(log_prob_before, log_prob_new, log_q);
         let accept = accept_log_alpha(log_alpha, rng);
         let info = proposal.info(&plan);
 
@@ -2240,6 +2281,40 @@ mod tests {
         ) -> Result<(), Self::Error> {
             *state = plan;
             Ok(())
+        }
+    }
+
+    #[test]
+    fn cancelling_hastings_ratio_preserves_rejection_and_state() {
+        struct Weights([f64; 2]);
+        impl Target<bool> for Weights {
+            fn log_prob(&self, state: &bool) -> f64 {
+                self.0[usize::from(*state)]
+            }
+        }
+
+        let large = 1_152_921_504_606_846_976.0; // 2^60
+        let target = Weights([-large, -1.0]);
+        let mut proposal = DelayedFlip { log_q: -large };
+        let seed = 42;
+        assert!(StdRng::seed_from_u64(seed).sample::<f64, _>(Open01).ln() > -1.0);
+
+        for checked in [false, true] {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut chain = Chain::new(false, &target).unwrap();
+            let step = if checked {
+                chain.step_delayed_checked(&target, &mut proposal, &mut rng)
+            } else {
+                chain.step_delayed(&target, &mut proposal, &mut rng)
+            }
+            .unwrap();
+
+            // The target offset and proposal correction cancel exactly.
+            assert_eq!(step.log_alpha(), Some(-1.0));
+            assert_eq!(step.outcome(), StepOutcome::RejectedProposal);
+            assert!(!chain.state());
+            assert_eq!(chain.log_prob().to_bits(), (-large).to_bits());
+            assert_eq!((chain.accepted(), chain.rejected()), (0, 1));
         }
     }
 

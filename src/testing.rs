@@ -24,7 +24,9 @@ use std::{error::Error, fmt};
 use rand::Rng;
 
 use crate::{
-    DelayedProposal, Proposal, ProposalMut, Target, chain::InPlaceRollback, numerics::count_as_f64,
+    DelayedProposal, Proposal, ProposalMut, Target,
+    chain::{InPlaceRollback, log_acceptance_ratio},
+    numerics::count_as_f64,
 };
 
 /// Configuration for empirical detailed-balance verification.
@@ -1659,9 +1661,16 @@ fn log_residual<E>(
         (false, false) => {
             let target_difference = endpoints.current - endpoints.proposed;
             let scale_difference = forward.log_weight_scale - reverse.log_weight_scale;
+            let flow_scale_difference = if target_difference.is_finite() {
+                target_difference + scale_difference
+            } else {
+                // An overflowing target difference can still cancel against a
+                // finite acceptance-scale difference.
+                log_acceptance_ratio(endpoints.proposed, endpoints.current, scale_difference)
+            };
             let empirical_difference = forward.scaled_log_transition_probability(samples)
                 - reverse.scaled_log_transition_probability(samples);
-            let residual = (target_difference + scale_difference) + empirical_difference;
+            let residual = flow_scale_difference + empirical_difference;
             if residual.is_finite() {
                 Ok(residual)
             } else {
@@ -1687,17 +1696,17 @@ fn log_acceptance_probability<E>(
     if log_q_ratio == f64::NEG_INFINITY {
         return Ok(f64::NEG_INFINITY);
     }
-    let log_acceptance_ratio = to_log_prob - from_log_prob + log_q_ratio;
-    if from_log_prob.is_finite() && to_log_prob.is_finite() && !log_acceptance_ratio.is_finite() {
+    let log_alpha = log_acceptance_ratio(from_log_prob, to_log_prob, log_q_ratio);
+    if from_log_prob.is_finite() && to_log_prob.is_finite() && !log_alpha.is_finite() {
         return Err(DetailedBalanceError::NumericalResolution {
             direction: Some(direction),
         });
     }
-    if log_acceptance_ratio.is_nan() {
+    if log_alpha.is_nan() {
         cold_path();
         Ok(f64::NEG_INFINITY)
     } else {
-        Ok(log_acceptance_ratio.min(0.0))
+        Ok(log_alpha.min(0.0))
     }
 }
 
@@ -2801,6 +2810,56 @@ mod tests {
             .unwrap();
             assert_eq!(probability.to_bits(), f64::NEG_INFINITY.to_bits());
         }
+    }
+
+    #[test]
+    fn cancelling_hastings_ratio_keeps_finite_acceptance_weight() {
+        let large = 1_152_921_504_606_846_976.0; // 2^60
+        let half_max_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        for (from, to, log_q, expected) in [
+            (-large, -1.0, -large, -1.0),
+            (f64::MAX, -f64::MAX, f64::MAX, -f64::MAX),
+            (half_max_ulp, -f64::MAX, half_max_ulp * 0.5, -f64::MAX),
+        ] {
+            let actual = log_acceptance_probability::<Infallible>(
+                from,
+                to,
+                log_q,
+                DetailedBalanceDirection::Forward,
+            )
+            .unwrap();
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn cancelling_hastings_ratio_preserves_finite_balance_violation() {
+        let proposal = FixedRatioFlip {
+            ratios: [f64::MAX, -f64::MAX],
+            draws: Cell::new(0),
+        };
+        let config = small_config();
+        let error = verify_detailed_balance(
+            &false,
+            &true,
+            &EndpointWeights([f64::MAX, -f64::MAX]),
+            &proposal,
+            &mut StdRng::seed_from_u64(42),
+            config,
+        )
+        .unwrap_err();
+        let DetailedBalanceError::Violation {
+            residual, report, ..
+        } = error
+        else {
+            panic!("expected a finite flow imbalance, got {error:?}");
+        };
+
+        // Every proposal hits. Forward log flow is MAX - MAX = 0;
+        // reverse log flow is -MAX + 0, so the residual is MAX.
+        assert_eq!(report.forward_hits, config.samples());
+        assert_eq!(report.reverse_hits, config.samples());
+        assert_eq!(residual.to_bits(), f64::MAX.to_bits());
     }
 
     #[test]
