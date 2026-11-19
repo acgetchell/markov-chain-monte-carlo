@@ -12,7 +12,7 @@ use serde::{Serialize, Serializer};
 
 use crate::{
     DelayedCommitLogProbMismatch, DelayedProposal, McmcError, Proposal, ProposalMut, Target,
-    numerics::sum_with_roundoff,
+    numerics::{overflow_roundoff, sum_with_roundoff},
 };
 
 /// Combine the target difference and Hastings correction for validated log weights.
@@ -20,38 +20,41 @@ use crate::{
 /// A finite correction that opposes the target difference can expose rounding
 /// error or recover from overflow in that difference. Cancel against the
 /// largest opposing term first and retain both additions' rounding errors.
+/// Check the overflow midpoint before classifying the corrected sum.
 #[expect(
     clippy::redundant_pub_crate,
     reason = "share the acceptance calculation with diagnostics while keeping it internal"
 )]
 pub(crate) fn log_acceptance_ratio(current: f64, proposed: f64, log_q: f64) -> f64 {
     let target_difference = proposed - current;
-    if log_q == 0.0
-        || target_difference.is_sign_negative() == log_q.is_sign_negative()
-        || !log_q.is_finite()
-        || !current.is_finite()
-        || !proposed.is_finite()
-    {
+    if log_q == 0.0 || !log_q.is_finite() || !current.is_finite() || !proposed.is_finite() {
         return target_difference + log_q;
     }
 
-    let (opposing, remaining) = if current.is_sign_negative() == log_q.is_sign_negative()
-        && (proposed.is_sign_negative() == log_q.is_sign_negative()
-            || current.abs() > proposed.abs())
-    {
-        (-current, proposed)
-    } else {
-        (proposed, -current)
-    };
-    let (partial, partial_error) = sum_with_roundoff(opposing, log_q);
+    let (left, right, remaining) =
+        if target_difference.is_sign_negative() == log_q.is_sign_negative() {
+            let sum = target_difference + log_q;
+            if sum.abs() < f64::MAX || !target_difference.is_finite() {
+                return sum;
+            }
+            (proposed, -current, log_q)
+        } else if current.is_sign_negative() == log_q.is_sign_negative()
+            && (proposed.is_sign_negative() == log_q.is_sign_negative()
+                || current.abs() > proposed.abs())
+        {
+            (-current, log_q, proposed)
+        } else {
+            (proposed, log_q, -current)
+        };
+    let (partial, partial_error) = sum_with_roundoff(left, right);
     let (sum, sum_error) = sum_with_roundoff(partial, remaining);
-    if sum.is_finite() {
-        sum + (partial_error + sum_error)
+    let corrected = sum + (partial_error + sum_error);
+    if corrected.abs() < f64::MAX {
+        corrected
+    } else if overflow_roundoff(partial, remaining, partial_error, 0.0).is_some() {
+        f64::MAX.copysign(corrected)
     } else {
-        // Near the overflow boundary, apply the correction in half units
-        // before rounding back into the original range.
-        let (half, half_error) = sum_with_roundoff(partial * 0.5, remaining * 0.5);
-        2.0 * (half + partial_error.mul_add(0.5, half_error))
+        f64::INFINITY.copysign(corrected)
     }
 }
 
@@ -2315,6 +2318,37 @@ mod tests {
             assert!(!chain.state());
             assert_eq!(chain.log_prob().to_bits(), (-large).to_bits());
             assert_eq!((chain.accepted(), chain.rejected()), (0, 1));
+        }
+    }
+
+    #[test]
+    fn acceptance_ratio_distinguishes_finite_values_from_the_overflow_midpoint() {
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        let tiny = half_ulp * f64::EPSILON * 0.25;
+        for sign in [-1.0, 1.0] {
+            let proposed = sign * f64::MAX;
+            let midpoint = sign * f64::INFINITY;
+            // The exact magnitude is MAX + half_ulp minus tiny, whether
+            // the Hastings term supplies the small or large correction.
+            for (current, log_q) in [
+                (sign * tiny, sign * half_ulp),
+                (-sign * half_ulp, -sign * tiny),
+            ] {
+                assert_eq!(
+                    log_acceptance_ratio(current, proposed, log_q).to_bits(),
+                    proposed.to_bits()
+                );
+            }
+            for (current, log_q) in [
+                (0.0, sign * half_ulp),
+                (-sign * half_ulp, 0.0),
+                (-sign * (half_ulp * 0.5), sign * (half_ulp * 0.5)),
+            ] {
+                assert_eq!(
+                    log_acceptance_ratio(current, proposed, log_q).to_bits(),
+                    midpoint.to_bits()
+                );
+            }
         }
     }
 

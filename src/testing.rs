@@ -26,7 +26,7 @@ use rand::Rng;
 use crate::{
     DelayedProposal, Proposal, ProposalMut, Target,
     chain::{InPlaceRollback, log_acceptance_ratio},
-    numerics::{count_as_f64, sum_with_roundoff},
+    numerics::{count_as_f64, overflow_roundoff, sum_with_roundoff},
 };
 
 /// Configuration for empirical detailed-balance verification.
@@ -1377,7 +1377,7 @@ struct TransitionWeight {
 }
 
 /// A centered log flow and its roundoff, kept separate until subtraction.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy)]
 struct LogFlow {
     high: f64,
     low: f64,
@@ -1428,25 +1428,11 @@ impl LogFlow {
                 tail,
             };
         }
-        if !partial.high.is_finite() {
-            return normalized;
-        }
-
-        // Subtract MAX before restoring the roundoff. Close to the overflow
-        // midpoint these subtractions are exact, and the low part can break
-        // a tie even when the rounded excess alone equals half an ulp.
-        let larger = partial.high.abs().max(last.abs());
-        let smaller = partial.high.abs().min(last.abs());
-        let excess = smaller + (larger - f64::MAX);
-        let sign = total.high.signum();
-        let excess = Self::sum(excess, sign * partial.low);
-        let excess = Self::sum(excess.high, sign.mul_add(tail, excess.low));
-        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
-        if excess < Self::exact(half_ulp) {
+        if let Some((low, tail)) = overflow_roundoff(partial.high, last, partial.low, tail) {
             Self {
-                high: sign * f64::MAX,
-                low: sign * excess.high,
-                tail: sign * excess.low,
+                high: f64::MAX.copysign(normalized.high),
+                low,
+                tail,
             }
         } else {
             normalized
@@ -1606,13 +1592,25 @@ where
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    let mut estimate = TransitionEstimate::empty();
-    for _ in 0..samples {
-        if proposal.propose(from, rng).eq(to) {
-            estimate.push(weight);
+    let hits = (0..samples)
+        .filter(|_| proposal.propose(from, rng).eq(to))
+        .count();
+    if hits == 0 || weight.log_acceptance == f64::NEG_INFINITY {
+        TransitionEstimate {
+            hits,
+            ..TransitionEstimate::empty()
+        }
+    } else {
+        // Every hit has the same weight, which is one on its own scale.
+        TransitionEstimate {
+            hits,
+            positive_weights: hits,
+            log_acceptance_scale: weight.log_acceptance,
+            log_flow_scale: weight.log_flow,
+            scaled_mean: 1.0,
+            scaled_squared_deviations: 0.0,
         }
     }
-    estimate
 }
 
 /// Sample an in-place proposal from cloned endpoints and score each exact hit

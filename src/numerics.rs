@@ -69,6 +69,44 @@ pub(crate) fn sum_with_roundoff(left: f64, right: f64) -> (f64, f64) {
     }
 }
 
+/// Recover the signed excess relative to `MAX` and its roundoff for a sum
+/// close to the overflow boundary.
+pub(crate) fn overflow_roundoff(
+    left: f64,
+    right: f64,
+    correction: f64,
+    tail: f64,
+) -> Option<(f64, f64)> {
+    // Subtract MAX before adding the correction. Near the overflow midpoint
+    // these subtractions are exact, so roundoff can distinguish a value just
+    // below the midpoint from the tie that rounds to infinity.
+    let (larger, smaller) = if left.abs() >= right.abs() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let sign = larger.signum();
+    let excess = sign.mul_add(smaller, larger.abs() - f64::MAX);
+    let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+    let (above_midpoint, midpoint_error) = sum_with_roundoff(excess, -half_ulp);
+    let (correction, correction_error) = sum_with_roundoff(-sign * correction, -sign * tail);
+    // Compare the two exact sums lexicographically. Their rounded parts
+    // retain their order, with ties decided by the unrounded errors.
+    if (above_midpoint, midpoint_error) >= (correction, correction_error) {
+        return None;
+    }
+
+    let (gap, gap_error) = sum_with_roundoff(above_midpoint, -correction);
+    let (low, low_error) = sum_with_roundoff(midpoint_error, -correction_error);
+    let (gap, cross_error) = sum_with_roundoff(gap, low);
+    let (excess, excess_error) = sum_with_roundoff(half_ulp, gap);
+    let (correction, correction_error) =
+        sum_with_roundoff(excess_error, gap_error + cross_error + low_error);
+    let (excess, error) = sum_with_roundoff(excess, correction);
+    let error = error + correction_error;
+    Some((sign * excess, sign * error))
+}
+
 /// Convert an observation, lag-pair, chain, or bin count to floating point.
 ///
 /// This is the shared integer-to-float boundary for diagnostics and streaming
@@ -186,7 +224,48 @@ fn polynomial(x: f64, coefficients: &[f64; 8]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{compensated_sum, inverse_normal_lower_tail};
+    use super::{compensated_sum, inverse_normal_lower_tail, overflow_roundoff};
+
+    #[test]
+    fn overflow_midpoint_comparison_preserves_a_small_correction_after_cancellation() {
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        let above = half_ulp.next_up();
+        let distance = above - half_ulp;
+        let tiny = distance * f64::EPSILON * 0.25;
+        for sign in [-1.0, 1.0] {
+            let recovered = overflow_roundoff(
+                sign * f64::MAX,
+                sign * above,
+                -sign * tiny,
+                -sign * distance,
+            )
+            .unwrap();
+            assert_eq!(recovered.0.to_bits(), (sign * half_ulp).to_bits());
+            assert_eq!(recovered.1.to_bits(), (-sign * tiny).to_bits());
+            assert!(
+                overflow_roundoff(sign * f64::MAX, sign * above, 0.0, -sign * distance).is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn overflow_recovery_keeps_roundoff_separate_from_the_recovered_excess() {
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        let above = half_ulp.next_up();
+        let distance = above - half_ulp;
+        for sign in [-1.0, 1.0] {
+            let (excess, error) = overflow_roundoff(
+                sign * f64::MAX,
+                sign * above,
+                -sign * (1.5 * distance),
+                sign,
+            )
+            .unwrap();
+            // H + D - 1.5D + 1 is the representable H - D/2 plus one.
+            assert_eq!(excess.to_bits(), (sign * half_ulp.next_down()).to_bits());
+            assert_eq!(error.to_bits(), sign.to_bits());
+        }
+    }
 
     #[test]
     fn inverse_normal_matches_independent_scipy_quantiles() {
