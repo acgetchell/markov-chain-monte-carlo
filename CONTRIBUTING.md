@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.2.9` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
+The published `research-repo-tools==0.3.0` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -111,7 +111,7 @@ before tagging. See [the release procedure](docs/RELEASING.md).
 | Python | Installed shared baseline; `.python-version` and `project.requires-python` are checked mirrors |
 | Rust and components, including coverage tools | `rust-toolchain.toml` |
 | Cargo tools | `[tool.research-repo-tools.toolchain.cargo]` in `pyproject.toml` |
-| Gitleaks and OSV-Scanner | `[tool.research-repo-tools.toolchain.binaries]` in `pyproject.toml` |
+| Release binaries (dprint, rumdl, Gitleaks, OSV-Scanner) | `[tool.research-repo-tools.toolchain.binaries]` in `pyproject.toml` |
 | Python tools and shared package | Dependency groups and `uv.lock` |
 
 After initial setup, run `just setup` again when declarations change, or `just tools-check` for a read-only inventory. Setup does not upgrade declared versions.
@@ -125,7 +125,7 @@ both package pins, the Python mirrors, lockfile, environment, and notebook kerne
 The main Python 3.15 environment includes Semgrep. Its exact dependency pin, native-wheel requirement, and compatibility overrides live in the root
 `pyproject.toml` and `uv.lock`. `just update-python-dependencies`, security scans, and Dependabot use that shared lockfile. Shared scan and fixture commands own
 the Linux stack-limit workaround required by Semgrep on Python 3.15. Local and SARIF validation use the same `just semgrep` recipe.
-Keep the registry-only release workflow's package pin and resolution cutoff aligned with the adopted version; it selects a package-compatible Python.
+Align the isolated release recipes and workflows with the adopted package pin and resolution cutoff. uv selects a compatible Python.
 
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated
 [GitHub CLI](https://cli.github.com/). CodeRabbit has separate opt-in installation and authentication.
@@ -430,8 +430,8 @@ Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run.
 the retained comparison measures the prepared v0.5.1 tree against it. Preserve that v1 evidence and `tooling/performance-readme.toml` as frozen history. For new
 release preparation, `just performance-prepare` infers the release pair, `just performance-release` retains complete evidence under `docs/performance/runs/`,
 and `just performance-doc` reproduces `docs/performance/current.md`. `just performance-readme` uses the independently reviewed
-`tooling/performance-publication.toml` selection and preparation identities. `just performance-github-assets CURRENT BASELINE` compares native shared release
-assets. See [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the command contracts and interpretation limits.
+`tooling/performance-publication.toml` selection and preparation identities. `just performance-github-assets CURRENT BASELINE` compares historical two-file
+release assets. See [GitHub Release Assets](docs/BENCHMARKING.md#github-release-assets) for complete candidate archive inspection and comparison limits.
 
 Performance guidelines:
 

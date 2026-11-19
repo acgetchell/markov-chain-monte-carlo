@@ -3,6 +3,7 @@
 import hashlib
 import json
 import runpy
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,8 +11,9 @@ from typing import Any
 
 import pytest
 import yaml
-from research_repo_tools import release_staging
-from research_repo_tools.release_assets import GitHubRelease, ReleaseTarget, serialize_release_target
+from research_repo_tools import release_publishing, release_staging
+from research_repo_tools.config import load as load_config
+from research_repo_tools.release_assets import GitHubRelease, ReleasePublicationUnknownError, ReleaseTarget, serialize_release_target
 from tooling import release_candidate as candidate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -429,6 +431,104 @@ def test_publication_pins_canonical_archive_and_full_acceptance(
             candidate.receive(root, output, assertions, source=candidate.ReviewedAcceptance(digest))
         assert selections == ([None] if failure == "reviewed-digest" else [])
         assert not (output / "acceptance.json").exists()
+
+
+@pytest.fixture
+def staged_publication(tmp_path: Path, transfer: dict[str, Any], drift: str) -> tuple[Path, Path, Path, ReleaseTarget]:
+    """Retain the owner's original selection, then attach the canonical archive."""
+    root, owner = tmp_path / "checkout", tmp_path / "owner"
+    root.mkdir()
+    final = candidate.final_directory(owner, SHA, "independent")
+    final.mkdir(parents=True)
+    target = transfer["target"]
+    assert isinstance(target, ReleaseTarget)
+    payloads, data = transfer["payloads"], transfer["data"]
+    (final / "acceptance.json").write_bytes(payloads["acceptance"] + (b"replacement" if drift == "acceptance" else b""))
+    (final / "target.json").write_bytes(serialize_release_target(replace(target, release_id=43) if drift == "prepared-target" else target))
+    (final / "transfer.json").write_bytes(json.dumps(data).encode())
+    payloads["attached"] = payloads["archive"]
+    data["assets"]["attached"] = {"name": candidate.archive_name(TAG), "id": 50, "sha256": data["assets"]["archive"]["sha256"]}
+    return root, owner, final, target
+
+
+@pytest.mark.parametrize(
+    ("drift", "diagnostic"),
+    [
+        ("none", None),
+        ("acceptance", "saved transfer acceptance differs"),
+        ("prepared-target", "saved transfer target differs"),
+        ("asset", "candidate asset identity changed"),
+        ("after-seal", "candidate asset identity changed"),
+        ("during-write", "publication outcome unknown"),
+        ("draft", "release identity differs from captured target"),
+    ],
+)
+def test_publish_requires_the_reviewed_draft_and_assets(
+    staged_publication: tuple[Path, Path, Path, ReleaseTarget],
+    monkeypatch: pytest.MonkeyPatch,
+    transfer: dict[str, Any],
+    drift: str,
+    diagnostic: str | None,
+) -> None:
+    root, owner, final, target = staged_publication
+    data, calls = transfer["data"], transfer["calls"]
+
+    def verify(checkout: Path, selected_owner: Path, selection: str, *, commit: str) -> Path:
+        assert (checkout, selected_owner, selection, commit) == (root, owner, "independent", SHA)
+        calls.append("review")
+        return final / "acceptance.json"
+
+    def download(*args: Any, **kwargs: Any) -> None:
+        transfer["download"](*args, **kwargs)
+        if drift == "asset":
+            data["assets"]["policy"]["id"] = 99
+
+    published: list[str] = []
+    receipt = final / "publication-transfer.json"
+    endpoint = f"repos/{candidate.REPOSITORY}/releases/{target.release_id}"
+
+    def publish(command: str, args: list[str], *, cwd: Path, timeout: int) -> subprocess.CompletedProcess[bytes]:
+        assert (command, cwd, timeout) == ("gh", root, 600)
+        assert args == ["api", "--method", "PATCH", endpoint, "--field", "draft=false"]
+        published.append(args[3])
+        if drift == "during-write":
+            data["assets"]["attached"]["id"] = 51
+        return subprocess.CompletedProcess(args, 0, b"{}", b"")
+
+    def lookup(*_args: object) -> GitHubRelease:
+        observed = transfer["release"]()
+        assert isinstance(observed, GitHubRelease)
+        if drift == "after-seal":
+            assert receipt.is_file()
+            data["assets"]["attached"]["id"] = 51
+        return replace(observed, identifier=43 if drift == "draft" else target.release_id, draft=not published, immutable=bool(published))
+
+    options = candidate.argument_parser().parse_args(["publish", TAG, str(owner), "--selection", "independent"])
+    monkeypatch.setattr(candidate, "release_tag", lambda _root: TAG)
+    monkeypatch.setattr(candidate, "resolve_revision", lambda *_args: SHA)
+    monkeypatch.setattr(candidate, "verify_existing", verify)
+    monkeypatch.setattr(candidate, "revalidate_release_target", transfer["release"])
+    monkeypatch.setattr(candidate, "download_release_asset", download)
+    monkeypatch.setattr(candidate, "load_config", lambda **_kwargs: load_config(root=ROOT))
+    monkeypatch.setattr(candidate, "run_command_bytes", publish)
+    monkeypatch.setattr(release_publishing, "check_release_source", lambda *_args, **_kwargs: SHA)
+    monkeypatch.setattr(release_publishing, "lookup_release", lookup)
+    monkeypatch.setattr(release_publishing, "_release_assertions", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("research_repo_tools.release_assets._gh", lambda *_args: pytest.fail("unexpected provider call"))
+
+    if diagnostic is None:
+        candidate.run_owner_operation(root, options)
+        selected = candidate.require_publication_transfer(candidate.parse_transfer(receipt.read_bytes()))
+        assert (selected.original.target, selected.attached.identifier) == (target, 50)
+    else:
+        expected = ReleasePublicationUnknownError if drift == "during-write" else ValueError
+        with pytest.raises(expected, match=diagnostic) as failure:
+            candidate.run_owner_operation(root, options)
+        if drift == "during-write":
+            assert "candidate asset identity changed" in str(failure.value.__cause__)
+        assert receipt.exists() == (drift in {"draft", "after-seal", "during-write"})
+    assert published == ([endpoint] if diagnostic is None or drift == "during-write" else [])
+    assert calls[0] == "review"
 
 
 @pytest.mark.parametrize("failure", ["missing", "malformed", "replaced"])

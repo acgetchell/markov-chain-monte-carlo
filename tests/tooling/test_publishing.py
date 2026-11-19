@@ -16,16 +16,16 @@ from research_repo_tools import changelog, config, dependency_provenance, releas
 from research_repo_tools.cli import main
 from research_repo_tools.just_inspect import dry_run, inspect_justfile
 from research_repo_tools.process import run_command
+from research_repo_tools.registry import RegistryVersion
+from research_repo_tools.release_assets import ReleaseTarget, serialize_release_target
 from research_repo_tools.release_publishing import require_checks
 
 from tests.tooling.support_evidence import install_clean_checkout
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ROOT = REPO_ROOT
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
 COMMIT = "a" * 40
 WORKFLOW = REPO_ROOT / ".github/workflows/publish-crates.yml"
-SHA = "a" * 40
 POLICY = config.load(root=REPO_ROOT)
 VERSION = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
 TAG = f"v{VERSION}"
@@ -67,7 +67,7 @@ def release_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     for key, value in {
         "GITHUB_EVENT_NAME": "release",
         "GITHUB_REPOSITORY": "acgetchell/markov-chain-monte-carlo",
-        "GITHUB_SHA": SHA,
+        "GITHUB_SHA": COMMIT,
         "GITHUB_REF": f"refs/tags/{TAG}",
         "GITHUB_EVENT_PATH": str(event_file),
     }.items():
@@ -75,17 +75,17 @@ def release_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
 
     def git(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         assert args in (["--no-pager", "rev-parse", "HEAD"], ["--no-pager", "status", "--porcelain", "--untracked-files=all"])
-        return subprocess.CompletedProcess(args, 0, stdout=SHA if "rev-parse" in args else "", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout=COMMIT if "rev-parse" in args else "", stderr="")
 
     checks = [
-        {"id": index, "name": name, "head_sha": SHA, "app": {"id": 15368}, "status": "completed", "conclusion": "success"}
+        {"id": index, "name": name, "head_sha": COMMIT, "app": {"id": 15368}, "status": "completed", "conclusion": "success"}
         for index, name in enumerate(CHECKS, 1)
     ]
     responses: dict[str, object] = {
         "": {"full_name": "acgetchell/markov-chain-monte-carlo", "default_branch": "main"},
         "branches/main": {"name": "main", "protected": True},
-        f"compare/{SHA}...main": {"status": "identical"},
-        f"commits/{SHA}/check-runs?filter=latest&per_page=100": [{"total_count": len(checks), "check_runs": checks}],
+        f"compare/{COMMIT}...main": {"status": "identical"},
+        f"commits/{COMMIT}/check-runs?filter=latest&per_page=100": [{"total_count": len(checks), "check_runs": checks}],
     }
     monkeypatch.setattr(release_publishing, "run_git_command", git)
 
@@ -94,12 +94,12 @@ def release_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     def published(root: Path, *, packages: tuple[str, ...] | None = None) -> tuple[dependency_provenance.DependencyIdentity, ...]:
         assert root == REPO_ROOT
         assert packages == ("research-repo-tools",)
-        return (dependency_provenance.DependencyIdentity("research-repo-tools", "0.2.9", "https://pypi.org/simple"),)
+        return (dependency_provenance.DependencyIdentity("research-repo-tools", "0.3.0", "https://pypi.org/simple"),)
 
     monkeypatch.setattr(dependency_provenance, "check_release_dependencies", published)
-    install_clean_checkout(monkeypatch, REPO_ROOT, SHA)
+    install_clean_checkout(monkeypatch, REPO_ROOT, COMMIT)
     monkeypatch.setattr(release_publishing, "_api", lambda _root, _repo, endpoint, **_kwargs: responses[endpoint])
-    monkeypatch.setattr(release_publishing, "_remote_commit", lambda *_args: SHA)
+    monkeypatch.setattr(release_publishing, "_remote_commit", lambda *_args: COMMIT)
     release = release_publishing.GitHubRelease(
         repository="acgetchell/markov-chain-monte-carlo",
         tag=TAG,
@@ -126,7 +126,7 @@ def test_each_configured_native_check_is_required(release_event: dict[str, Any],
     check["name"] = "unrelated check"
     assert main(["--root", str(REPO_ROOT), "release", "gate", TAG]) == 1
     diagnostic = capsys.readouterr().err
-    assert f"Unmet release checks on exact commit {SHA}:" in diagnostic
+    assert f"Unmet release checks on exact commit {COMMIT}:" in diagnostic
     assert f"required check {name!r} (app ID 15368): missing" in diagnostic
 
 
@@ -154,6 +154,36 @@ def test_installed_gate_checks_generated_body_and_title(
         assert ("release title differs" if mismatch == "title" else "release body differs") in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("drift", ["none", "notes", "tag"])
+def test_post_upload_verification_rechecks_the_reviewed_release(
+    release_event: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], drift: str
+) -> None:
+    release = replace(release_event["release"], asset_states=((7, "uploaded"),))
+    commit = COMMIT
+    target = tmp_path / "owner's approved target.json"
+    target.write_bytes(serialize_release_target(ReleaseTarget(REPOSITORY, TAG, release.identifier, commit, TAG)))
+
+    def wait(registry: str, package: str, version: str, *, attempts: int, interval: int) -> RegistryVersion:
+        nonlocal release, commit
+        assert (registry, package, version, attempts, interval) == ("crates-io", "markov-chain-monte-carlo", VERSION, 7, 10)
+        if drift == "notes":
+            release = replace(release, body="Edited after upload\n")
+        elif drift == "tag":
+            commit = "b" * 40
+        return RegistryVersion("crates-io", package, version, present=True)
+
+    monkeypatch.setattr(release_publishing, "lookup_release", lambda *_args: release)
+    monkeypatch.setattr(release_publishing, "_remote_commit", lambda *_args: commit)
+    monkeypatch.setattr(release_publishing, "wait_for_version", wait)
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
+    recipe = shlex.split(workflow["jobs"]["publish"]["steps"][-1]["run"])[1]
+    command = shlex.split(dry_run(REPO_ROOT, recipe, [TAG, str(target)]).stderr)
+    assert main(["--root", str(REPO_ROOT), *command[command.index("release") :]]) == (0 if drift == "none" else 1)
+    if drift != "none":
+        diagnostic = "release body differs from generated changelog notes" if drift == "notes" else "published tag differs from captured source"
+        assert diagnostic in capsys.readouterr().err
+
+
 def test_release_notes_stdout_excludes_setup_diagnostics() -> None:
     # The real notes recipe must produce only the installed generator's notes.
     script = dry_run(REPO_ROOT, "release-notes", [TAG]).stderr
@@ -175,22 +205,9 @@ def test_release_notes_stdout_excludes_setup_diagnostics() -> None:
     assert result.stdout == changelog.notes(POLICY, TAG)[0]
 
 
-def test_publish_recipe_passes_explicit_approval(monkeypatch: pytest.MonkeyPatch) -> None:
-    requested: list[str] = []
-
-    def publish(settings: config.Config, tag: str, *, reuse_evidence: object = None) -> None:
-        assert settings.root == REPO_ROOT
-        assert reuse_evidence is None
-        requested.append(tag)
-
-    # Exercise the installed argument parser and dispatch, replacing only the
-    # irreversible publication boundary with an in-memory request recorder.
-    monkeypatch.setattr(release_publishing, "publish_reviewed_release", publish)
-    # Shared publishing policy owns the separately tested title/notes assertions.
-    command = shlex.split(dry_run(REPO_ROOT, "release-publish", [TAG, "/independent-owner"]).stderr.splitlines()[-1])
-    assert command[:8] == ["uv", "run", "--locked", "--group", "dev", "research-repo-tools", "release", "publish"]
-    assert main(["--root", str(REPO_ROOT), *command[6:]]) == 0
-    assert requested == [TAG]
+def test_publish_recipe_uses_the_captured_candidate() -> None:
+    dependencies = inspect_justfile(REPO_ROOT).recipes["release-publish"]["dependencies"]
+    assert [(item["recipe"], item["arguments"][0]) for item in dependencies] == [("_release-candidate", "publish")]
 
 
 def test_workflow_requires_approval_revalidation_and_absence_before_oidc() -> None:
@@ -225,7 +242,7 @@ def test_workflow_requires_approval_revalidation_and_absence_before_oidc() -> No
     assert steps[6]["run"].endswith("toolchain run --tool cargo -- cargo publish --locked --package markov-chain-monte-carlo --registry crates-io --no-verify")
     assert [index for index, step in enumerate(steps) if "CARGO_REGISTRY_TOKEN" in step.get("env", {})] == [6]
     assert steps[7]["if"] == "${{ !cancelled() && steps.auth.outcome == 'success' }}"
-    assert steps[7]["run"] == 'just release-verify "$RELEASE_TAG"'
+    assert steps[7]["run"] == 'just release-verify "$RELEASE_TAG" "$RUNNER_TEMP/accepted-candidate/target.json"'
     assert "continue-on-error" not in WORKFLOW.read_text(encoding="utf-8")
     commands = dry_run(REPO_ROOT, "publish-check").stderr
     assert commands.count("--package markov-chain-monte-carlo --registry crates-io --dry-run") == 2
@@ -302,13 +319,13 @@ def test_actual_approval_artifact_guard_rejects_drift(tmp_path: Path, failure: s
 
 
 def test_shared_release_interface_matches_released_reference() -> None:
-    recipes = inspect_justfile(ROOT).recipes
-    assert {"update-version", "release-version-check", "tag", "release-package", "release-publish", "release-verify"} <= recipes.keys()
+    recipes = inspect_justfile(REPO_ROOT).recipes
+    assert {"update-version", "release-version-check", "tag", "release-package", "release-publish", "release-verify", "release-visibility"} <= recipes.keys()
     assert not {"release-update", "release-check", "tag-release", "tag-preview", "publish"} & recipes.keys()
-    update = dry_run(ROOT, "update-version", ["v9.0.0", "--previous-release", "v8.0.0", "--date", "2099-01-01", "--offline", "--dry-run"]).stderr
+    update = dry_run(REPO_ROOT, "update-version", ["v9.0.0", "--previous-release", "v8.0.0", "--date", "2099-01-01", "--offline", "--dry-run"]).stderr
     assert 'research-repo-tools release update "$@"' in update
     assert "cargo publish" not in update
-    verification = shlex.split(dry_run(ROOT, "release-verify", ["v9.0.0"]).stderr)
+    verification = shlex.split(dry_run(REPO_ROOT, "release-verify", ["v9.0.0"]).stderr)
     assert verification[verification.index("research-repo-tools") :] == [
         "research-repo-tools",
         "release",
@@ -321,7 +338,7 @@ def test_shared_release_interface_matches_released_reference() -> None:
     ]
     for gate in ("ci", "check-repository-tooling"):
         assert "release-version-check" in {item["recipe"] for item in recipes[gate]["dependencies"]}
-    guide = (ROOT / "docs/RELEASING.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs/RELEASING.md").read_text(encoding="utf-8")
     headings = [
         "## Prepare the environment",
         "## Step 1: Prepare the release PR",
@@ -337,6 +354,42 @@ def test_shared_release_interface_matches_released_reference() -> None:
     ]
     positions = [guide.index(heading) for heading in headings]
     assert positions == sorted(positions)
+
+
+def test_visibility_uses_isolated_supplier_and_explicit_release_identities() -> None:
+    settings = POLICY.publishing
+    assert settings is not None
+    target = "owner's approved target.json"
+    command = shlex.split(dry_run(REPO_ROOT, "release-visibility", [TAG, target]).stderr)
+    assert "--no-project" in command
+    assert "--isolated" in command
+    assert command[command.index("--with") + 1] == "research-repo-tools==0.3.0"
+    assert command[command.index("visibility") + 1 :] == [
+        "--repository",
+        settings.repository,
+        "--registry",
+        settings.registry,
+        "--package",
+        settings.package,
+        "--required-asset",
+        settings.required_assets[0].format(version=VERSION),
+        "--attempts",
+        "7",
+        "--interval",
+        "10",
+        "--target",
+        target,
+        "--",
+        TAG,
+    ]
+
+
+def test_tag_force_keeps_metadata_and_review_dependencies() -> None:
+    dependencies = inspect_justfile(REPO_ROOT).recipes["tag"]["dependencies"]
+    assert [item["recipe"] for item in dependencies] == ["release-version-check", "_release-candidate"]
+    assert dependencies[1]["arguments"][0] == "reviewed"
+    command = dry_run(REPO_ROOT, "tag", [TAG, "owner path", "alternate", "--force"]).stderr.splitlines()[-1]
+    assert shlex.split(command)[-4:] == ["changelog", "tag", TAG, "--force"]
 
 
 @pytest.mark.parametrize("failure", ["pending", "failed", "provider", "commit", "ambiguous"])
@@ -381,11 +434,11 @@ def test_consumer_gate_rejects_invalid_event_before_network(tmp_path: Path, monk
         "GITHUB_EVENT_PATH": str(event),
     }.items():
         monkeypatch.setenv(key, value)
-    assert main(["--root", str(ROOT), "release", "gate", "v0.5.1"]) == 1
+    assert main(["--root", str(REPO_ROOT), "release", "gate", "v0.5.1"]) == 1
 
 
 def test_settings_payloads_restrict_deployments_and_allow_only_pinned_authentication() -> None:
-    settings = ROOT / ".github/settings"
+    settings = REPO_ROOT / ".github/settings"
     environment = json.loads((settings / "crates-io-environment.json").read_bytes())
     assert environment["reviewers"] == [{"type": "User", "id": 434849}]
     assert environment["can_admins_bypass"] is False
@@ -393,7 +446,7 @@ def test_settings_payloads_restrict_deployments_and_allow_only_pinned_authentica
     assert json.loads((settings / "crates-io-tags.json").read_bytes()) == {"name": "v*", "type": "tag"}
     actions = json.loads((settings / "actions-selected.json").read_bytes())
     auth = [entry for entry in actions["patterns_allowed"] if entry.startswith("rust-lang/")]
-    workflow = yaml.safe_load((ROOT / ".github/workflows/publish-crates.yml").read_bytes())
+    workflow = yaml.safe_load(WORKFLOW.read_bytes())
     step = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("id") == "auth")
     # Permit main and the independently reviewed #219 upgrade during adoption.
     approved = {

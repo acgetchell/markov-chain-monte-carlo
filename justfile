@@ -23,6 +23,7 @@ dependency-source name *args:
 
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
+release_rrt := "uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-19T04:26:14Z --with research-repo-tools==0.3.0 python -I -m research_repo_tools"
 actions_inputs := quote(".github/workflows") + " " + quote(".github/actions/setup-toolchain/action.yml")
 
 # Validate coupled Actions pins without network access or environment sync.
@@ -506,7 +507,7 @@ release-evidence owner="" selection="reviewed": (_release-candidate "verify" own
 [group('release')]
 [positional-arguments]
 [private]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-19T04:26:14Z", "--with", "research-repo-tools==0.3.0", "python", "-I")]
 _release-candidate *args:
     import runpy
     from pathlib import Path
@@ -523,11 +524,8 @@ release-archive owner="" selection="reviewed": (_release-candidate "archive" own
 # Retrieve authenticated draft receipts or resume an original shared writer journal.
 [group('release')]
 [positional-arguments]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
 release-assets +args:
-    import sys
-    from research_repo_tools.cli import main
-    sys.exit(main(["release", "--isolated-runtime", "assets", *sys.argv[1:]]))
+    {{ release_rrt }} release --isolated-runtime assets "$@"
 
 # Stage accepted inert files and retain their original provider IDs and hashes.
 [group('release')]
@@ -550,7 +548,7 @@ release-upload tag owner="" selection="reviewed": (_release-candidate "upload" t
 # Native-only diagnostic; candidate reuse requires release-evidence.
 [group('release')]
 [positional-arguments]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-16T17:32:49Z", "--with", "research-repo-tools==0.2.9", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-19T04:26:14Z", "--with", "research-repo-tools==0.3.0", "python", "-I")]
 release-native-evidence *args:
     import sys
     import tempfile
@@ -583,13 +581,17 @@ release-package:
 
 # Approve GitHub publication after rechecking the existing review and archive.
 [group('release')]
-release-publish tag owner="" selection="reviewed": (_release-candidate "reviewed" ("--tag=" + tag) owner "--selection" selection) (release-publication owner selection)
-    {{ rrt }} release publish {{ quote(tag) }} --approve
+release-publish tag owner="" selection="reviewed": (_release-candidate "publish" tag owner "--selection" selection)
 
 # Require the stable GitHub Release/assets and exact published registry version.
 [group('release')]
-release-verify tag:
-    {{ rrt }} release verify {{ quote(tag) }} --attempts 7 --interval 10
+release-verify tag target="":
+    {{ rrt }} release verify {{ quote(tag) }} --attempts 7 --interval 10{{ if target == "" { "" } else { " --target " + quote(target) } }}
+
+# Observe immutable GitHub assets and the exact registry version without using the checkout.
+[group('release')]
+release-visibility tag target="":
+    {{ release_rrt }} release visibility --repository acgetchell/markov-chain-monte-carlo --registry crates-io --package markov-chain-monte-carlo --required-asset {{ quote("markov-chain-monte-carlo-" + tag + "-criterion-baseline.tar.gz") }} --attempts 7 --interval 10{{ if target == "" { "" } else { " --target " + quote(target) } }} -- {{ quote(tag) }}
 
 # Require matching final changelog, package and citation metadata.
 [group('release')]
@@ -661,10 +663,11 @@ spell-check:
 sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
-# Create an annotated tag from validated release notes (maintainer only).
+# Create or explicitly replace a local annotated tag after full review (maintainer only).
+[arg('force', long, value='--force')]
 [group('release')]
-tag version owner="" selection="reviewed": release-version-check (_release-candidate "reviewed" owner "--selection" selection)
-    {{ rrt }} changelog tag {{ quote(version) }}
+tag version owner="" selection="reviewed" force="": release-version-check (_release-candidate "reviewed" ("--tag=" + version) owner "--selection" selection)
+    {{ rrt }} changelog tag {{ quote(version) }}{{ if force == "" { "" } else { " " + force } }}
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
 [group('tests and coverage')]
@@ -794,7 +797,7 @@ validate-json: _ensure-jq
 # Check external step and reusable-workflow identities against one strict policy.
 [group('validation')]
 workflow-allowlist-check:
-    uv run --locked --group dev research-repo-tools actions allowlist --policy .github/settings/actions-selected.json .github/workflows
+    uv run --locked --group dev research-repo-tools actions allowlist --policy .github/settings/actions-selected.json {{ actions_inputs }}
 
 # YAML formatting check
 [group('validation')]

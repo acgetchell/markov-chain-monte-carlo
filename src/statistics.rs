@@ -4,8 +4,10 @@ use core::hint::cold_path;
 
 use std::{error::Error, fmt};
 
-use crate::TryAccumulator;
-use crate::numerics::count_as_f64;
+use crate::{
+    TryAccumulator,
+    numerics::{count_as_f64, sum_with_roundoff},
+};
 
 /// Errors from fallible statistical accumulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +118,9 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 /// so invalid floating-point values are rejected before they can become part of
 /// the accumulator state.
 ///
-/// The accumulator uses constant memory regardless of sample count.
+/// The accumulator retains the mean's rounding error so variance can
+/// resolve variation between nearby values even when the mean rounds to one
+/// of the samples.
 ///
 /// # Examples
 ///
@@ -136,6 +140,7 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 pub struct OnlineStats {
     count: usize,
     mean: f64,
+    mean_roundoff: f64,
     m2: f64,
 }
 
@@ -152,6 +157,7 @@ impl OnlineStats {
         Self {
             count: 0,
             mean: 0.0,
+            mean_roundoff: 0.0,
             m2: 0.0,
         }
     }
@@ -202,9 +208,11 @@ impl OnlineStats {
             .checked_add(1)
             .ok_or(StatisticsError::CountOverflow)?;
         let sample = sample.into_inner();
-        let delta = sample - self.mean;
-        self.mean += delta / count_as_f64(self.count);
-        let delta_after = sample - self.mean;
+        // Subtract the high part first so a sub-ulp correction survives.
+        let delta = (sample - self.mean) - self.mean_roundoff;
+        let increment = delta / count_as_f64(self.count) + self.mean_roundoff;
+        (self.mean, self.mean_roundoff) = sum_with_roundoff(self.mean, increment);
+        let delta_after = (sample - self.mean) - self.mean_roundoff;
         self.m2 = delta.mul_add(delta_after, self.m2);
         Ok(())
     }
@@ -566,16 +574,12 @@ impl BinningLevel {
     /// the next coarser level.
     fn estimate(&self) -> Option<BinningEstimate> {
         let mean = self.stats.mean()?;
-        let sample_variance = self.stats.sample_variance();
-        let standard_error =
-            sample_variance.map(|variance| (variance / count_as_f64(self.stats.count())).sqrt());
-
         Some(BinningEstimate {
             block_size: self.block_size,
             block_count: self.stats.count(),
             mean,
-            sample_variance,
-            standard_error,
+            sample_variance: self.stats.sample_variance(),
+            standard_error: self.stats.standard_error(),
         })
     }
 
@@ -1028,7 +1032,7 @@ mod tests {
         let mut stats = OnlineStats {
             count: usize::MAX,
             mean: 1.0,
-            m2: 0.0,
+            ..OnlineStats::new()
         };
         let before = stats;
         assert_eq!(stats.try_push(1.0), Err(StatisticsError::CountOverflow));
@@ -1059,6 +1063,28 @@ mod tests {
         assert_close(stats.sample_variance().unwrap(), 32.0 / 7.0);
         assert_close(stats.population_std_dev().unwrap(), 2.0);
         assert_close(stats.standard_error().unwrap(), (4.0_f64 / 7.0).sqrt());
+    }
+
+    #[test]
+    fn online_variance_resolves_adjacent_samples_in_either_order() {
+        let low = 1.0_f64;
+        let high = low.next_up();
+        let gap = high - low;
+        // One low and three high draws give a sample variance of gap² / 4.
+        let expected = (0.5 * gap).powi(2);
+        for samples in [[low, high, high, high], [high, high, high, low]] {
+            let stats = OnlineStats::try_from_iter(samples).unwrap();
+            assert_relative_eq!(
+                stats.sample_variance().unwrap(),
+                expected,
+                epsilon = 0.0,
+                max_relative = f64::EPSILON,
+            );
+            let bins = BinningAnalysis::try_from_iter(samples).unwrap();
+            let raw_level = bins.estimates().next().unwrap();
+            assert_eq!(raw_level.sample_variance(), stats.sample_variance());
+            assert_eq!(raw_level.standard_error(), stats.standard_error());
+        }
     }
 
     #[test]
@@ -1147,7 +1173,7 @@ mod tests {
         let mut stats = OnlineStats {
             count: 1,
             mean: f64::NAN,
-            m2: 0.0,
+            ..OnlineStats::new()
         };
 
         assert_eq!(stats.try_push(1.0), Err(StatisticsError::NanMean));
@@ -1162,6 +1188,7 @@ mod tests {
             count: 1,
             mean: 1.0,
             m2: f64::NAN,
+            ..OnlineStats::new()
         };
 
         assert_eq!(

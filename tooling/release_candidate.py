@@ -1,8 +1,8 @@
 """MCMC acquisition orchestration aligned with la-stack v0.5.4.
 
 Based on the released adapter at 560b8dd736cdc83441e888e36c25dc5ddc069fea.
-RRT owns verification, archive handling and provider operations; MCMC owns its
-release selection, operator commands and scientific declarations.
+RRT owns verification, archive handling and staging. MCMC binds its reviewed
+asset selection to publication and owns its scientific declarations.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from functools import partial
@@ -31,9 +32,10 @@ from research_repo_tools.files import replace_many
 from research_repo_tools.measurement import resolve_revision
 from research_repo_tools.performance_progress import ProgressReporter
 from research_repo_tools.performance_release import load_performance_release, load_preparation, measure_release, serialize_preparation
-from research_repo_tools.process import run_command
+from research_repo_tools.process import run_command, run_command_bytes
 from research_repo_tools.publication import publish_publication
 from research_repo_tools.release_assets import (
+    ReleasePublicationUnknownError,
     download_release_asset,
     parse_release_target,
     require_release_checkout,
@@ -47,7 +49,7 @@ from research_repo_tools.release_staging import stage_release_assets
 from research_repo_tools.release_validation import api, parse_release_json
 
 if TYPE_CHECKING:
-    from research_repo_tools.release_assets import ReleaseTarget
+    from research_repo_tools.release_assets import GitHubRelease, ReleaseTarget
 
 SETTINGS = "tooling/performance-release.toml"
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -558,28 +560,58 @@ def stage(root: Path, owner: Path, selection: str, prepared_target: Path | None 
     return final / "transfer.json"
 
 
-def seal(root: Path, owner: Path, selection: str) -> Path:
+def seal(root: Path, acceptance: Path, commit: str) -> PublicationTransfer:
     """Independently select the canonical attached asset before publication."""
-    final = final_directory(owner, resolve_revision(root, "HEAD"), selection)
+    final = acceptance.parent
     transfer = require_draft_transfer(parse_transfer((final / "transfer.json").read_bytes()))
-    if transfer.target.tag != release_tag(root):
-        message = "saved transfer tag differs from the package release"
+    target = parse_release_target((final / "target.json").read_bytes())
+    if transfer.target != target or (target.tag, target.commit) != (release_tag(root), commit):
+        message = "saved transfer target differs from the prepared release"
         raise ValueError(message)
-    release = revalidate_release_target(root, transfer.target, checkout=root)
-    name = archive_name(transfer.target.tag)
+    if hashlib.sha256(acceptance.read_bytes()).hexdigest() != transfer.assets.acceptance.sha256:
+        message = "saved transfer acceptance differs from the reviewed acceptance"
+        raise ValueError(message)
+    release = revalidate_release_target(root, target, checkout=root)
+    name = archive_name(target.tag)
     entry = next((item for item in release.assets if item[0] == name), None)
     if entry is None:
         message = "canonical accepted benchmark archive is not yet attached"
         raise ValueError(message)
     digest = transfer.assets.archive.sha256
     publication = PublicationTransfer(transfer, AssetAssertion(name, entry[1], digest))
+    require_candidate_asset_identities(release, publication)
     with tempfile.TemporaryDirectory(prefix="markov-chain-monte-carlo-seal-") as temporary:
-        download_release_asset(root, REPOSITORY, transfer.target.tag, name, Path(temporary) / "archive.tar.gz", expected_sha256=digest, allow_draft=True)
-    if entry not in revalidate_release_target(root, transfer.target, checkout=root).assets:
+        download_release_asset(root, REPOSITORY, target.tag, name, Path(temporary) / "archive.tar.gz", expected_sha256=digest, allow_draft=True)
+    current = revalidate_release_target(root, target, checkout=root)
+    if entry not in current.assets:
         message = "attached archive identity changed during verification"
         raise ValueError(message)
+    require_candidate_asset_identities(current, publication)
     freeze(final, {"publication-transfer.json": serialize_transfer(publication)})
-    return final / "publication-transfer.json"
+    return publication
+
+
+def publish_candidate(root: Path, transfer: PublicationTransfer) -> None:
+    """Check the sealed identities at the publication boundary and confirm the immutable result."""
+    target = transfer.original.target
+    config = load_config(root=root)
+    reviewed = check_reviewed_release(config, target.tag, draft=True, target=target)
+    current = revalidate_release_target(root, target, checkout=root, dependencies=config.release.published_dependencies)
+    if current.body != reviewed.body:
+        message = "draft release notes changed before publication"
+        raise ValueError(message)
+    require_candidate_asset_identities(current, transfer)
+
+    # GitHub publishes by release ID and provides no conditional asset precondition.
+    # Verify the immutable result before reporting success. Never retry this write.
+    try:
+        run_command_bytes(
+            "gh", ["api", "--method", "PATCH", f"repos/{target.repository}/releases/{target.release_id}", "--field", "draft=false"], cwd=root, timeout=600
+        )
+        check_published_transfer(root, transfer)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        message = f"publication outcome unknown for {target.repository} release {target.release_id}: inspect the immutable release before retrying"
+        raise ReleasePublicationUnknownError(message) from error
 
 
 def record_path(root: Path, owner: Path, selection: str, role: Literal["transfer", "publication"]) -> Path:
@@ -706,10 +738,15 @@ def check_published_transfer(root: Path, transfer: PublicationTransfer) -> None:
     ):
         message = "candidate release identity changed"
         raise ValueError(message)
+    require_candidate_asset_identities(release, transfer)
+
+
+def require_candidate_asset_identities(release: GitHubRelease, transfer: PublicationTransfer) -> None:
+    """Check retained asset IDs and any digests reported by the provider."""
     for _role, asset in transfer.role_assertions():
         entry = next((item for item in release.assets if item[0] == asset.name), None)
-        if entry is None or entry[1] != asset.identifier or (entry[3] is not None and entry[3] != asset.sha256):
-            message = "candidate asset identity changed"
+        if entry is None or entry[1] != asset.identifier or entry[2] <= 0 or (entry[3] is not None and entry[3] != asset.sha256):
+            message = f"candidate asset identity changed: {asset.name}"
             raise ValueError(message)
 
 
@@ -833,11 +870,11 @@ def argument_parser() -> argparse.ArgumentParser:
     measurement.add_argument("--owner-directory", type=Path)
     measurement.add_argument("--progress", choices=("human", "json", "none"), default="human")
     measurement.add_argument("--progress-cadence", type=float, default=300)
-    for name in ("capture", "verify", "reviewed", "archive", "stage", "seal", "record", "upload"):
+    for name in ("capture", "verify", "reviewed", "archive", "stage", "seal", "record", "publish", "upload"):
         command = commands.add_parser(name)
         if name == "record":
             command.add_argument("role", choices=("transfer", "publication"))
-        if name == "upload":
+        if name in {"publish", "upload"}:
             command.add_argument("tag")
         if name == "reviewed":
             command.add_argument("--tag", help="require the requested publication tag to match the checkout")
@@ -860,7 +897,7 @@ def argument_parser() -> argparse.ArgumentParser:
 
 def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
     """Route operations after resolving their independent acquisition owner."""
-    if options.operation == "reviewed" and options.tag is not None and options.tag != release_tag(root):
+    if options.operation in {"reviewed", "publish"} and options.tag is not None and options.tag != release_tag(root):
         message = "requested publication tag differs from the package release"
         raise ValueError(message)
     owner = selected_owner(root, options.owner_directory)
@@ -878,9 +915,17 @@ def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
     elif options.operation == "stage":
         print(stage(root, owner, options.selection, Path(options.target) if options.target else None))
     elif options.operation == "seal":
-        print(seal(root, owner, options.selection))
+        commit = resolve_revision(root, "HEAD")
+        final = final_directory(owner, commit, options.selection)
+        seal(root, final / "acceptance.json", commit)
+        print(final / "publication-transfer.json")
     elif options.operation == "record":
         print(record_path(root, owner, options.selection, options.role))
+    elif options.operation == "publish":
+        commit = resolve_revision(root, "HEAD")
+        acceptance = verify_existing(root, owner, options.selection, commit=commit)
+        transfer = seal(root, acceptance, commit)
+        publish_candidate(root, transfer)
     elif options.operation == "upload":
         upload_dispatch(root, owner, options.selection, options.tag)
     else:

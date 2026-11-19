@@ -24,7 +24,9 @@ use std::{error::Error, fmt};
 use rand::Rng;
 
 use crate::{
-    DelayedProposal, Proposal, ProposalMut, Target, chain::InPlaceRollback, numerics::count_as_f64,
+    DelayedProposal, Proposal, ProposalMut, Target,
+    chain::{InPlaceRollback, log_acceptance_ratio},
+    numerics::{count_as_f64, overflow_roundoff, sum_with_roundoff},
 };
 
 /// Configuration for empirical detailed-balance verification.
@@ -721,18 +723,12 @@ where
     let reverse_log_q_ratio = proposal.log_q_ratio(proposed, current);
     check_log_q_ratio(DetailedBalanceDirection::Reverse, reverse_log_q_ratio)?;
 
-    let forward_acceptance = log_acceptance_probability(
-        endpoint_log_probs.current,
-        endpoint_log_probs.proposed,
-        forward_log_q_ratio,
-        DetailedBalanceDirection::Forward,
-    )?;
-    let reverse_acceptance = log_acceptance_probability(
-        endpoint_log_probs.proposed,
-        endpoint_log_probs.current,
-        reverse_log_q_ratio,
-        DetailedBalanceDirection::Reverse,
-    )?;
+    let forward_weight = endpoint_log_probs
+        .request(DetailedBalanceDirection::Forward, config.samples())
+        .weight(endpoint_log_probs.proposed, forward_log_q_ratio)?;
+    let reverse_weight = endpoint_log_probs
+        .request(DetailedBalanceDirection::Reverse, config.samples())
+        .weight(endpoint_log_probs.current, reverse_log_q_ratio)?;
 
     let forward = estimate_by_value_transition(
         current,
@@ -740,7 +736,7 @@ where
         proposal,
         rng,
         config.samples(),
-        forward_acceptance,
+        forward_weight,
     );
     let reverse = estimate_by_value_transition(
         proposed,
@@ -748,7 +744,7 @@ where
         proposal,
         rng,
         config.samples(),
-        reverse_acceptance,
+        reverse_weight,
     );
 
     finish_report(endpoint_log_probs, forward, reverse, config)
@@ -909,11 +905,7 @@ where
         target,
         proposal,
         rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.current,
-            direction: DetailedBalanceDirection::Forward,
-        },
+        endpoint_log_probs.request(DetailedBalanceDirection::Forward, config.samples()),
     )?;
     let reverse = estimate_mut_transition(
         proposed,
@@ -921,11 +913,7 @@ where
         target,
         proposal,
         rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.proposed,
-            direction: DetailedBalanceDirection::Reverse,
-        },
+        endpoint_log_probs.request(DetailedBalanceDirection::Reverse, config.samples()),
     )?;
 
     finish_report(endpoint_log_probs, forward, reverse, config)
@@ -1253,11 +1241,7 @@ where
         target,
         proposal,
         rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.current,
-            direction: DetailedBalanceDirection::Forward,
-        },
+        endpoint_log_probs.request(DetailedBalanceDirection::Forward, config.samples()),
         plan_matches.0,
     )?;
     let reverse = estimate_delayed_transition(
@@ -1265,11 +1249,7 @@ where
         target,
         proposal,
         rng,
-        TransitionRequest {
-            samples: config.samples(),
-            from_log_prob: endpoint_log_probs.proposed,
-            direction: DetailedBalanceDirection::Reverse,
-        },
+        endpoint_log_probs.request(DetailedBalanceDirection::Reverse, config.samples()),
         plan_matches.1,
     )?;
 
@@ -1281,6 +1261,25 @@ where
 struct EndpointLogProbs {
     current: f64,
     proposed: f64,
+}
+
+impl EndpointLogProbs {
+    const fn request(
+        self,
+        direction: DetailedBalanceDirection,
+        samples: usize,
+    ) -> TransitionRequest {
+        let from_log_prob = match direction {
+            DetailedBalanceDirection::Forward => self.current,
+            DetailedBalanceDirection::Reverse => self.proposed,
+        };
+        TransitionRequest {
+            samples,
+            direction,
+            from_log_prob,
+            flow_origin: self.current.min(self.proposed),
+        }
+    }
 }
 
 /// Evaluate and validate both endpoint target log-probabilities before sampling
@@ -1355,7 +1354,8 @@ const fn check_hits<E>(
 struct TransitionEstimate {
     hits: usize,
     positive_weights: usize,
-    log_weight_scale: f64,
+    log_acceptance_scale: f64,
+    log_flow_scale: LogFlow,
     scaled_mean: f64,
     scaled_squared_deviations: f64,
 }
@@ -1365,7 +1365,90 @@ struct TransitionEstimate {
 struct TransitionRequest {
     samples: usize,
     from_log_prob: f64,
+    flow_origin: f64,
     direction: DetailedBalanceDirection,
+}
+
+/// One proposal's conditional acceptance and its flow relative to the lower endpoint.
+#[derive(Debug, Clone, Copy)]
+struct TransitionWeight {
+    log_acceptance: f64,
+    log_flow: LogFlow,
+}
+
+/// A centered log flow and its roundoff, kept separate until subtraction.
+#[derive(Debug, Clone, Copy)]
+struct LogFlow {
+    high: f64,
+    low: f64,
+    tail: f64,
+}
+
+impl LogFlow {
+    const fn exact(high: f64) -> Self {
+        Self {
+            high,
+            low: 0.0,
+            tail: 0.0,
+        }
+    }
+
+    fn sum(left: f64, right: f64) -> Self {
+        let (high, low) = sum_with_roundoff(left, right);
+        Self {
+            high,
+            low,
+            tail: 0.0,
+        }
+    }
+
+    fn sum_three(first: f64, second: f64, third: f64) -> Self {
+        Self::sum_with_tail(first, second, third, 0.0)
+    }
+
+    fn sum_with_tail(first: f64, second: f64, third: f64, tail: f64) -> Self {
+        // Prefer cancellation before adding the last large term. With equal
+        // signs add the smaller correction first to defer possible overflow.
+        let second_opposes = first.is_sign_negative() != second.is_sign_negative();
+        let third_opposes = first.is_sign_negative() != third.is_sign_negative();
+        let (partial, last) = if !second_opposes && (third_opposes || third.abs() < second.abs()) {
+            (Self::sum(first, third), second)
+        } else {
+            (Self::sum(first, second), third)
+        };
+        let total = Self::sum(partial.high, last);
+        let correction = Self::sum(partial.low, total.low);
+        let correction = Self::sum(correction.high, correction.low + tail);
+        let normalized = Self::sum(total.high, correction.high);
+        if normalized.high.is_finite() {
+            let (low, tail) = sum_with_roundoff(normalized.low, correction.low);
+            return Self {
+                high: normalized.high,
+                low,
+                tail,
+            };
+        }
+        if let Some((low, tail)) = overflow_roundoff(partial.high, last, partial.low, tail) {
+            Self {
+                high: f64::MAX.copysign(normalized.high),
+                low,
+                tail,
+            }
+        } else {
+            normalized
+        }
+    }
+
+    fn difference(self, other: Self) -> f64 {
+        self.difference_with_offset(other, 0.0)
+    }
+
+    fn difference_with_offset(self, other: Self, offset: f64) -> f64 {
+        let correction = Self::sum_three(self.low, -other.low, offset);
+        let tail = Self::sum_three(self.tail, -other.tail, correction.low);
+        let tail = tail.high + (tail.low + tail.tail + correction.tail);
+        Self::sum_with_tail(self.high, -other.high, correction.high, tail).high
+    }
 }
 
 impl TransitionRequest {
@@ -1376,6 +1459,40 @@ impl TransitionRequest {
             DetailedBalanceDirection::Reverse => DetailedBalanceState::Current,
         }
     }
+
+    fn weight<E>(
+        self,
+        proposed_log_prob: f64,
+        log_q_ratio: f64,
+    ) -> Result<TransitionWeight, DetailedBalanceError<E>> {
+        let log_acceptance = log_acceptance_probability(
+            self.from_log_prob,
+            proposed_log_prob,
+            log_q_ratio,
+            self.direction,
+        )?;
+        let log_flow = if log_acceptance.is_finite() && self.flow_origin.is_finite() {
+            // After shifting both scores by the lower endpoint, the accepted
+            // flow is the corrected destination score for a negative log
+            // acceptance and the source score for acceptance one.
+            if log_acceptance < 0.0 {
+                LogFlow::sum_three(proposed_log_prob, -self.flow_origin, log_q_ratio)
+            } else {
+                LogFlow::sum(self.from_log_prob, -self.flow_origin)
+            }
+        } else {
+            LogFlow::exact(log_acceptance)
+        };
+        if log_acceptance.is_finite() && !log_flow.high.is_finite() {
+            return Err(DetailedBalanceError::NumericalResolution {
+                direction: Some(self.direction),
+            });
+        }
+        Ok(TransitionWeight {
+            log_acceptance,
+            log_flow,
+        })
+    }
 }
 
 impl TransitionEstimate {
@@ -1384,29 +1501,37 @@ impl TransitionEstimate {
         Self {
             hits: 0,
             positive_weights: 0,
-            log_weight_scale: f64::NEG_INFINITY,
+            log_acceptance_scale: f64::NEG_INFINITY,
+            log_flow_scale: LogFlow::exact(0.0),
             scaled_mean: 0.0,
             scaled_squared_deviations: 0.0,
         }
     }
 
-    /// Add one matching proposal hit with its Metropolis-Hastings acceptance
-    /// log probability. Welford moments are scaled by the largest observed
-    /// weight, retaining the absolute log scale even when acceptance
-    /// probabilities underflow. Constant weights have exactly zero variance.
-    fn push(&mut self, log_acceptance_probability: f64) {
+    /// Add a matching proposal. A common flow offset preserves weight ratios
+    /// within each direction, even when individual acceptance probabilities
+    /// underflow or their logarithms cannot resolve small differences.
+    fn push(&mut self, weight: TransitionWeight) {
         self.hits += 1;
-        if log_acceptance_probability == f64::NEG_INFINITY {
+        if weight.log_acceptance == f64::NEG_INFINITY {
             return;
         }
-        if log_acceptance_probability > self.log_weight_scale {
-            let scale = (self.log_weight_scale - log_acceptance_probability).exp();
-            self.scaled_mean *= scale;
-            self.scaled_squared_deviations *= scale * scale;
-            self.log_weight_scale = log_acceptance_probability;
-        }
+        self.log_acceptance_scale = self.log_acceptance_scale.max(weight.log_acceptance);
+        let log_weight = if self.positive_weights == 0 {
+            self.log_flow_scale = weight.log_flow;
+            0.0
+        } else {
+            let log_weight = weight.log_flow.difference(self.log_flow_scale);
+            if log_weight > 0.0 {
+                let scale = (-log_weight).exp();
+                self.scaled_mean *= scale;
+                self.scaled_squared_deviations *= scale * scale;
+                self.log_flow_scale = weight.log_flow;
+            }
+            log_weight.min(0.0)
+        };
         self.positive_weights += 1;
-        let weight = (log_acceptance_probability - self.log_weight_scale).exp();
+        let weight = log_weight.exp();
         let delta = weight - self.scaled_mean;
         self.scaled_mean += delta / count_as_f64(self.positive_weights);
         self.scaled_squared_deviations =
@@ -1421,11 +1546,10 @@ impl TransitionEstimate {
     /// Estimate the log accepted transition probability from accumulated
     /// acceptance weights.
     fn log_transition_probability(self, samples: usize) -> f64 {
-        self.log_weight_scale + self.scaled_log_transition_probability(samples)
+        self.log_acceptance_scale + self.scaled_log_transition_probability(samples)
     }
 
-    /// Keep the empirical factor separate from the log scale until the final
-    /// residual, where large target and acceptance offsets can cancel.
+    /// Keep the empirical factor separate from either scale until reporting.
     fn scaled_log_transition_probability(self, samples: usize) -> f64 {
         if self.positive_weights == 0 {
             0.0
@@ -1461,20 +1585,32 @@ fn estimate_by_value_transition<S, P, R>(
     proposal: &P,
     rng: &mut R,
     samples: usize,
-    log_acceptance_probability: f64,
+    weight: TransitionWeight,
 ) -> TransitionEstimate
 where
     S: PartialEq,
     P: Proposal<S> + ?Sized,
     R: Rng + ?Sized,
 {
-    let mut estimate = TransitionEstimate::empty();
-    for _ in 0..samples {
-        if proposal.propose(from, rng).eq(to) {
-            estimate.push(log_acceptance_probability);
+    let hits = (0..samples)
+        .filter(|_| proposal.propose(from, rng).eq(to))
+        .count();
+    if hits == 0 || weight.log_acceptance == f64::NEG_INFINITY {
+        TransitionEstimate {
+            hits,
+            ..TransitionEstimate::empty()
+        }
+    } else {
+        // Every hit has the same weight, which is one on its own scale.
+        TransitionEstimate {
+            hits,
+            positive_weights: hits,
+            log_acceptance_scale: weight.log_acceptance,
+            log_flow_scale: weight.log_flow,
+            scaled_mean: 1.0,
+            scaled_squared_deviations: 0.0,
         }
     }
-    estimate
 }
 
 /// Sample an in-place proposal from cloned endpoints and score each exact hit
@@ -1510,7 +1646,10 @@ where
             &mut candidate,
             proposal,
             token,
-            |candidate, proposal, token| -> Result<Option<f64>, DetailedBalanceError> {
+            |candidate,
+             proposal,
+             token|
+             -> Result<Option<TransitionWeight>, DetailedBalanceError> {
                 if !candidate.eq(to) {
                     return Ok(None);
                 }
@@ -1519,12 +1658,7 @@ where
                 check_log_prob(request.destination(), proposed_log_prob)?;
                 let log_q_ratio = proposal.log_q_ratio(candidate, token);
                 check_log_q_ratio(request.direction, log_q_ratio)?;
-                Ok(Some(log_acceptance_probability(
-                    request.from_log_prob,
-                    proposed_log_prob,
-                    log_q_ratio,
-                    request.direction,
-                )?))
+                request.weight(proposed_log_prob, log_q_ratio).map(Some)
             },
         );
 
@@ -1579,12 +1713,7 @@ where
                 }
             })?;
             check_log_q_ratio(request.direction, log_q_ratio)?;
-            estimate.push(log_acceptance_probability(
-                request.from_log_prob,
-                proposed_log_prob,
-                log_q_ratio,
-                request.direction,
-            )?);
+            estimate.push(request.weight(proposed_log_prob, log_q_ratio)?);
         }
     }
     Ok(estimate)
@@ -1657,11 +1786,11 @@ fn log_residual<E>(
         (true, false) => Ok(f64::NEG_INFINITY),
         (false, true) => Ok(f64::INFINITY),
         (false, false) => {
-            let target_difference = endpoints.current - endpoints.proposed;
-            let scale_difference = forward.log_weight_scale - reverse.log_weight_scale;
             let empirical_difference = forward.scaled_log_transition_probability(samples)
                 - reverse.scaled_log_transition_probability(samples);
-            let residual = (target_difference + scale_difference) + empirical_difference;
+            let residual = forward
+                .log_flow_scale
+                .difference_with_offset(reverse.log_flow_scale, empirical_difference);
             if residual.is_finite() {
                 Ok(residual)
             } else {
@@ -1687,17 +1816,17 @@ fn log_acceptance_probability<E>(
     if log_q_ratio == f64::NEG_INFINITY {
         return Ok(f64::NEG_INFINITY);
     }
-    let log_acceptance_ratio = to_log_prob - from_log_prob + log_q_ratio;
-    if from_log_prob.is_finite() && to_log_prob.is_finite() && !log_acceptance_ratio.is_finite() {
+    let log_alpha = log_acceptance_ratio(from_log_prob, to_log_prob, log_q_ratio);
+    if from_log_prob.is_finite() && to_log_prob.is_finite() && !log_alpha.is_finite() {
         return Err(DetailedBalanceError::NumericalResolution {
             direction: Some(direction),
         });
     }
-    if log_acceptance_ratio.is_nan() {
+    if log_alpha.is_nan() {
         cold_path();
         Ok(f64::NEG_INFINITY)
     } else {
-        Ok(log_acceptance_ratio.min(0.0))
+        Ok(log_alpha.min(0.0))
     }
 }
 
@@ -2804,6 +2933,181 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_hastings_ratio_keeps_finite_acceptance_weight() {
+        let large = 1_152_921_504_606_846_976.0; // 2^60
+        let half_max_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        for (from, to, log_q, expected) in [
+            (-large, -1.0, -large, -1.0),
+            (f64::MAX, -f64::MAX, f64::MAX, -f64::MAX),
+            (half_max_ulp, -f64::MAX, half_max_ulp * 0.5, -f64::MAX),
+        ] {
+            let actual = log_acceptance_probability::<Infallible>(
+                from,
+                to,
+                log_q,
+                DetailedBalanceDirection::Forward,
+            )
+            .unwrap();
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn cancelling_hastings_ratio_preserves_finite_balance_violation() {
+        let proposal = FixedRatioFlip {
+            ratios: [f64::MAX, -f64::MAX],
+            draws: Cell::new(0),
+        };
+        let config = small_config();
+        let error = verify_detailed_balance(
+            &false,
+            &true,
+            &EndpointWeights([f64::MAX, -f64::MAX]),
+            &proposal,
+            &mut StdRng::seed_from_u64(42),
+            config,
+        )
+        .unwrap_err();
+        let DetailedBalanceError::Violation {
+            residual, report, ..
+        } = error
+        else {
+            panic!("expected a finite flow imbalance, got {error:?}");
+        };
+
+        // Every proposal hits. Forward log flow is MAX - MAX = 0;
+        // reverse log flow is -MAX + 0, so the residual is MAX.
+        assert_eq!(report.forward_hits, config.samples());
+        assert_eq!(report.reverse_hits, config.samples());
+        assert_eq!(residual.to_bits(), f64::MAX.to_bits());
+    }
+
+    #[test]
+    fn finite_target_difference_preserves_the_small_flow_gap() {
+        let proposal = FixedRatioFlip {
+            ratios: [0.5, -0.5],
+            draws: Cell::new(0),
+        };
+        let report = verify_detailed_balance(
+            &false,
+            &true,
+            &EndpointWeights([9_007_199_254_740_992.0, 0.5]), // 2^53 and 1/2
+            &proposal,
+            &mut StdRng::seed_from_u64(42),
+            DetailedBalanceConfig::new(4, 0.75, 1).unwrap(),
+        )
+        .unwrap();
+
+        // Each proposal hits. The accepted forward and reverse log flows
+        // are exactly 1 and 0.5, respectively.
+        assert_eq!(report.log_balance_residual.to_bits(), 0.5_f64.to_bits());
+    }
+
+    #[test]
+    fn balances_extreme_endpoint_weights_across_proposal_workflows() {
+        let weights = [9_007_199_254_740_992.0, 0.5]; // 2^53 and 1/2
+        for (hits, correct_ratio) in [([4, 4], false), ([3, 1], true)] {
+            // For symmetric proposals both accepted flows are the lower target
+            // weight. For 3:1 hits the Hastings correction makes both flows
+            // one quarter of the lower target weight.
+            for result in scripted_reports(weights, hits, correct_ratio, small_config()) {
+                assert_relative_eq!(result.unwrap().log_balance_residual, 0.0, epsilon = 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn unrepresentable_centered_flow_preserves_the_direction() {
+        let endpoints = EndpointLogProbs {
+            current: f64::MAX,
+            proposed: -f64::MAX,
+        };
+        let request = endpoints.request(DetailedBalanceDirection::Forward, 1);
+        // A matching plan supplied the source score instead of the destination
+        // score. Conditional acceptance is one, but the centered flow is 2*MAX.
+        for log_q_ratio in [0.0, f64::MAX] {
+            assert_matches!(
+                request.weight::<Infallible>(f64::MAX, log_q_ratio),
+                Err(DetailedBalanceError::NumericalResolution {
+                    direction: Some(DetailedBalanceDirection::Forward)
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn centered_flow_uses_roundoff_at_the_overflow_boundary() {
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        let tiny = half_ulp * f64::EPSILON * 0.25;
+        let request = EndpointLogProbs {
+            current: half_ulp,
+            proposed: -f64::MAX,
+        }
+        .request(DetailedBalanceDirection::Forward, 1);
+        // A matching plan with this score and ratio produces MAX + half_ulp
+        // minus a positive correction, which rounds to MAX instead of infinity.
+        let weight = request.weight::<Infallible>(half_ulp, -tiny).unwrap();
+        assert_eq!(weight.log_flow.high.to_bits(), f64::MAX.to_bits());
+        assert_eq!(weight.log_acceptance.to_bits(), (-tiny).to_bits());
+
+        // Here the intermediate sum is finite. The correction remains inside
+        // the overflow midpoint, but rounding that correction alone loses
+        // the small distance to the midpoint.
+        let offset = 3.0 * half_ulp;
+        let below_offset = offset.next_down();
+        let request = EndpointLogProbs {
+            current: f64::MAX,
+            proposed: -below_offset,
+        }
+        .request(DetailedBalanceDirection::Forward, 1);
+        let correction = (offset - below_offset) * 0.9375;
+        let weight = request
+            .weight::<Infallible>(f64::MAX.next_down(), correction)
+            .unwrap();
+        assert_eq!(weight.log_flow.high.to_bits(), f64::MAX.to_bits());
+        assert_eq!(
+            weight.log_flow.difference(LogFlow::exact(0.0)).to_bits(),
+            f64::MAX.to_bits()
+        );
+        let midpoint = offset - below_offset;
+        assert_matches!(
+            request.weight::<Infallible>(f64::MAX.next_down(), midpoint),
+            Err(DetailedBalanceError::NumericalResolution {
+                direction: Some(DetailedBalanceDirection::Forward)
+            })
+        );
+    }
+
+    #[test]
+    fn log_balance_residual_retains_roundoff_through_empirical_cancellation() {
+        let correction = -0.5_f64.ln();
+        let gap = 2.0_f64.powi(-55);
+        for (score, expected) in [(gap, gap), (0.0, 0.0)] {
+            let endpoints = EndpointLogProbs {
+                current: 2.0,
+                proposed: score,
+            };
+            let forward_request = endpoints.request(DetailedBalanceDirection::Forward, 2);
+            let reverse_request = endpoints.request(DetailedBalanceDirection::Reverse, 2);
+            let mut forward = TransitionEstimate::empty();
+            let mut reverse = TransitionEstimate::empty();
+            forward.push(
+                forward_request
+                    .weight::<Infallible>(score, correction)
+                    .unwrap(),
+            );
+            let backward_weight = reverse_request.weight::<Infallible>(2.0, -2.0).unwrap();
+            reverse.push(backward_weight);
+            reverse.push(backward_weight);
+
+            // One of two forward draws hits, cancelling the Hastings log
+            // correction exactly. Both reverse draws hit, leaving the gap.
+            let residual = log_residual::<Infallible>(endpoints, forward, reverse, 2).unwrap();
+            assert_eq!(residual.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
     fn one_way_zero_acceptance_reports_signed_balance_violation() {
         for (ratios, expected_residual) in [
             ([f64::NEG_INFINITY, 0.0], f64::NEG_INFINITY),
@@ -2911,6 +3215,42 @@ mod tests {
     }
 
     #[test]
+    fn large_centered_flows_preserve_relative_acceptance_weights() {
+        let large = 9_007_199_254_740_992.0; // 2^53
+        let endpoints = EndpointLogProbs {
+            current: large,
+            proposed: 0.5,
+        };
+        let request = endpoints.request(DetailedBalanceDirection::Forward, 2);
+        // The exact ratios are 1/2 and -1/2, so the acceptance weights
+        // are 1 and exp(-1/2). Their population variance is (1 - w)^2 / 4.
+        let w = (-0.5_f64).exp();
+        let expected_transition = 1.0_f64.midpoint(w).ln();
+        let expected_error = (1.0 - w) / ((1.0 + w) * 2.0_f64.sqrt());
+
+        for ratios in [[large, large - 1.0], [large - 1.0, large]] {
+            let mut estimate = TransitionEstimate::empty();
+            for log_q_ratio in ratios {
+                estimate.push(
+                    request
+                        .weight::<Infallible>(endpoints.proposed, log_q_ratio)
+                        .unwrap(),
+                );
+            }
+            assert_relative_eq!(
+                estimate.log_transition_probability(request.samples),
+                expected_transition,
+                epsilon = 1e-14
+            );
+            assert_relative_eq!(
+                estimate.log_standard_error(request.samples),
+                expected_error,
+                epsilon = 1e-14
+            );
+        }
+    }
+
+    #[test]
     fn unequal_weights_match_exact_moments_across_rescaling_and_zero_hits() {
         // Four draws [1/4, 1/2, 1, 0] have mean 7/16 and population variance
         // 35/256, hence SE(mean)/mean = sqrt(35)/14. Ascending weights force
@@ -2920,10 +3260,16 @@ mod tests {
                 for zero_is_hit in [false, true] {
                     let mut estimate = TransitionEstimate::empty();
                     for weight in weights {
-                        estimate.push(weight.ln() + shift);
+                        estimate.push(TransitionWeight {
+                            log_acceptance: weight.ln() + shift,
+                            log_flow: LogFlow::exact(weight.ln()),
+                        });
                     }
                     if zero_is_hit {
-                        estimate.push(f64::NEG_INFINITY);
+                        estimate.push(TransitionWeight {
+                            log_acceptance: f64::NEG_INFINITY,
+                            log_flow: LogFlow::exact(f64::NEG_INFINITY),
+                        });
                     }
                     assert_eq!(estimate.hits, if zero_is_hit { 4 } else { 3 });
                     assert_relative_eq!(

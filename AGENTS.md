@@ -116,7 +116,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.2.9` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.3.0` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
   The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0

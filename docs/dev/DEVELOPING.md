@@ -141,7 +141,7 @@ its own cache namespace. These recipes use the `tooling` Python group; ordinary
 build jobs retain the complete contributor setup. Registry publication selects only
 managed Cargo through the action's `tool` input; it does not install unrelated contributor tools.
 
-Semgrep 1.182.1 accepts PyJWT `>=2.15.0,<3`, which covers
+The pinned Semgrep release accepts PyJWT `>=2.15.0,<3`, which covers
 [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The root `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
 with its `crypto` extra to include the [Base64URL padding compatibility fix](https://pyjwt.readthedocs.io/en/stable/changelog.html#v2-15-1).
 Refresh that selection with `uv lock --upgrade-package pyjwt`, and check `just audit`, `just semgrep`, and `just semgrep-test`.
@@ -158,8 +158,8 @@ README badges report the respective workflow status. These network/full-history 
 
 ## Local CodeRabbit Review
 
-CodeRabbit review is opt-in and separate from `just check` and `just ci`. Agents run it only when the maintainer explicitly requests CodeRabbit review;
-ordinary review, fix, and validation requests use local checks. When requested, inspect the intended diff and run:
+CodeRabbit review is separate from `just check` and `just ci`. Ordinary review, fix, and validation requests use local checks. Follow the applicable push
+gates for authorized PR delivery. For a separately requested CodeRabbit review, inspect the intended diff and run:
 
 ```bash
 just review                  # Branch changes and local edits against origin/main
@@ -173,7 +173,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.2.9` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.3.0` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -269,8 +269,8 @@ For a newer published shared package, run `just shared-python-plan VERSION`, the
 `VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.
 Adoption updates both dependency-group pins, `.python-version`, `project.requires-python`, `uv.lock`, `.venv`, and the notebook kernel. This carries a future
 shared Python baseline into this repository without editing Python versions locally. `just update` does not advance the exact shared-package pin.
-The registry-only release writer jobs retain separate package pins and resolution cutoffs, which must be aligned with each adopted release;
-their interpreter is selected from the package's runtime requirement without a duplicated Python minor.
+Align package pins and resolution cutoffs across isolated release recipes and workflow jobs with each adopted version. uv selects a compatible interpreter
+from the package's runtime requirement.
 
 `just tools-clean` previews obsolete installations in the shared package-owned tool store without deleting them. Include other consumers with repeated
 `--keep-root PATH` arguments before reviewing the plan; pass `--apply` only to execute that cleanup. The shared implementation preserves declared,
@@ -329,16 +329,14 @@ changes still require maintainer review.
 ## Dependabot Automation
 
 `just workflow-allowlist-check` reads `.github/settings/actions-selected.json` through the shared YAML checker. It validates external step and reusable-workflow
-identities in `.github/workflows/`, with explicit GitHub-owned identities and CodeQL subpaths instead of an owner-wide exemption or a second Semgrep list. The
-shared CLI accepts workflow and composite-action documents. A focused consumer test also exercises the setup composite's steps through that checker. SHA
-pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step pins the reviewed v1.0.6 SHA.
+identities in `.github/workflows/` and `.github/actions/setup-toolchain/action.yml`, using explicit GitHub-owned identities and CodeQL subpaths.
+SHA pinning, version comments, and zizmor security checks remain separate. The crates.io authentication step pins the reviewed v1.0.6 SHA.
 The proposed selected-actions payload and consumer regression allow exactly the reviewed v1.0.5 and v1.0.6 SHAs during adoption; #219 owns the separate
 workflow upgrade. See [publishing policy](crates-io-publishing.md) for both identities. The live authentication entry was updated to v1.0.6 and read back
 on November 3, 2026; the broader proposed policy has not been applied.
 
-`.github/workflows/dependabot-auto-merge.yml` calls the shared
-[`dependabot-approve.yml` workflow](https://github.com/acgetchell/research-repo-tools/blob/b082da0b0fbd99436a418a3cc232434020558658/.github/workflows/dependabot-approve.yml)
-at a reviewed commit. The caller supplies this repository's identity and exact Cargo, uv, workflow, and composite-action file allowlists.
+The [Dependabot caller](../../.github/workflows/dependabot-auto-merge.yml) pins the shared `dependabot-approve.yml` workflow to a reviewed commit
+and supplies this repository's identity and exact Cargo, uv, workflow, and composite-action file allowlists.
 Dependabot maintains the shared workflow's SHA through its GitHub Actions updates. Keep the file policy current when adding or renaming those files.
 Release preparation is included; credentialed registry publication in `publish-crates.yml` requires maintainer review.
 
@@ -517,7 +515,8 @@ Use `just release-publish "$TAG"` in a human GitHub CLI session to publish the
 reviewed draft after its benchmark asset is attached. Then use
 `just release-upload "$TAG"` to dispatch the crates.io workflow with the existing
 reviewed acceptance. It requires environment approval before its Cargo upload.
-`just release-verify "$TAG"` requires the published
-stable GitHub Release, required asset and exact registry version. See
-[deployment setup](crates-io-publishing.md) for the publisher identity and pending
-live evidence. Active documentation links remain independent of the release version.
+`just release-verify "$TAG"` checks the generated notes, required asset, and
+exact registry version. Pass the captured `target.json` as a second argument to
+also check the release ID and tag commit. See [deployment setup](crates-io-publishing.md)
+for the publisher identity and [release tracking](release-flow-integration.md#release-tracking)
+for current evidence. Active documentation links remain independent of the release version.
