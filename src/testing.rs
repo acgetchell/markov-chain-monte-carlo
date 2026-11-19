@@ -26,7 +26,7 @@ use rand::Rng;
 use crate::{
     DelayedProposal, Proposal, ProposalMut, Target,
     chain::{InPlaceRollback, log_acceptance_ratio},
-    numerics::count_as_f64,
+    numerics::{count_as_f64, sum_with_roundoff},
 };
 
 /// Configuration for empirical detailed-balance verification.
@@ -1355,7 +1355,7 @@ struct TransitionEstimate {
     hits: usize,
     positive_weights: usize,
     log_acceptance_scale: f64,
-    log_flow_scale: f64,
+    log_flow_scale: LogFlow,
     scaled_mean: f64,
     scaled_squared_deviations: f64,
 }
@@ -1373,7 +1373,96 @@ struct TransitionRequest {
 #[derive(Debug, Clone, Copy)]
 struct TransitionWeight {
     log_acceptance: f64,
-    log_flow: f64,
+    log_flow: LogFlow,
+}
+
+/// A centered log flow and its roundoff, kept separate until subtraction.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+struct LogFlow {
+    high: f64,
+    low: f64,
+    tail: f64,
+}
+
+impl LogFlow {
+    const fn exact(high: f64) -> Self {
+        Self {
+            high,
+            low: 0.0,
+            tail: 0.0,
+        }
+    }
+
+    fn sum(left: f64, right: f64) -> Self {
+        let (high, low) = sum_with_roundoff(left, right);
+        Self {
+            high,
+            low,
+            tail: 0.0,
+        }
+    }
+
+    fn sum_three(first: f64, second: f64, third: f64) -> Self {
+        Self::sum_with_tail(first, second, third, 0.0)
+    }
+
+    fn sum_with_tail(first: f64, second: f64, third: f64, tail: f64) -> Self {
+        // Prefer cancellation before adding the last large term. With equal
+        // signs add the smaller correction first to defer possible overflow.
+        let second_opposes = first.is_sign_negative() != second.is_sign_negative();
+        let third_opposes = first.is_sign_negative() != third.is_sign_negative();
+        let (partial, last) = if !second_opposes && (third_opposes || third.abs() < second.abs()) {
+            (Self::sum(first, third), second)
+        } else {
+            (Self::sum(first, second), third)
+        };
+        let total = Self::sum(partial.high, last);
+        let correction = Self::sum(partial.low, total.low);
+        let correction = Self::sum(correction.high, correction.low + tail);
+        let normalized = Self::sum(total.high, correction.high);
+        if normalized.high.is_finite() {
+            let (low, tail) = sum_with_roundoff(normalized.low, correction.low);
+            return Self {
+                high: normalized.high,
+                low,
+                tail,
+            };
+        }
+        if !partial.high.is_finite() {
+            return normalized;
+        }
+
+        // Subtract MAX before restoring the roundoff. Close to the overflow
+        // midpoint these subtractions are exact, and the low part can break
+        // a tie even when the rounded excess alone equals half an ulp.
+        let larger = partial.high.abs().max(last.abs());
+        let smaller = partial.high.abs().min(last.abs());
+        let excess = smaller + (larger - f64::MAX);
+        let sign = total.high.signum();
+        let excess = Self::sum(excess, sign * partial.low);
+        let excess = Self::sum(excess.high, sign.mul_add(tail, excess.low));
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        if excess < Self::exact(half_ulp) {
+            Self {
+                high: sign * f64::MAX,
+                low: sign * excess.high,
+                tail: sign * excess.low,
+            }
+        } else {
+            normalized
+        }
+    }
+
+    fn difference(self, other: Self) -> f64 {
+        self.difference_with_offset(other, 0.0)
+    }
+
+    fn difference_with_offset(self, other: Self, offset: f64) -> f64 {
+        let correction = Self::sum_three(self.low, -other.low, offset);
+        let tail = Self::sum_three(self.tail, -other.tail, correction.low);
+        let tail = tail.high + (tail.low + tail.tail + correction.tail);
+        Self::sum_with_tail(self.high, -other.high, correction.high, tail).high
+    }
 }
 
 impl TransitionRequest {
@@ -1396,22 +1485,19 @@ impl TransitionRequest {
             log_q_ratio,
             self.direction,
         )?;
-        let log_flow = if log_acceptance.is_finite()
-            && self.flow_origin.is_finite()
-            && self.from_log_prob > self.flow_origin
-        {
+        let log_flow = if log_acceptance.is_finite() && self.flow_origin.is_finite() {
             // After shifting both scores by the lower endpoint, the accepted
-            // flow is the smaller of the source score and the corrected
-            // destination score. This avoids adding back a rounded target gap.
-            (self.from_log_prob - self.flow_origin).min(log_acceptance_ratio(
-                self.flow_origin,
-                proposed_log_prob,
-                log_q_ratio,
-            ))
+            // flow is the corrected destination score for a negative log
+            // acceptance and the source score for acceptance one.
+            if log_acceptance < 0.0 {
+                LogFlow::sum_three(proposed_log_prob, -self.flow_origin, log_q_ratio)
+            } else {
+                LogFlow::sum(self.from_log_prob, -self.flow_origin)
+            }
         } else {
-            log_acceptance
+            LogFlow::exact(log_acceptance)
         };
-        if log_acceptance.is_finite() && !log_flow.is_finite() {
+        if log_acceptance.is_finite() && !log_flow.high.is_finite() {
             return Err(DetailedBalanceError::NumericalResolution {
                 direction: Some(self.direction),
             });
@@ -1430,7 +1516,7 @@ impl TransitionEstimate {
             hits: 0,
             positive_weights: 0,
             log_acceptance_scale: f64::NEG_INFINITY,
-            log_flow_scale: f64::NEG_INFINITY,
+            log_flow_scale: LogFlow::exact(0.0),
             scaled_mean: 0.0,
             scaled_squared_deviations: 0.0,
         }
@@ -1445,14 +1531,21 @@ impl TransitionEstimate {
             return;
         }
         self.log_acceptance_scale = self.log_acceptance_scale.max(weight.log_acceptance);
-        if weight.log_flow > self.log_flow_scale {
-            let scale = (self.log_flow_scale - weight.log_flow).exp();
-            self.scaled_mean *= scale;
-            self.scaled_squared_deviations *= scale * scale;
+        let log_weight = if self.positive_weights == 0 {
             self.log_flow_scale = weight.log_flow;
-        }
+            0.0
+        } else {
+            let log_weight = weight.log_flow.difference(self.log_flow_scale);
+            if log_weight > 0.0 {
+                let scale = (-log_weight).exp();
+                self.scaled_mean *= scale;
+                self.scaled_squared_deviations *= scale * scale;
+                self.log_flow_scale = weight.log_flow;
+            }
+            log_weight.min(0.0)
+        };
         self.positive_weights += 1;
-        let weight = (weight.log_flow - self.log_flow_scale).exp();
+        let weight = log_weight.exp();
         let delta = weight - self.scaled_mean;
         self.scaled_mean += delta / count_as_f64(self.positive_weights);
         self.scaled_squared_deviations =
@@ -1695,10 +1788,11 @@ fn log_residual<E>(
         (true, false) => Ok(f64::NEG_INFINITY),
         (false, true) => Ok(f64::INFINITY),
         (false, false) => {
-            let flow_scale_difference = forward.log_flow_scale - reverse.log_flow_scale;
             let empirical_difference = forward.scaled_log_transition_probability(samples)
                 - reverse.scaled_log_transition_probability(samples);
-            let residual = flow_scale_difference + empirical_difference;
+            let residual = forward
+                .log_flow_scale
+                .difference_with_offset(reverse.log_flow_scale, empirical_difference);
             if residual.is_finite() {
                 Ok(residual)
             } else {
@@ -2933,12 +3027,86 @@ mod tests {
         let request = endpoints.request(DetailedBalanceDirection::Forward, 1);
         // A matching plan supplied the source score instead of the destination
         // score. Conditional acceptance is one, but the centered flow is 2*MAX.
+        for log_q_ratio in [0.0, f64::MAX] {
+            assert_matches!(
+                request.weight::<Infallible>(f64::MAX, log_q_ratio),
+                Err(DetailedBalanceError::NumericalResolution {
+                    direction: Some(DetailedBalanceDirection::Forward)
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn centered_flow_uses_roundoff_at_the_overflow_boundary() {
+        let half_ulp = (f64::MAX - f64::MAX.next_down()) * 0.5;
+        let tiny = half_ulp * f64::EPSILON * 0.25;
+        let request = EndpointLogProbs {
+            current: half_ulp,
+            proposed: -f64::MAX,
+        }
+        .request(DetailedBalanceDirection::Forward, 1);
+        // A matching plan with this score and ratio produces MAX + half_ulp
+        // minus a positive correction, which rounds to MAX instead of infinity.
+        let weight = request.weight::<Infallible>(half_ulp, -tiny).unwrap();
+        assert_eq!(weight.log_flow.high.to_bits(), f64::MAX.to_bits());
+        assert_eq!(weight.log_acceptance.to_bits(), (-tiny).to_bits());
+
+        // Here the intermediate sum is finite. The correction remains inside
+        // the overflow midpoint, but rounding that correction alone loses
+        // the small distance to the midpoint.
+        let offset = 3.0 * half_ulp;
+        let below_offset = offset.next_down();
+        let request = EndpointLogProbs {
+            current: f64::MAX,
+            proposed: -below_offset,
+        }
+        .request(DetailedBalanceDirection::Forward, 1);
+        let correction = (offset - below_offset) * 0.9375;
+        let weight = request
+            .weight::<Infallible>(f64::MAX.next_down(), correction)
+            .unwrap();
+        assert_eq!(weight.log_flow.high.to_bits(), f64::MAX.to_bits());
+        assert_eq!(
+            weight.log_flow.difference(LogFlow::exact(0.0)).to_bits(),
+            f64::MAX.to_bits()
+        );
+        let midpoint = offset - below_offset;
         assert_matches!(
-            request.weight::<Infallible>(f64::MAX, 0.0),
+            request.weight::<Infallible>(f64::MAX.next_down(), midpoint),
             Err(DetailedBalanceError::NumericalResolution {
                 direction: Some(DetailedBalanceDirection::Forward)
             })
         );
+    }
+
+    #[test]
+    fn log_balance_residual_retains_roundoff_through_empirical_cancellation() {
+        let correction = -0.5_f64.ln();
+        let gap = 2.0_f64.powi(-55);
+        for (score, expected) in [(gap, gap), (0.0, 0.0)] {
+            let endpoints = EndpointLogProbs {
+                current: 2.0,
+                proposed: score,
+            };
+            let forward_request = endpoints.request(DetailedBalanceDirection::Forward, 2);
+            let reverse_request = endpoints.request(DetailedBalanceDirection::Reverse, 2);
+            let mut forward = TransitionEstimate::empty();
+            let mut reverse = TransitionEstimate::empty();
+            forward.push(
+                forward_request
+                    .weight::<Infallible>(score, correction)
+                    .unwrap(),
+            );
+            let backward_weight = reverse_request.weight::<Infallible>(2.0, -2.0).unwrap();
+            reverse.push(backward_weight);
+            reverse.push(backward_weight);
+
+            // One of two forward draws hits, cancelling the Hastings log
+            // correction exactly. Both reverse draws hit, leaving the gap.
+            let residual = log_residual::<Infallible>(endpoints, forward, reverse, 2).unwrap();
+            assert_eq!(residual.to_bits(), expected.to_bits());
+        }
     }
 
     #[test]
@@ -3049,6 +3217,42 @@ mod tests {
     }
 
     #[test]
+    fn large_centered_flows_preserve_relative_acceptance_weights() {
+        let large = 9_007_199_254_740_992.0; // 2^53
+        let endpoints = EndpointLogProbs {
+            current: large,
+            proposed: 0.5,
+        };
+        let request = endpoints.request(DetailedBalanceDirection::Forward, 2);
+        // The exact ratios are 1/2 and -1/2, so the acceptance weights
+        // are 1 and exp(-1/2). Their population variance is (1 - w)^2 / 4.
+        let w = (-0.5_f64).exp();
+        let expected_transition = 1.0_f64.midpoint(w).ln();
+        let expected_error = (1.0 - w) / ((1.0 + w) * 2.0_f64.sqrt());
+
+        for ratios in [[large, large - 1.0], [large - 1.0, large]] {
+            let mut estimate = TransitionEstimate::empty();
+            for log_q_ratio in ratios {
+                estimate.push(
+                    request
+                        .weight::<Infallible>(endpoints.proposed, log_q_ratio)
+                        .unwrap(),
+                );
+            }
+            assert_relative_eq!(
+                estimate.log_transition_probability(request.samples),
+                expected_transition,
+                epsilon = 1e-14
+            );
+            assert_relative_eq!(
+                estimate.log_standard_error(request.samples),
+                expected_error,
+                epsilon = 1e-14
+            );
+        }
+    }
+
+    #[test]
     fn unequal_weights_match_exact_moments_across_rescaling_and_zero_hits() {
         // Four draws [1/4, 1/2, 1, 0] have mean 7/16 and population variance
         // 35/256, hence SE(mean)/mean = sqrt(35)/14. Ascending weights force
@@ -3060,13 +3264,13 @@ mod tests {
                     for weight in weights {
                         estimate.push(TransitionWeight {
                             log_acceptance: weight.ln() + shift,
-                            log_flow: weight.ln(),
+                            log_flow: LogFlow::exact(weight.ln()),
                         });
                     }
                     if zero_is_hit {
                         estimate.push(TransitionWeight {
                             log_acceptance: f64::NEG_INFINITY,
-                            log_flow: f64::NEG_INFINITY,
+                            log_flow: LogFlow::exact(f64::NEG_INFINITY),
                         });
                     }
                     assert_eq!(estimate.hits, if zero_is_hit { 4 } else { 3 });
