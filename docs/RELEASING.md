@@ -508,8 +508,15 @@ just release-publish "$TAG"
 
 This revalidates the reviewed acceptance and the identities of the staged assets
 and canonical archive. It freezes those assertions in `publication-transfer.json`
-and authorizes the shared gate to check the remote notes and publish the captured
-draft by ID. The release must become immutable before Cargo publication.
+and uses the shared gate to check the remote notes. The publish command checks
+the sealed IDs and available digests immediately before publishing the captured
+draft by ID, then confirms those assertions on the immutable release.
+
+Keep other draft writers idle from sealing through verification. GitHub's
+release update API has no conditional asset precondition. If the command
+cannot confirm the immutable result, inspect the release before retrying or
+dispatching Cargo publication. See
+[GitHub's conditional request rules](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests).
 
 Dispatch Cargo publication from that independently retained selection:
 

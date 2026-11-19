@@ -54,7 +54,8 @@ log pi(current) + log P(current -> proposed)
 log pi(proposed) + log P(proposed -> current)
 ```
 
-through `log_balance_residual`, their difference.
+through `log_balance_residual`, their difference. The calculation shifts both flows by the lower endpoint log weight before averaging,
+which preserves small differences when large target and acceptance terms cancel.
 When both flows are impossible, the residual is defined as zero.
 Choose representative transitions whose forward and reverse proposal probabilities are large enough to observe reliably.
 Rare transitions need more samples or a domain-specific analytic check.

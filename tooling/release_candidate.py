@@ -1,8 +1,8 @@
 """MCMC acquisition orchestration aligned with la-stack v0.5.4.
 
 Based on the released adapter at 560b8dd736cdc83441e888e36c25dc5ddc069fea.
-RRT owns verification, archive handling and provider operations; MCMC owns its
-release selection, operator commands and scientific declarations.
+RRT owns verification, archive handling and staging. MCMC binds its reviewed
+asset selection to publication and owns its scientific declarations.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from functools import partial
@@ -31,9 +32,10 @@ from research_repo_tools.files import replace_many
 from research_repo_tools.measurement import resolve_revision
 from research_repo_tools.performance_progress import ProgressReporter
 from research_repo_tools.performance_release import load_performance_release, load_preparation, measure_release, serialize_preparation
-from research_repo_tools.process import run_command
+from research_repo_tools.process import run_command, run_command_bytes
 from research_repo_tools.publication import publish_publication
 from research_repo_tools.release_assets import (
+    ReleasePublicationUnknownError,
     download_release_asset,
     parse_release_target,
     require_release_checkout,
@@ -42,7 +44,7 @@ from research_repo_tools.release_assets import (
 )
 from research_repo_tools.release_interfaces import load_evidence_policy
 from research_repo_tools.release_metadata import read_package_info
-from research_repo_tools.release_publishing import ReviewedRelease, check_reviewed_release, publish_reviewed_release
+from research_repo_tools.release_publishing import ReviewedRelease, check_reviewed_release
 from research_repo_tools.release_staging import stage_release_assets
 from research_repo_tools.release_validation import api, parse_release_json
 
@@ -589,6 +591,29 @@ def seal(root: Path, acceptance: Path, commit: str) -> PublicationTransfer:
     return publication
 
 
+def publish_candidate(root: Path, transfer: PublicationTransfer) -> None:
+    """Check the sealed identities at the publication boundary and confirm the immutable result."""
+    target = transfer.original.target
+    config = load_config(root=root)
+    reviewed = check_reviewed_release(config, target.tag, draft=True, target=target)
+    current = revalidate_release_target(root, target, checkout=root, dependencies=config.release.published_dependencies)
+    if current.body != reviewed.body:
+        message = "draft release notes changed before publication"
+        raise ValueError(message)
+    require_candidate_asset_identities(current, transfer)
+
+    # GitHub publishes by release ID and provides no conditional asset precondition.
+    # Verify the immutable result before reporting success. Never retry this write.
+    try:
+        run_command_bytes(
+            "gh", ["api", "--method", "PATCH", f"repos/{target.repository}/releases/{target.release_id}", "--field", "draft=false"], cwd=root, timeout=600
+        )
+        check_published_transfer(root, transfer)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        message = f"publication outcome unknown for {target.repository} release {target.release_id}: inspect the immutable release before retrying"
+        raise ReleasePublicationUnknownError(message) from error
+
+
 def record_path(root: Path, owner: Path, selection: str, role: Literal["transfer", "publication"]) -> Path:
     """Locate an already retained transfer for this exact clean release commit."""
     commit = resolve_revision(root, "HEAD")
@@ -720,8 +745,8 @@ def require_candidate_asset_identities(release: GitHubRelease, transfer: Publica
     """Check retained asset IDs and any digests reported by the provider."""
     for _role, asset in transfer.role_assertions():
         entry = next((item for item in release.assets if item[0] == asset.name), None)
-        if entry is None or entry[1] != asset.identifier or (entry[3] is not None and entry[3] != asset.sha256):
-            message = "candidate asset identity changed"
+        if entry is None or entry[1] != asset.identifier or entry[2] <= 0 or (entry[3] is not None and entry[3] != asset.sha256):
+            message = f"candidate asset identity changed: {asset.name}"
             raise ValueError(message)
 
 
@@ -900,7 +925,7 @@ def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
         commit = resolve_revision(root, "HEAD")
         acceptance = verify_existing(root, owner, options.selection, commit=commit)
         transfer = seal(root, acceptance, commit)
-        publish_reviewed_release(load_config(root=root), options.tag, target=transfer.original.target)
+        publish_candidate(root, transfer)
     elif options.operation == "upload":
         upload_dispatch(root, owner, options.selection, options.tag)
     else:
