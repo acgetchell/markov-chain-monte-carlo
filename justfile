@@ -23,7 +23,7 @@ dependency-source name *args:
 
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
-release_rrt := "uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-19T04:26:14Z --with research-repo-tools==0.3.0 python -I -m research_repo_tools"
+release_rrt := "uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-22T02:44:08Z --with research-repo-tools==0.3.1 python -I -m research_repo_tools"
 actions_inputs := quote(".github/workflows") + " " + quote(".github/actions/setup-toolchain/action.yml")
 
 # Validate coupled Actions pins without network access or environment sync.
@@ -366,7 +366,7 @@ notebook-lint: (_notebook-all 'lint')
 # Synchronize notebook dependencies and register the project-local kernel.
 [group('notebooks')]
 notebook-sync:
-    uv run --locked --managed-python --only-group tooling research-repo-tools notebooks sync
+    uv run --isolated --locked --managed-python --only-group tooling research-repo-tools notebooks sync
 
 # Forward explicit shared performance operations.
 [group('benchmarks and performance')]
@@ -489,12 +489,16 @@ python-typecheck: sync
 
 # Dispatch retained archive attachment from the original Step 1 transfer.
 [group('release')]
-release-benchmarks tag: _ensure-jq
+release-benchmarks tag owner="" selection="reviewed": _ensure-jq
     #!/usr/bin/env bash
     set -euo pipefail
     tag={{ quote(tag) }}
     [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "A canonical stable tag is required." >&2; exit 2; }
-    transfer="${CANDIDATE_TRANSFER_FILE-$(just --quiet _release-candidate record transfer)}"
+    if [[ -n "${CANDIDATE_TRANSFER_FILE+x}" && ( -n {{ quote(owner) }} || {{ quote(selection) }} != reviewed ) ]]; then
+        echo "Select the transfer file or the release owner and selection." >&2
+        exit 2
+    fi
+    transfer="${CANDIDATE_TRANSFER_FILE-$(just --quiet _release-candidate record transfer {{ quote(owner) }} --selection {{ quote(selection) }})}"
     [[ -f "$transfer" && -r "$transfer" ]] || { echo "The selected transfer must be a readable file." >&2; exit 2; }
     jq -e --arg tag "$tag" '.schema == 1 and .target.repository == "acgetchell/markov-chain-monte-carlo" and .target.tag == $tag and .target.expected_title == $tag' -- "$transfer" >/dev/null
     gh workflow run release-benchmarks.yml --repo acgetchell/markov-chain-monte-carlo --ref "$tag" -f "tag=$tag" -F "candidate=@$transfer"
@@ -503,11 +507,16 @@ release-benchmarks tag: _ensure-jq
 [group('release')]
 release-evidence owner="" selection="reviewed": (_release-candidate "verify" owner "--selection" selection)
 
+# Inspect retained release state and print the next command without advancing it.
+[arg('checkpoint', long)]
+[group('release')]
+release-status owner="" selection="reviewed" checkpoint="target/bench-reports/release-checkpoint": (_release-candidate "status" owner "--selection" selection "--checkpoint" checkpoint)
+
 # Run the released reference's local orchestration from an external supplier runtime.
 [group('release')]
 [positional-arguments]
 [private]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-19T04:26:14Z", "--with", "research-repo-tools==0.3.0", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-22T02:44:08Z", "--with", "research-repo-tools==0.3.1", "python", "-I")]
 _release-candidate *args:
     import runpy
     from pathlib import Path
@@ -548,7 +557,7 @@ release-upload tag owner="" selection="reviewed": (_release-candidate "upload" t
 # Native-only diagnostic; candidate reuse requires release-evidence.
 [group('release')]
 [positional-arguments]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-19T04:26:14Z", "--with", "research-repo-tools==0.3.0", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-22T02:44:08Z", "--with", "research-repo-tools==0.3.1", "python", "-I")]
 release-native-evidence *args:
     import sys
     import tempfile
@@ -612,6 +621,18 @@ review-uncommitted:
 [group('security')]
 security: audit security-secrets
 
+# Compare a proposed Gitleaks policy with the active policy on the same scan inputs.
+[group('security')]
+[positional-arguments]
+security-check-exceptions candidate *args:
+    uv run --locked --only-group tooling research-repo-tools security check-exceptions "$@"
+
+# Summarize the retained redacted Gitleaks reports.
+[group('security')]
+[positional-arguments]
+security-findings *args:
+    uv run --locked --only-group tooling research-repo-tools security findings "$@"
+
 # Scan all reachable Git history and current tracked/nonignored files with redacted reports.
 [group('security')]
 security-secrets:
@@ -664,10 +685,27 @@ sync:
     {{ _run }} uv sync --locked --managed-python --group dev
 
 # Create or explicitly replace a local annotated tag after full review (maintainer only).
+[arg('commit', long)]
 [arg('force', long, value='--force')]
 [group('release')]
-tag version owner="" selection="reviewed" force="": release-version-check (_release-candidate "reviewed" ("--tag=" + version) owner "--selection" selection)
-    {{ rrt }} changelog tag {{ quote(version) }}{{ if force == "" { "" } else { " " + force } }}
+tag version owner="" selection="reviewed" commit="" force="": (_release-tag version owner selection commit force "")
+
+# Preview the annotation for the reviewed commit without creating the tag.
+[arg('commit', long)]
+[arg('force', long, value='--force')]
+[group('release')]
+tag-preview version owner="" selection="reviewed" commit="" force="": (_release-tag version owner selection commit force "--dry-run")
+
+[private]
+_release-tag version owner selection commit force mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    commit={{ quote(commit) }}
+    if [[ -z "$commit" ]]; then
+        commit="$(git --no-pager rev-parse HEAD)"
+    fi
+    just _release-candidate reviewed {{ quote("--tag=" + version) }} {{ quote(owner) }} --selection {{ quote(selection) }} --commit "$commit"
+    {{ rrt }} toolchain run --tool cargo -- research-repo-tools changelog tag {{ quote(version) }} --commit "$commit"{{ if force == "" { "" } else { " " + quote(force) } }}{{ if mode == "" { "" } else { " " + quote(mode) } }}
 
 # Focused local Rust buckets: unit tests plus rustdoc doctests.
 [group('tests and coverage')]
@@ -759,10 +797,10 @@ update-cargo-tools:
 [group('build and setup')]
 update-dependencies: update-cargo-dependencies update-python-dependencies
 
-# Resolve direct dev pins, then refresh and sync the root and Semgrep environments.
+# Adopt newer compatible tooling, then refresh and sync the shared Python environment.
 [group('build and setup')]
 update-python-dependencies: _ensure-uv-stable
-    uv run --locked --only-group tooling --inexact research-repo-tools deps update-python --all-projects
+    uv run --isolated --locked --only-group tooling research-repo-tools deps update-python --all-projects --adopt-supplier tooling
 
 # Upgrade uv and declared tools without repeating contributor setup.
 [group('build and setup')]

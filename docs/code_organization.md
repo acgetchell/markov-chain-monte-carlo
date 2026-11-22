@@ -124,6 +124,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── DEVELOPING.md
 │   │   ├── crates-io-publishing.md
 │   │   ├── release-flow-integration.md
+│   │   ├── release-recovery.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
 │   ├── performance/
@@ -292,7 +293,8 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 - `docs/assets/` — tracked images and other documentation media referenced from README or topic guides.
   Regenerate the analysis guide's rank and ESS figures with `just diagnostic-plots-figures`, and the Ising figure with `just notebook-ising-figure`.
 - `tooling/` — declarative stepping inventories, compatibility policy, example output contracts, shared report paths, and scientific prose.
-  `release_candidate.py` retains la-stack v0.5.4's operator selection protocol; published RRT owns verification, archive and provider operations.
+  `release_candidate.py` retains la-stack v0.5.4's operator selection protocol and binds sealed asset identities to draft publication.
+  Published RRT owns evidence verification, archive handling and staging.
   `draft-receipt.toml` declares the exact authenticated draft producer/writer jobs and steps.
   `performance-publication.toml` selects the reviewed README workloads, and `performance-release.toml` binds publication to the prepared release pair.
   Preserve `performance-readme.toml` with the frozen v1 evidence.

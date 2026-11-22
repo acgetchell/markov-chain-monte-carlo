@@ -1,10 +1,25 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.3.0` registry distribution.
+MCMC pins the published `research-repo-tools==0.3.1` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the initial local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.3.1 adoption
+
+The standalone adoption recipes advance the exact pins and the lockfile on Python 3.15. The isolated release runners resolve the same supplier with
+a cutoff after its final locked upload. The Dependabot workflow uses the v0.3.1 commit.
+
+`just update-python-dependencies` now lets RRT adopt a newer compatible published supplier and reconcile the source policy, manifest, and lock.
+The [adoption checklist](DEVELOPING.md#adopt-a-shared-tooling-release) covers the follow-up pins for the isolated runners and reusable workflow.
+
+Tagging and annotation preview pass the same full commit to MCMC's acceptance check and RRT's tag command. The shared Gitleaks commands summarize
+redacted findings and compare a proposed exception policy against the same working snapshot and Git history. The existing release and changelog recipes
+pick up RRT's dependency verification and changelog fixes through the pin.
+
+The setup composite now uses the shared `toolchain sync --tool` and `toolchain export --tool` commands for scanner-only jobs.
+Notebook setup launches RRT in isolation. The shared sync step owns the project environment.
 
 ## v0.3.0 adoption
 
@@ -83,7 +98,7 @@ are needed.
 
 | Local surface | Ownership and replacement |
 | --- | --- |
-| Scanner-only setup heredoc | Shared plan selection, installation and environment export belong in [RRT #225](https://github.com/acgetchell/research-repo-tools/issues/225). Scanner choice and workflow permissions remain local. |
+| Scanner-only setup | v0.3.1 replaces the Python heredoc with shared selection, installation and environment export. Scanner choice and workflow permissions remain local. |
 | Draft preparation | Adopted the installed `release assets plan` and authenticated shared writer from la-stack v0.5.4; retired `tooling/prepare_release.py`. Package/source and receipt policy remain declarative. |
 | Release title, notes and immutability | Adopted shared publishing declarations; removed the superseded local notes shell checker. |
 | Retained benchmark handoff | Adopted the published candidate APIs and la-stack v0.5.4 operator orchestration for MCMC #223. One local acquisition supplies reports, README and archive; final acceptance and approval freeze its original identities. |

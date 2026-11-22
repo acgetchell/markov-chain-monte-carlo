@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -32,11 +33,13 @@ from research_repo_tools.files import replace_many
 from research_repo_tools.measurement import resolve_revision
 from research_repo_tools.performance_progress import ProgressReporter
 from research_repo_tools.performance_release import load_performance_release, load_preparation, measure_release, serialize_preparation
-from research_repo_tools.process import run_command, run_command_bytes
+from research_repo_tools.process import ExecutableNotFoundError, format_exception_diagnostics, run_command_bytes, run_command_live, run_git_bytes
 from research_repo_tools.publication import publish_publication
+from research_repo_tools.registry import lookup_version
 from research_repo_tools.release_assets import (
     ReleasePublicationUnknownError,
     download_release_asset,
+    lookup_release,
     parse_release_target,
     require_release_checkout,
     revalidate_release_target,
@@ -531,12 +534,11 @@ def stage(root: Path, owner: Path, selection: str, prepared_target: Path | None 
     transport = final / "transport"
     transport.mkdir(exist_ok=True)
     names: dict[str, str] = {}
-    for role, source in inputs.items():
+    for role in inputs:
         suffix = "tar.gz" if role == "archive" else "json"
         name = f"markov-chain-monte-carlo-{policy.tag}-{selection}-candidate-{role}.{suffix}"
-        payload = source.read_bytes()
-        freeze(transport, {name: payload})
         names[role] = name
+    freeze(transport, {name: inputs[role].read_bytes() for role, name in names.items()})
     batch = json.loads(
         stage_release_assets(
             root,
@@ -628,6 +630,208 @@ def record_path(root: Path, owner: Path, selection: str, role: Literal["transfer
     return path
 
 
+def workflow_run(root: Path, workflow: str, tag: str, commit: str, *, event: str = "workflow_dispatch") -> tuple[int, bool, bool] | None:
+    """Observe the latest run for this phase without selecting evidence or rerunning it."""
+    result = run_command_bytes(
+        "gh",
+        [
+            "run",
+            "list",
+            "--repo",
+            REPOSITORY,
+            "--workflow",
+            workflow,
+            "--event",
+            event,
+            "--branch",
+            tag,
+            "--commit",
+            commit,
+            "--limit",
+            "1",
+            "--json",
+            "databaseId,attempt,status,conclusion,headBranch,headSha,event",
+        ],
+        cwd=root,
+    )
+    runs = parse_release_json(result.stdout)
+    if runs == []:
+        return None
+    if not isinstance(runs, list) or len(runs) != 1 or not isinstance(run := runs[0], dict):
+        message = "invalid GitHub workflow run list"
+        raise ValueError(message)
+    identifier, attempt = run.get("databaseId"), run.get("attempt")
+    status, conclusion = run.get("status"), run.get("conclusion")
+    if (
+        (run.get("headBranch"), run.get("headSha"), run.get("event")) != (tag, commit, event)
+        or type(identifier) is not int
+        or identifier <= 0
+        or type(attempt) is not int
+        or attempt <= 0
+        or not isinstance(status, str)
+        or not isinstance(conclusion, str)
+    ):
+        message = "GitHub workflow run differs from the selected release"
+        raise ValueError(message)
+    print(f"{workflow} run {identifier}, attempt {attempt}: {conclusion or status}")
+    return identifier, status == "completed", status == "completed" and conclusion == "success"
+
+
+def draft_release_step(root: Path, final: Path, release: GitHubRelease, commit: str, context: tuple[str, ...]) -> tuple[str, ...]:
+    """Find the next draft action using the staged transfer and canonical attachment."""
+    tag = release.tag
+    transfer_path = final / "transfer.json"
+    if not transfer_path.is_file():
+        stage_context = (context[0], "", context[1]) if context else ()
+        return ("just", "release-stage", *stage_context)
+    transfer = require_draft_transfer(parse_transfer(transfer_path.read_bytes()))
+    target = transfer.target
+    if (target.repository, target.tag, target.commit, target.release_id) != (REPOSITORY, tag, commit, release.identifier):
+        message = "staged transfer differs from the observed GitHub draft"
+        raise ValueError(message)
+    entry = next((item for item in release.assets if item[0] == archive_name(tag)), None)
+    attachment = workflow_run(root, "release-benchmarks.yml", tag, commit)
+    if entry is not None:
+        if entry[2] <= 0 or entry[3] not in {None, transfer.assets.archive.sha256}:
+            message = "attached benchmark archive differs from the staged transfer"
+            raise ValueError(message)
+        print(f"Attached benchmark archive: {entry[0]} (asset {entry[1]})")
+        if attachment is not None and attachment[2]:
+            print("Review the draft and retained archive before publishing.")
+            return ("just", "release-publish", tag, *context)
+        if attachment is None:
+            message = "attached archive has no matching workflow run"
+            raise ValueError(message)
+    if attachment is None:
+        return ("just", "release-benchmarks", tag, *context)
+    run, completed, _success = attachment
+    return ("gh", "run", "view" if completed else "watch", str(run), "--repo", REPOSITORY)
+
+
+def published_release_step(root: Path, final: Path, release: GitHubRelease, commit: str, context: tuple[str, ...]) -> tuple[str, ...]:
+    """Find the next Cargo action without retrying a potentially completed write."""
+    tag = release.tag
+    sealed = require_publication_transfer(parse_transfer((final / "publication-transfer.json").read_bytes()))
+    target = sealed.original.target
+    if not release.immutable or (target.repository, target.tag, target.commit, target.release_id) != (REPOSITORY, tag, commit, release.identifier):
+        message = "published release differs from the retained publication transfer"
+        raise ValueError(message)
+    require_candidate_asset_identities(release, sealed)
+    if lookup_version("crates-io", "markov-chain-monte-carlo", tag[1:]).present:
+        print(f"crates.io lists {tag[1:]}.")
+        return ("just", "release-verify", tag, str(final / "target.json"))
+    publication = workflow_run(root, "publish-crates.yml", tag, commit)
+    if publication is None:
+        return ("just", "release-upload", tag, *context)
+    print("Inspect the existing run for deployment approval or recovery before dispatching again.")
+    return ("gh", "run", "view", str(publication[0]), "--repo", REPOSITORY)
+
+
+def hosted_release_step(root: Path, final: Path, tag: str, commit: str, context: tuple[str, ...]) -> tuple[str, ...]:
+    """Check the original tag-push workflow before inspecting its release."""
+    preparation = workflow_run(root, "prepare-release.yml", tag, commit, event="push")
+    if preparation is None:
+        return ("gh", "run", "list", "--repo", REPOSITORY, "--workflow", "prepare-release.yml", "--event", "push", "--branch", tag, "--commit", commit)
+    run, completed, success = preparation
+    if not success:
+        return ("gh", "run", "view" if completed else "watch", str(run), "--repo", REPOSITORY)
+    release = lookup_release(root, REPOSITORY, tag)
+    print(f"GitHub release {release.identifier}: {'draft' if release.draft else 'published'}")
+    if release.prerelease or release.title != tag:
+        message = "GitHub release differs from the prepared stable release"
+        raise ValueError(message)
+    step = draft_release_step if release.draft else published_release_step
+    return step(root, final, release, commit, context)
+
+
+def tagged_release_step(root: Path, final: Path, tag: str, commit: str, context: tuple[str, ...]) -> tuple[str, ...]:
+    """Check the exact annotated tag locally and on the canonical remote."""
+    require_release_checkout(root, commit)
+    ref = f"refs/tags/{tag}"
+    remote = run_git_bytes(
+        ["--no-pager", "ls-remote", "--exit-code", "--tags", f"https://github.com/{REPOSITORY}.git", ref, f"{ref}^{{}}"],
+        cwd=root,
+        check=False,
+    )
+    if remote.returncode != 2:
+        remote.check_returncode()
+        if f"{commit}\t{ref}^{{}}".encode("ascii") not in remote.stdout.splitlines():
+            message = "remote annotated tag differs from the accepted commit"
+            raise ValueError(message)
+        return hosted_release_step(root, final, tag, commit, context)
+
+    local = run_git_bytes(["--no-pager", "show-ref", "--verify", "--quiet", ref], cwd=root, check=False)
+    if local.returncode == 1:
+        return ("just", "tag", tag, *context, "--commit", commit)
+    local.check_returncode()
+    run_git_bytes(["--no-pager", "--no-replace-objects", "rev-parse", "--verify", f"{ref}^{{tag}}"], cwd=root)
+    if resolve_revision(root, tag) != commit:
+        message = "local annotated tag differs from the accepted commit"
+        raise ValueError(message)
+    print(f"Local annotated tag: {tag} at {commit}")
+    return ("git", "push", "origin", ref)
+
+
+def report_release_step(root: Path, owner: Path, context: tuple[str, ...]) -> tuple[str, ...]:
+    """Detect a captured report whose promotion was interrupted."""
+    receipt = parse_release_json((owner / "publication.json").read_bytes())
+    if not isinstance(receipt, dict) or not isinstance(current := receipt.get("current"), str) or not isinstance(outputs := receipt.get("outputs"), dict):
+        message = "original publication receipt lacks the current report"
+        raise TypeError(message)
+    report = (root / current).resolve()
+    if not report.is_relative_to(root):
+        message = "retained report path must be inside the checkout"
+        raise ValueError(message)
+    if not isinstance(entry := outputs.get(current), dict):
+        message = "original publication receipt lacks the output digest"
+        raise TypeError(message)
+    expected = transfer_digest(entry.get("sha256"))
+    if report.is_file() and hashlib.sha256(report.read_bytes()).hexdigest() == expected:
+        print("Review the report and README, then wait for the exact main-push and SARIF checks.")
+        return ("just", "release-evidence", *context)
+
+    print(f"Original report awaits promotion: {current}")
+    settings = load_performance_release(root, SETTINGS)
+    if not all((root / name).is_file() for name in (settings.payload, settings.manifest)):
+        return ("just", "performance-capture", str(owner))
+    return ("just", "performance-doc", "--payload", settings.payload, "--manifest", settings.manifest)
+
+
+def release_status(root: Path, explicit: str, selection: str, checkpoint: str) -> None:
+    """Recover release phase from the existing checkpoint, owner, refs and transfers."""
+    tag, commit = release_tag(root), resolve_revision(root, "HEAD")
+    print(f"Release {tag} at {commit}")
+    registration = selection_directory(root) / "owner.json"
+    registered = registration.exists()
+    owner = selected_owner(root, explicit) if explicit or registered else owner_directory(root, checkpoint)
+    final = final_directory(owner, commit, selection)
+    print(f"Checkpoint: {root / checkpoint}")
+    print(f"Independent owner: {owner}")
+    print(f"Review selection: {final}")
+    context = (explicit, selection) if explicit or selection != "reviewed" else ()
+    next_command: tuple[str, ...]
+    if not registered and not (explicit and (owner / "policy.json").is_file()):
+        if all((owner / name).is_file() for name in ("run.json", "evidence.json")):
+            next_command = ("just", "performance-capture", str(owner))
+        elif (root / checkpoint).exists() and owner == owner_directory(root, checkpoint):
+            next_command = ("just", "performance-resume", checkpoint)
+        elif explicit or owner.exists():
+            message = "original evidence or matching checkpoint is unavailable; restore the owner record before continuing"
+            raise ValueError(message)
+        else:
+            print("Prepare dependency evidence with just release-dependency-builds before starting.")
+            next_command = ("just", "performance-release", "human", "300", checkpoint)
+    elif not (accepted := final / "acceptance.json").is_file():
+        next_command = report_release_step(root, owner, context)
+    else:
+        print(f"Retained acceptance: {hashlib.sha256(accepted.read_bytes()).hexdigest()}")
+        for record in ("staging.json", "transfer.json", "publication-transfer.json"):
+            if (final / record).is_file():
+                print(f"Retained {record}: {final / record}")
+        next_command = tagged_release_step(root, final, tag, commit, context)
+    print(f"Next: {shlex.join(next_command)}")
+
+
 def upload_dispatch(root: Path, owner: Path, selection: str, tag: str) -> None:
     """Dispatch registry publication using only the existing reviewed acceptance."""
     if tag != release_tag(root):
@@ -649,7 +853,7 @@ def upload_dispatch(root: Path, owner: Path, selection: str, tag: str) -> None:
     with tempfile.TemporaryDirectory(prefix="markov-chain-monte-carlo-publication-dispatch-") as temporary:
         snapshot = Path(temporary) / "publication-transfer.json"
         snapshot.write_bytes(transfer_bytes)
-        run_command(
+        run_command_live(
             "gh",
             [
                 "workflow",
@@ -700,6 +904,7 @@ def transport_name(role: AssetRole) -> str:
 
 def copy_draft_assets(transfer: DraftTransfer, directory: Path, incoming: Path) -> None:
     """Check and retain the original inert transport bytes."""
+    payloads: dict[str, bytes] = {}
     for role, asset in transfer.assets.role_assertions():
         name = transport_name(role)
         source = incoming / name
@@ -710,7 +915,8 @@ def copy_draft_assets(transfer: DraftTransfer, directory: Path, incoming: Path) 
         if hashlib.sha256(data).hexdigest() != asset.sha256:
             message = "transported candidate bytes differ from independent dispatch assertions"
             raise ValueError(message)
-        freeze(directory, {name: data})
+        payloads[name] = data
+    freeze(directory, payloads)
 
 
 def download_published_assets(root: Path, transfer: PublicationTransfer, directory: Path) -> None:
@@ -792,7 +998,7 @@ def parse_handoff(payload: bytes, source: Path | ReviewedAcceptance) -> DraftHan
 
 
 def receive(root: Path, destination: Path, payload: bytes, *, source: Path | ReviewedAcceptance) -> Path:
-    """Read-only hosted acceptance, pinned to original bytes and reviewed CI."""
+    """Verify the original bytes and reviewed CI before writing local acceptance."""
     handoff = parse_handoff(payload, source)
     require_dispatch(handoff.transfer)
     transfer = handoff.transfer.original if isinstance(handoff, PublicationHandoff) else handoff.transfer
@@ -870,7 +1076,7 @@ def argument_parser() -> argparse.ArgumentParser:
     measurement.add_argument("--owner-directory", type=Path)
     measurement.add_argument("--progress", choices=("human", "json", "none"), default="human")
     measurement.add_argument("--progress-cadence", type=float, default=300)
-    for name in ("capture", "verify", "reviewed", "archive", "stage", "seal", "record", "publish", "upload"):
+    for name in ("capture", "verify", "reviewed", "archive", "stage", "seal", "record", "publish", "upload", "status"):
         command = commands.add_parser(name)
         if name == "record":
             command.add_argument("role", choices=("transfer", "publication"))
@@ -878,6 +1084,7 @@ def argument_parser() -> argparse.ArgumentParser:
             command.add_argument("tag")
         if name == "reviewed":
             command.add_argument("--tag", help="require the requested publication tag to match the checkout")
+            command.add_argument("--commit", help="require the existing review for this full commit SHA")
         command.add_argument("owner_directory", nargs="?", default="")
         if name == "capture":
             command.add_argument("--retained-scratch", action="store_true", help="explicitly retry retention of the original locally controlled acquisition")
@@ -887,6 +1094,8 @@ def argument_parser() -> argparse.ArgumentParser:
                 command.add_argument(
                     "--target", default="", help="explicit authenticated target.json for manual recovery; otherwise retrieve the original receipt"
                 )
+            if name == "status":
+                command.add_argument("--checkpoint", required=True, help="original checkout-relative benchmark checkpoint")
     receiver = commands.add_parser("receive")
     receiver.add_argument("destination", type=Path)
     receiver.add_argument("--published", action="store_true")
@@ -909,7 +1118,7 @@ def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
         accepted = verify(root, owner, options.selection)
         print(json.dumps({"acceptance": str(accepted), "sha256": hashlib.sha256(accepted.read_bytes()).hexdigest()}))
     elif options.operation == "reviewed":
-        print(verify_existing(root, owner, options.selection))
+        print(verify_existing(root, owner, options.selection, commit=options.commit))
     elif options.operation == "archive":
         print(archive(owner, resolve_revision(root, "HEAD"), options.selection))
     elif options.operation == "stage":
@@ -935,7 +1144,8 @@ def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
 
 def main() -> None:
     """Expose only repository orchestration; shared APIs own every evidence check."""
-    options = argument_parser().parse_args()
+    parser = argument_parser()
+    options = parser.parse_args()
     root = Path.cwd().resolve()
     if options.operation == "acquire":
         owner = owner_directory(root, options.checkpoint, options.owner_directory)
@@ -949,7 +1159,15 @@ def main() -> None:
         )
         print(json.dumps(result))
     elif options.operation == "receive":
-        print(receive(root, options.destination, os.environ["CANDIDATE_TRANSFER"].encode("utf-8"), source=dispatch_source(options)))
+        payload = os.environ.get("CANDIDATE_TRANSFER")
+        if not payload:
+            parser.error("receive requires CANDIDATE_TRANSFER from the workflow dispatch")
+        print(receive(root, options.destination, payload.encode("utf-8"), source=dispatch_source(options)))
+    elif options.operation == "status":
+        try:
+            release_status(root, options.owner_directory, options.selection, options.checkpoint)
+        except (ExecutableNotFoundError, OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError) as error:
+            parser.error(f"{format_exception_diagnostics(error)}. See docs/dev/release-recovery.md.")
     else:
         run_owner_operation(root, options)
 

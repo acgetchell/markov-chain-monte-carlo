@@ -132,14 +132,13 @@ isolated diagnostic comparison crate. Advisory queries need network access; Go/R
 The existing Cargo audit workflow continues to check RustSec advisories separately.
 
 The zizmor, Gitleaks and OSV jobs select one scanner through the setup action's
-`scanner` input. The published shared API loads its version from the canonical
-toolchain declaration, installs and verifies only that scanner, and exports its
-managed environment. Gitleaks and OSV need no Rust installation. zizmor needs
-only minimal host Rust and its own Cargo package; contributor components,
-cross-compilation targets and other Cargo tools are excluded. Each scanner has
-its own cache namespace. These recipes use the `tooling` Python group; ordinary
-build jobs retain the complete contributor setup. Registry publication selects only
-managed Cargo through the action's `tool` input; it does not install unrelated contributor tools.
+`scanner` input. The shared `toolchain sync --tool` and `toolchain export --tool`
+commands use the canonical toolchain declaration to install, verify, and export
+only the selected scanner and its prerequisites. Gitleaks and OSV need no Rust
+installation. zizmor uses minimal host Rust and its own Cargo package. Scanner
+jobs use the `tooling` Python group. Ordinary build jobs install the complete
+contributor toolchain. Registry publication selects managed Cargo through the
+action's `tool` input.
 
 The pinned Semgrep release accepts PyJWT `>=2.15.0,<3`, which covers
 [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v). The root `[tool.uv].override-dependencies` retains PyJWT `>=2.15.1,<3`
@@ -155,6 +154,10 @@ nested repositories are outside this scan. The shared command disables inline an
 recipes with read-only repository permissions and fail on findings, scanner errors, or missing/incomplete reports. Reports under `target/security` include
 native JSON/SARIF for each lockfile and redacted Gitleaks history/working reports; Actions retains them as artifacts for seven days, including on findings.
 README badges report the respective workflow status. These network/full-history scans stay separate from `just check` and the platform `just ci` matrix.
+
+Use `just security-findings` to summarize the retained redacted Gitleaks reports, or pass `--reports DIRECTORY` for downloaded CI reports. To review a
+proposed policy, save it separately and use `just security-check-exceptions CANDIDATE` to compare both policies on the same captured inputs. A successful
+exit confirms the comparison completed. Review all suppressed locations before adopting the policy, then rerun `just security-secrets` to check it.
 
 ## Local CodeRabbit Review
 
@@ -173,7 +176,7 @@ default `origin/main` is checked against the live remote before review. If the l
 `git fetch origin`; a failed remote lookup also stops review. Explicit local bases such as `main` skip this remote check. The recipes do not fetch or change
 Git state.
 
-Both recipes invoke the published `research-repo-tools==0.3.0` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
+Both recipes invoke the published `research-repo-tools==0.3.1` CLI from the locked `dev` environment. Instruction discovery requires `AGENTS.md` and exactly
 one of `.coderabbit.yml` or `.coderabbit.yaml` at the repository root. Explicit bases are validated as local commits before starting review; empty values,
 whitespace, and leading hyphens are rejected. Output streams directly to the terminal without a wrapper timeout, and failures and interruptions propagate.
 The shared package owns process-stub tests for review behavior; no live review is part of migration validation.
@@ -252,43 +255,41 @@ declarations change. dprint and rumdl use `[tool.research-repo-tools.toolchain.b
 building Cargo tools. The uv startup bypasses stale project
 configuration so an externally upgraded supported uv can reconcile its pin. Unsupported uv owners receive manual guidance. Cargo upgrades publish verified exact
 TOML pins and retain previous managed versions on failure. `cargo-update` and the legacy Just pin reconciler are no longer used. Python-only updates retain the
-stable-uv preflight. The shared `deps update-python --all-projects` command refreshes the root lock and synchronizes dev, then refreshes and synchronizes
-the independent projects declared in `deps.python-projects`. Shared package and Just upgrades remain deliberate package-pin changes.
+stable-uv preflight. The shared updater refreshes the root lock and synchronizes dev, then refreshes and synchronizes any independent projects declared
+in `deps.python-projects`. It rejects direct tool and transitive lockfile downgrades before synchronization.
 
 The root Python 3.15 environment owns Semgrep alongside the other development tools, following Delaunay's unified setup. Native scans, fixtures, and SARIF
 use the same lock. Preserve the scanner's exact pin and native-wheel requirement, PyJWT compatibility floor, patched MCP 1.x and matching OpenTelemetry
 family, and `pywin32` override for Python 3.15 Windows wheels. The shared scan and fixture launcher owns the unlimited Linux stack workaround for
 [Semgrep #11979](https://github.com/semgrep/semgrep/issues/11979). OSV and Dependabot cover the unified Python lock.
+Shared setup and the fixture gate verify the selected interpreter, installed scanner distribution, executable, and native version against the root lock.
 
 `just semgrep` runs the shared strict scanner with one native invocation per bounded batch and paired JSON/SARIF reports under `target/security/semgrep/`.
 Its explicit Git glob patterns cover the paths governed by `semgrep.yaml`; the consumer scope test requires both declarations to stay aligned.
 The SARIF workflow runs that same recipe, verifies report currentness through `semgrep check-reports`, and preserves the findings/failure gate even when
 valid reports are uploaded. RRT owns batching, report validation, stale-report rejection, and the scanner environment.
 
-For a newer published shared package, run `just shared-python-plan VERSION`, then `just shared-python-update VERSION` after reviewing the preview.
-`VERSION` is the package release, not a Python selector. Both commands bootstrap outside the old project environment with the exact target package.
-Adoption updates both dependency-group pins, `.python-version`, `project.requires-python`, `uv.lock`, `.venv`, and the notebook kernel. This carries a future
-shared Python baseline into this repository without editing Python versions locally. `just update` does not advance the exact shared-package pin.
-Align package pins and resolution cutoffs across isolated release recipes and workflow jobs with each adopted version. uv selects a compatible interpreter
-from the package's runtime requirement.
+### Adopt a shared tooling release
+
+- To select an exact RRT release, run `just shared-python-plan VERSION`, review the preview, and apply it with `just shared-python-update VERSION`. The
+  apply step updates both dependency-group pins, the Python mirrors, `uv.lock`, `.venv`, and the notebook kernel. Then align the version in the
+  `tooling` source selection in `dependency-sources.toml`.
+- For routine maintenance, `just update` and `just update-python-dependencies` can adopt a newer RRT release compatible with the current Python
+  requirements. The updater advances the exact pins and source selection together. Use the standalone recipes when the Python baseline changes.
+
+After either path, align the exact package pin and resolution cutoff in the isolated Just recipes and in `ci.yml`, `prepare-release.yml`, and
+`release-benchmarks.yml`. Choose a cutoff after the uploads needed for the isolated resolution. uv selects a compatible Python from the package's
+runtime requirement. Update `dependabot-auto-merge.yml` to use the reviewed release commit for the reusable workflow.
+
+### Clean managed tools
 
 `just tools-clean` previews obsolete installations in the shared package-owned tool store without deleting them. Include other consumers with repeated
 `--keep-root PATH` arguments before reviewing the plan; pass `--apply` only to execute that cleanup. The shared implementation preserves declared,
 newer, and unknown installations and environments referenced by retained consumers. `just clean` remains the separate build-artifact cleanup command.
 
-The [migration record](shared-maintenance-migration.md) records preserved consumer behavior and
-the complete extraction in #166, including the non-package environment, shared commands, evidence transition, and retained scientific coverage.
+The [migration record](shared-maintenance-migration.md) covers the extraction in #166 and the retained consumer and scientific evidence.
 
-The v0.2.5 updater preserves consumer resolution policy and rejects both direct
-tool and transitive lockfile downgrades before synchronization. The registry-only
-release and evidence runtimes use the same exact package and reviewed resolution
-cutoff, outside the checkout's `.venv`.
-
-Setup and the fixture gate invoke the published shared CLI directly. It selects
-the scanner from the consumer's lock and verifies its interpreter, installed
-distribution, executable, and native version. Adoption of v0.2.8 removes the
-temporary scanner-version adapter tracked by
-[MCMC #222](https://github.com/acgetchell/markov-chain-monte-carlo/issues/222).
+### Hosted validation
 
 Hosted CI runs configuration, Rust formatting, Markdown, spelling, changelog,
 release metadata, performance-report and Semgrep fixture/production checks once
@@ -389,9 +390,9 @@ the configured fast set in fresh project kernels; slow notebooks remain explicit
 The shared `prohibit-installs` policy rejects literal dependency-install commands in notebook cells. Declare dependencies in the locked notebook group
 and synchronize through `just notebook-sync` instead of modifying the environment from a notebook.
 
-`just notebook-sync` synchronizes the locked dev/notebook groups and registers the project-local kernel. Shared execution writes
-`target/notebooks/notebooks/ising_trace_analysis.ipynb` and a sibling `.report.json` with source/lock hashes, interpreter/package versions, and execution
-status. Temporary Jupyter and Matplotlib state is private to each run. Source notebooks stay unchanged.
+`just notebook-sync` starts RRT in an isolated environment. RRT synchronizes the locked dev and notebook groups in the project environment and registers its
+kernel. Shared execution saves each executed notebook and its sibling `.report.json` under `target/notebooks/notebooks/`. The report records source and
+lock hashes, interpreter and package versions, and execution status. Temporary Jupyter and Matplotlib state is private to each run.
 
 `just diagnostic-plots` builds and validates the Ising example, then executes `notebooks/diagnostic_plots.ipynb`.
 `just diagnostic-plots-data` exports its self-contained schema-2 JSON and CSV without notebook execution.

@@ -23,12 +23,12 @@ dev = [
     "ty",
 ]
 notebook = [
-    "research-repo-tools[notebooks,python-tools]==0.3.0",
+    "research-repo-tools[notebooks,python-tools]==0.3.1",
     "matplotlib>=3.11.2",
     "polars>=2.0.0",
 ]
 
-tooling = [ "research-repo-tools[python-tools]==0.3.0" ]
+tooling = [ "research-repo-tools[python-tools]==0.3.1" ]
 
 [tool.research-repo-tools.changelog]
 owner = "acgetchell"
@@ -267,6 +267,7 @@ override-dependencies = [
     "opentelemetry-instrumentation-requests==0.66b2",
     "opentelemetry-instrumentation-threading==0.66b2",
     "pywin32==312; sys_platform == 'win32'",
+    "wcmatch>=11.2,<12", # GHSA-53pm-wgxf-c6qf. Remove when Semgrep accepts a patched release.
 ]
 
 [tool.uv.dependency-groups]

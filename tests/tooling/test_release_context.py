@@ -12,9 +12,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from research_repo_tools import release_interfaces, release_receipts
+from research_repo_tools import process, release_interfaces, release_receipts
 from research_repo_tools.process import run_command
-from research_repo_tools.release_assets import ReleaseTarget, serialize_release_target
+from research_repo_tools.release_assets import GitHubRelease, ReleaseTarget, serialize_release_target
 from research_repo_tools.release_drafts import RECEIPT_SCHEMA
 from research_repo_tools.release_interfaces import load_receipt_policy
 from tooling import release_candidate as candidate
@@ -231,7 +231,9 @@ def test_automatic_receipt_selection_stops_without_output_on_invalid_evidence(re
 
 
 @pytest.mark.parametrize("failure", ["none", "missing-review", "changed-review", "mutable-release", "dispatch"])
-def test_registry_dispatch_sends_only_the_existing_reviewed_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
+def test_registry_dispatch_sends_the_reviewed_snapshot_and_reports_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str], failure: str
+) -> None:
     root, owner = tmp_path / "checkout", tmp_path / "owner"
     root.mkdir()
     owner.mkdir()
@@ -271,22 +273,43 @@ def test_registry_dispatch_sends_only_the_existing_reviewed_snapshot(tmp_path: P
             raise ValueError(message)
 
     calls: list[list[str]] = []
+    run_url = f"https://github.com/{candidate.REPOSITORY}/actions/runs/123"
+    real_run = subprocess.run
 
-    def dispatch(executable: str, args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-        assert executable == "gh"
+    def resolve(executable: str, *, cwd: Path, env: object) -> Path:
+        assert (executable, cwd, env) == ("gh", root, None)
+        return Path(sys.executable)
+
+    def dispatch(
+        argv: list[str], *, cwd: Path, check: bool, timeout: float | None, capture_output: bool = False, **_options: object
+    ) -> subprocess.CompletedProcess[bytes]:
         assert cwd == root
+        args = argv[1:]
         assert args[:9] == ["workflow", "run", "publish-crates.yml", "--repo", candidate.REPOSITORY, "--ref", TAG, "-f", f"tag={TAG}"]
         assert args[-2:] == ["-f", "acceptance=" + hashlib.sha256(reviewed).hexdigest()]
         assert Path(args[10].removeprefix("candidate=@")).read_bytes() == original
         calls.append(args)
-        if failure == "dispatch":
-            raise subprocess.CalledProcessError(17, [executable, *args])
-        return subprocess.CompletedProcess(args, 0, "", "")
+        code = (
+            "import sys; sys.stderr.buffer.write(b'fixture dispatch rejected\\n'); raise SystemExit(17)"
+            if failure == "dispatch"
+            else f"import sys; sys.stdout.buffer.write({(run_url + '\n').encode('ascii')!r})"
+        )
+        # Use pytest's redirected descriptors explicitly for the fixture child.
+        return real_run(
+            [argv[0], "-I", "-c", code],
+            cwd=cwd,
+            check=check,
+            timeout=timeout,
+            stdout=subprocess.PIPE if capture_output else sys.stdout.fileno(),
+            stderr=subprocess.PIPE if capture_output else sys.stderr.fileno(),
+        )
 
     monkeypatch.setattr(candidate, "verify_existing", verify)
     monkeypatch.setattr(candidate, "check_published_transfer", immutable)
-    monkeypatch.setattr(candidate, "run_command", dispatch)
+    monkeypatch.setattr(process, "resolve_executable", resolve)
+    monkeypatch.setattr(subprocess, "run", dispatch)
     assert_dispatch_outcome(root, owner, verified, failure)
+    assert capfd.readouterr() == (run_url + "\n" if failure == "none" else "", "fixture dispatch rejected\n" if failure == "dispatch" else "")
     assert len(calls) == (1 if failure in {"none", "dispatch"} else 0)
     assert publication.read_bytes() == original
 
@@ -361,6 +384,117 @@ def test_cli_recovers_the_registered_owner_without_shell_context(
     candidate.main()
     assert received == [owner.resolve()]
     assert json.loads(capsys.readouterr().out)["sha256"] == hashlib.sha256(accepted.read_bytes()).hexdigest()
+
+
+def test_status_uses_original_checkpoint_and_raw_evidence_before_registration(
+    owner_record: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, _unused_owner = owner_record
+    checkpoint = "target/original checkpoint"
+    monkeypatch.setattr(candidate, "resolve_revision", lambda *_args: SHA)
+    checkpoint_path = root / checkpoint
+    checkpoint_path.mkdir(parents=True)
+    owner = candidate.owner_directory(root, checkpoint)
+    owner.mkdir(parents=True)
+    candidate.release_status(root, "", "reviewed", checkpoint)
+    assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", "just", "performance-resume", checkpoint]
+    assert not (candidate.selection_directory(root) / "owner.json").exists()
+
+    (owner / "run.json").write_bytes(b"original run")
+    (owner / "evidence.json").write_bytes(b"original evidence")
+    candidate.release_status(root, "", "reviewed", checkpoint)
+    assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", "just", "performance-capture", str(owner)]
+    assert sorted(path.name for path in owner.iterdir()) == ["evidence.json", "run.json"]
+
+
+@pytest.mark.parametrize("phase", ["restore-scratch", "promote-report", "review", "tag", "push", "prepare", "stage"])
+def test_fresh_shell_status_uses_the_existing_selection_and_exact_ref(
+    owner_record: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], phase: str
+) -> None:
+    root, owner = owner_record
+    report = b"promoted report"
+    awaiting_report = phase in {"restore-scratch", "promote-report"}
+    if not awaiting_report:
+        (root / "current.md").write_bytes(report)
+    receipt = json.dumps({"current": "current.md", "outputs": {"current.md": {"sha256": hashlib.sha256(report).hexdigest()}}}).encode()
+    (owner / "publication.json").write_bytes(receipt)
+    (owner / "publication.sha256").write_bytes(hashlib.sha256(receipt).hexdigest().encode())
+    candidate.remember_owner(root, owner)
+    selection = "renewed-ci" if phase == "stage" else "reviewed"
+    final = candidate.final_directory(owner, SHA, selection)
+    reviewed = not awaiting_report and phase != "review"
+    if reviewed:
+        final.mkdir(parents=True)
+        (final / "acceptance.json").write_bytes(b"original reviewed bytes")
+    payload, manifest = "target/original.run.json", "target/original.evidence.json"
+    if phase == "promote-report":
+        (root / "target").mkdir()
+        (root / payload).write_bytes(b"retained payload")
+        (root / manifest).write_bytes(b"retained manifest")
+    monkeypatch.setattr(candidate, "load_performance_release", lambda *_args: SimpleNamespace(payload=payload, manifest=manifest))
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(sys, "argv", ["release_candidate.py", "status", "--checkpoint", "target/checkpoint", "--selection", selection])
+    monkeypatch.setattr(candidate, "resolve_revision", lambda *_args: SHA)
+    monkeypatch.setattr(candidate, "require_release_checkout", lambda *_args: None)
+    ref = f"refs/tags/{TAG}"
+
+    def git(args: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+        assert cwd == root
+        if args[1] == "ls-remote":
+            assert reviewed
+            assert not check
+            assert args[2:] == ["--exit-code", "--tags", f"https://github.com/{candidate.REPOSITORY}.git", ref, f"{ref}^{{}}"]
+            if phase in {"prepare", "stage"}:
+                return subprocess.CompletedProcess(args, 0, f"{'b' * 40}\t{ref}\n{SHA}\t{ref}^{{}}\n".encode())
+            return subprocess.CompletedProcess(args, 2, b"")
+        assert (args[1], phase) in {("show-ref", "tag"), ("show-ref", "push"), ("--no-replace-objects", "push")}
+        return subprocess.CompletedProcess(args, 1 if phase == "tag" else 0, b"")
+
+    def gh(executable: str, args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[bytes]:
+        assert executable == "gh"
+        assert cwd == root
+        assert args[:12] == [
+            "run",
+            "list",
+            "--repo",
+            candidate.REPOSITORY,
+            "--workflow",
+            "prepare-release.yml",
+            "--event",
+            "push",
+            "--branch",
+            TAG,
+            "--commit",
+            SHA,
+        ]
+        run = {
+            "databaseId": 73,
+            "attempt": 1,
+            "status": "queued" if phase == "prepare" else "completed",
+            "conclusion": "" if phase == "prepare" else "success",
+            "headBranch": TAG,
+            "headSha": SHA,
+            "event": "push",
+        }
+        return subprocess.CompletedProcess(args, 0, json.dumps([run]).encode())
+
+    monkeypatch.setattr(candidate, "run_git_bytes", git)
+    monkeypatch.setattr(candidate, "run_command_bytes", gh)
+    draft = GitHubRelease(candidate.REPOSITORY, TAG, 42, draft=True, immutable=False, prerelease=False, assets=(), title=TAG)
+    monkeypatch.setattr(candidate, "lookup_release", lambda *_args: draft)
+    expected = {
+        "restore-scratch": ["just", "performance-capture", str(owner)],
+        "promote-report": ["just", "performance-doc", "--payload", payload, "--manifest", manifest],
+        "review": ["just", "release-evidence"],
+        "tag": ["just", "tag", TAG, "--commit", SHA],
+        "push": ["git", "push", "origin", ref],
+        "prepare": ["gh", "run", "watch", "73", "--repo", candidate.REPOSITORY],
+        "stage": ["just", "release-stage", "", "", "renewed-ci"],
+    }
+    candidate.main()
+    assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", *expected[phase]]
+    if reviewed:
+        assert {path.name: path.read_bytes() for path in final.iterdir()} == {"acceptance.json": b"original reviewed bytes"}
 
 
 def test_conflicting_owner_selection_stops_before_acquisition(owner_record: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:

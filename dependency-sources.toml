@@ -16,11 +16,11 @@ ecosystem = "cargo"
 directory = "benches/diagnostic_backends"
 cargo-owner = "rust"
 
-# Edit this selection, preview with `just dependency-source tooling`, then apply.
+# The shared updater advances this selection alongside the manifest and lock.
 [sources.tooling]
 project = "python"
 package = "research-repo-tools"
-version = "0.3.0"
+version = "0.3.1"
 
 # Native payload pins follow research-repo-tools v0.2.7's actionlint policy.
 [source-builds]

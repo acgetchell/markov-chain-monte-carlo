@@ -19,10 +19,10 @@ from research_repo_tools.evidence import deterministic_json
 from research_repo_tools.just_inspect import dry_run
 from research_repo_tools.process import run_command
 
-from tests.tooling.support_evidence import COMMIT, POLICY, REPOSITORY, EvidenceProvider, install_clean_checkout
+from tests.tooling.support_evidence import COMMIT, POLICY, REPOSITORY, TOOLING_VERSION, EvidenceProvider, install_clean_checkout
 
-TOOLING_REQUIREMENT = "research-repo-tools==0.3.0"
-TOOLING_CUTOFF = "2026-11-19T04:26:14Z"
+TOOLING_REQUIREMENT = f"research-repo-tools=={TOOLING_VERSION}"
+TOOLING_CUTOFF = "2026-11-22T02:44:08Z"
 
 ROOT = Path(__file__).resolve().parents[2]
 TAG = "v0.5.42"
@@ -164,7 +164,8 @@ def test_benchmark_recipe_forwards_one_tag_and_independent_transfer(tmp_path: Pa
     script = tmp_path / "dispatch.sh"
     script.write_text(
         f'gh() {{ {shlex.quote(Path(sys.executable).as_posix())} {shlex.quote(provider.as_posix())} "$@"; }}\n'
-        'just() { [[ "$*" == "--quiet _release-candidate record transfer" ]] || return 90; '
+        'just() { [[ "$#" == 7 && "$1 $2 $3 $4" == "--quiet _release-candidate record transfer" '
+        '&& -z "$5" && "$6 $7" == "--selection reviewed" ]] || return 90; '
         '[[ "$FIXTURE_AUTOMATIC" == true ]] || { echo "no original Step 1 owner selection" >&2; return 2; }; printf "%s\\n" "$FIXTURE_TRANSFER"; }\n'
         + dry_run(ROOT, "release-benchmarks", [TAG]).stderr,
         encoding="utf-8",
@@ -201,7 +202,12 @@ def test_benchmark_recipe_forwards_one_tag_and_independent_transfer(tmp_path: Pa
 def test_benchmark_dispatch_requires_an_argument() -> None:
     result = run_command("just", ["release-benchmarks"], cwd=ROOT, check=False)
     assert result.returncode == 1
-    assert "got 0 positional arguments but takes 1" in result.stderr
+    assert "got 0 positional arguments" in result.stderr
+
+
+def test_benchmark_dispatch_uses_the_explicit_owner_and_selection() -> None:
+    command = dry_run(ROOT, "release-benchmarks", [TAG, "owner path", "renewed-ci"]).stderr
+    assert "_release-candidate record transfer 'owner path' --selection 'renewed-ci'" in command
 
 
 @pytest.mark.parametrize("tag", ["", "main", "v01.2.3", "v1.2.3; touch injected"])
@@ -444,6 +450,18 @@ def test_draft_workflow_keeps_the_writer_isolated_and_recovery_explicit() -> Non
     assert "draft-state/*" in writer["steps"][-1]["with"]["path"]
     assert "draft-state/draft-receipt.json" in writer["steps"][-2]["with"]["path"]
     assert all(step.get("with", {}).get("enable-cache", False) is False for step in writer["steps"])
+
+
+def test_dependency_audit_push_checks_branches_while_release_preparation_checks_tags() -> None:
+    audit = yaml.safe_load((ROOT / ".github/workflows/audit.yml").read_bytes())[True]
+    assert audit["push"] == {"branches": ["**"], "paths": audit["pull_request"]["paths"]}
+    assert "**/Cargo.lock" in audit["push"]["paths"]
+    assert audit["schedule"] == [{"cron": "0 6 * * 1"}]
+    assert "workflow_dispatch" in audit
+    preparation = yaml.safe_load(WORKFLOW.read_bytes())[True]
+    assert preparation == {"push": {"tags": ["v*"]}}
+    steps = yaml.safe_load(WORKFLOW.read_bytes())["jobs"]["verify"]["steps"]
+    assert any(step.get("run") == "just release-dependency-builds" for step in steps)
 
 
 def test_draft_workflow_avoids_actionlint_prestart_pipe_deadlock() -> None:

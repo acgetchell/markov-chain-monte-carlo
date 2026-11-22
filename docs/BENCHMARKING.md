@@ -233,7 +233,7 @@ uv run --locked --group dev research-repo-tools release evidence archive inspect
 
 Use the retained complete run and report for performance comparisons. Keep both
 trials and their provenance together.
-[RRT candidate archive interfaces](https://github.com/acgetchell/research-repo-tools/blob/v0.3.0/docs/candidate-reuse-api.md#public-interfaces)
+[RRT candidate archive interfaces](https://github.com/acgetchell/research-repo-tools/blob/v0.3.1/docs/candidate-reuse-api.md#public-interfaces)
 
 Timing ratios and marginal bounds do not establish significance, convergence, mixing,
 or effective sample size. Research comparisons need invariant-distribution or equilibrium

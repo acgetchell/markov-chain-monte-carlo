@@ -20,7 +20,7 @@ from research_repo_tools.registry import RegistryVersion
 from research_repo_tools.release_assets import ReleaseTarget, serialize_release_target
 from research_repo_tools.release_publishing import require_checks
 
-from tests.tooling.support_evidence import install_clean_checkout
+from tests.tooling.support_evidence import TOOLING_VERSION, install_clean_checkout
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -94,7 +94,7 @@ def release_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     def published(root: Path, *, packages: tuple[str, ...] | None = None) -> tuple[dependency_provenance.DependencyIdentity, ...]:
         assert root == REPO_ROOT
         assert packages == ("research-repo-tools",)
-        return (dependency_provenance.DependencyIdentity("research-repo-tools", "0.3.0", "https://pypi.org/simple"),)
+        return (dependency_provenance.DependencyIdentity("research-repo-tools", TOOLING_VERSION, "https://pypi.org/simple"),)
 
     monkeypatch.setattr(dependency_provenance, "check_release_dependencies", published)
     install_clean_checkout(monkeypatch, REPO_ROOT, COMMIT)
@@ -321,7 +321,7 @@ def test_actual_approval_artifact_guard_rejects_drift(tmp_path: Path, failure: s
 def test_shared_release_interface_matches_released_reference() -> None:
     recipes = inspect_justfile(REPO_ROOT).recipes
     assert {"update-version", "release-version-check", "tag", "release-package", "release-publish", "release-verify", "release-visibility"} <= recipes.keys()
-    assert not {"release-update", "release-check", "tag-release", "tag-preview", "publish"} & recipes.keys()
+    assert not {"release-update", "release-check", "tag-release", "publish"} & recipes.keys()
     update = dry_run(REPO_ROOT, "update-version", ["v9.0.0", "--previous-release", "v8.0.0", "--date", "2099-01-01", "--offline", "--dry-run"]).stderr
     assert 'research-repo-tools release update "$@"' in update
     assert "cargo publish" not in update
@@ -363,7 +363,7 @@ def test_visibility_uses_isolated_supplier_and_explicit_release_identities() -> 
     command = shlex.split(dry_run(REPO_ROOT, "release-visibility", [TAG, target]).stderr)
     assert "--no-project" in command
     assert "--isolated" in command
-    assert command[command.index("--with") + 1] == "research-repo-tools==0.3.0"
+    assert command[command.index("--with") + 1] == f"research-repo-tools=={TOOLING_VERSION}"
     assert command[command.index("visibility") + 1 :] == [
         "--repository",
         settings.repository,
@@ -384,12 +384,28 @@ def test_visibility_uses_isolated_supplier_and_explicit_release_identities() -> 
     ]
 
 
-def test_tag_force_keeps_metadata_and_review_dependencies() -> None:
-    dependencies = inspect_justfile(REPO_ROOT).recipes["tag"]["dependencies"]
-    assert [item["recipe"] for item in dependencies] == ["release-version-check", "_release-candidate"]
-    assert dependencies[1]["arguments"][0] == "reviewed"
-    command = dry_run(REPO_ROOT, "tag", [TAG, "owner path", "alternate", "--force"]).stderr.splitlines()[-1]
-    assert shlex.split(command)[-4:] == ["changelog", "tag", TAG, "--force"]
+@pytest.mark.parametrize(("recipe", "flags"), [("tag", ["--force"]), ("tag-preview", ["--dry-run"])])
+@pytest.mark.parametrize("review_ok", [True, False])
+def test_tag_binds_the_same_commit_to_review_and_tag(recipe: str, flags: list[str], *, review_ok: bool) -> None:
+    args = [TAG, "owner path", "alternate"]
+    args += ["--commit", COMMIT, "--force"] if recipe == "tag" else []
+    script = dry_run(REPO_ROOT, recipe, args).stderr
+    head = "b" * 40 if recipe == "tag" else COMMIT
+    stubs = f"""\
+git() {{ printf '%s\\n' {head}; }}
+just() {{ printf '%s\\n' "$@"; return {0 if review_ok else 1}; }}
+uv() {{ printf '%s\\n' "$@"; }}
+"""
+    result = run_command("bash", ["--noprofile", "--norc", "-euc", stubs + script], check=False)
+    calls = result.stdout.splitlines()
+    assert calls[:8] == ["_release-candidate", "reviewed", f"--tag={TAG}", "owner path", "--selection", "alternate", "--commit", COMMIT]
+    assert result.returncode == (0 if review_ok else 1)
+    if review_ok:
+        command = calls.index("toolchain")
+        assert calls[command : command + 6] == ["toolchain", "run", "--tool", "cargo", "--", "research-repo-tools"]
+        assert calls[calls.index("changelog") :] == ["changelog", "tag", TAG, "--commit", COMMIT, *flags]
+    else:
+        assert len(calls) == 8
 
 
 @pytest.mark.parametrize("failure", ["pending", "failed", "provider", "commit", "ambiguous"])

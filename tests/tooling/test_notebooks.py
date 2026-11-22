@@ -224,6 +224,7 @@ def test_ess_timing_requires_matching_analyzed_samples(
             {
                 "chain_id": chain,
                 "samples": samples,
+                "recording_interval_steps": 1,
                 "elapsed_seconds": elapsed,
                 "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
             }
@@ -294,6 +295,7 @@ def test_invalid_timing_preserves_existing_analysis_outputs(project: NotebookPro
             {
                 "chain_id": chain,
                 "samples": 4,
+                "recording_interval_steps": 1,
                 "elapsed_seconds": 0.5,
                 "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
             }
@@ -566,7 +568,7 @@ def test_rank_notebook_renders_short_prefix_cadence_and_unavailable_chains(proje
 
 @pytest.fixture(scope="module")
 def validate_plot_report() -> Callable[[dict[str, Any], Path], None]:
-    """Execute the actual validation and write cells in a fresh namespace."""
+    """Execute the checked-in report validation cells in a fresh namespace."""
     notebook = REPO_ROOT / "notebooks/diagnostic_plots.ipynb"
     source = {cell["id"]: "".join(cell["source"]) for cell in json.loads(notebook.read_bytes())["cells"]}
     instructions = tuple(
@@ -587,6 +589,99 @@ def prior_plot_outputs(output: Path) -> dict[str, bytes]:
     for name, content in previous.items():
         (output / name).write_bytes(content)
     return previous
+
+
+@pytest.mark.parametrize("recording_interval", [1, 2])
+def test_ising_trace_accepts_unsigned_steps_and_checks_timing_cadence(
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording_interval: int
+) -> None:
+    trace = tmp_path / "trace.csv"
+    steps = range(2**63, 2**63 + 4)
+    rows = [f"{chain},{step},true,true,0,{index},{index}\n" for chain in range(2) for index, step in enumerate(steps)]
+    trace.write_text("chain_id,step,accepted,proposed,log_prob,energy,magnetization\n" + "".join(rows), encoding="utf-8", newline="\n")
+    report = tmp_path / "timing.json"
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "timing_scope": _PRODUCTION_SCOPE,
+                "chains": [
+                    {
+                        "chain_id": chain,
+                        "samples": 4,
+                        "recording_interval_steps": recording_interval,
+                        "elapsed_seconds": 0.5,
+                        "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
+                    }
+                    for chain in range(2)
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    output = tmp_path / "figures"
+    monkeypatch.setenv("MCMC_TRACE_PATH", str(trace))
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
+    notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
+    execution = project.execute(notebook)
+    if recording_interval != 1:
+        assert execution.returncode == 1
+        assert execution.report["failed_cell"]["id"] == "compute-effective-sample-sizes"
+        assert "Timing recording interval does not match the analyzed trace" in execution.report["error"]["message"]
+        assert not output.exists()
+        return
+    assert execution.returncode == 0, execution.report
+    with (output / "ising_ess_summary.csv").open(encoding="utf-8", newline="") as stream:
+        estimates = list(csv.DictReader(stream))
+    assert len(estimates) == 4
+    assert all(float(row["tau_steps"]) == pytest.approx(1.5) and float(row["ess_per_second"]) == pytest.approx(16 / 3) for row in estimates)
+    with (output / "ising_rhat_summary.csv").open(encoding="utf-8", newline="") as stream:
+        estimates = list(csv.DictReader(stream))
+    assert len(estimates) == 2
+    assert all(float(row["rhat"]) == pytest.approx(math.sqrt(19 / 6)) for row in estimates)
+
+
+def test_rank_notebook_keeps_previous_outputs_when_rendering_fails(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    notebook = project.root / "notebooks/diagnostic_plots.ipynb"
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps(plot_report()), encoding="utf-8", newline="\n")
+    output = tmp_path / "figures"
+    previous = prior_plot_outputs(output)
+    payload = json.loads(notebook.read_bytes())
+    cell = next(cell for cell in payload["cells"] if cell["id"] == "render-traces-and-autocorrelations")
+    cell["source"].insert(cell["source"].index("manifest = {\n"), 'raise ValueError("fixture render failure")\n')
+    notebook.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    monkeypatch.setenv("MCMC_DIAGNOSTICS_PATH", str(report))
+    monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
+    execution = project.execute(notebook)
+    assert execution.returncode == 1
+    assert execution.report["failed_cell"]["id"] == "render-traces-and-autocorrelations"
+    assert "fixture render failure" in execution.report["error"]["message"]
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
+
+
+def test_rank_notebook_exports_estimates_after_many_unavailable_rows(tmp_path: Path) -> None:
+    import polars as pl
+
+    estimated = plot_report()["runs"][0]
+    unavailable = plot_report()["runs"][0]
+    for chain in unavailable["prefixes"][-1]["single_chain"]:
+        chain["blocked_mean_error"] = {"status": "unavailable", "value": None, "reason": "fixture_unavailable"}
+    runs = [{**unavailable, "run_id": f"unavailable-{index}"} for index in range(51)] + [estimated]
+    path = REPO_ROOT / "notebooks/diagnostic_plots.ipynb"
+    cell = next(cell for cell in json.loads(path.read_bytes())["cells"] if cell["id"] == "export-scalar-and-blocked-summaries")
+    namespace = {"runs": runs, "pl": pl, "staging_dir": tmp_path}
+    exec(compile("".join(cell["source"]), f"{path}:{cell['id']}", "exec"), namespace)  # noqa: S102 - run the checked-in export cell.
+    with (tmp_path / "blocked_errors.csv").open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 104
+    assert all(row["block_size"] == row["standard_error"] == "" for row in rows[:-2])
+    assert [(row["run_id"], int(row["block_size"]), float(row["standard_error"])) for row in rows[-2:]] == [
+        ("rendering-fixture", 2, 0.0),
+        ("rendering-fixture", 2, 0.0),
+    ]
 
 
 def test_rank_notebook_rejects_invalid_report_before_replacing_outputs(project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -638,6 +733,37 @@ def test_rank_notebook_rejects_invalid_scalar_alternatives_without_replacing_evi
     with pytest.raises(ValueError, match=r"Scalar metric requires status and value|Diagnostic availability/value/reason mismatch"):
         validate_plot_report(report, output)
     assert {path.name: path.read_bytes() for path in output.iterdir()} == previous
+
+
+def test_rank_notebook_rejects_noninteger_report_schema(validate_plot_report: Callable[[dict[str, Any], Path], None], tmp_path: Path) -> None:
+    report = plot_report()
+    report["schema_version"] = 2.0
+    output = tmp_path / "figures"
+    with pytest.raises(ValueError, match="Expected diagnostics schema"):
+        validate_plot_report(report, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "blocked",
+    [
+        {"status": "estimated"},
+        {
+            "status": "estimated",
+            "levels": [{"block_size": 2, "block_count": 3, "used_draws": 1, "standard_error": {"status": "estimated", "value": 0.0}}],
+        },
+    ],
+    ids=["missing-levels", "inconsistent-draw-count"],
+)
+def test_rank_notebook_rejects_invalid_block_levels(
+    validate_plot_report: Callable[[dict[str, Any], Path], None], tmp_path: Path, blocked: dict[str, Any]
+) -> None:
+    report = plot_report()
+    report["runs"][0]["prefixes"][0]["single_chain"][0]["blocked_mean_error"] = blocked
+    output = tmp_path / "figures"
+    with pytest.raises(ValueError, match="Invalid blocked error availability or draw counts"):
+        validate_plot_report(report, output)
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(
