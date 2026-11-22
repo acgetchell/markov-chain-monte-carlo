@@ -591,12 +591,21 @@ def prior_plot_outputs(output: Path) -> dict[str, bytes]:
     return previous
 
 
-@pytest.mark.parametrize("recording_interval", [1, 2])
+@pytest.mark.parametrize(
+    "trace_case",
+    [
+        pytest.param(((0, 1, 2, 3), 1, True), id="regular"),
+        pytest.param(((0, 1, 2, 3), 2, False), id="regular-mismatch"),
+        pytest.param(((0, 1, 3, 4), 1, False), id="irregular-mismatch"),
+        pytest.param(((0,), 1, True), id="singleton"),
+    ],
+)
 def test_ising_trace_accepts_unsigned_steps_and_checks_timing_cadence(
-    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording_interval: int
+    project: NotebookProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trace_case: tuple[tuple[int, ...], int, bool]
 ) -> None:
+    step_offsets, recording_interval, cadence_matches = trace_case
     trace = tmp_path / "trace.csv"
-    steps = range(2**63, 2**63 + 4)
+    steps = tuple(2**63 + offset for offset in step_offsets)
     rows = [f"{chain},{step},true,true,0,{index},{index}\n" for chain in range(2) for index, step in enumerate(steps)]
     trace.write_text("chain_id,step,accepted,proposed,log_prob,energy,magnetization\n" + "".join(rows), encoding="utf-8", newline="\n")
     report = tmp_path / "timing.json"
@@ -608,7 +617,7 @@ def test_ising_trace_accepts_unsigned_steps_and_checks_timing_cadence(
                 "chains": [
                     {
                         "chain_id": chain,
-                        "samples": 4,
+                        "samples": len(steps),
                         "recording_interval_steps": recording_interval,
                         "elapsed_seconds": 0.5,
                         "observables": [{"observable": name, "tau": 1.5} for name in ("energy", "magnetization")],
@@ -626,7 +635,7 @@ def test_ising_trace_accepts_unsigned_steps_and_checks_timing_cadence(
     monkeypatch.setenv("MCMC_NOTEBOOK_OUTPUT_DIR", str(output))
     notebook = project.root / "notebooks/ising_trace_analysis.ipynb"
     execution = project.execute(notebook)
-    if recording_interval != 1:
+    if not cadence_matches:
         assert execution.returncode == 1
         assert execution.report["failed_cell"]["id"] == "compute-effective-sample-sizes"
         assert "Timing recording interval does not match the analyzed trace" in execution.report["error"]["message"]
@@ -636,6 +645,11 @@ def test_ising_trace_accepts_unsigned_steps_and_checks_timing_cadence(
     with (output / "ising_ess_summary.csv").open(encoding="utf-8", newline="") as stream:
         estimates = list(csv.DictReader(stream))
     assert len(estimates) == 4
+    if len(steps) == 1:
+        assert {row["status"] for row in estimates} == {"At least two samples are required."}
+        assert {row["timing_status"] for row in estimates} == {"unavailable for analyzed samples"}
+        assert all(row["ess_per_second"] == "" for row in estimates)
+        return
     assert all(float(row["tau_steps"]) == pytest.approx(1.5) and float(row["ess_per_second"]) == pytest.approx(16 / 3) for row in estimates)
     with (output / "ising_rhat_summary.csv").open(encoding="utf-8", newline="") as stream:
         estimates = list(csv.DictReader(stream))
