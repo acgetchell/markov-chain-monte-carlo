@@ -116,6 +116,17 @@ retained pairs and the generated archive index use the dedicated `docs/performan
 the shared complete-run schema inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
 preserve points, bounds, confidence levels when known, units, and coverage. Source/harness inventories use shared versioned fingerprints.
 
+For a working-tree measurement, the recorded Git revision identifies the base
+commit. The run's `evidence.json` records the SHA-256 of each exported file in
+`sources.current.context["source-export"]`. From the release preparation commit,
+compare the Git blob hashes below with the `Cargo.toml` and `Cargo.lock` entries
+in that export.
+
+```bash
+git cat-file blob HEAD:Cargo.toml | shasum -a 256
+git cat-file blob HEAD:Cargo.lock | shasum -a 256
+```
+
 The strict shared inventory accepts only an empty new namespace before its first comparison. The v1 README and diagnostic experiments remain outside it.
 The legacy guard and existing README publication selection remain until the verified v0.5.3 release supplies new-namespace evidence; see
 [#221](https://github.com/acgetchell/markov-chain-monte-carlo/issues/221). Keep the README plan independently reviewed against the retained pair.

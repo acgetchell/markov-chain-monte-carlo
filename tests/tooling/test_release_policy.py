@@ -71,7 +71,9 @@ def test_release_update_preserves_links_and_advances_nested_package_version(tmp_
         r"https://raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/[0-9a-f]{40}/docs/assets/ising_energy_trace\.png",
         image_links[0],
     )
-    publication = tomllib.loads((ROOT / "tooling/performance-readme.toml").read_text(encoding="utf-8"))
+    # Retained snapshots include a complete-run marker alongside the image link.
+    publication_name = "performance-publication.toml" if "\nComplete run: `" in before else "performance-readme.toml"
+    publication = tomllib.loads((ROOT / "tooling" / publication_name).read_text(encoding="utf-8"))
     assert image_links[1] == f"https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v{_VERSION}/{publication['svg']}"
     for guide in _GUIDES:
         assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/{guide}" in before

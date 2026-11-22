@@ -60,6 +60,9 @@ just release-dependency-builds
 just performance-release
 ```
 
+`just performance-release` verifies published dependency provenance before
+collecting benchmark samples.
+
 Review both paired trials and the workload inventory. Keep the original checkpoint,
 external owner record, and an independent backup. If interrupted, run
 `just release-status` and follow the [benchmark recovery procedure](dev/release-recovery.md#benchmark-acquisition).
@@ -75,10 +78,10 @@ just performance-readme --preview
 just performance-readme
 ```
 
-Commit the report, run records, table, and CSV/SVG together. These commands reuse
-the retained measurements.
+These commands reuse the retained measurements. Include the report, run records,
+table, and CSV/SVG together in the preparation commit.
 
-### 6. Validate and review the release PR
+### 6. Run the release checks
 
 ```bash
 just release-version-check
@@ -86,12 +89,67 @@ just security
 just ci
 ```
 
-Review and stage the release artifacts. Use a preparation commit subject such
-as `chore(release): release $TAG` so the changelog generator skips the commit.
-Run `just publish-check` on the clean commit and complete the local CodeRabbit
-review with `just review origin/main` before pushing. Open the PR against `main`
-and record the validation. See [PR push requirements](../AGENTS.md#validation)
-and [preparation corrections](dev/release-recovery.md#preparation-corrections).
+### 7. Commit the release preparation
+
+Stage only the reviewed release files and inspect the staged diff. The changelog
+generator skips the preparation commit when it has the subject shown below.
+
+```bash
+git diff --cached
+git commit -m "chore(release): release $TAG"
+```
+
+### 8. Check the Cargo package and run the local CodeRabbit review
+
+From the clean preparation commit, verify that Cargo can package the crate with
+default features and with all features. Then review the full branch diff against
+the PR base.
+
+```bash
+just publish-check
+just review origin/main
+```
+
+Wait for the review to finish and verify each finding against the release branch.
+
+- For a preparation-only correction, such as a typo in this guide, stage the
+  correction and amend the unpushed preparation commit with `git commit --amend --no-edit`.
+- For a user-facing fix, make a separate commit with a descriptive subject, then
+  run `just changelog-release "$TAG"` so the fix appears in the notes.
+
+Regenerate the notes if another changelog input changes, including the prepared
+citation date. Review and stage any regenerated files, then commit them with
+`git commit -m "chore(release): prepare $TAG notes"`.
+
+If a correction changes measured code (for example, sampler arithmetic), the
+benchmark harness, toolchain, or dependencies, preserve the original run and
+follow [benchmark recovery](dev/release-recovery.md#benchmark-acquisition) to
+start a fresh acquisition. Repeat steps 4 and 5 to collect both trials and
+regenerate the report and README snapshot before repeating the release checks.
+The retained run also requires the final tree to differ from the measured tree
+only at declared output paths. See the [evidence policy](dev/release-recovery.md#evidence-policy).
+
+After corrections, repeat step 6 and both commands above on the final clean
+commit before pushing.
+
+### 9. Push the branch and open the release PR
+
+Once the checks and local review pass, push the reviewed branch.
+
+```bash
+git push -u origin "release/$TAG"
+```
+
+After the push succeeds, open the PR against `main`.
+
+```bash
+gh pr create --base main --head "release/$TAG" --title "chore(release): release $TAG"
+```
+
+Record the release checks, Cargo package checks, and local review results in the
+PR description. Resolve confirmed findings and wait for required PR checks and
+reviews before merging. Apply the [PR push requirements](../AGENTS.md#validation)
+to any corrective push.
 
 ## Step 2: Publish after the PR is merged
 
