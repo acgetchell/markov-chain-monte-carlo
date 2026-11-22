@@ -6,6 +6,7 @@ use core::{cell::Cell, mem};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::by_value::Proposal;
@@ -244,6 +245,44 @@ impl DelayedProposal<i32> for Move {
 
 impl TunableProposal for Move {
     fn set_scale(&mut self, _: f64) {}
+}
+
+#[test]
+fn scoped_workers_keep_seeded_sampling_and_tracing_independent() {
+    const STEPS: usize = 16;
+
+    fn run(seed: u64) -> (i32, u64) {
+        let target = Score::default();
+        let proposal = Move {
+            ratio: 0.0,
+            ..Move::default()
+        };
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut sampler = Sampler::from_state(0, &target, proposal, &mut rng).unwrap();
+        sampler.run(STEPS).unwrap();
+        (*sampler.chain_ref().state(), rng.random())
+    }
+
+    let baselines = [21, 42].map(|seed| (seed, run(seed)));
+    thread::scope(|scope| {
+        for &(seed, baseline) in &baselines {
+            scope.spawn(move || {
+                let records = capture(|| {
+                    tracing::debug_span!(target: "markov_chain_monte_carlo", "worker_chain", seed)
+                        .in_scope(|| assert_eq!(run(seed), baseline));
+                });
+
+                assert_eq!(records.spans.len(), 2);
+                assert_eq!(records.spans[0].fields.0["seed"], seed.to_string());
+                assert_eq!(records.closed, 2);
+                assert_eq!(records.events.len(), STEPS);
+                for (index, event) in records.events.iter().enumerate() {
+                    assert_eq!(event.scope, ["worker_chain", "run"]);
+                    assert_eq!(event.fields.0["step"], (index + 1).to_string());
+                }
+            });
+        }
+    });
 }
 
 #[test]

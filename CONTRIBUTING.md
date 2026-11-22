@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.3.0` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
+The published `research-repo-tools==0.3.1` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -119,13 +119,13 @@ Managed Rust/Cargo installations live under `~/.cache/research-repo-tools`; set 
 short path on Windows. Normal recipes select the checked tool paths through `toolchain run`.
 
 To adopt a newer published shared package and its Python baseline, run `just shared-python-plan VERSION`, review the preview, then run
-`just shared-python-update VERSION`. Use the package version, not the Python version. These standalone commands work outside the old environment and update
-both package pins, the Python mirrors, lockfile, environment, and notebook kernel together. `just update` retains the exact shared-package pin.
+`just shared-python-update VERSION`. These standalone commands take the RRT package version and work outside the old environment. The apply step updates both
+package pins, the Python mirrors, the lockfile, the environment, and the notebook kernel. Align `dependency-sources.toml` with the exact pin after applying.
+See [the adoption checklist](docs/dev/DEVELOPING.md#adopt-a-shared-tooling-release) for the isolated runners and Dependabot workflow.
 
 The main Python 3.15 environment includes Semgrep. Its exact dependency pin, native-wheel requirement, and compatibility overrides live in the root
 `pyproject.toml` and `uv.lock`. `just update-python-dependencies`, security scans, and Dependabot use that shared lockfile. Shared scan and fixture commands own
 the Linux stack-limit workaround required by Semgrep on Python 3.15. Local and SARIF validation use the same `just semgrep` recipe.
-Align the isolated release recipes and workflows with the adopted package pin and resolution cutoff. uv selects a compatible Python.
 
 Git, Bash/sh, the native compiler/linker, uv, and jq remain external prerequisites. Release discovery/publication additionally needs an authenticated
 [GitHub CLI](https://cli.github.com/). CodeRabbit has separate opt-in installation and authentication.
@@ -189,14 +189,15 @@ just clean           # Clean build artifacts
 
 `just update` first upgrades uv through its installation owner (supported standalone or Homebrew installations) and reconciles its exact pin. It then upgrades
 declared Cargo tools and release binaries, then updates Cargo and Python dependencies. Candidate pins are published only after every new tool installs and
-verifies successfully. Setup remains explicit when declarations change. Just and the shared package retain their explicit package pins. Unsupported uv
-installation owners receive manual update guidance. dprint and rumdl use checksum-verified release binaries; `just tools-sync-binaries` installs or repairs
+verifies successfully. Setup remains explicit when declarations change. Unsupported uv installation owners receive manual update guidance.
+dprint and rumdl use checksum-verified release binaries. `just tools-sync-binaries` installs or repairs
 those declared binaries without rebuilding Cargo tools. The pinned `research-repo-tools[python-tools]` extra owns Ruff, Ty, and pytest versions through
 `inherit-python-tools`; their direct dev requirements stay unversioned. Adopt a newer shared package to advance these tools together.
 
-Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates retain
-ranged and included tooling requirements, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations before committing.
-Upgrading user-level uv also affects other checkouts with exact uv pins.
+Use `just update-tools`, `just update-dependencies`, `just update-cargo-tools`, or `just update-python-dependencies` for narrower updates. Python updates can
+adopt a newer compatible exact RRT pin and source selection, refresh the full lock, and synchronize dev. Review the changed manifests, locks, and declarations
+before committing. If RRT advanced, complete the [adoption checklist](docs/dev/DEVELOPING.md#adopt-a-shared-tooling-release). Upgrading user-level uv also
+affects other checkouts with exact uv pins.
 
 ### Typical Development Cycle
 

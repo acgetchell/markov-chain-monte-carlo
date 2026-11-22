@@ -39,7 +39,7 @@
 //! share `run_thinning_loop` with a `thin_interval` field. Warmup methods share
 //! `warm_up`. Chunk wrappers use the underlying run span, except
 //! [`Sampler::run_delayed_chunk_observing`], which has its own loop span.
-//! All spans close on early returns and unwinding. Callers can add parent
+//! Sampling exits its loop spans on early returns and unwinding. Callers can add parent
 //! spans to identify chains or application phases.
 //!
 //! Subscriber callbacks run synchronously; their cost is part of sampling
@@ -49,7 +49,8 @@
 //! # Tracing subscriber setup
 //!
 //! Enable the `tracing` feature in your dependency and add
-//! [`tracing`](https://docs.rs/tracing/) and [`tracing-subscriber`](https://docs.rs/tracing-subscriber/) to your application. Install a subscriber before sampling:
+//! [`tracing`](https://docs.rs/tracing/) and [`tracing-subscriber`](https://docs.rs/tracing-subscriber/) to your application. This example installs a subscriber
+//! for the current thread.
 //!
 //! ```rust
 //! # #[cfg(feature = "tracing")]
@@ -58,14 +59,20 @@
 //!     .with_max_level(tracing::Level::TRACE)
 //!     .finish();
 //! let _guard = tracing::subscriber::set_default(subscriber);
-//! // Run your Chain or Sampler here, while the subscriber guard is alive.
+//! tracing::debug_span!("sample_chain", chain_id = 0).in_scope(|| {
+//!     // Run your Chain or Sampler here.
+//! });
 //! # }
 //! ```
 //!
 //! The library emits under the `markov_chain_monte_carlo` target and leaves subscriber configuration to the application. DEBUG spans surround bulk sampling,
 //! observation, thinning, and adaptive warmup loops. TRACE events report every completed step, including transitions skipped by observation thinning. They
 //! contain `kernel`, `step`, `accepted`, `proposed`, `acceptance_rate`, and the resulting state's `log_prob`. For applications using an environment filter,
-//! `RUST_LOG=markov_chain_monte_carlo=trace` enables these events. Attach an application span around each chain to distinguish concurrent simulations.
+//! `RUST_LOG=markov_chain_monte_carlo=trace` enables these events.
+//!
+//! Install a thread-local subscriber on each sampling worker before creating its chain span. An application can also install a
+//! [process-wide default subscriber](https://docs.rs/tracing/latest/tracing/subscriber/fn.set_global_default.html) for its workers.
+//! If the subscriber filters by target, enable the application span's target at its level.
 //!
 //! TRACE output can be expensive for long runs; select DEBUG for loop spans alone. Disabling the Cargo feature removes all instrumentation and its runtime
 //! dependency. Step counts and acceptance rates follow the chain counters, including resets and checkpoint restoration. Failed transitions emit no completion
@@ -138,11 +145,12 @@
 //!
 //! # Long runs and parallelism
 //!
-//! `Chain`, `Sampler`, proposal values, and RNGs are ordinary per-instance
-//! values; the crate does not use global mutable state.  Run independent chains
+//! Sampling runs synchronously on the calling thread. Run independent chains
 //! in parallel by giving each worker its own chain, proposal state, and RNG
-//! stream.  This keeps reproducibility and RNG stream splitting under caller
-//! control.
+//! stream. Rust's [`Send`] and [`Sync`] requirements follow what crosses the thread
+//! boundary. A target shared by reference across workers must be [`Sync`].
+//! Each worker can also construct its own target locally.
+//! The caller chooses the RNG streams and owns worker completion.
 //!
 //! Buffered observing methods return a [`SampleBuffer`], which stores one output
 //! per retained step. For production runs that need summaries rather than every
@@ -161,15 +169,17 @@
 //! [`Sampler::run_chunk`], [`Sampler::run_mut_chunk`], or
 //! [`Sampler::run_delayed_chunk`].  They run the next chunk on the same RNG
 //! stream and return a checkpoint-compatible view containing the current state
-//! and counters.
+//! and counters. Async applications can run long chunks on a blocking worker.
+//! Check for cancellation between chunks and size the chunks for the response time you need.
 //!
 //! # Resumable chunked runs
 //!
-//! Chunked runs advance the chain by a chosen number of steps, then return a
-//! checkpoint-compatible continuation so a caller can inspect the updated state,
-//! choose the next chunk length, and resume without losing RNG state or
-//! counters.  Reusing the same [`Sampler`] preserves the RNG stream, so a
-//! sequence of chunks reproduces an equivalent one-shot run with the same seed.
+//! Chunked runs return a [`ChainCheckpoint`] that borrows the current state and
+//! carries the updated counters. Use it to inspect the result and choose the next
+//! chunk length. Reusing the same [`Sampler`] keeps the proposal and RNG in use,
+//! so successive chunks reproduce the corresponding one-shot run. For an exact
+//! restart from a saved checkpoint, retain the RNG and any mutable proposal
+//! state separately.
 //!
 //! Measurements stay on the caller side: keep domain-specific statistics in your
 //! own buffers and accumulate them across chunks rather than having the sampler
@@ -180,8 +190,9 @@
 //! counters.  Between chunks a caller can size the next chunk from the current
 //! state and stop on an elapsed-time budget.
 //!
+//! The example uses the never type `!` for the infallible proposal hooks.
+//!
 //! ```
-//! use core::convert::Infallible;
 //! use markov_chain_monte_carlo::prelude::delayed::*;
 //! use rand::{Rng, SeedableRng, rngs::StdRng};
 //!
@@ -193,7 +204,7 @@
 //! # impl DelayedProposal<i32> for Toggle {
 //! #     type Plan = i32;
 //! #     type Info = i32;
-//! #     type Error = Infallible;
+//! #     type Error = !;
 //! #     fn propose_plan<R: Rng + ?Sized>(&mut self, state: &i32, _: &mut R) -> Result<Option<i32>, Self::Error> { Ok(Some(1 - 2 * *state)) }
 //! #     fn proposed_log_prob<T: Target<i32> + ?Sized>(&self, s: &i32, p: &i32, t: &T) -> Result<f64, Self::Error> { Ok(t.log_prob(&(*s + *p))) }
 //! #     fn info(&self, plan: &i32) -> i32 { *plan }
@@ -218,7 +229,7 @@
 //! }
 //!
 //! assert_eq!(sampler.chain_ref().total_steps(), samples.len());
-//! # Ok::<(), DelayedStepError<Infallible>>(())
+//! # Ok::<(), DelayedStepError<!>>(())
 //! ```
 //!
 //! # Proposal validation

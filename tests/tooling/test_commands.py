@@ -12,6 +12,7 @@ import yaml
 from packaging.requirements import Requirement
 from research_repo_tools.cargo_examples import discover_examples
 from research_repo_tools.just_inspect import dry_run, inspect_justfile
+from research_repo_tools.process import run_command
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -32,6 +33,7 @@ def test_scientific_checks_and_full_platform_ci_remain_wired() -> None:
     ci = {item["recipe"] for item in recipes["ci"]["dependencies"]}
     assert {"test-python", "notebook-check", "validate-examples", "test-rust-ci"} <= ci
     notebook = dry_run(REPO_ROOT, "notebook-execute-fast").stderr
+    assert "uv run --isolated --locked --managed-python --only-group tooling research-repo-tools notebooks sync" in notebook
     producer = "research-repo-tools validation cargo-examples"
     consumer = "research-repo-tools notebooks execute"
     assert notebook.count(producer) == 1
@@ -289,7 +291,9 @@ def test_managed_update_preserves_python_tool_policy_without_setup() -> None:
     assert "deps update-uv" in update
     assert "toolchain upgrade" in update
     assert "research-repo-tools setup" not in update
-    assert "deps update-python --all-projects" in dry_run(REPO_ROOT, "update-python-dependencies").stderr
+    python_update = dry_run(REPO_ROOT, "update-python-dependencies").stderr
+    assert "uv run --isolated --locked --only-group tooling" in python_update
+    assert "deps update-python --all-projects --adopt-supplier tooling" in python_update
 
 
 @pytest.mark.parametrize("unapproved", [False, True])
@@ -348,43 +352,22 @@ def test_zizmor_local_and_sarif_workflow_share_the_declared_policy() -> None:
     assert "github.actor != 'dependabot[bot]'" in upload["if"]
 
 
-@pytest.mark.parametrize("scanner", ["zizmor", "gitleaks", "osv-scanner"])
-def test_scanner_setup_installs_only_its_declared_plan(scanner: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from research_repo_tools import toolchain
-
+@pytest.mark.parametrize("scanner", ["zizmor", "gitleaks", "osv-scanner", "cargo"])
+def test_scanner_setup_forwards_only_allowlisted_tools(scanner: str, monkeypatch: pytest.MonkeyPatch) -> None:
     action = yaml.safe_load((REPO_ROOT / ".github/actions/setup-toolchain/action.yml").read_bytes())
     steps = action["runs"]["steps"]
     step = next(step for step in steps if step.get("name") == "Set up the declared scanner through the shared API")
-    script = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-    plans = []
-
-    def capture(runtime: toolchain.Runtime) -> None:
-        plans.append(runtime.plan)
-
-    monkeypatch.chdir(REPO_ROOT)
     monkeypatch.setenv("SCANNER", scanner)
-    monkeypatch.setenv("RESEARCH_REPO_TOOLS_HOME", str(tmp_path / "managed"))
-    destination = tmp_path / "environment"
-    monkeypatch.setenv("GITHUB_ENV", str(destination))
-    monkeypatch.setattr(toolchain.Runtime, "sync", capture)
-    monkeypatch.setattr(toolchain.Runtime, "inspect", lambda _runtime: [])
-    names = ("PATH", "UV_PYTHON_INSTALL_DIR", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "RUSTUP_AUTO_INSTALL", "RUSTUP_NO_UPDATE_CHECK")
-    monkeypatch.setattr(toolchain.Runtime, "environment", lambda _runtime: dict.fromkeys(names, "fixture"))
-    exec(compile(script, str(REPO_ROOT / ".github/actions/setup-toolchain/action.yml"), "exec"), {})  # noqa: S102 - execute the checked-in setup adapter.
-
-    assert len(plans) == 1
-    plan = plans[0]
-    assert {tool.package for tool in plan.cargo} == ({"zizmor"} if scanner == "zizmor" else set())
-    assert {tool.name for tool in plan.binaries} == (set() if scanner == "zizmor" else {scanner})
-    if scanner == "zizmor":
-        assert plan.rust is not None
-        assert plan.rust.profile == "minimal"
-        assert plan.rust.components == plan.rust.targets == ()
-    else:
-        assert plan.rust is None
-    exported = dict(line.split("=", 1) for line in destination.read_text(encoding="utf-8").splitlines())
-    assert exported["RESEARCH_REPO_TOOLS_HOME"] == str(tmp_path / "managed")
-    assert ("RUSTUP_HOME" in exported) == (scanner == "zizmor")
+    script = 'uv() { printf "%s\\n" "$*"; }\n' + step["run"]
+    result = run_command("bash", ["--noprofile", "--norc", "-euc", script], cwd=REPO_ROOT, check=False)
+    if scanner == "cargo":
+        assert result.returncode == 2
+        assert result.stdout == ""
+        assert "Unsupported scanner: cargo" in result.stderr
+        return
+    assert result.returncode == 0, result.stderr
+    base = "run --locked --managed-python --only-group tooling research-repo-tools toolchain"
+    assert result.stdout.splitlines() == [f"{base} {operation} --tool {scanner}" for operation in ("sync", "export")]
     assert next(step for step in steps if step.get("name") == "Expose checked tools to workflow actions")["if"] == "inputs.scanner == ''"
     filename = "osv" if scanner == "osv-scanner" else scanner
     workflow = yaml.safe_load((REPO_ROOT / f".github/workflows/{filename}.yml").read_bytes())

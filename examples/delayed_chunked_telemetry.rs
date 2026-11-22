@@ -15,8 +15,6 @@
 //!
 //! Run with: `cargo run --example delayed_chunked_telemetry`
 
-use core::convert::Infallible;
-
 use markov_chain_monte_carlo::prelude::delayed::*;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
@@ -54,13 +52,13 @@ struct BoundedWalk {
 impl DelayedProposal<i32> for BoundedWalk {
     type Plan = i32;
     type Info = Move;
-    type Error = Infallible;
+    type Error = !;
 
     fn propose_plan<R: Rng + ?Sized>(
         &mut self,
         state: &i32,
         rng: &mut R,
-    ) -> Result<Option<i32>, Infallible> {
+    ) -> Result<Option<i32>, Self::Error> {
         let up = rng.random_range(0..2) == 0;
         let (family, delta) = if up { (Move::Up, 1) } else { (Move::Down, -1) };
         self.last_family = Some(family);
@@ -82,7 +80,7 @@ impl DelayedProposal<i32> for BoundedWalk {
         state: &i32,
         plan: &i32,
         target: &T,
-    ) -> Result<f64, Infallible> {
+    ) -> Result<f64, Self::Error> {
         Ok(target.log_prob(&(state + plan)))
     }
 
@@ -95,13 +93,13 @@ impl DelayedProposal<i32> for BoundedWalk {
         state: &mut i32,
         plan: i32,
         _: &mut R,
-    ) -> Result<(), Infallible> {
+    ) -> Result<(), Self::Error> {
         *state += plan;
         Ok(())
     }
 }
 
-fn main() -> Result<(), DelayedStepError<Infallible>> {
+fn main() -> Result<(), DelayedStepError<!>> {
     let seed = 42;
     let chunk_len = 200;
     let chunks = 3;

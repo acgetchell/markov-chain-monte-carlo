@@ -4,6 +4,7 @@ import hashlib
 import json
 import runpy
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ import pytest
 import yaml
 from research_repo_tools import release_publishing, release_staging
 from research_repo_tools.config import load as load_config
+from research_repo_tools.registry import RegistryVersion
 from research_repo_tools.release_assets import GitHubRelease, ReleasePublicationUnknownError, ReleaseTarget, serialize_release_target
 from tooling import release_candidate as candidate
 
@@ -165,6 +167,22 @@ def test_draft_rejects_publication_transfer_before_reading_transport(transfer: d
     with pytest.raises(ValueError, match="draft verification requires the original four-asset transfer"):
         candidate.receive(tmp_path / "checkout", output, json.dumps(data).encode(), source=tmp_path / "missing transport")
     assert not output.exists()
+
+
+def test_receive_reports_missing_dispatch_input_before_reading_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    destination = tmp_path / "output"
+    missing_approval = tmp_path / "unavailable approval.json"
+    monkeypatch.delenv("CANDIDATE_TRANSFER", raising=False)
+    monkeypatch.setattr(sys, "argv", ["release_candidate.py", "receive", str(destination), "--published", "--expected", str(missing_approval)])
+    with pytest.raises(SystemExit) as failure:
+        candidate.main()
+    assert failure.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "receive requires CANDIDATE_TRANSFER from the workflow dispatch" in captured.err
+    assert not destination.exists()
 
 
 def test_transfer_variants_keep_wire_schema(transfer: dict[str, Any]) -> None:
@@ -449,6 +467,49 @@ def staged_publication(tmp_path: Path, transfer: dict[str, Any], drift: str) -> 
     payloads["attached"] = payloads["archive"]
     data["assets"]["attached"] = {"name": candidate.archive_name(TAG), "id": 50, "sha256": data["assets"]["archive"]["sha256"]}
     return root, owner, final, target
+
+
+@pytest.mark.parametrize("phase", ["dispatch", "attaching", "publish", "upload", "approval", "verify"])
+def test_status_finds_publication_phase_without_repeating_a_write(
+    tmp_path: Path, transfer: dict[str, Any], monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    final = tmp_path / "owner's final selection"
+    final.mkdir()
+    data = transfer["data"]
+    (final / "transfer.json").write_bytes(json.dumps(data).encode())
+    attached = phase != "dispatch"
+    if attached:
+        data["assets"]["attached"] = {"name": candidate.archive_name(TAG), "id": 50, "sha256": data["assets"]["archive"]["sha256"]}
+        transfer["payloads"]["attached"] = transfer["payloads"]["archive"]
+    published = phase in {"upload", "approval", "verify"}
+    if published:
+        (final / "publication-transfer.json").write_bytes(json.dumps(data).encode())
+    release = replace(transfer["release"](), draft=not published, immutable=published)
+
+    def run(_root: Path, workflow: str, tag: str, commit: str, *, event: str = "workflow_dispatch") -> tuple[int, bool, bool] | None:
+        assert (tag, commit) == (TAG, SHA)
+        if workflow == "prepare-release.yml":
+            assert event == "push"
+            return 77, True, True
+        assert event == "workflow_dispatch"
+        assert workflow == ("publish-crates.yml" if published else "release-benchmarks.yml")
+        return {"attaching": (79, False, False), "publish": (79, True, True), "approval": (80, False, False)}.get(phase)
+
+    monkeypatch.setattr(candidate, "workflow_run", run)
+    monkeypatch.setattr(candidate, "lookup_release", lambda *_args: release)
+    monkeypatch.setattr(candidate, "lookup_version", lambda registry, package, version: RegistryVersion(registry, package, version, phase == "verify"))
+    context = (str(final.parent), "reviewed")
+    expected = {
+        "dispatch": ("just", "release-benchmarks", TAG, *context),
+        "attaching": ("gh", "run", "watch", "79", "--repo", candidate.REPOSITORY),
+        "publish": ("just", "release-publish", TAG, *context),
+        "upload": ("just", "release-upload", TAG, *context),
+        "approval": ("gh", "run", "view", "80", "--repo", candidate.REPOSITORY),
+        "verify": ("just", "release-verify", TAG, str(final / "target.json")),
+    }
+    before = {path.name: path.read_bytes() for path in final.iterdir()}
+    assert candidate.hosted_release_step(tmp_path, final, TAG, SHA, context) == expected[phase]
+    assert before == {path.name: path.read_bytes() for path in final.iterdir()}
 
 
 @pytest.mark.parametrize(

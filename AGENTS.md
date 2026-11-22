@@ -116,7 +116,7 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.3.0` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.3.1` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
   The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
 - Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
@@ -135,9 +135,12 @@ changing numerical semantics, or changing acceptance/error behavior.
 - Adopt a newer shared package and its Python baseline with `just shared-python-plan VERSION`, then `just shared-python-update VERSION`. These standalone
   commands update both exact package pins, shared Python-tool versions, Python mirrors, lockfile, environment, and notebook kernel. Do not manually bump the
   Python mirrors or add independent pytest, Ruff, or Ty version constraints.
-  Also align the registry-only release workflow's package pin and resolution cutoff; let uv select a package-compatible Python there.
+  After standalone adoption, align `dependency-sources.toml` with the new pin. The Python dependency updater handles that alignment when it adopts a newer
+  compatible supplier. For either path, align the isolated release runners' exact pin and resolution cutoff and the reusable Dependabot workflow's commit.
+  Let uv select a package-compatible Python for the isolated runners.
 - Semgrep shares the root Python 3.15 environment and lockfile. Preserve its native-wheel requirement and the root compatibility overrides for PyJWT,
-  MCP, OpenTelemetry, and Python 3.15 Windows wheels. Route scans and fixtures through the shared Semgrep commands, which own the Linux stack-limit workaround.
+  MCP, OpenTelemetry, wcmatch, and Python 3.15 Windows wheels. The shared Semgrep commands own scanner execution, fixtures, and the Linux stack-limit
+  workaround.
   SARIF uses the same `just semgrep` scan and the shared current-report gate; keep its explicit Git glob scope aligned with the project rule paths.
   The published shared setup and fixture commands verify the scanner selected by the root lock; no local version override is needed after #222's adoption.
 - When repository tooling pins lag behind an available stable release, run `just update` and retain its reviewed manifest and lockfile changes. An installed

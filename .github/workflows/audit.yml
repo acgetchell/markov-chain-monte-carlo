@@ -2,6 +2,8 @@ name: "Audit dependencies"
 
 on:
   push:
+    branches:
+      - "**"
     paths:
       - .github/workflows/audit.yml
       - .github/actions/setup-toolchain/action.yml

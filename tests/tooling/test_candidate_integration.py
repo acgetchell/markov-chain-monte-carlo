@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from research_repo_tools import common_measurement, criterion_inventory, dependency_provenance, measurement, performance_release
 from research_repo_tools.candidate_reuse import parse_candidate_policy, verify_candidate_archive
+from research_repo_tools.cli import main as shared_main
 from research_repo_tools.common_measurement import DiscoveryPolicy
 from research_repo_tools.evidence import parse_evidence, serialize_evidence
 from research_repo_tools.host_metadata import HostMetadata
@@ -97,8 +98,11 @@ def acquire_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
     cases = policy.discovery.required
     assert len(cases) == 22
     calls: list[tuple[str, ...]] = []
+    timed = 0
+    interrupted = False
 
     def process(executable: str | Path, args: Sequence[str], *, cwd: Path, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal timed, interrupted
         command = (str(executable), *args)
         assert command[:6] == ("cargo", "bench", "--locked", "--bench", "stepping", "--")
         calls.append(command)
@@ -106,6 +110,10 @@ def acquire_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
             return subprocess.CompletedProcess(command, 0, "".join(f"{name}: benchmark\n" for name in cases), "")
         if "--test" not in args:
             assert "--save-baseline=retained" in args
+            if timed == 2 and not interrupted:
+                interrupted = True
+                message = "fixture interruption before the second trial"
+                raise RuntimeError(message)
             for index, name in enumerate(cases):
                 raw = {
                     "benchmark.json": {"full_id": name},
@@ -121,6 +129,7 @@ def acquire_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
                     directory.mkdir(parents=True)
                     for filename, data in raw.items():
                         (directory / filename).write_bytes((json.dumps(data) + "\r\n").encode())
+            timed += 1
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(common_measurement, "run_command_live", process)
@@ -138,8 +147,12 @@ def acquire_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
     settings = performance_release.load_performance_release(root, candidate.SETTINGS)
     performance_release.prepare_performance(root, settings)
     owner = tmp_path / "independent owner"
-    candidate.acquire(root, owner, "target/checkpoint", resume=False, progress=ProgressReporter(mode="none"))
-    assert sum("--save-baseline=retained" in command for command in calls) == 4
+    with pytest.raises(RuntimeError, match="fixture interruption"):
+        candidate.acquire(root, owner, "target/checkpoint", resume=False, progress=ProgressReporter(mode="none"))
+    assert timed == 2
+    candidate.acquire(root, owner, "target/checkpoint", resume=True, progress=ProgressReporter(mode="none"))
+    assert timed == 4
+    assert sum("--save-baseline=retained" in command for command in calls) == 5
     evidence = parse_evidence((owner / "run.json").read_bytes(), (owner / "evidence.json").read_bytes())
     assert len(parse_scheduled_run(evidence).trials) == 2
     assert candidate.selected_owner(root) == owner.resolve()
@@ -147,7 +160,6 @@ def acquire_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
     forbid_acquisition(monkeypatch)
     publish_publication(performance_release.load_readme_plan(root, settings))
     commit(root)
-    assert sum("--save-baseline=retained" in command for command in calls) == 4
     return root, owner
 
 
@@ -185,7 +197,9 @@ def test_real_candidate_reuses_one_acquisition_for_report_readme_and_archive(acq
     root, owner = acquired
     original = {name: (owner / name).read_bytes() for name in ("run.json", "evidence.json", "policy.json", "publication.json")}
     accepted = candidate.verify(root, owner)
+    original_acceptance = accepted.read_bytes()
     assert candidate.verify_existing(root, owner, "reviewed") == accepted
+    assert accepted.read_bytes() == original_acceptance
     final = resolve_revision(root, "HEAD")
     archive = candidate.archive(owner, final)
     original_archive = archive.read_bytes()
@@ -199,6 +213,40 @@ def test_real_candidate_reuses_one_acquisition_for_report_readme_and_archive(acq
     assert (root / "docs/assets/release-performance.csv").is_file()
     assert (root / "docs/assets/release-performance.svg").is_file()
     assert {name: (owner / name).read_bytes() for name in original} == original
+
+
+def test_shared_tagger_leaves_ref_absent_until_dependency_preflight_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    configure_git(tmp_path, monkeypatch)
+    root = tmp_path / "tag checkout"
+    root.mkdir()
+    (root / "Cargo.toml").write_bytes(b'[package]\nname = "fixture"\nversion = "1.2.3"\n')
+    (root / "Cargo.lock").write_bytes(b'version = 4\n[[package]]\nname = "fixture"\nversion = "1.2.3"\n')
+    (root / "pyproject.toml").write_bytes(b'[project]\nname = "fixture"\nversion = "1.2.3"\n\n[tool.research-repo-tools.release]\ndate-policy = "declared"\n')
+    (root / "CHANGELOG.md").write_bytes(b"# Changelog\n\n## [1.2.3] - 2026-11-21\n\n- Fixture release.\n")
+    git(root, "init", "--quiet", "--template=")
+    git(root, "config", "user.name", "Fixture")
+    git(root, "config", "user.email", "fixture@example.invalid")
+    git(root, "config", "tag.gpgSign", "false")
+    revision = commit(root)
+    arguments = ["--root", str(root), "changelog", "tag", "v1.2.3", "--commit", revision]
+
+    def unavailable(checkout: Path, **_kwargs: object) -> None:
+        assert checkout.samefile(root)
+        message = "fixture dependency unavailable in the managed Cargo cache"
+        raise ValueError(message)
+
+    monkeypatch.setattr(dependency_provenance, "check_release_dependencies", unavailable)
+    assert shared_main(arguments) == 1
+    assert "dependency unavailable in the managed Cargo cache" in capsys.readouterr().err
+    assert run_git_bytes(["--no-pager", "tag", "--list"], cwd=root).stdout == b""
+
+    monkeypatch.setattr(dependency_provenance, "check_release_dependencies", lambda *_args, **_kwargs: ())
+    assert shared_main(arguments) == 0
+    assert f"Created local annotated tag v1.2.3 at {revision}" in capsys.readouterr().out
+    assert run_git_bytes(["--no-pager", "cat-file", "-t", "refs/tags/v1.2.3"], cwd=root).stdout.strip() == b"tag"
+    assert resolve_revision(root, "v1.2.3") == revision
 
 
 @pytest.mark.parametrize(

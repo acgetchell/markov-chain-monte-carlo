@@ -4,6 +4,7 @@ import json
 import shlex
 import subprocess
 from copy import deepcopy
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
+TOOLING_VERSION = version("research-repo-tools")
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
 RUN_ENDPOINT = "actions/runs/101"

@@ -222,7 +222,8 @@ just notebook-sync
 uv run --locked --group dev --group notebook research-repo-tools notebooks execute notebooks/ising_trace_analysis.ipynb
 ```
 
-The notebook writes trace/ACF figures and single-chain ESS/classical R-hat tables under `target/notebooks/`.
+The notebook displays the trace and ACF plots. It saves `ising_energy_trace.png`, `ising_ess_summary.csv`, and `ising_rhat_summary.csv` under
+`target/notebooks/`.
 Compare its observable names and counts with the Rust report; the [export workflow](#export-and-notebook-workflow) explains timing and input overrides.
 
 <a name="run-the-complete-workflow"></a>
@@ -355,8 +356,9 @@ Constant, single-draw, or unequal-length finite chains are valid plot inputs, al
 Empty/nonfinite inputs and unsupported counts return [`PooledRankError`][rank-errors].
 
 [`notebooks/diagnostic_plots.ipynb`](../notebooks/diagnostic_plots.ipynb) renders exported Rust results without recomputing estimators.
-It writes rank, efficiency, and trace/ACF figures plus `rank_bins.csv`, `efficiency.csv`, `summary.csv`,
-and `blocked_errors.csv` under `target/notebooks/diagnostics/`.
+It renders into a temporary directory, then writes the rank, efficiency, and trace/ACF figures, the CSV tables, the source report, and the manifest under
+`target/notebooks/diagnostics/`. If rendering fails, the previous output files stay intact.
+The CSV tables are `rank_bins.csv`, `efficiency.csv`, `summary.csv`, and `blocked_errors.csv`.
 Unavailable results retain status/reason fields, including missing ACF legend entries and blocked-error rows.
 Blocked errors preserve each chain's block size, block count, and used draws; the coarsest level is not automatically reliable.
 
@@ -391,8 +393,11 @@ recording interval, counts, per-chain seconds, and production timing scope.
 Production timing includes sampling and observation/recording and excludes warmup, export, and diagnostics.
 
 [`notebooks/ising_trace_analysis.ipynb`](../notebooks/ising_trace_analysis.ipynb) computes diagnostics from that trace.
-It uses companion timing only for matching full production samples.
-External traces need an explicit `MCMC_DIAGNOSTICS_PATH` for rates; further warmup removal leaves full-run timing unavailable.
+It reads step counters as unsigned 64-bit integers and requires uniform positive spacing for ACF and R-hat. R-hat also requires the same spacing across
+chains. For measured rates, the companion report must describe the full production samples and match the chain IDs, counts, recording intervals, and
+estimated autocorrelation times. During a full-run analysis, a mismatch in a companion report claiming that timing scope stops analysis before saving.
+External traces need an explicit `MCMC_DIAGNOSTICS_PATH` for rates. Missing timing, a different timing scope, or additional warmup removal leaves the rate
+unavailable.
 Preserve the source JSON with exported ESS/R-hat tables to retain timing and warmup scope.
 This notebook is an additional consumer, rather than an independent numerical oracle.
 
