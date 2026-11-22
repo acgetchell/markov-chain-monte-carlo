@@ -775,22 +775,32 @@ def tagged_release_step(root: Path, final: Path, tag: str, commit: str, context:
 def report_release_step(root: Path, owner: Path, context: tuple[str, ...]) -> tuple[str, ...]:
     """Detect a captured report whose promotion was interrupted."""
     receipt = parse_release_json((owner / "publication.json").read_bytes())
-    if not isinstance(receipt, dict) or not isinstance(current := receipt.get("current"), str) or not isinstance(outputs := receipt.get("outputs"), dict):
+    if (
+        not isinstance(receipt, dict)
+        or not isinstance(current := receipt.get("current"), str)
+        or not isinstance(outputs := receipt.get("outputs"), dict)
+        or current not in outputs
+    ):
         message = "original publication receipt lacks the current report"
         raise TypeError(message)
-    report = (root / current).resolve()
-    if not report.is_relative_to(root):
-        message = "retained report path must be inside the checkout"
-        raise ValueError(message)
-    if not isinstance(entry := outputs.get(current), dict):
-        message = "original publication receipt lacks the output digest"
-        raise TypeError(message)
-    expected = transfer_digest(entry.get("sha256"))
-    if report.is_file() and hashlib.sha256(report.read_bytes()).hexdigest() == expected:
+    incomplete = []
+    for name, entry in outputs.items():
+        if not isinstance(entry, dict):
+            message = "original publication receipt lacks an output digest"
+            raise TypeError(message)
+        output = (root / name).resolve()
+        if not output.is_relative_to(root):
+            message = "retained report output paths must be inside the checkout"
+            raise ValueError(message)
+        expected = transfer_digest(entry.get("sha256"))
+        if not output.is_file() or hashlib.sha256(output.read_bytes()).hexdigest() != expected:
+            incomplete.append(name)
+    if not incomplete:
         print("Review the report and README, then wait for the exact main-push and SARIF checks.")
         return ("just", "release-evidence", *context)
 
-    print(f"Original report awaits promotion: {current}")
+    print(f"Report publication is incomplete: {', '.join(incomplete)}")
+    print("If publication was interrupted during writes, restore a consistent report history before retrying. See docs/dev/release-recovery.md.")
     settings = load_performance_release(root, SETTINGS)
     if not all((root / name).is_file() for name in (settings.payload, settings.manifest)):
         return ("just", "performance-capture", str(owner))

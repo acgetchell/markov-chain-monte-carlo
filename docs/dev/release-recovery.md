@@ -18,6 +18,11 @@ When both raw files are present in the owner directory, retry capture with
 `just performance-capture "$OWNER"`. If the callback stopped before saving
 those files, `just performance-capture "$OWNER" --retained-scratch` is available
 from the original acquisition checkout with its verified scratch evidence.
+If publication stopped during file replacement, preserve the partial files
+separately. Use the original `publication.json` receipt to identify the expected
+files and their prior digests. Restore the complete pre-promotion report and
+history from an independent backup before retrying.
+
 After restoring the original scratch payload and evidence, retry report promotion
 using those exact inputs.
 

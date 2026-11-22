@@ -407,6 +407,33 @@ def test_status_uses_original_checkpoint_and_raw_evidence_before_registration(
     assert sorted(path.name for path in owner.iterdir()) == ["evidence.json", "run.json"]
 
 
+@pytest.mark.parametrize("index_contents", [None, b"prior index"])
+def test_report_status_requires_every_publication_output(
+    owner_record: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], index_contents: bytes | None
+) -> None:
+    root, owner = owner_record
+    current, index, latest = "current.md", "runs/index.json", "runs/latest.json"
+    outputs = {current: b"promoted report", index: b"promoted index", latest: b"promoted latest pointer"}
+    (root / "runs").mkdir()
+    for name in (current, latest):
+        (root / name).write_bytes(outputs[name])
+    if index_contents is not None:
+        (root / index).write_bytes(index_contents)
+    (owner / "publication.json").write_bytes(
+        json.dumps({"current": current, "outputs": {name: {"sha256": hashlib.sha256(data).hexdigest()} for name, data in outputs.items()}}).encode()
+    )
+    payload, manifest = "original.run.json", "original.evidence.json"
+    for name in (payload, manifest):
+        (root / name).write_bytes(b"retained evidence")
+    monkeypatch.setattr(candidate, "load_performance_release", lambda *_args: SimpleNamespace(payload=payload, manifest=manifest))
+
+    assert candidate.report_release_step(root, owner, ()) == ("just", "performance-doc", "--payload", payload, "--manifest", manifest)
+    assert index in capsys.readouterr().out
+
+    (root / index).write_bytes(outputs[index])
+    assert candidate.report_release_step(root, owner, ()) == ("just", "release-evidence")
+
+
 @pytest.mark.parametrize("phase", ["restore-scratch", "promote-report", "review", "tag", "push", "prepare", "stage"])
 def test_fresh_shell_status_uses_the_existing_selection_and_exact_ref(
     owner_record: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], phase: str
