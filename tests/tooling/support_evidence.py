@@ -1,5 +1,6 @@
 """Independent release evidence and provider fixtures shared by consumer tests."""
 
+import hashlib
 import json
 import shlex
 import subprocess
@@ -8,11 +9,15 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
 from research_repo_tools import release_assets, release_evidence, release_interfaces, release_validation
+from research_repo_tools.release_assets import GitHubRelease, serialize_release_target
 from research_repo_tools.release_interfaces import load_evidence_policy
+from tooling import release_candidate as candidate
 
 if TYPE_CHECKING:
     import pytest
+    from research_repo_tools.release_assets import ReleaseTarget
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "acgetchell/markov-chain-monte-carlo"
@@ -50,6 +55,72 @@ def install_clean_checkout(patch: pytest.MonkeyPatch, checkout: Path, commit: st
         return subprocess.CompletedProcess(args, 0, stdout=responses[command], stderr=b"")
 
     patch.setattr(release_assets, "run_command_bytes", git)
+
+
+def install_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: ReleaseTarget, payloads: dict[str, bytes], digests: tuple[str, str]
+) -> dict[str, Any]:
+    """Install the inert provider for the actual workflow fetch and attachment steps."""
+    data: dict[str, Any] = {
+        "schema": 1,
+        "target": json.loads(serialize_release_target(target)),
+        "acquisition": digests[0],
+        "publication": digests[1],
+        "assets": {},
+    }
+    for identifier, (role, payload) in enumerate(payloads.items(), 1):
+        data["assets"][role] = {"name": f"candidate-{role}.bin", "id": identifier, "sha256": hashlib.sha256(payload).hexdigest()}
+    for key, value in {
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_REPOSITORY": candidate.REPOSITORY,
+        "GITHUB_REF": f"refs/tags/{target.tag}",
+        "GITHUB_SHA": target.commit,
+        "RELEASE_TAG": target.tag,
+        "GITHUB_ACTOR": "acgetchell",
+        "GITHUB_TRIGGERING_ACTOR": "acgetchell",
+        "GITHUB_WORKFLOW_REF": f"{candidate.REPOSITORY}/.github/workflows/release-benchmarks.yml@refs/tags/{target.tag}",
+    }.items():
+        monkeypatch.setenv(key, value)
+    calls: list[str] = []
+
+    def release(*_args: object, **_kwargs: object) -> GitHubRelease:
+        calls.append("identity")
+        return GitHubRelease(
+            repository=candidate.REPOSITORY,
+            tag=target.tag,
+            identifier=data["target"]["release_id"],
+            draft=True,
+            immutable=False,
+            prerelease=False,
+            assets=tuple((item["name"], item["id"], len(payloads[role]), item["sha256"]) for role, item in data["assets"].items()),
+            title=target.tag,
+        )
+
+    def download(_root: Path, _repository: str, _tag: str, name: str, destination: Path, *, expected_sha256: str, **_kwargs: object) -> None:
+        calls.append("download")
+        role = next(role for role, item in data["assets"].items() if item["name"] == name)
+        assert hashlib.sha256(payloads[role]).hexdigest() == expected_sha256
+        destination.write_bytes(payloads[role])
+
+    def upload(_root: Path, _repository: str, _tag: str, path: Path, *, target: ReleaseTarget, **_kwargs: object) -> None:
+        assert target.release_id == 42
+        assert path.read_bytes() == payloads["archive"]
+        calls.append("upload")
+
+    monkeypatch.setattr("research_repo_tools.release_assets.revalidate_release_target", release)
+    monkeypatch.setattr("research_repo_tools.release_assets.download_release_asset", download)
+    monkeypatch.setattr("research_repo_tools.release_assets.publish_release_asset", upload)
+    return {"data": data, "payloads": payloads, "calls": calls, "target": target, "release": release, "download": download}
+
+
+def workflow_python(tmp_path: Path, job: str) -> Path:
+    """Extract the job's Python heredoc into a temporary script and return its path for the caller to execute."""
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
+    step = next(item for item in workflow["jobs"][job]["steps"] if "<<'PY'" in item.get("run", ""))
+    script = tmp_path / f"{job}.py"
+    script.write_text(step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0], encoding="utf-8", newline="\n")
+    return script
 
 
 class EvidenceProvider:

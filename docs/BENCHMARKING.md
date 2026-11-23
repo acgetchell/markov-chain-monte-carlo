@@ -93,9 +93,8 @@ live worktree measurement to the maintainer.
 
 ## Shared reports and the first baseline
 
-The performance-series reset retired earlier reports, converted evidence, README timings, and the legacy release-asset adapter. The current series starts at
-v0.5.0 and retains the prepared v0.5.1 comparison described below. The diagnostic-backend experiment remains under `docs/performance/v1/experiments/` because it
-records a current implementation decision, separate from the stepping release signal.
+The historical comparisons, their exact evidence, and the diagnostic-backend experiment are preserved in the immutable
+[v0.5.2 archive](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1).
 
 For local development, save the current checkout without modifying Git state:
 
@@ -107,12 +106,7 @@ After making an implementation change, run `just bench-latest-vs-last current-ch
 Criterion baselines, not tagged release evidence. Keep the raw samples and record the host/toolchain and working-tree changes if using them in research.
 The shared release-baseline command requires a clean checkout at an existing stable tag; it cannot certify this untagged checkout as that release.
 
-The shared release series starts at v0.5.0. The first retained comparison measures the prepared v0.5.1 working tree against that tagged baseline;
-the README labels the current timings as a prepared tree. Do not backfill retired releases. `just performance-check` accepts an empty inventory before
-the first comparison and rejects release evidence or a publication selection without its current report.
-
-The retained v1 reports and measurements stay byte-identical under `docs/performance/v1/`. New reports use `docs/performance/current.md`;
-retained pairs and the generated archive index use the dedicated `docs/performance/runs/` directory. Evidence uses
+New reports use `docs/performance/current.md`. Retained runs and the generated archive index use `docs/performance/runs/`. Evidence uses
 the shared complete-run schema inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
 preserve points, bounds, confidence levels when known, units, and coverage. Source/harness inventories use shared versioned fingerprints.
 
@@ -127,9 +121,8 @@ git cat-file blob HEAD:Cargo.toml | shasum -a 256
 git cat-file blob HEAD:Cargo.lock | shasum -a 256
 ```
 
-The strict shared inventory accepts only an empty new namespace before its first comparison. The v1 README and diagnostic experiments remain outside it.
-The legacy guard and existing README publication selection remain until the verified v0.5.3 release supplies new-namespace evidence; see
-[#221](https://github.com/acgetchell/markov-chain-monte-carlo/issues/221). Keep the README plan independently reviewed against the retained pair.
+Before the first active report, `just performance-check` requires an empty archive and no companion outputs. After acquisition it reproduces the report.
+Review the README publication plan against the selected evidence.
 
 Once the first new-namespace comparison exists, reproduce it without measuring:
 
@@ -170,7 +163,6 @@ The shared runner validates source, harness, host, inventory and schedule before
 the interrupted pair in its declared order. Use the retained report and README commands for rendering retries after successful acquisition.
 
 The legacy `tooling/benchmark.toml` remains available for explicit single-tag experiments. Release attachment derives the accepted Step 1 archive.
-The frozen `tooling/performance-readme.toml` still describes the old README evidence; neither it nor the old measurements are rewritten during adoption.
 For new publication, `tooling/performance-publication.toml` selects trial 1 and all 13 unthinned stepping, sampler and observation workflows regardless
 of timing direction. The complete report retains both trials and all nine thinning cases. Labels, revisions and fingerprints come from the verified
 preparation and retained run. The declaration owns trial and row selection, units, references and the prospective `prepare` tag policy.
@@ -188,6 +180,38 @@ commit before creating its tag.
 
 ### Measurement Order and Interpretation
 
+The v0.5.3 declaration uses the existing paired protocol. A new benchmark series
+requires a separately reviewed scientific reason, such as a workload with no
+compatible published predecessor.
+
+#### Starting an approved series
+
+1. Before measurement, put the suite declaration at `benchmark-series/ID.toml`.
+   Use schema 5 and omit the schedule for the inaugural release. Set
+   `benchmark-series.id`, `first-release`, and the exact native case IDs per
+   suite in `workloads`. Retain the correctness gate, source and harness inputs,
+   case discovery, sample count, intervals, and external acquisition owner.
+2. Point the release, report, and README declarations at that measurement file.
+   Set the release workflow to `mode = "infer-release"` and `order = "version"`.
+   Select current-phase absolute timings with uncertainty in the inaugural README.
+   Use current provenance and version/tag references. Omit the trial selector,
+   baseline references, ratios, ratio SVG, and paired-trial interpretation.
+3. Review `just performance-prepare` and its historical selection before running
+   the release acquisition. Use fresh checkpoint, scratch, and owner paths for
+   each release. Run the normal report, README, source preflight, and signed
+   candidate checks. They use the original samples through attachment.
+4. For the compatible successor, keep the series ID, declaration path, first
+   release, suite contracts and case inventory. Restore schema 6, the two-trial
+   alternating schedule, and the paired publication with trial 1 selected.
+   Verify that preparation selects the inaugural tag and its exact commit.
+
+RRT 0.3.2 rejects an accepted declared series once its own tag appears in
+published history. Keep live series initialization pending a published fix
+and consumer verification of the registry approval path.
+[RRT #274](https://github.com/acgetchell/research-repo-tools/issues/274)
+
+#### Interpreting the paired trials
+
 Trial 1 acquires baseline then current, and trial 2 reverses that order. Each trial uses fresh source exports and output trees. The report retains
 realized order and phase timestamps alongside each trial's source, host, toolchain and sample identities. The performance release configuration's
 `order = "published"` still selects the predecessor from release history. Earlier sequential observations retain their original interpretation.
@@ -203,6 +227,11 @@ Step 1's `performance-release` freezes the original acquisition, policy and
 publisher receipt under an external owner before promoting its report. README
 publication consumes that retained run separately. The owner and independently
 reviewed full acceptance are described in [releasing](RELEASING.md#reusable-ci-evidence).
+
+Before merge, run `just release-preflight "$(git rev-parse HEAD)"` on the clean
+preparation commit. It compares the source and committed outputs with the
+external acquisition and reports undeclared paths. See [release preparation](RELEASING.md)
+for the README reproduction and package checks.
 
 After merge, `just release-evidence` accepts the original measured source against
 the final clean commit and signed native/default/all-feature CI. Changed relevant
@@ -244,7 +273,7 @@ uv run --locked --group dev research-repo-tools release evidence archive inspect
 
 Use the retained complete run and report for performance comparisons. Keep both
 trials and their provenance together.
-[RRT candidate archive interfaces](https://github.com/acgetchell/research-repo-tools/blob/v0.3.1/docs/candidate-reuse-api.md#public-interfaces)
+[RRT candidate archive interfaces](https://github.com/acgetchell/research-repo-tools/blob/v0.3.2/docs/candidate-reuse-api.md#public-interfaces)
 
 Timing ratios and marginal bounds do not establish significance, convergence, mixing,
 or effective sample size. Research comparisons need invariant-distribution or equilibrium
@@ -266,8 +295,8 @@ The reference checks its conditioning and uses a conservative roundoff tolerance
 These are computational workloads, not evidence of convergence or estimator accuracy.
 
 The independent [backend comparison workspace](../benches/diagnostic_backends/README.md) evaluates arima ACF and ferromorphic IPS against the native
-diagnostics. Its [decision report](performance/v1/experiments/diagnostic-backends.md) separates correctness, equivalent ACF timings, differing time-estimation
-workflows, and dependency costs. These experimental results are separate from the curated release-signal reports.
+diagnostics. The experiment covers correctness, equivalent ACF timings, differing time-estimation workflows, and dependency costs. See the
+[decision report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/experiments/diagnostic-backends.md).
 
 Use the managed toolchain for a focused before/after comparison on the same host:
 

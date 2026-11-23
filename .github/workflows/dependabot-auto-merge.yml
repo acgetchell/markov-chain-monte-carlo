@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@cf7895b439abe7354520c226d6b90ca2dc18f106 # v0.3.1
+    uses: acgetchell/research-repo-tools/.github/workflows/dependabot-approve.yml@42364aa0c03d6a0e6af5c26fb03ba9f173a709e8 # v0.3.2
     with:
       repository: acgetchell/markov-chain-monte-carlo
       policy: >-

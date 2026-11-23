@@ -7,6 +7,12 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 
 #[test]
+#[should_panic(expected = "each lag requires at least one sample pair")]
+fn reference_acf_rejects_a_lag_without_sample_pairs() {
+    diagnostic_backend_comparison::reference_acf(&[-1.0, 1.0], 2);
+}
+
+#[test]
 fn ips_and_ims_can_differ_even_when_both_find_a_cutoff() {
     let mut rng = StdRng::seed_from_u64(73);
     let mut differences = 0;

@@ -1,10 +1,23 @@
 # Shared maintenance adoption
 
-MCMC pins the published `research-repo-tools==0.3.1` registry distribution.
+MCMC pins the published `research-repo-tools==0.3.2` registry distribution.
 The tooling group and shared notebook extra use the same exact version; `uv.lock`
 records PyPI wheel/sdist hashes. No sibling checkout, editable package, local wheel,
 or private import is needed. This completes the initial local extraction planned in #166
 after #164; hosted CI and the first live release-asset pair remain separate evidence.
+
+## v0.3.2 adoption
+
+The active report uses one shared inventory check. The retired Bash classifier,
+v1 declarations, reports and experiment bytes are preserved in the
+[v0.5.2 checkout](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2).
+The release tracker owns the first active report and archive checks after publication.
+See [MCMC #229](https://github.com/acgetchell/markov-chain-monte-carlo/issues/229).
+
+The locked development environment, isolated release runners, and reusable Dependabot workflow use v0.3.2.
+`just release-preflight COMMIT` checks the prepared source and committed benchmark outputs against the original acquisition before merge.
+`just release-evidence` still verifies the final main commit and signed CI after merge. The local review wrapper reports skipped files and provider failures.
+For historical changelog corrections, `just changelog-rebuild` previews the full rebuild and `just changelog-rebuild --apply` writes the reviewed changes.
 
 ## v0.3.1 adoption
 
@@ -104,7 +117,7 @@ are needed.
 | Retained benchmark handoff | Adopted the published candidate APIs and la-stack v0.5.4 operator orchestration for MCMC #223. One local acquisition supplies reports, README and archive; final acceptance and approval freeze its original identities. |
 | Isolated runtime dependency graph | Already tracked by [RRT #223](https://github.com/acgetchell/research-repo-tools/issues/223); the current external runtime API remains in use. |
 | Evidence recipe arguments and example provenance | Thin consumer wiring supplies package/source assertions and MCMC build-time provenance to shared commands. |
-| Frozen v1 report guard | Temporary historical policy remains local until MCMC #221 permits retirement; new report inventories use the shared validator. |
+| Frozen v1 report guard | The original integration retained the local guard. The v0.3.2 adoption retired it and uses the shared validator for active inventories. |
 | Scientific fixtures, notebook calculations and performance declarations | MCMC owns the mathematics, workloads, thresholds and scientific evidence. RRT owns execution, maintenance, rendering and generic transport. |
 
 Consumer tests protect these declarations and representative integration behavior.
@@ -178,13 +191,10 @@ metadata, signed evidence, exact required checks, notes and release target
 identity before creation; an identical existing mutable draft is retained
 without editing its assets. This PR does not create a tag or draft.
 
-Future report promotion uses `docs/performance/current.md` and the dedicated
-`docs/performance/runs/` inventory. Frozen v1 reports remain validated through
-`tooling/performance-report-legacy.toml` and the existing first-use guard; its
-README/experiment exception is not expressible in the shared strict inventory.
-[#221](https://github.com/acgetchell/markov-chain-monte-carlo/issues/221) gates
-guard retirement on the verified v0.5.3 release and retained new-namespace evidence.
-No historical report or measurement is moved, regenerated or relabelled here.
+The v0.2.5 integration selected `docs/performance/current.md` and the dedicated
+`docs/performance/runs/` inventory for future reports. It kept a separate guard for the
+frozen v1 reports because their README and experiment shared the inventory directory.
+The [v0.3.2 adoption](#v032-adoption) records the guard's subsequent retirement.
 
 The new complete-run declaration retains all 22 stepping workloads with their
 original timed boundaries. `performance-prepare` captures independently verified

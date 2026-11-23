@@ -14,8 +14,10 @@ and `just performance-resume PATH`. Keep the original preparation and owner.
 RRT reuses complete suite pairs with their original measurement sessions and
 recollects an interrupted pair as a unit.
 
-When both raw files are present in the owner directory, retry capture with
-`just performance-capture "$OWNER"`. If the callback stopped before saving
+When the owner directory holds the original preparation and both raw files,
+run `just performance-capture "$OWNER"` at the measured revision. It restores
+missing scratch files from those exact bytes and rejects conflicting files.
+If the callback stopped before saving
 those files, `just performance-capture "$OWNER" --retained-scratch` is available
 from the original acquisition checkout with its verified scratch evidence.
 If publication stopped during file replacement, preserve the partial files
@@ -121,7 +123,7 @@ just release-stage "$OWNER" "$RECEIPT_DIR/target.json" "$SELECTION"
 If the writer fails, preserve its state as a unit (`producer.json`,
 `handoff.json`, `draft-receipt.json`, and `target.json` when captured).
 A pending journal may correspond to an existing draft. Recover it through the
-[shared authenticated recovery procedure](https://github.com/acgetchell/research-repo-tools/blob/v0.3.1/docs/PREPARING_DRAFTS.md#retry-and-recovery).
+[shared authenticated recovery procedure](https://github.com/acgetchell/research-repo-tools/blob/v0.3.2/docs/PREPARING_DRAFTS.md#retry-and-recovery).
 Work outside the candidate checkout in a reviewed Actions job and keep the
 same repository/tag concurrency group. A reviewed `--recover-release-id`
 records an existing draft without creating a second one. Automatic preparation

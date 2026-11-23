@@ -11,12 +11,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import yaml
 from research_repo_tools import release_publishing, release_staging
 from research_repo_tools.config import load as load_config
 from research_repo_tools.registry import RegistryVersion
 from research_repo_tools.release_assets import GitHubRelease, ReleasePublicationUnknownError, ReleaseTarget, serialize_release_target
 from tooling import release_candidate as candidate
+
+from tests.tooling.support_evidence import install_transfer, workflow_python
 
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
@@ -27,67 +28,8 @@ TAG = "v0.5.3"
 def transfer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Supply explicit independent assertions and provider bytes, never timings."""
     target = ReleaseTarget(candidate.REPOSITORY, TAG, 42, SHA, TAG)
-    data: dict[str, Any] = {
-        "schema": 1,
-        "target": json.loads(serialize_release_target(target)),
-        "acquisition": "b" * 64,
-        "publication": "c" * 64,
-        "assets": {},
-    }
     payloads = {role: (role + "\r\n").encode() + b"\xff" for role in candidate.ROLES}
-    for identifier, (role, payload) in enumerate(payloads.items(), 1):
-        data["assets"][role] = {"name": f"candidate-{role}.bin", "id": identifier, "sha256": hashlib.sha256(payload).hexdigest()}
-    for key, value in {
-        "RUNNER_TEMP": str(tmp_path),
-        "GITHUB_EVENT_NAME": "workflow_dispatch",
-        "GITHUB_REPOSITORY": candidate.REPOSITORY,
-        "GITHUB_REF": f"refs/tags/{TAG}",
-        "GITHUB_SHA": SHA,
-        "RELEASE_TAG": TAG,
-        "GITHUB_ACTOR": "acgetchell",
-        "GITHUB_TRIGGERING_ACTOR": "acgetchell",
-        "GITHUB_WORKFLOW_REF": f"{candidate.REPOSITORY}/.github/workflows/release-benchmarks.yml@refs/tags/{TAG}",
-    }.items():
-        monkeypatch.setenv(key, value)
-    calls: list[str] = []
-
-    def release(*_args: object, **_kwargs: object) -> GitHubRelease:
-        calls.append("identity")
-        return GitHubRelease(
-            repository=candidate.REPOSITORY,
-            tag=TAG,
-            identifier=data["target"]["release_id"],
-            draft=True,
-            immutable=False,
-            prerelease=False,
-            assets=tuple((item["name"], item["id"], len(payloads[role]), item["sha256"]) for role, item in data["assets"].items()),
-            title=TAG,
-        )
-
-    def download(_root: Path, _repository: str, _tag: str, name: str, destination: Path, *, expected_sha256: str, **_kwargs: object) -> None:
-        calls.append("download")
-        role = next(role for role, item in data["assets"].items() if item["name"] == name)
-        assert hashlib.sha256(payloads[role]).hexdigest() == expected_sha256
-        destination.write_bytes(payloads[role])
-
-    def upload(_root: Path, _repository: str, _tag: str, path: Path, *, target: ReleaseTarget, **_kwargs: object) -> None:
-        assert target.release_id == 42
-        assert path.read_bytes() == payloads["archive"]
-        calls.append("upload")
-
-    monkeypatch.setattr("research_repo_tools.release_assets.revalidate_release_target", release)
-    monkeypatch.setattr("research_repo_tools.release_assets.download_release_asset", download)
-    monkeypatch.setattr("research_repo_tools.release_assets.publish_release_asset", upload)
-    return {"data": data, "payloads": payloads, "calls": calls, "target": target, "release": release, "download": download}
-
-
-def workflow_python(tmp_path: Path, job: str) -> Path:
-    """Run the exact trusted inline block; provider functions are substituted only."""
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release-benchmarks.yml").read_bytes())
-    step = next(item for item in workflow["jobs"][job]["steps"] if "<<'PY'" in item.get("run", ""))
-    script = tmp_path / f"{job}.py"
-    script.write_text(step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0], encoding="utf-8", newline="\n")
-    return script
+    return install_transfer(tmp_path, monkeypatch, target, payloads, ("b" * 64, "c" * 64))
 
 
 @pytest.mark.parametrize("failure", ["none", "ref", "commit", "asset-id", "archive", "acceptance"])

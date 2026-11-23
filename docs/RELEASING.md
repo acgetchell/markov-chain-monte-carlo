@@ -99,18 +99,24 @@ git diff --cached
 git commit -m "chore(release): release $TAG"
 ```
 
-### 8. Check the Cargo package and run the local CodeRabbit review
+### 8. Verify the benchmark evidence, check the Cargo package, and run CodeRabbit
 
-From the clean preparation commit, verify that Cargo can package the crate with
-default features and with all features. Then review the full branch diff against
-the PR base.
+From the clean preparation commit, check its source and generated outputs against
+the original Step 1 acquisition. Preflight also reproduces the README table,
+CSV, and SVG using the release identities saved by the acquisition owner.
+Then verify the default and all-feature Cargo packages and run the local review
+against the PR base.
 
 ```bash
+just release-preflight "$(git rev-parse HEAD)"
 just publish-check
 just review origin/main
 ```
 
-Wait for the review to finish and verify each finding against the release branch.
+If preflight fails, inspect each reported path before proceeding. Restore an
+accidental change or follow the acquisition recovery procedure below if the
+change belongs in the release. After CodeRabbit finishes, verify each finding
+against the release branch.
 
 - For a preparation-only correction, such as a typo in this guide, stage the
   correction and amend the unpushed preparation commit with `git commit --amend --no-edit`.
@@ -129,7 +135,7 @@ regenerate the report and README snapshot before repeating the release checks.
 The retained run also requires the final tree to differ from the measured tree
 only at declared output paths. See the [evidence policy](dev/release-recovery.md#evidence-policy).
 
-After corrections, repeat step 6 and both commands above on the final clean
+After corrections, repeat step 6 and all step 8 commands on the final clean
 commit before pushing.
 
 ### 9. Push the branch and open the release PR

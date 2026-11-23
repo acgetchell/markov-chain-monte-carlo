@@ -40,6 +40,7 @@ FRESH_BATCH_BENCHMARKS = {
 
 
 def _benchmark_block(source: str, name: str) -> str:
+    """Extract one benchmark closure's Rust source using the harness's Criterion registration layout."""
     pattern = re.compile(
         rf'^    c\.bench_function\("{re.escape(name)}", \|b\| \{{(?P<body>.*?)^    \}}\);',
         re.MULTILINE | re.DOTALL,

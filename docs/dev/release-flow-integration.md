@@ -29,7 +29,8 @@ repository tooling and independent SARIF gates, scientific tests, and clean
 default/all-feature Cargo verification. The measurement policy retains all 22
 stepping workloads, two alternating paired trials and 100 raw samples per case.
 README publication still selects all 13 unthinned workloads from trial 1.
-The diagnostic workspace and frozen v1 evidence/guard remain unchanged.
+The diagnostic workspace remains available. The v1 evidence and its original guard are preserved at the
+[v0.5.2 tag](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1).
 
 The supported Cargo guarantee is signed source. The final trusted main-push
 attempt owns verification builds; Step 2 consumes its signed evidence.

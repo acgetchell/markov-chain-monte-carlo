@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.3.1` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
+The published `research-repo-tools==0.3.2` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -427,9 +427,9 @@ just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. The current release-performance series starts at the tagged v0.5.0 baseline;
-the retained comparison measures the prepared v0.5.1 tree against it. Preserve that v1 evidence and `tooling/performance-readme.toml` as frozen history. For new
-release preparation, `just performance-prepare` infers the release pair, `just performance-release` retains complete evidence under `docs/performance/runs/`,
+Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. Historical timings are available in the
+[v0.5.2 archive](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1).
+For release preparation, `just performance-prepare` selects the release, `just performance-release` retains complete evidence under `docs/performance/runs/`,
 and `just performance-doc` reproduces `docs/performance/current.md`. `just performance-readme` uses the independently reviewed
 `tooling/performance-publication.toml` selection and preparation identities. `just performance-github-assets CURRENT BASELINE` compares historical two-file
 release assets. See [GitHub Release Assets](docs/BENCHMARKING.md#github-release-assets) for complete candidate archive inspection and comparison limits.

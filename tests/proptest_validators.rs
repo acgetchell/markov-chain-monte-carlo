@@ -9,8 +9,8 @@ use markov_chain_monte_carlo::prelude::{BinningAnalysis, OnlineStats, Statistics
 use proptest::prelude::*;
 
 proptest! {
-    /// Generate supported inputs directly so every case exercises the ratio,
-    /// using ordinary probabilities as an oracle independent of its log sum.
+    /// Rescaling an endpoint's weights leaves its normalized transition probability unchanged.
+    /// Use unscaled probabilities as an independent oracle across binary exponents.
     #[test]
     fn discrete_proposal_ratio_matches_normalized_transition_probabilities(
         forward_weight in 1u16..=100,
@@ -19,15 +19,19 @@ proptest! {
         reverse_weight in 1u16..=100,
         reverse_other_weight in 0u16..=100,
         reverse_sites in 1u16..=1000,
+        forward_exponent in -1000i32..=1000,
+        reverse_exponent in -1000i32..=1000,
     ) {
         let forward_sum = f64::from(forward_weight + forward_other_weight);
         let reverse_sum = f64::from(reverse_weight + reverse_other_weight);
+        let forward_scale = 2.0_f64.powi(forward_exponent);
+        let reverse_scale = 2.0_f64.powi(reverse_exponent);
         let ratio = DiscreteProposalRatio::from_endpoints(
             DiscreteProposalEndpoint::new(
-                f64::from(forward_weight), forward_sum, usize::from(forward_sites),
+                f64::from(forward_weight) * forward_scale, forward_sum * forward_scale, usize::from(forward_sites),
             ),
             DiscreteProposalEndpoint::new(
-                f64::from(reverse_weight), reverse_sum, usize::from(reverse_sites),
+                f64::from(reverse_weight) * reverse_scale, reverse_sum * reverse_scale, usize::from(reverse_sites),
             ),
         ).map_err(|error| TestCaseError::fail(format!("valid endpoints rejected: {error:?}")))?;
 

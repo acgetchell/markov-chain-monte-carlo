@@ -23,7 +23,7 @@ dependency-source name *args:
 
 rrt := "uv run --locked --group dev research-repo-tools"
 _run := rrt + " toolchain run --"
-release_rrt := "uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-22T02:44:08Z --with research-repo-tools==0.3.1 python -I -m research_repo_tools"
+release_rrt := "uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-23T18:46:36Z --with research-repo-tools==0.3.2 python -I -m research_repo_tools"
 actions_inputs := quote(".github/workflows") + " " + quote(".github/actions/setup-toolchain/action.yml")
 
 # Validate coupled Actions pins without network access or environment sync.
@@ -128,6 +128,12 @@ changelog-check: sync
 [positional-arguments]
 changelog-preview *args: sync
     {{ _run }} research-repo-tools changelog generate --dry-run "$@"
+
+# Preview a rebuild of the entire changelog history, or apply it with --apply.
+[group('release')]
+[positional-arguments]
+changelog-rebuild *args: sync
+    {{ _run }} research-repo-tools changelog rebuild "$@"
 
 # Generate a prospective release using the citation date unless an ISO date is supplied.
 [group('release')]
@@ -379,32 +385,9 @@ performance +args:
 performance-baseline tag:
     {{ _run }} research-repo-tools performance baseline tooling/benchmark.toml {{ quote(tag) }} {{ quote("markov-chain-monte-carlo-" + tag + "-criterion-baseline.tar.gz") }}
 
-# Preserve the v1 boundary until the first release using the new report namespace.
+# Verify the active report and its retained run inventory without measuring.
 [group('validation')]
-[private]
-_performance-legacy-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    shopt -s nullglob
-    artifacts=(
-        docs/performance/v1/*.comparison.json
-        docs/performance/v1/*.evidence.json
-        docs/performance/v1/*.csv
-        docs/performance/v1/*.svg
-        docs/performance/v1/v*-vs-v*.md
-    )
-    if [[ -e docs/performance/v1/performance.md || -L docs/performance/v1/performance.md ]]; then
-        uv run --locked --group dev research-repo-tools performance promote tooling/performance-report-legacy.toml --check
-    elif (( ${#artifacts[@]} )) || [[ -e tooling/performance-readme.toml || -L tooling/performance-readme.toml ]]; then
-        echo "Release evidence exists without its current report; restore or promote the report." >&2
-        exit 1
-    else
-        echo "No release comparison yet; the next tagged release establishes the baseline."
-    fi
-
-# Check frozen v1 evidence and the strict shared inventory for future reports.
-[group('validation')]
-performance-check: _performance-legacy-check
+performance-check:
     uv run --locked --group dev research-repo-tools performance promote tooling/performance-report.toml --check
 
 # Rebuild and promote the shared report from retained or explicitly saved evidence.
@@ -507,6 +490,10 @@ release-benchmarks tag owner="" selection="reviewed": _ensure-jq
 [group('release')]
 release-evidence owner="" selection="reviewed": (_release-candidate "verify" owner "--selection" selection)
 
+# Check the clean preparation commit against the original benchmark handoff before merge.
+[group('release')]
+release-preflight commit owner="": (_release-candidate "preflight" commit owner)
+
 # Inspect retained release state and print the next command without advancing it.
 [arg('checkpoint', long)]
 [group('release')]
@@ -516,7 +503,7 @@ release-status owner="" selection="reviewed" checkpoint="target/bench-reports/re
 [group('release')]
 [positional-arguments]
 [private]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-22T02:44:08Z", "--with", "research-repo-tools==0.3.1", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-23T18:46:36Z", "--with", "research-repo-tools==0.3.2", "python", "-I")]
 _release-candidate *args:
     import runpy
     from pathlib import Path
@@ -557,7 +544,7 @@ release-upload tag owner="" selection="reviewed": (_release-candidate "upload" t
 # Native-only diagnostic; candidate reuse requires release-evidence.
 [group('release')]
 [positional-arguments]
-[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-22T02:44:08Z", "--with", "research-repo-tools==0.3.1", "python", "-I")]
+[script("uv", "run", "--no-config", "--no-project", "--isolated", "--managed-python", "--exclude-newer", "2026-11-23T18:46:36Z", "--with", "research-repo-tools==0.3.2", "python", "-I")]
 release-native-evidence *args:
     import sys
     import tempfile

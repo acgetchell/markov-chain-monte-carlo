@@ -66,15 +66,16 @@ def test_release_update_preserves_links_and_advances_nested_package_version(tmp_
     api_links = re.findall(r"https://docs\.rs/markov-chain-monte-carlo/[^/\s)]+/[^\s)]+", before)
     assert len(api_links) == 11
     image_links = re.findall(r"!\[[^\]]*\]\((https://raw\.githubusercontent\.com/[^)]+)\)", before)
-    assert len(image_links) == 2
     assert re.fullmatch(
         r"https://raw\.githubusercontent\.com/acgetchell/markov-chain-monte-carlo/[0-9a-f]{40}/docs/assets/ising_energy_trace\.png",
         image_links[0],
     )
-    # Retained snapshots include a complete-run marker alongside the image link.
-    publication_name = "performance-publication.toml" if "\nComplete run: `" in before else "performance-readme.toml"
-    publication = tomllib.loads((ROOT / "tooling" / publication_name).read_text(encoding="utf-8"))
-    assert image_links[1] == f"https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v{_VERSION}/{publication['svg']}"
+    if "Complete run evidence" in before or "\nComplete run: `" in before:
+        publication = tomllib.loads((ROOT / "tooling/performance-publication.toml").read_text(encoding="utf-8"))
+        expected = [f"https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v{_VERSION}/{publication['svg']}"] if "svg" in publication else []
+        assert image_links[1:] == expected
+    else:
+        assert image_links[1:] == ["https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.svg"]
     for guide in _GUIDES:
         assert f"https://github.com/acgetchell/markov-chain-monte-carlo/blob/main/{guide}" in before
     nested_lock = tmp_path / "benches/diagnostic_backends/Cargo.lock"

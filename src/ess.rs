@@ -966,7 +966,15 @@ fn quantile(sorted: &[f64], p: QuantileProbability) -> f64 {
     let fraction = position - position.floor();
     let lower = sorted[index];
     let upper = sorted[(index + 1).min(sorted.len() - 1)];
-    if lower.is_sign_negative() == upper.is_sign_negative() {
+    #[expect(clippy::float_cmp, reason = "only an exact half selects the midpoint")]
+    if fraction == 0.5 {
+        return lower.midpoint(upper);
+    }
+    // Across zero, the gap is exact when both magnitudes are at most the
+    // smallest normal. Interpolate with one rounding in that regime.
+    if lower.is_sign_negative() == upper.is_sign_negative()
+        || lower.abs().max(upper.abs()) <= f64::MIN_POSITIVE
+    {
         (upper - lower).mul_add(fraction, lower)
     } else {
         (1.0 - fraction).mul_add(lower, fraction * upper)
@@ -978,6 +986,9 @@ fn beta_quantile(a: f64, b: f64, p: f64) -> Result<f64, MonteCarloError> {
     let (mut lower, mut upper) = (0.0_f64, 1.0_f64);
     for _ in 0..80 {
         let middle = lower.midpoint(upper);
+        if middle <= lower || middle >= upper {
+            break;
+        }
         let cdf = beta_reg(a, b, middle);
         if !cdf.is_finite() || !(0.0..=1.0).contains(&cdf) {
             return Err(MonteCarloError::NumericalFailure);

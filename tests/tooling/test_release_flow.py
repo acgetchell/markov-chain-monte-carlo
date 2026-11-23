@@ -22,7 +22,7 @@ from research_repo_tools.process import run_command
 from tests.tooling.support_evidence import COMMIT, POLICY, REPOSITORY, TOOLING_VERSION, EvidenceProvider, install_clean_checkout
 
 TOOLING_REQUIREMENT = f"research-repo-tools=={TOOLING_VERSION}"
-TOOLING_CUTOFF = "2026-11-22T02:44:08Z"
+TOOLING_CUTOFF = "2026-11-23T18:46:36Z"
 
 ROOT = Path(__file__).resolve().parents[2]
 TAG = "v0.5.42"
@@ -54,6 +54,7 @@ def capture_uv_call(script: str, cwd: Path, environment: dict[str, str]) -> subp
 
 
 def release_arguments(stdout: str) -> list[str]:
+    """Verify the pinned uv invocation and strip its prefix and final NUL, preserving empty release arguments."""
     arguments = stdout.split("\0")
     prefix = [
         "run",
@@ -77,6 +78,7 @@ def release_arguments(stdout: str) -> list[str]:
 
 
 def capture_draft_writer(cwd: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run the draft workflow's shell with a recording uv substitute and return the captured process result."""
     workflow = yaml.safe_load(WORKFLOW.read_bytes())
     script = next(step["run"] for step in workflow["jobs"]["prepare"]["steps"] if "run" in step)
     return capture_uv_call(script, cwd, environment)

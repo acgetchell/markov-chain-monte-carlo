@@ -157,6 +157,26 @@ fn pinned_reference_corpus_and_input_immutability() {
 }
 
 #[test]
+fn quantile_interpolation_preserves_subnormal_order_statistics() {
+    let unit = f64::from_bits(1);
+    // Both pairs have exact midpoint unit, including across the normal/subnormal boundary.
+    for base in [0, f64::MIN_POSITIVE.to_bits()] {
+        let lower = -f64::from_bits(base + 1);
+        let upper = f64::from_bits(base + 3);
+        let chain = [lower, upper, lower, upper];
+        let estimate = QuantileMcse::estimate(&[&chain, &chain], 0.5).unwrap();
+        assert_eq!(estimate.quantile().to_bits(), unit.to_bits());
+        assert_eq!(estimate.interval(), [lower, upper]);
+        assert_eq!(estimate.value().to_bits(), base + 2);
+    }
+
+    // Position 3.25 in the eight sorted draws gives -3u + (6u)/4, which rounds to -2u.
+    let chain = [-3.0 * unit, 3.0 * unit, -3.0 * unit, 3.0 * unit];
+    let estimate = QuantileMcse::estimate(&[&chain, &chain], 3.25 / 7.0).unwrap();
+    assert_eq!(estimate.quantile().to_bits(), (-2.0 * unit).to_bits());
+}
+
+#[test]
 fn chain_order_and_time_reversal_match_reference_corpus() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/ess.json")).unwrap();
     for case in fixture["cases"].as_array().unwrap() {

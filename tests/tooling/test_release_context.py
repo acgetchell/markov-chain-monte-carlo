@@ -44,6 +44,7 @@ def test_owner_directory_accepts_canonical_external_selection(tmp_path: Path) ->
 
 @pytest.fixture
 def owner_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Provide an isolated checkout, home and external owner with controlled policy and digest checks for selection tests."""
     root, owner = tmp_path / "checkout", tmp_path / "original owner"
     root.mkdir()
     owner.mkdir()
@@ -392,6 +393,7 @@ def test_status_uses_original_checkpoint_and_raw_evidence_before_registration(
     root, _unused_owner = owner_record
     checkpoint = "target/original checkpoint"
     monkeypatch.setattr(candidate, "resolve_revision", lambda *_args: SHA)
+    monkeypatch.setattr(candidate, "load_performance_release", lambda *_args: SimpleNamespace(payload="scratch.run", manifest="scratch.evidence"))
     checkpoint_path = root / checkpoint
     checkpoint_path.mkdir(parents=True)
     owner = candidate.owner_directory(root, checkpoint)
@@ -400,11 +402,22 @@ def test_status_uses_original_checkpoint_and_raw_evidence_before_registration(
     assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", "just", "performance-resume", checkpoint]
     assert not (candidate.selection_directory(root) / "owner.json").exists()
 
+    (owner / "preparation.json").write_bytes(b"original preparation")
+    (root / "scratch.run").write_bytes(b"original run")
+    with pytest.raises(ValueError, match="without a complete matching handoff"):
+        candidate.release_status(root, "", "reviewed", checkpoint)
+    (root / "scratch.evidence").write_bytes(b"original evidence")
+    candidate.release_status(root, "", "reviewed", checkpoint)
+    assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", "just", "performance-capture", str(owner), "--retained-scratch"]
+
     (owner / "run.json").write_bytes(b"original run")
     (owner / "evidence.json").write_bytes(b"original evidence")
     candidate.release_status(root, "", "reviewed", checkpoint)
     assert shlex.split(capsys.readouterr().out.splitlines()[-1]) == ["Next:", "just", "performance-capture", str(owner)]
-    assert sorted(path.name for path in owner.iterdir()) == ["evidence.json", "run.json"]
+    assert sorted(path.name for path in owner.iterdir()) == ["evidence.json", "preparation.json", "run.json"]
+    (owner / "preparation.json").unlink()
+    with pytest.raises(ValueError, match="without a complete matching handoff"):
+        candidate.release_status(root, "", "reviewed", checkpoint)
 
 
 @pytest.mark.parametrize("index_contents", [None, b"prior index"])
@@ -531,7 +544,7 @@ def test_conflicting_owner_selection_stops_before_acquisition(owner_record: tupl
     monkeypatch.setattr(candidate, "load_performance_release", lambda *_args: None)
     monkeypatch.setattr(candidate, "load_preparation", lambda *_args: None)
     monkeypatch.setattr(candidate, "check_release_dependencies", lambda *_args: None)
-    monkeypatch.setattr(candidate, "measure_release", lambda *_args, **_kwargs: pytest.fail("a known owner conflict must not start acquisition"))
+    monkeypatch.setattr(candidate, "measure_and_retain", lambda *_args, **_kwargs: pytest.fail("a known owner conflict must not start acquisition"))
     with pytest.raises(ValueError, match="already selects a different original owner"):
         candidate.acquire(root, other, "target/new-checkpoint", resume=False, progress=candidate.ProgressReporter(mode="none"))
     assert not other.exists()

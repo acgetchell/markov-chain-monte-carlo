@@ -6,12 +6,12 @@
 //! Run with: `cargo run --example iterator_sampling`
 
 use markov_chain_monte_carlo::prelude::by_value::*;
+use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
 // --- State ---
 
-#[derive(Clone, Debug)]
 struct Scalar(f64);
 
 // --- Target: N(0,1) ---
@@ -34,14 +34,14 @@ impl Proposal<Scalar> for RandomWalk {
     }
 }
 
-fn main() -> Result<(), McmcError> {
+fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
 
     let target = StandardNormal;
     let proposal = RandomWalk { width: 1.0 };
-    let chain = Chain::new(Scalar(5.0), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
+    let mut sampler = Sampler::from_state(Scalar(5.0), &target, &proposal, &mut rng)
+        .map_err(ObservedStreamError::Step)?;
 
     println!("Iterator-based sampling of N(0,1) (seed={seed})");
 
@@ -52,31 +52,29 @@ fn main() -> Result<(), McmcError> {
     sampler
         .by_ref()
         .take(burn_in)
-        .try_for_each(|result| result.map(|_step| ()))?;
+        .try_for_each(|result| result.map(|_step| ()))
+        .map_err(ObservedStreamError::Step)?;
     println!("Burn-in complete ({burn_in} steps via iterator)");
 
     // Reset counters so acceptance rate reflects production only
     sampler.reset_counters();
 
     // Collect samples: use step() when you need to read state between steps.
-    // The iterator yields Result<Step<()>, McmcError> (not the state), so collecting
-    // samples requires interleaving step + state access.
-    let n_samples: u32 = 10_000;
-    let mut sum = 0.0;
-    let mut sum_sq = 0.0;
+    // The iterator yields step telemetry. Here we also observe the resulting state.
+    let n_samples = 10_000;
+    let mut stats = OnlineStats::new();
     for _ in 0..n_samples {
-        let _ = sampler.step()?;
-        let x = sampler.chain_ref().state().0;
-        sum += x;
-        sum_sq = x.mul_add(x, sum_sq);
+        let _ = sampler.step().map_err(ObservedStreamError::Step)?;
+        stats
+            .try_push(sampler.chain_ref().state().0)
+            .map_err(ObservedStreamError::Accumulation)?;
     }
 
-    let mean = sum / f64::from(n_samples);
-    let variance = mean.mul_add(-mean, sum_sq / f64::from(n_samples));
-
     println!("\nResults ({n_samples} samples via step()):");
-    println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
-    println!("  Sample variance: {variance:.4} (expected: 1.0)");
+    if let (Some(mean), Some(variance)) = (stats.mean(), stats.sample_variance()) {
+        println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
+        println!("  Sample variance: {variance:.4} (expected: 1.0)");
+    }
     println!(
         "  Acceptance rate: {:.1}%",
         sampler.chain_ref().acceptance_rate() * 100.0
