@@ -1,0 +1,38 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Encoded Criterion Tukey statistics in retained benchmark runs"
+condition = "AND"
+paths = [ '''^docs[/\\]performance[/\\]runs[/\\]runs[/\\][0-9a-f]{64}[/\\]run\.json$''' ]
+regexTarget = "match"
+# Criterion stores four numeric outlier fences in tukey.json. The first two
+# lines of the expression match the Base64 prefix and whole groups of numeric
+# JSON bytes (digits, commas and decimal points). The third matches the closing
+# bracket in each alignment. The remaining alternatives accept only prefixes of
+# those groups if Gitleaks cuts the match at the end of a scan chunk.
+regexes = [
+    """^tukey\\.json":\\s*"Wz[AEIMQUYcgk][suw-z0-5]\
+       (?:(?:(?:L[Ci]|[MN][CSiy]|O[CS])[w4]|(?:L[Dj]|[MN][DTjz]|O[DT])[AEIMQUYcgk])[suw-z0-5])*\
+       (?:(?:XQ==|(?:L[Fl]|[MN][FVl1]|O[FV])0=|(?:(?:L[Ci]|[MN][CSiy]|O[CS])[x5]|(?:L[Dj]|[MN][DTjz]|O[DT])[BFJNRVZdhl])d)"?\
+       |X(?:Q=?)?|(?:L[Fl]|[MN][FVl1]|O[FV])0?\
+       |(?:L[Ci]|[MN][CSiy]|O[CS])[w4x5]?\
+       |(?:L[Dj]|[MN][DTjz]|O[DT])[AEIMQUYcgkBFJNRVZdhl]?|[LMNO])?$""",
+]
+
+# A scan chunk can also start inside the field name. Require the unquoted
+# suffix at the start of the chunk's line and a complete numeric array.
+# A normal JSON field named "key.json" has an opening quote.
+[[rules.allowlists]]
+description = "Criterion Tukey field names clipped by a Gitleaks scan boundary"
+condition = "AND"
+paths = [ '''^docs[/\\]performance[/\\]runs[/\\]runs[/\\][0-9a-f]{64}[/\\]run\.json$''' ]
+regexTarget = "line"
+regexes = [
+    """^u?key\\.json":\\s*"Wz[AEIMQUYcgk][suw-z0-5]\
+       (?:(?:(?:L[Ci]|[MN][CSiy]|O[CS])[w4]|(?:L[Dj]|[MN][DTjz]|O[DT])[AEIMQUYcgk])[suw-z0-5])*\
+       (?:XQ==|(?:L[Fl]|[MN][FVl1]|O[FV])0=|(?:(?:L[Ci]|[MN][CSiy]|O[CS])[x5]|(?:L[Dj]|[MN][DTjz]|O[DT])[BFJNRVZdhl])d)",?$""",
+]

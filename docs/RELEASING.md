@@ -117,8 +117,9 @@ just review origin/main
 If preflight fails, inspect each reported path before proceeding. Restore an
 accidental change or follow the acquisition recovery procedure below if the
 change belongs in the release. Verify each CodeRabbit finding against the release
-branch. A skipped file or an incomplete [local review](dev/DEVELOPING.md#local-coderabbit-review)
-blocks the push.
+branch. The [local review](dev/DEVELOPING.md#local-coderabbit-review) excludes
+the archived raw benchmark payload that preflight verifies against the original
+acquisition. A skipped file in the selected scope or an incomplete review blocks the push.
 
 - If only a declared benchmark output needs correction, reproduce it from the
   retained acquisition. For the generated README section, CSV, or SVG, use the

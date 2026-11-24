@@ -1,5 +1,6 @@
 """MCMC command scope, validation coverage, and release credential boundaries."""
 
+import base64
 import json
 import shlex
 import shutil
@@ -263,6 +264,41 @@ def test_security_workflows_cover_owned_inputs_and_fail_on_findings() -> None:
         assert upload["if"] == "${{ !cancelled() && steps.scan.outcome != 'skipped' }}"
         assert upload["with"]["path"] == f"target/security/{scanner}-*"
         assert upload["with"]["if-no-files-found"] == "error"
+
+
+@pytest.mark.parametrize(
+    ("record", "archived", "expected_exit"),
+    [
+        ('  "tukey.json": "{fences}"', True, 0),
+        ('  "tukey.json": "{prefix}', True, 0),
+        ('key.json": "{fences}"', True, 0),
+        ('  "key.json": "{fences}"', True, 3),
+        ('  "api_key": "{other}"', True, 3),
+        ('  "tukey.json": "{other}"', True, 3),
+        ('  "tukey.json": "{fences}"', False, 3),
+    ],
+)
+def test_gitleaks_benchmark_scope(tmp_path: Path, record: str, *, archived: bool, expected_exit: int) -> None:
+    """Cover complete and chunked numeric fields and preserve unrelated detections."""
+    from research_repo_tools import config, toolchain, toolchain_config
+
+    archive = Path("docs/performance/runs/runs") / ("a" * 64)
+    source = tmp_path / (archive if archived else Path("other")) / "run.json"
+    source.parent.mkdir(parents=True)
+    fences = base64.b64encode(b"[14181.6878609986,12.872,73.30,57.8]").decode("ascii")
+    other = base64.b64encode(b'[14181.6878609986,12.872,73.30,"public fixture"]').decode("ascii")
+    source.write_bytes(record.format(fences=fences, prefix=fences[:37], other=other).encode("ascii") + b"\n")
+
+    runtime = toolchain.Runtime(toolchain_config.load(config.load(root=REPO_ROOT)), tools=["gitleaks"])
+    scanner = next(status for status in runtime.inspect() if status.name == "gitleaks")
+    assert scanner.ok, scanner
+    result = run_command(
+        scanner.path,
+        ["dir", ".", "--config", str(REPO_ROOT / ".gitleaks.toml"), "--redact=100", "--ignore-gitleaks-allow", "--exit-code=3"],
+        cwd=tmp_path,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
 
 
 def test_python_annotation_policy_and_review_exclusions_remain_precise() -> None:
