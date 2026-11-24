@@ -159,6 +159,10 @@ Use `just security-findings` to summarize the retained redacted Gitleaks reports
 proposed policy, save it separately and use `just security-check-exceptions CANDIDATE` to compare both policies on the same captured inputs. A successful
 exit confirms the comparison completed. Review all suppressed locations before adopting the policy, then rerun `just security-secrets` to check it.
 
+Criterion saves numeric outlier fences in `tukey.json`. The benchmark archive embeds these files as Base64, which can trigger Gitleaks' generic API key
+rule. The repository's `.gitleaks.toml` matches the encoded numeric field and observed scan-boundary fragments only in the archived
+`docs/performance/runs/runs/<run-id>/run.json`. Other fields in the same archive remain in scope.
+
 ## Local CodeRabbit Review
 
 CodeRabbit review is separate from `just check` and `just ci`. Ordinary review, fix, and validation requests use local checks. Follow the applicable push
@@ -183,6 +187,9 @@ The shared package owns process-stub tests for review behavior; no live review i
 
 CodeRabbit's general review excludes deliberate Semgrep fixtures and disables the docstring-percentage pre-merge check. Repository-owned Ruff, Ty and
 Semgrep fixture validation remain blocking in the canonical local and CI gates.
+
+The review path filters also exclude the generated raw payload at `docs/performance/runs/runs/<run-id>/run.json`. Release preflight verifies those
+bytes against the independent acquisition record. Keep workload definitions, benchmark reports, evidence manifests and README changes in review.
 
 Install the [CodeRabbit CLI](https://docs.coderabbit.ai/cli) separately and authenticate with `coderabbit auth login` before the first review. It is an
 external prerequisite, outside `just setup` and `just update`. The recipes use `--agent` for structured findings; their flags were verified against

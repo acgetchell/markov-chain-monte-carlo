@@ -29,6 +29,8 @@ reviews:
   labeling_instructions: []
   path_filters:
     - "!tests/semgrep/**"
+    # Release preflight verifies the archived raw payload against the acquisition receipt.
+    - "!docs/performance/runs/runs/*/run.json"
   path_instructions: []
   abort_on_close: true
   disable_cache: false

@@ -39,7 +39,9 @@ Maintain compatibility anchors for renamed README/scientific headings; verify Co
 
 ## Full checkout tree
 
-This tree reflects the tracked files in a fresh GitHub checkout. Update it whenever adding, removing, renaming, or moving tracked files or directories.
+This tree includes the files generated when a release first publishes its benchmark comparison. Until then, `docs/performance/` and the
+`docs/assets/release-performance.*` files are absent. Each retained run uses its content identity for `<run-id>/`.
+Update the tree whenever tracked paths or the generated layout change.
 
 ```text
 .
@@ -74,6 +76,7 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │       ├── semgrep-sarif.yml
 │       └── zizmor.yml
 ├── .gitignore
+├── .gitleaks.toml
 ├── .python-version
 ├── .taplo.toml
 ├── AGENTS.md
@@ -118,7 +121,9 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   ├── assets/
 │   │   ├── diagnostic_ess_efficiency.png
 │   │   ├── diagnostic_rank_overlays.png
-│   │   └── ising_energy_trace.png
+│   │   ├── ising_energy_trace.png
+│   │   ├── release-performance.csv
+│   │   └── release-performance.svg
 │   ├── benchmark_distributions.md
 │   ├── code_organization.md
 │   ├── dev/
@@ -128,6 +133,17 @@ This tree reflects the tracked files in a fresh GitHub checkout. Update it whene
 │   │   ├── release-recovery.md
 │   │   ├── shared-changelog-pilot.md
 │   │   └── shared-maintenance-migration.md
+│   ├── performance/
+│   │   ├── current.md
+│   │   └── runs/
+│   │       ├── README.md
+│   │       ├── index.json
+│   │       ├── latest.json
+│   │       └── runs/
+│   │           └── <run-id>/
+│   │               ├── evidence.json
+│   │               ├── report.md
+│   │               └── run.json
 │   ├── roadmap.md
 │   ├── reviewer_guide.md
 │   └── scientific_basis.md
