@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release benchmark dispatch uses the required tag input, and release-performance recipes use inferred preparation and complete-run declarations.
 - Rust 1.100.0 is required. Release operators must retain the Step 1 acquisition and now run release-upload after release-publish.
 - Corrected arithmetic can change seeded sampling trajectories and diagnostic values compared with earlier releases.
+- Preserve MCMC numerical precision and adopt RRT 0.3.2 [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
 
 ### Merged Pull Requests
 
+- Preserve MCMC numerical precision and adopt RRT 0.3.2 [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
 - Simplify release recovery and adopt RRT 0.3.1 [#236](https://github.com/acgetchell/markov-chain-monte-carlo/pull/236)
 - Stabilize sampler arithmetic and adopt RRT 0.3.0 [#234](https://github.com/acgetchell/markov-chain-monte-carlo/pull/234)
 - Reuse retained evidence for immutable releases [#233](https://github.com/acgetchell/markov-chain-monte-carlo/pull/233)
@@ -66,6 +68,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### fix: verify every retained release report output
 
 - Report missing or stale run outputs before suggesting release evidence verification.
+
+---
+
+- [**breaking**] Preserve MCMC numerical precision and adopt RRT 0.3.2 [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
+  [`d513eff`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/d513eff5cb7916fbc05bb1976621e269297a7c47)
+
+#### docs: clarify release preparation and restore historical notes
+
+- Document the package dry runs, review corrections, and release PR handoff.
+- Explain how to verify the measured Cargo files and when to collect fresh timings.
+- Restore historical changelog detail and support both benchmark snapshot formats in release checks.
+
+#### fix!: preserve small MCMC corrections and adopt RRT 0.3.2
+
+- Preserve near-equal Hastings corrections, tiny standard errors, and quantiles across the normal/subnormal boundary.
+- Correct variance estimates in the examples and verify quantile intervals against independent references.
+- Use shared benchmark inventory validation, preserve historical reports at v0.5.2, and verify candidate evidence before publication.
+
+#### fix!: preserve subnormal quantiles and correct release recovery [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
+
+- Preserve representable type-7 quantiles when interpolation crosses zero near the normal/subnormal boundary.
+- Document when standard errors remain positive despite variance underflow and verify zero Hastings correction for equally probable weighted moves.
+- Require fresh benchmark acquisition for changes outside declared outputs and reproduce the committed README snapshot from the original measured revisions.
+
+#### fix: round quantile interpolation across the subnormal boundary [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
+
+- Preserve interpolation residuals through final ties-to-even rounding when opposite-sign endpoints have an inexact span.
+- Cover exact and near-midpoint cutoffs on both sides of the normal boundary with independent regression cases.
+
+---
+
+- Keep archived benchmark data compatible with release checks
+  [`edeb3fe`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/edeb3fe9fd11ea06c2c13e328978a4cb1f39f60b)
+
+  - Verify the raw benchmark payload through release preflight and keep its report and evidence manifest in CodeRabbit review.
+  - Limit Gitleaks exceptions to encoded Criterion outlier statistics in retained run files.
+  - Document the generated benchmark layout and update the Python packaging lock to 26.4.
 
 ### Maintenance
 
