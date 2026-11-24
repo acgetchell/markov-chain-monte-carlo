@@ -33,19 +33,42 @@ just performance-doc --payload target/bench-reports/performance.run.json \
   --manifest target/bench-reports/performance.evidence.json
 ```
 
-Review and republish the README snapshot with `just performance-readme`.
+At the measured revision, review and republish the README snapshot with
+`just performance-readme --preview` and `just performance-readme`.
 See [benchmark preparation](../BENCHMARKING.md#release-preparation-and-readme-publication).
 
-When measured source, harness, toolchain, or dependencies change, preserve the
-earlier evidence and select a fresh acquisition. Use a fresh clone at a new
-path and run the release preparation there after setup. Keep using that clone
-through publication so the commands recover the registered owner.
+### Reproduce the committed README snapshot
+
+After the preparation commit, `HEAD` differs from the measured revision.
+For the paired release, set `OWNER` to the independent owner directory shown by
+`just release-status`. Read both release labels and measured revisions from its
+original preparation. The publisher uses these identities to reproduce the
+marked README section, CSV, and SVG from the retained run.
+
+```bash
+PREPARATION="$OWNER/preparation.json"
+just performance-readme \
+  --current-release "$(jq -er '.current.release' "$PREPARATION")" \
+  --current-revision "$(jq -er '.current.revision' "$PREPARATION")" \
+  --baseline-release "$(jq -er '.baseline.release' "$PREPARATION")" \
+  --baseline-revision "$(jq -er '.baseline.revision' "$PREPARATION")"
+```
 
 ## Preparation corrections
 
-If changelog inputs change, regenerate the notes with `just changelog-release "$TAG"`.
-Adjust the declared date with `just update-version "$TAG" --date YYYY-MM-DD`
-when needed. Retain existing measurements when their inputs are unchanged.
+Any correction outside the declared benchmark output paths requires fresh
+acquisition, even a typo in the release guide. Preserve the earlier checkpoint,
+owner and outputs. In a fresh clone at a new path, reconstruct the pre-acquisition
+tree with the intended fixes and prepared release metadata. Keep the report,
+run inventory and README snapshot as they stood **before** the superseded
+acquisition, including any previously released history.
+
+Run setup in that clone. If changelog inputs changed, regenerate the notes with
+`just changelog-release "$TAG"`. Adjust the date with
+`just update-version "$TAG" --date YYYY-MM-DD` first when needed. Resume at
+step 1.4 of the [release checklist](../RELEASING.md#4-generate-the-release-performance-comparison)
+and use the new checkout and its registered owner through publication.
+
 Integrate post-merge corrections in a follow-up PR, then select the exact new
 main-push CI evidence. Review any existing remote tag, draft, and registry
 state before changing an unpublished candidate. Use a new version for a

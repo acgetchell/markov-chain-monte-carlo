@@ -557,13 +557,12 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
 2. Set `TAG` and run `just update-version "$TAG"`, then `just changelog-release "$TAG"` using the prepared citation date and committed history.
-3. Follow [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication): run `just performance-prepare` and
-   `just performance-release`, review the complete run and publication selection, then preview and publish the README table/CSV/SVG with
-   `just performance-readme`.
-4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci`, commit the reviewed artifacts, then run `just publish-check`
-   on the clean commit.
-5. Commit and push the release PR. After merge, sync and verify the exact reviewed `main` commit, require its trusted main-push validation and run
-   `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
+3. Run `just release-dependency-builds` and `just performance-release`. Review both trials against the predeclared selection, then preview and publish
+   the [README performance table and assets](docs/BENCHMARKING.md#release-preparation-and-readme-publication) with `just performance-readme`.
+4. Run `just release-version-check`, `just security`, and `just ci`. Commit the reviewed files, then run `just release-preflight "$(git rev-parse HEAD)"`,
+   `just publish-check`, and `just review origin/main` on the clean preparation commit.
+5. Push the reviewed branch and open the release PR. After merge, sync `main` and verify the trusted CI run for the exact release commit.
+   Run `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
 6. Inspect the automatically prepared stable draft, run `just release-stage`, then `just release-benchmarks "$TAG"` to attach the accepted Step 1 archive
    without measuring again. Review the draft and run `just release-publish "$TAG"` in a human GitHub CLI session. Run `just release-upload "$TAG"` with that
    reviewed acceptance, then approve the crates.io deployment. Run `just release-verify "$TAG"` and complete the guide's downstream/Zenodo checks before
@@ -572,7 +571,7 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
 Breaking API changes and MSRV bumps are allowed in any release up to and including v1.0.0, including patch releases. The release number during this
-pre-stability period reflects project scope rather than compatibility impact alone; breaking changes still use `feat!` or a `BREAKING CHANGE:` trailer.
+pre-stability period reflects project scope. Mark breaking changes with a bang after the commit type (for example, `fix!`) or a `BREAKING CHANGE:` trailer.
 
 After v1.0.0, this project follows [Semantic Versioning](https://semver.org/):
 

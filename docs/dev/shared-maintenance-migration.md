@@ -355,13 +355,11 @@ The maintainer requested a fresh start during #154. Earlier release-performance 
 and the old README comparison have been removed. The legacy asset-layout adapter and publication selection were also retired. This supersedes the original
 migration's historical-byte preservation requirement. No old measurements are relabeled as current data.
 
-At the reset, the checkout could produce local Criterion baselines without Git changes; the next tagged release was to establish the shared baseline. The series
-now starts at v0.5.0, with a retained comparison of the prepared v0.5.1 tree against that baseline. `performance-check` explicitly accepts an empty release
-inventory and rejects orphaned evidence without its report. Actual report validation still runs through shared `performance promote --check`.
-
-That series retains its release evidence and generated navigation under `docs/performance/v1/`, with `performance.md` as its historical current report.
-`tooling/performance-readme.toml` selects that retained pair for README publication. The diagnostic-backend experiment remains
-separate under `experiments/` because it records the current backend decision. See [benchmarking](../BENCHMARKING.md) for the current workflow.
+The reset allowed local Criterion baselines without Git changes. The tagged v0.5.0 release became the baseline for the prepared v0.5.1 comparison.
+The v0.5.2 tag preserves the
+[series, report index and diagnostic-backend experiment](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1)
+and the [README selection used at that release](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/tooling/performance-readme.toml).
+See [benchmarking](../BENCHMARKING.md#shared-reports-and-the-first-baseline) for the active report and its inventory check.
 
 ## Regression ownership and reduction
 

@@ -82,8 +82,9 @@ log proposal ratio through:
 
 These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities,
 site counts, reverse-site counts, and invalid-move handling. For weighted discrete proposals, `DiscreteProposalRatio` forms the numerator and denominator
-from the supplied binary weights and integer site counts. Near equal odds it subtracts the exact products before evaluating the logarithm of the relative
-change. This preserves the direction of the correction even when the odds themselves round to one.
+from the supplied binary weights and integer site counts. Equal products give a zero log ratio. For unequal products near a tie, it computes the magnitude
+with `ln_1p((larger - smaller) / smaller)`, taking the difference exactly before rounding. The correction is positive when the numerator is larger and
+negative when the denominator is larger, even when dividing the products directly would round the odds to one.
 
 Detailed balance, or a valid Metropolis-Hastings correction for a non-symmetric proposal, is a property of the user-provided target+proposal pair. The crate
 checks transition mechanics; domain code still owns irreducibility, aperiodicity, burn-in, autocorrelation, convergence, and observable interpretation.
@@ -323,7 +324,7 @@ Counts/ties lack that ordinary density interpretation: constant indicators are u
 `CollapsedQuantileInterval`, never zero uncertainty. Mean and quantile results retain typed ESS/input failures. Scaled centering restores physical
 units for mean MCSE; overflow or underflow of the final positive error is unavailable. Quantile differences use half-scaled subtraction when necessary.
 The regularized beta CDF comes from statrs 0.19.1. Inversion uses at most 80 bisection steps, stops when no interior midpoint is representable,
-and requires a finite CDF residual of at most `1e-8`.
+and checks that the absolute difference between the evaluated CDF and the requested probability is finite and at most `1e-8`.
 Unresolved inversion returns `NumericalFailure`, rather than entering an unbounded Newton loop or accepting a finite-looking endpoint.
 
 [`examples/ising_1d.rs`](../examples/ising_1d.rs) demonstrates mean MCSE for energy and magnetization per spin, with baseline and cold temperatures.

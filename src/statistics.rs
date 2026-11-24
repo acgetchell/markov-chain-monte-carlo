@@ -419,6 +419,7 @@ impl OnlineStats {
     /// Population standard deviation.
     ///
     /// Returns `None` until at least one sample has been added.
+    /// For tiny samples this can be positive even when [`Self::population_variance`] rounds to zero.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
@@ -432,9 +433,10 @@ impl OnlineStats {
         (self.count > 0).then(|| self.in_sample_units((self.m2 / count_as_f64(self.count)).sqrt()))
     }
 
-    /// Square root of the sample variance.
+    /// Sample standard deviation, using `n - 1` in the variance estimate.
     ///
     /// Returns `None` until at least two samples have been added.
+    /// For tiny samples this can be positive even when [`Self::sample_variance`] rounds to zero.
     /// Taking the square root does not preserve the unbiasedness of the
     /// variance estimator, even for independent samples.
     ///
@@ -453,6 +455,8 @@ impl OnlineStats {
 
     /// Naive standard error of the mean, ignoring autocorrelation.
     ///
+    /// Returns `None` until at least two samples have been added. The calculation
+    /// uses the scaled variance and can resolve a positive error even when [`Self::sample_variance`] rounds to zero.
     /// For autocorrelated MCMC measurements, prefer [`BinningAnalysis`] and
     /// inspect the blocked standard-error estimates.
     ///

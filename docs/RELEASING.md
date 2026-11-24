@@ -60,8 +60,9 @@ just release-dependency-builds
 just performance-release
 ```
 
-`just performance-release` verifies published dependency provenance before
-collecting benchmark samples.
+`just release-dependency-builds` prepares the dependency receipts.
+`just performance-release` verifies them, prepares the release pair, collects
+the samples, and promotes the report.
 
 Review both paired trials and the workload inventory. Keep the original checkpoint,
 external owner record, and an independent backup. If interrupted, run
@@ -115,28 +116,28 @@ just review origin/main
 
 If preflight fails, inspect each reported path before proceeding. Restore an
 accidental change or follow the acquisition recovery procedure below if the
-change belongs in the release. After CodeRabbit finishes, verify each finding
-against the release branch.
+change belongs in the release. Verify each CodeRabbit finding against the release
+branch. A skipped file or an incomplete [local review](dev/DEVELOPING.md#local-coderabbit-review)
+blocks the push.
 
-- For a preparation-only correction, such as a typo in this guide, stage the
-  correction and amend the unpushed preparation commit with `git commit --amend --no-edit`.
-- For a user-facing fix, make a separate commit with a descriptive subject, then
-  run `just changelog-release "$TAG"` so the fix appears in the notes.
+- If only a declared benchmark output needs correction, reproduce it from the
+  retained acquisition. For the generated README section, CSV, or SVG, use the
+  [post-commit recovery command](dev/release-recovery.md#reproduce-the-committed-readme-snapshot).
+  Review and stage the reproduced files, then amend the
+  unpushed preparation commit with `git commit --amend --no-edit`.
+- Any correction outside the declared output paths requires a fresh acquisition,
+  including a documentation-only change such as a typo in this guide. For a
+  user-facing fix, commit it with a descriptive subject and run
+  `just changelog-release "$TAG"` so it appears in the notes. Regenerate the
+  notes if another changelog input changes, including the prepared citation
+  date. Review and commit any regenerated notes with
+  `git commit -m "chore(release): prepare $TAG notes"`. Preserve the original
+  run and follow [preparation corrections](dev/release-recovery.md#preparation-corrections).
+  Repeat steps 4–7 in the fresh checkout so the new preparation commit contains
+  the reviewed report, run records, and README outputs.
 
-Regenerate the notes if another changelog input changes, including the prepared
-citation date. Review and stage any regenerated files, then commit them with
-`git commit -m "chore(release): prepare $TAG notes"`.
-
-If a correction changes measured code (for example, sampler arithmetic), the
-benchmark harness, toolchain, or dependencies, preserve the original run and
-follow [benchmark recovery](dev/release-recovery.md#benchmark-acquisition) to
-start a fresh acquisition. Repeat steps 4 and 5 to collect both trials and
-regenerate the report and README snapshot before repeating the release checks.
-The retained run also requires the final tree to differ from the measured tree
-only at declared output paths. See the [evidence policy](dev/release-recovery.md#evidence-policy).
-
-After corrections, repeat step 6 and all step 8 commands on the final clean
-commit before pushing.
+Run the step 6 checks for any corrected files and repeat all step 8 commands
+on the final clean commit before pushing.
 
 ### 9. Push the branch and open the release PR
 
@@ -167,6 +168,10 @@ and **Repository Rule SARIF Analysis** on the same commit. See
 [exact-run inspection](dev/release-recovery.md#inspect-workflow-runs).
 
 ### 2. Verify the final release commit
+
+If the merge changed the reviewed tree, run
+`just release-preflight "$(git rev-parse HEAD)"` on clean `main` to recheck
+the generated README section, CSV, and SVG before accepting the commit.
 
 ```bash
 just release-evidence

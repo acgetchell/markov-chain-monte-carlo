@@ -11,7 +11,7 @@ use statrs::function::beta::beta_reg;
 use crate::{
     SplitRhatError,
     convergence::{RankedRhatInput, SplitRhatInput},
-    numerics::{compensated_sum, count_as_f64},
+    numerics::{compensated_sum, count_as_f64, sum_with_roundoff},
 };
 
 /// Invalid input or an unavailable multi-chain ESS/MCSE estimate.
@@ -976,6 +976,14 @@ fn quantile(sorted: &[f64], p: QuantileProbability) -> f64 {
         || lower.abs().max(upper.abs()) <= f64::MIN_POSITIVE
     {
         (upper - lower).mul_add(fraction, lower)
+    } else if lower >= -1.0 && upper <= 1.0 {
+        // In these units even subnormal endpoints are normal, and the span
+        // fits in f64. Retain its low part when interpolating across zero.
+        let scaled_lower = lower / f64::MIN_POSITIVE;
+        let scaled_upper = upper / f64::MIN_POSITIVE;
+        let (span, roundoff) = sum_with_roundoff(scaled_upper, -scaled_lower);
+        let value = span.mul_add(fraction, scaled_lower);
+        roundoff.mul_add(fraction, value) * f64::MIN_POSITIVE
     } else {
         (1.0 - fraction).mul_add(lower, fraction * upper)
     }

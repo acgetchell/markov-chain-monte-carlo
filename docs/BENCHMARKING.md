@@ -82,19 +82,19 @@ architecture, and CPU identities. Different harnesses require review of shared n
 against the workload contracts above. Unknown CPU identity fails this configured local
 compatibility check; do not invent a value to make it pass.
 
-Measurement explicitly permits temporary Git worktree creation/removal. The shared
+The local comparison permits temporary Git worktree creation/removal. The shared
 runner captures exact binary patches and nonignored untracked files, rejects stale
-inputs, executes with live output, and compares separate Criterion roots. Tags must
-already exist locally; it never fetches. Commands execute trusted benchmark code.
-An assistant subject to this repository's prohibition on Git mutations must leave
-live worktree measurement to the maintainer.
+inputs, executes with live output, and compares separate Criterion roots. Its tags
+must already exist locally. Obtain the maintainer's explicit approval for Git
+mutations before running it on their behalf.
 
 <a id="shared-reports-and-historical-evidence"></a>
 
 ## Shared reports and the first baseline
 
-The historical comparisons, their exact evidence, and the diagnostic-backend experiment are preserved in the immutable
-[v0.5.2 archive](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1).
+MCMC retired its v1 report format and validation guard. The immutable
+[v0.5.2 archive](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1)
+preserves the historical comparisons, their evidence, and the diagnostic-backend experiment.
 
 For local development, save the current checkout without modifying Git state:
 
@@ -106,14 +106,15 @@ After making an implementation change, run `just bench-latest-vs-last current-ch
 Criterion baselines, not tagged release evidence. Keep the raw samples and record the host/toolchain and working-tree changes if using them in research.
 The shared release-baseline command requires a clean checkout at an existing stable tag; it cannot certify this untagged checkout as that release.
 
-New reports use `docs/performance/current.md`. Retained runs and the generated archive index use `docs/performance/runs/`. Evidence uses
-the shared complete-run schema inside `research-repo-tools/evidence/v1` envelopes. The JSON pair is authoritative; shared CSV exports
+New reports use `docs/performance/current.md`. Retained runs and the generated archive index use `docs/performance/runs/`.
+RRT versions its evidence envelope independently of MCMC's reports. Each complete run has a `research-repo-tools/evidence/v1` envelope
+that binds the payload digest and source provenance. The JSON pair is authoritative; shared CSV exports
 preserve points, bounds, confidence levels when known, units, and coverage. Source/harness inventories use shared versioned fingerprints.
 
 For a working-tree measurement, the recorded Git revision identifies the base
 commit. The run's `evidence.json` records the SHA-256 of each exported file in
 `sources.current.context["source-export"]`. From the release preparation commit,
-compare the Git blob hashes below with the `Cargo.toml` and `Cargo.lock` entries
+compare the SHA-256 digests of the committed file contents with the `Cargo.toml` and `Cargo.lock` entries
 in that export.
 
 ```bash
@@ -131,7 +132,8 @@ just performance-doc --check
 just performance-doc
 ```
 
-For the first promotion, supply the measured pair explicitly so the renderer can discover its evidence:
+The release recipe promotes the first report automatically. To retry promotion after
+recovering the original acquisition, supply its measured pair explicitly:
 
 ```bash
 just performance-doc --payload target/bench-reports/performance.run.json --manifest target/bench-reports/performance.evidence.json
@@ -144,30 +146,32 @@ not rewritten by Markdown formatters; new archived pairs are immutable.
 ## Release Preparation and README Publication
 
 Set `TAG` once and prepare package metadata with `just update-version "$TAG"` as described in [releasing](RELEASING.md).
-Prepare the release dependencies and the measurement plan before acquiring samples.
+Prepare the dependency receipts, then run the acquisition:
 
 ```bash
 just release-dependency-builds
-just performance-prepare --release-intent
 just performance-release
 ```
 
+`just performance-release` fetches tags and prepares the measurement plan. To inspect the plan separately with tags already available locally, run
+`just performance-prepare --release-intent` after preparing the dependency receipts.
 `tooling/performance-release.toml` infers the prospective package version and its latest published stable predecessor. Preparation records independent
 source, harness and release assertions in ignored scratch storage without measuring. The schema-6 `tooling/measurement-release-signal.toml` declares
 two paired trials using the current public stepping harness, with a minimum release of v0.5.2. Each phase discovers all 22 cases, runs an untimed
 native gate, and retains 100 samples per case, mean/median intervals and raw Criterion files. Fixture setup stays outside timing according to the
 harness's steady-state and fresh-batch contracts. Changed source or harness identities require fresh preparation and acquisition.
 
-The release-intent commands verify published dependency provenance. After an interruption, run `just performance-resume` with the same checkpoint.
+The release-intent commands verify published dependency provenance. After an interruption, use `just release-status` to distinguish an incomplete
+measurement from a capture or promotion failure. Resume incomplete measurements with `just performance-resume` and the original checkpoint.
 The shared runner validates source, harness, host, inventory and schedule before timing. It preserves completed pairs and reacquires
 the interrupted pair in its declared order. Use the retained report and README commands for rendering retries after successful acquisition.
 
-The legacy `tooling/benchmark.toml` remains available for explicit single-tag experiments. Release attachment derives the accepted Step 1 archive.
+`tooling/benchmark.toml` defines local comparisons and single-tag baselines. Release attachment derives the accepted Step 1 archive.
 For new publication, `tooling/performance-publication.toml` selects trial 1 and all 13 unthinned stepping, sampler and observation workflows regardless
 of timing direction. The complete report retains both trials and all nine thinning cases. Labels, revisions and fingerprints come from the verified
 preparation and retained run. The declaration owns trial and row selection, units, references and the prospective `prepare` tag policy.
 
-Review the full report, host/toolchain metadata, and coverage before selecting a README subset. Then run:
+Review both trials, host/toolchain metadata, and coverage against the predeclared README selection. At the measured revision, run:
 
 ```bash
 just performance-readme --preview
@@ -185,6 +189,11 @@ requires a separately reviewed scientific reason, such as a workload with no
 compatible published predecessor.
 
 #### Starting an approved series
+
+Live series initialization is blocked in RRT 0.3.2. Registry approval rejects
+the previously accepted candidate once its own tag appears in published history.
+Use the following procedure after a published fix passes consumer verification.
+[RRT #274](https://github.com/acgetchell/research-repo-tools/issues/274)
 
 1. Before measurement, put the suite declaration at `benchmark-series/ID.toml`.
    Use schema 5 and omit the schedule for the inaugural release. Set
@@ -204,11 +213,6 @@ compatible published predecessor.
    release, suite contracts and case inventory. Restore schema 6, the two-trial
    alternating schedule, and the paired publication with trial 1 selected.
    Verify that preparation selects the inaugural tag and its exact commit.
-
-RRT 0.3.2 rejects an accepted declared series once its own tag appears in
-published history. Keep live series initialization pending a published fix
-and consumer verification of the registry approval path.
-[RRT #274](https://github.com/acgetchell/research-repo-tools/issues/274)
 
 #### Interpreting the paired trials
 
@@ -233,11 +237,11 @@ preparation commit. It compares the source and committed outputs with the
 external acquisition and reports undeclared paths. See [release preparation](RELEASING.md)
 for the README reproduction and package checks.
 
-After merge, `just release-evidence` accepts the original measured source against
-the final clean commit and signed native/default/all-feature CI. Changed relevant
-source, harness, dependencies, policy, provenance or retained bytes block reuse.
-Declared report/README outputs are accepted only through the shared publication
-contract; original measured and final accepted source identities remain distinct.
+After merge, `just release-evidence` checks the final clean commit against the
+original acquisition and signed native/default/all-feature CI. Any changed path
+outside the declared outputs requires fresh acquisition, including documentation.
+The publisher receipt binds the generated report and history. Preflight
+reproduces the README section, CSV, and SVG from the measured release identities.
 
 `just release-stage` stages four inert assets against the authenticated mutable
 draft. `just release-benchmarks "$TAG"` dispatches `Release Benchmarks` at that tag
@@ -248,7 +252,7 @@ digest and original attempt. Identical retries retain existing assets; conflicts
 stop without overwrite.
 
 The candidate archive retains the complete paired schedule, every original
-Criterion raw file, source/host/toolchain provenance, and the final acceptance
+Criterion raw file required by the measurement declaration, source/host/toolchain provenance, and the final acceptance
 binding. It preserves both trials and all 22 workloads rather than reducing the
 release asset to the README subset. After review, `just release-publish "$TAG"`
 publishes the immutable GitHub Release. The separate `just release-upload "$TAG"`

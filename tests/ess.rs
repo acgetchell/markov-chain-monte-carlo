@@ -174,6 +174,17 @@ fn quantile_interpolation_preserves_subnormal_order_statistics() {
     let chain = [-3.0 * unit, 3.0 * unit, -3.0 * unit, 3.0 * unit];
     let estimate = QuantileMcse::estimate(&[&chain, &chain], 3.25 / 7.0).unwrap();
     assert_eq!(estimate.quantile().to_bits(), (-2.0 * unit).to_bits());
+
+    // For these endpoints (3a + b)/4 = 3u/4, where u is one subnormal unit.
+    // Reflecting the endpoints and probability reverses the sign.
+    let normal_boundary = f64::MIN_POSITIVE.to_bits();
+    let a = -f64::from_bits(normal_boundary - 3);
+    let b = 3.0 * f64::from_bits(normal_boundary - 2);
+    for (lower, upper, position, expected) in [(a, b, 3.25, unit), (-b, -a, 3.75, -unit)] {
+        let chain = [lower, upper, lower, upper];
+        let estimate = QuantileMcse::estimate(&[&chain, &chain], position / 7.0).unwrap();
+        assert_eq!(estimate.quantile().to_bits(), expected.to_bits());
+    }
 }
 
 #[test]
