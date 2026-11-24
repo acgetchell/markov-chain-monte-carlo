@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1589" height="526" viewBox="0 0 1589 526" role="img" aria-labelledby="title description" data-run-id="495f250bf7e3cefba3d2c52710781f8f5a2b0b5e0c5529defe1f9a2f484376ab">
+<title id="title">Current v0.5.3 (current phase, v0.5.3 working tree based on 3fcdcbb739b8) against Baseline v0.5.2 (baseline phase, v0.5.2, revision 389039f123e989afd20484969eca650017c08d92)</title>
+<desc id="description">Run 495f250bf7e3cefba3d2c52710781f8f5a2b0b5e0c5529defe1f9a2f484376ab. Numerator time / denominator time, point estimates. Greater than one means less denominator time. No ratio interval or significance test. 13 paired rows; 0 unavailable rows omitted. Numerator: Baseline v0.5.2 (baseline phase, v0.5.2, revision 389039f123e989afd20484969eca650017c08d92). Denominator: Current v0.5.3 (current phase, v0.5.3 working-tree snapshot based on commit 3fcdcbb739b839531bf28a2cf247aaa69f3dff2e; measured source SHA-256 cea2e6f5be27fd7fab41fb373161ca3f441b7dc90137106e16fadb25e01c9f9a).</desc>
+<g font-family="sans-serif" font-size="14" fill="#222222">
+<text x="16" y="25">Current v0.5.3 (current phase, v0.5.3 working tree based on 3fcdcbb739b8) against Baseline v0.5.2 (baseline phase, v0.5.2, revision 389039f123e989afd20484969eca650017c08d92)</text>
+<text x="296" y="65" text-anchor="end">By-value step</text>
+<rect x="308" y="48" width="341.982352" height="24" fill="#267394"/>
+<text x="657.982352" y="65">0.959268</text>
+<text x="296" y="97" text-anchor="end">In-place accepted step</text>
+<rect x="308" y="80" width="348.080673" height="24" fill="#267394"/>
+<text x="664.080673" y="97">0.976374</text>
+<text x="296" y="129" text-anchor="end">In-place rollback step</text>
+<rect x="308" y="112" width="360.000000" height="24" fill="#267394"/>
+<text x="676.000000" y="129">1.00981</text>
+<text x="296" y="161" text-anchor="end">Delayed accepted step</text>
+<rect x="308" y="144" width="338.367496" height="24" fill="#267394"/>
+<text x="654.367496" y="161">0.949128</text>
+<text x="296" y="193" text-anchor="end">Delayed rejected step</text>
+<rect x="308" y="176" width="343.263022" height="24" fill="#267394"/>
+<text x="659.263022" y="193">0.96286</text>
+<text x="296" y="225" text-anchor="end">Delayed no-plan step</text>
+<rect x="308" y="208" width="357.095118" height="24" fill="#267394"/>
+<text x="673.095118" y="225">1.00166</text>
+<text x="296" y="257" text-anchor="end">By-value sampling (100 steps)</text>
+<rect x="308" y="240" width="347.488974" height="24" fill="#267394"/>
+<text x="663.488974" y="257">0.974714</text>
+<text x="296" y="289" text-anchor="end">In-place sampling (100 steps)</text>
+<rect x="308" y="272" width="342.390762" height="24" fill="#267394"/>
+<text x="658.390762" y="289">0.960413</text>
+<text x="296" y="321" text-anchor="end">Delayed sampling (100 steps)</text>
+<rect x="308" y="304" width="331.985127" height="24" fill="#267394"/>
+<text x="647.985127" y="321">0.931225</text>
+<text x="296" y="353" text-anchor="end">Buffered observation (100 steps)</text>
+<rect x="308" y="336" width="348.607940" height="24" fill="#267394"/>
+<text x="664.607940" y="353">0.977853</text>
+<text x="296" y="385" text-anchor="end">Manual online sum (100 steps)</text>
+<rect x="308" y="368" width="334.502235" height="24" fill="#267394"/>
+<text x="650.502235" y="385">0.938286</text>
+<text x="296" y="417" text-anchor="end">Online statistics (100 steps)</text>
+<rect x="308" y="400" width="296.405956" height="24" fill="#267394"/>
+<text x="612.405956" y="417">0.831425</text>
+<text x="296" y="449" text-anchor="end">Binning analysis (100 steps)</text>
+<rect x="308" y="432" width="286.603380" height="24" fill="#267394"/>
+<text x="602.603380" y="449">0.803929</text>
+<path d="M 664.503496 40 V 461" stroke="#555555" stroke-dasharray="4 4"/>
+<text x="16" y="506">Numerator/denominator point ratio; dashed line = 1</text>
+</g>
+</svg>
