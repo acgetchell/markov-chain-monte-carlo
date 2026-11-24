@@ -188,6 +188,45 @@ fn quantile_interpolation_preserves_subnormal_order_statistics() {
 }
 
 #[test]
+fn quantile_rounds_once_across_the_subnormal_boundary() {
+    let unit = f64::from_bits(1);
+    let boundary = 1_u64 << 52;
+    let eighth_span = 1_u64 << 50;
+    // Expected cutoffs come from exact interpolation in units of the least subnormal.
+    let cases = [
+        // 5/2 + 2^-54 with an exactly representable span.
+        (eighth_span - 2, 7 * eighth_span + 4, 0.125_f64.next_up(), 3),
+        // At span 2^53 + 1, positions 1/2 ± 2^-53 give ±(5/2 + 2^-53).
+        (boundary - 1, boundary + 2, 0.5_f64.next_up(), 3),
+        (
+            boundary + 2,
+            boundary - 1,
+            1.0 - 0.5_f64.next_up(),
+            (-3.0 * unit).to_bits(),
+        ),
+        // -(2^52 - 2) + (2^54 + 2)/4 = 5/2, which ties to even.
+        (boundary - 2, 2 * boundary + boundary / 2 + 2, 0.25, 2),
+        // From -u to 1/2 at position 7u, the cutoff is (5/2 + 7u)u.
+        (1, 0.5_f64.to_bits(), 7.0 * unit, 3),
+        // The normal cutoff (37/32) * 2^52 + 15/8 rounds up by 1/8 unit.
+        (
+            boundary / 4 - 5,
+            2 * boundary,
+            0.625,
+            37 * boundary / 32 + 2,
+        ),
+    ];
+    for (lower_bits, upper_bits, position, expected_bits) in cases {
+        let lower = -f64::from_bits(lower_bits);
+        let upper = f64::from_bits(upper_bits);
+        let first = [lower, upper, upper, upper];
+        let second = [upper; 4];
+        let estimate = QuantileMcse::estimate(&[&first, &second], position / 7.0).unwrap();
+        assert_eq!(estimate.quantile().to_bits(), expected_bits);
+    }
+}
+
+#[test]
 fn chain_order_and_time_reversal_match_reference_corpus() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/ess.json")).unwrap();
     for case in fixture["cases"].as_array().unwrap() {

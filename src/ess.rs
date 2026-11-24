@@ -959,6 +959,70 @@ const fn order_index(value: f64) -> usize {
     value as usize
 }
 
+/// Interpolate opposite-sign endpoints in `[-1, 1]` whose span is inexact in binary64.
+fn interpolate_inexact_span(lower: f64, upper: f64, fraction: f64) -> f64 {
+    let lower = lower / f64::MIN_POSITIVE;
+    let upper = upper / f64::MIN_POSITIVE;
+    // Smallest-normal units make every endpoint an integer multiple of EPSILON.
+    // Boost tiny weights by another 2^52 to retain even subnormal product tails
+    // when the anchor permits it. Larger anchors stay normal at such weights.
+    let boost = if fraction < f64::EPSILON && lower.abs() <= f64::MAX * f64::EPSILON {
+        f64::EPSILON.recip()
+    } else {
+        1.0
+    };
+    let weight = fraction * boost;
+    // Expand lower + fraction * upper - fraction * lower without rounding the span.
+    let upper_product = weight * upper;
+    let lower_product = weight * lower;
+    let mut parts = [
+        lower * boost,
+        upper_product,
+        upper.mul_add(weight, -upper_product),
+        -lower_product,
+        lower.mul_add(-weight, lower_product),
+    ];
+    // Grow a nonoverlapping expansion of the exact interpolation, least part
+    // first. Each addition retains both its rounded sum and its residual.
+    for index in 1..parts.len() {
+        let (smaller, current) = parts.split_at_mut(index);
+        for part in smaller {
+            (current[0], *part) = sum_with_roundoff(current[0], *part);
+        }
+    }
+    let mut nonzero = parts.into_iter().rev().filter(|&part| part != 0.0);
+    let mut leading = nonzero.next().unwrap_or(0.0);
+    let mut tail = 0.0;
+    for part in nonzero.by_ref() {
+        (leading, tail) = sum_with_roundoff(leading, part);
+        if tail != 0.0 {
+            break;
+        }
+    }
+    let rounded = leading / boost * f64::MIN_POSITIVE;
+    let offset = (rounded / f64::MIN_POSITIVE).mul_add(-boost, leading);
+    let direction = if offset == 0.0 { tail } else { offset };
+    if direction == 0.0 {
+        return rounded;
+    }
+    let adjacent = if direction > 0.0 {
+        rounded.next_up()
+    } else {
+        rounded.next_down()
+    };
+    // Compare the unrounded tail with the distance remaining to the output
+    // midpoint. Lower expansion terms decide its side only on equality.
+    let half_gap = (adjacent - rounded).abs() / f64::MIN_POSITIVE * (0.5 * boost);
+    let sign = direction.signum();
+    let residual = (sign * tail, sign * nonzero.next().unwrap_or(0.0));
+    let midpoint = (half_gap - offset.abs(), 0.0);
+    if residual > midpoint || (residual == midpoint && rounded.to_bits() & 1 != 0) {
+        adjacent
+    } else {
+        rounded
+    }
+}
+
 /// Type 7 with anchored/convex interpolation to avoid finite-range overflow.
 fn quantile(sorted: &[f64], p: QuantileProbability) -> f64 {
     let position = count_as_f64(sorted.len() - 1) * p.0;
@@ -970,20 +1034,16 @@ fn quantile(sorted: &[f64], p: QuantileProbability) -> f64 {
     if fraction == 0.5 {
         return lower.midpoint(upper);
     }
-    // Across zero, the gap is exact when both magnitudes are at most the
-    // smallest normal. Interpolate with one rounding in that regime.
-    if lower.is_sign_negative() == upper.is_sign_negative()
-        || lower.abs().max(upper.abs()) <= f64::MIN_POSITIVE
-    {
+    if lower.is_sign_negative() == upper.is_sign_negative() {
         (upper - lower).mul_add(fraction, lower)
     } else if lower >= -1.0 && upper <= 1.0 {
-        // In these units even subnormal endpoints are normal, and the span
-        // fits in f64. Retain its low part when interpolating across zero.
-        let scaled_lower = lower / f64::MIN_POSITIVE;
-        let scaled_upper = upper / f64::MIN_POSITIVE;
-        let (span, roundoff) = sum_with_roundoff(scaled_upper, -scaled_lower);
-        let value = span.mul_add(fraction, scaled_lower);
-        roundoff.mul_add(fraction, value) * f64::MIN_POSITIVE
+        let (span, roundoff) = sum_with_roundoff(upper, -lower);
+        if roundoff == 0.0 {
+            // An exact span lets the FMA round directly in the original units.
+            span.mul_add(fraction, lower)
+        } else {
+            interpolate_inexact_span(lower, upper, fraction)
+        }
     } else {
         (1.0 - fraction).mul_add(lower, fraction * upper)
     }
