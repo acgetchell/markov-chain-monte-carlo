@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.3] - 2026-11-24
 
 ### ⚠️ Breaking Changes
 
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Merged Pull Requests
 
+- Keep archived benchmark data compatible with release checks [#242](https://github.com/acgetchell/markov-chain-monte-carlo/pull/242)
 - Preserve MCMC numerical precision and adopt RRT 0.3.2 [#239](https://github.com/acgetchell/markov-chain-monte-carlo/pull/239)
 - Simplify release recovery and adopt RRT 0.3.1 [#236](https://github.com/acgetchell/markov-chain-monte-carlo/pull/236)
 - Stabilize sampler arithmetic and adopt RRT 0.3.0 [#234](https://github.com/acgetchell/markov-chain-monte-carlo/pull/234)
@@ -99,12 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-- Keep archived benchmark data compatible with release checks
-  [`edeb3fe`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/edeb3fe9fd11ea06c2c13e328978a4cb1f39f60b)
+- Keep archived benchmark data compatible with release checks [#242](https://github.com/acgetchell/markov-chain-monte-carlo/pull/242)
+  [`3fcdcbb`](https://github.com/acgetchell/markov-chain-monte-carlo/commit/3fcdcbb739b839531bf28a2cf247aaa69f3dff2e)
 
-  - Verify the raw benchmark payload through release preflight and keep its report and evidence manifest in CodeRabbit review.
-  - Limit Gitleaks exceptions to encoded Criterion outlier statistics in retained run files.
-  - Document the generated benchmark layout and update the Python packaging lock to 26.4.
+#### fix: keep archived benchmark data compatible with release checks
+
+- Verify the raw benchmark payload through release preflight and keep its report and evidence manifest in CodeRabbit review.
+- Limit Gitleaks exceptions to encoded Criterion outlier statistics in retained run files.
+- Document the generated benchmark layout and update the Python packaging lock to 26.4.
 
 ### Maintenance
 
@@ -641,7 +644,7 @@ Older releases are archived by minor series:
 - [0.2.x](docs/archives/changelog/0.2.md)
 - [0.1.x](docs/archives/changelog/0.1.md)
 
-[Unreleased]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.5.2...HEAD
+[0.5.3]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/acgetchell/markov-chain-monte-carlo/compare/v0.4.2...v0.5.0

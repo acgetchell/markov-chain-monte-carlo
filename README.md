@@ -265,47 +265,69 @@ Use `just bench-save-baseline NAME` to save this checkout's local stepping measu
 
 <!-- PERFORMANCE:BEGIN -->
 
-![Baseline/current timing point ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.svg)
+![Selected timing point ratios](https://raw.githubusercontent.com/acgetchell/markov-chain-monte-carlo/v0.5.3/docs/assets/release-performance.svg)
 
-Statistic: median. Unit: ns.
+Complete run: `8b1c72b02458bd215d6eff0f58dfb8720bcd807ac7238e440e9146e3e6c104fa`.
 
-| Benchmark | v0.5.1 | v0.5.2 (prepared tree) | Baseline/current | Time reduction (%) |
-| --- | --- | --- | --- | --- |
-| By-value step | 16.7305 ns [16.6881, 16.7601] (0.95 confidence) | 16.8223 ns [16.8063, 16.8472] (0.95 confidence) | 0.994541 | -0.548916 |
-| In-place accepted step | 13.7211 ns [13.6794, 13.7666] (0.95 confidence) | 13.8022 ns [13.7574, 13.847] (0.95 confidence) | 0.994117 | -0.591771 |
-| In-place rollback step | 194.155 ns [193.632, 194.8] (0.95 confidence) | 198.85 ns [197.611, 199.265] (0.95 confidence) | 0.976388 | -2.41826 |
-| Delayed accepted step | 10.5007 ns [10.4679, 10.5179] (0.95 confidence) | 10.4465 ns [10.4261, 10.4882] (0.95 confidence) | 1.00519 | 0.516515 |
-| Delayed rejected step | 10.7442 ns [10.7239, 10.7782] (0.95 confidence) | 10.7075 ns [10.6851, 10.7249] (0.95 confidence) | 1.00343 | 0.341801 |
-| Delayed no-plan step | 0.726462 ns [0.726029, 0.727028] (0.95 confidence) | 0.725055 ns [0.724612, 0.725611] (0.95 confidence) | 1.00194 | 0.193617 |
-| By-value sampling (100 steps) | 1670.7 ns [1668.59, 1671.87] (0.95 confidence) | 1680.13 ns [1678.13, 1681.6] (0.95 confidence) | 0.994388 | -0.564403 |
-| In-place sampling (100 steps) | 1302.16 ns [1300.06, 1304.63] (0.95 confidence) | 1307.07 ns [1305.38, 1308.89] (0.95 confidence) | 0.996246 | -0.37681 |
-| Delayed sampling (100 steps) | 876.103 ns [873.82, 877.716] (0.95 confidence) | 877.842 ns [876.725, 879.467] (0.95 confidence) | 0.998018 | -0.198553 |
-| Buffered observation (100 steps) | 1720.73 ns [1718.93, 1726.78] (0.95 confidence) | 1716.39 ns [1713.72, 1720.61] (0.95 confidence) | 1.00253 | 0.252168 |
-| Manual online sum (100 steps) | 1275.03 ns [1271.02, 1277.33] (0.95 confidence) | 1270.34 ns [1267.26, 1273.32] (0.95 confidence) | 1.00369 | 0.368075 |
-| Online statistics (100 steps) | 1456.04 ns [1453.31, 1460.85] (0.95 confidence) | 1464.02 ns [1461.02, 1467.01] (0.95 confidence) | 0.994546 | -0.54838 |
-| Binning analysis (100 steps) | 2288.59 ns [2283.05, 2291.33] (0.95 confidence) | 2293.59 ns [2290.89, 2299] (0.95 confidence) | 0.997821 | -0.218398 |
+Trial 1 of this complete run (separate trial; no pooled significance claim).
 
-Coverage: 13 selected of 22 comparable; 0 current-only; 0 baseline-only benchmarks.
+Selected trial run (CSV/plot identity): `495f250bf7e3cefba3d2c52710781f8f5a2b0b5e0c5529defe1f9a2f484376ab`. Statistic: median. Unit: ns. Confidence level: 95%.
 
-Ratios are point estimates, not significance tests or scientific acceptance.
+- Baseline v0.5.2: baseline phase, v0.5.2, revision 389039f123e989afd20484969eca650017c08d92.
+- Current v0.5.3: current phase, v0.5.3 working-tree snapshot based on commit 3fcdcbb739b839531bf28a2cf247aaa69f3dff2e; measured source SHA-256
+  cea2e6f5be27fd7fab41fb373161ca3f441b7dc90137106e16fadb25e01c9f9a.
+
+| Case | Baseline v0.5.2 | Current v0.5.3 | Baseline / current |
+| --- | --- | --- | --- |
+| By-value step | 16.9114<br>[16.9032, 16.9261] | 17.6295<br>[17.6111, 17.6529] | 0.959268 |
+| In-place accepted step | 13.9542<br>[13.9152, 14.0083] | 14.2919<br>[14.2717, 14.3093] | 0.976374 |
+| In-place rollback step | 200.219<br>[199.861, 200.84] | 198.274<br>[197.765, 198.668] | 1.00981 |
+| Delayed accepted step | 10.4209<br>[10.4091, 10.4377] | 10.9795<br>[10.9573, 10.9919] | 0.949128 |
+| Delayed rejected step | 10.6111<br>[10.5948, 10.6318] | 11.0204<br>[11.0024, 11.0313] | 0.96286 |
+| Delayed no-plan step | 0.725762<br>[0.725236, 0.726314] | 0.72456<br>[0.723814, 0.725005] | 1.00166 |
+| By-value sampling (100 steps) | 1683.97<br>[1680.65, 1687.83] | 1727.66<br>[1725.61, 1731.31] | 0.974714 |
+| In-place sampling (100 steps) | 1294.53<br>[1293.71, 1294.91] | 1347.89<br>[1346.64, 1349.66] | 0.960413 |
+| Delayed sampling (100 steps) | 864.058<br>[863.535, 864.697] | 927.872<br>[925.499, 928.739] | 0.931225 |
+| Buffered observation (100 steps) | 1717.69<br>[1715.63, 1720.7] | 1756.6<br>[1754.87, 1757.87] | 0.977853 |
+| Manual online sum (100 steps) | 1278.22<br>[1277.18, 1279.52] | 1362.3<br>[1358.06, 1366.43] | 0.938286 |
+| Online statistics (100 steps) | 1464.68<br>[1462.27, 1467.46] | 1761.65<br>[1758.73, 1765.77] | 0.831425 |
+| Binning analysis (100 steps) | 2311.01<br>[2307.8, 2314.7] | 2874.65<br>[2866.72, 2881.43] | 0.803929 |
+
+Intervals are recorded marginal timing intervals; ratios are point estimates, with no ratio intervals or significance claims.
+Ratio is numerator time / denominator time; greater than one means less denominator time.
+
+- Baseline / current: ratio; numerator = Baseline v0.5.2; denominator = Current v0.5.3.
+
+Selection coverage:
+
+- Baseline v0.5.2: 13 selected; 0 unavailable rows; 9 phase cases omitted. Complete evidence is retained independently.
+- Current v0.5.3: 13 selected; 0 unavailable rows; 9 phase cases omitted. Complete evidence is retained independently.
+- [Complete run evidence][rrt-performance-link-1]
+- [Evidence envelope][rrt-performance-link-2]
+- [Selected timings CSV](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.3/docs/assets/release-performance.csv)
 
 <!-- rumdl-disable MD041 -->
 
-These fixed-seed `stepping` workloads measure transition and observation overhead.
+These fixed-seed stepping workloads describe transition and observation overhead.
 They do not establish convergence, mixing, effective sample size, or scientific efficiency.
-Ratios are baseline time divided by current time; values above one mean lower current time.
-Marginal timing bounds do not establish a paired ratio interval or statistical significance.
 
-Review common names against the lifecycle contracts in `docs/BENCHMARKING.md`, especially
-when harness fingerprints differ. Added and removed names are coverage changes.
-Local measurements require matching known host identities. Release-asset comparisons
-need separate hardware and workload review; GitHub runners can change between releases.
-Source and harness fingerprints come from the shared measurement workflow.
+The campaign acquires two paired trials on one host, baseline first in trial 1
+and current first in trial 2. The README shows trial 1 by prior declaration.
+The complete report retains both trials, original raw samples, realized phase
+order, and collection timestamps. Temperature, clock frequency, power state
+and background load can still drift within or between pairs.
 
-- [Full timing report](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/performance.md)
-- [Comparison evidence](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.comparison.json)
-- [Provenance](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.evidence.json)
-- [CSV export](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/v0.5.2-vs-v0.5.1.csv)
+Ratios are baseline median time divided by current median time. A value above one
+means a lower observed current median. Criterion's intervals describe variation
+within a phase. Comparing the paired results can reveal sensitivity to phase
+order, but two paired trials provide limited evidence about between-trial
+variation and causal release effects.
+
+[rrt-performance-link-1]:
+  <https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.3/docs/performance/runs/runs/8b1c72b02458bd215d6eff0f58dfb8720bcd807ac7238e440e9146e3e6c104fa/run.json>
+
+[rrt-performance-link-2]:
+  <https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.3/docs/performance/runs/runs/8b1c72b02458bd215d6eff0f58dfb8720bcd807ac7238e440e9146e3e6c104fa/evidence.json>
 
 <!-- PERFORMANCE:END -->
 
