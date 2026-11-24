@@ -11,14 +11,13 @@ use rand::{RngExt, SeedableRng};
 fn samples(count: usize) -> Vec<f64> {
     let mut rng = StdRng::seed_from_u64(73);
     let mut state = 0.0;
-    let mut values = Vec::with_capacity(count);
-    for index in 0..count + 2_000 {
+    std::iter::repeat_with(|| {
         state = 0.95_f64.mul_add(state, rng.random_range(-1.0..1.0));
-        if index >= 2_000 {
-            values.push(state);
-        }
-    }
-    values
+        state
+    })
+    .skip(2_000)
+    .take(count)
+    .collect()
 }
 
 /// Check bounded benchmark fixtures through expanded, unscaled raw moments.

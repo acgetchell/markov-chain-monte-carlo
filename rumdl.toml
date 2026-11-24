@@ -10,7 +10,8 @@ line-length = 160
 reflow = true
 
 [MD033]
-allowed-elements = [ "a" ]
+# The generated README benchmark table uses <br> for timing intervals.
+allowed-elements = [ "a", "br" ]
 
 [per-file-ignores]
 # Keep the generated changelog archives in their original format.

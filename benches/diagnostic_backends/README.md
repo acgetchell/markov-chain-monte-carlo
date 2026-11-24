@@ -55,4 +55,5 @@ Format with `cargo fmt --manifest-path benches/diagnostic_backends/Cargo.toml --
 and lint with the same manifest/target options and `cargo clippy --all-targets -- -D warnings`,
 through the managed toolchain wrapper shown above.
 
-See the retained [decision and measurements](../../docs/performance/v1/experiments/diagnostic-backends.md).
+See the
+[decision and measurements](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/docs/performance/v1/experiments/diagnostic-backends.md).

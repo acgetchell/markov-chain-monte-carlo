@@ -24,6 +24,7 @@ pub fn arima_acf(samples: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
     if max_lag >= n {
         return Err(format!("invalid max_lag {max_lag} for {n} samples"));
     }
+    u32::try_from(n).map_err(|_| "arima's sample-count conversion overflows u32")?;
     if let Some(index) = samples.iter().position(|x| !x.is_finite()) {
         return Err(format!("non-finite sample at {index}"));
     }
@@ -38,7 +39,6 @@ pub fn arima_acf(samples: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
     if scale == 0.0 {
         return Err("constant trace".into());
     }
-    u32::try_from(n).map_err(|_| "arima's sample-count conversion overflows u32")?;
     for x in &mut normalized {
         *x /= scale;
     }
@@ -57,17 +57,17 @@ pub fn arima_acf(samples: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
 ///
 /// # Panics
 ///
-/// Panics when the output exceeds `Vec`'s capacity limit or `count + 2_000` overflows in
-/// builds with overflow checks. Benchmark callers use bounded fixed counts.
+/// Panics when the output exceeds `Vec`'s capacity limit. Benchmark callers use bounded counts.
 pub fn ar1(count: usize, coefficient: f64, seed: u64) -> Vec<f64> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut state = 0.0;
-    (0..count + 2_000)
-        .filter_map(|index| {
-            state = coefficient.mul_add(state, rng.random_range(-1.0..1.0));
-            (index >= 2_000).then_some(state)
-        })
-        .collect()
+    std::iter::repeat_with(|| {
+        state = coefficient.mul_add(state, rng.random_range(-1.0..1.0));
+        state
+    })
+    .skip(2_000)
+    .take(count)
+    .collect()
 }
 
 /// Integer raw-moment oracle; bounded fixtures avoid any floating centering.
@@ -145,6 +145,10 @@ pub fn exact_time(
 /// raw-moment variance, and a mean-square term no greater than half the second
 /// moment. This last restriction keeps subtraction well conditioned.
 pub fn reference_acf(samples: &[f64], max_lag: usize) -> Vec<f64> {
+    assert!(
+        max_lag < samples.len(),
+        "each lag requires at least one sample pair"
+    );
     let n = samples.len() as f64;
     let mean = samples.iter().sum::<f64>() / n;
     let squares = samples.iter().map(|x| x * x).sum::<f64>();

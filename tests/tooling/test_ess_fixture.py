@@ -1,6 +1,7 @@
 """ESS evidence integrity checks, independent of the historical oracle environment."""
 
 import json
+import math
 import runpy
 from copy import deepcopy
 from pathlib import Path
@@ -311,7 +312,7 @@ def test_report_scalar_parser_preserves_both_legal_alternatives() -> None:
     assert unavailable.reason == "ConstantSamples"
 
 
-@pytest.mark.parametrize("corruption", [None, "provenance", "rank", "prefix", "metric", "value", "availability"])
+@pytest.mark.parametrize("corruption", [None, "provenance", "rank", "boolean_rank", "interval", "prefix", "metric", "value", "availability"])
 def test_plot_prefix_evidence_rejects_drift(monkeypatch: pytest.MonkeyPatch, corruption: str | None) -> None:
     """Preserve the oracle response while altering one retained-evidence contract."""
     namespace = runpy.run_path(str(FIXTURES / "generate_diagnostic_plots.py"))
@@ -324,6 +325,11 @@ def test_plot_prefix_evidence_rejects_drift(monkeypatch: pytest.MonkeyPatch, cor
         fixture["reference"]["source_sha256"] = "changed"
     elif corruption == "rank":
         prefix["ranks"][0][0] += 1
+    elif corruption == "boolean_rank":
+        row = next(row for row in prefix["ranks"] if 1 in row)
+        row[row.index(1)] = True
+    elif corruption == "interval":
+        prefix["intervals"]["q05"].reverse()
     elif corruption == "prefix":
         prefix["draws_per_chain"] += 1
     elif corruption == "metric":
@@ -339,6 +345,8 @@ def test_plot_prefix_evidence_rejects_drift(monkeypatch: pytest.MonkeyPatch, cor
         expected = {
             "provenance": "provenance or case inventory changed",
             "rank": "rank, availability, or metric inventory changed",
+            "boolean_rank": "rank, availability, or metric inventory changed",
+            "interval": "quantile intervals changed",
             "prefix": "prefix inventory changed",
             "metric": "rank, availability, or metric inventory changed",
             "value": "mean_mcse: actual=",
@@ -372,7 +380,7 @@ def report_verifier(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, dict[str, Any
                 "ess": {"estimate": estimate(values[f"{label}_ess"])},
                 "mcse": estimate(values[f"{label}_mcse"]),
                 "quantile": values[f"{label}_value"],
-                "interval": None,
+                "interval": oracle["intervals"][label].copy(),
             }
             for label, probability in (("q05", 0.05), ("q50", 0.5), ("q95", 0.95))
         ]
@@ -415,6 +423,33 @@ def test_exported_report_verification_checks_every_prefix(report_verifier: tuple
     verify(report)
     assert report == before
     assert capsys.readouterr().out == "Verified exported ranks and precision: independent\n"
+
+
+@pytest.mark.parametrize("change", ["absent", "null", "reversed", "shifted", "truncated", "nonfinite"])
+def test_exported_report_rejects_invalid_quantile_intervals(report_verifier: tuple[Any, dict[str, Any]], change: str) -> None:
+    """Changing the order statistics must fail even when the reported MCSE stays correct."""
+    verify, report = report_verifier
+    quantile = report["runs"][0]["prefixes"][0]["quantiles"][0]
+    low, high = quantile.pop("interval")
+    if change != "absent":
+        quantile["interval"] = {
+            "null": None,
+            "reversed": [high, low],
+            "shifted": [low + 1, high + 1],
+            "truncated": [low],
+            "nonfinite": [low, math.inf],
+        }[change]
+    with pytest.raises(ValueError, match="q05 interval"):
+        verify(report)
+
+
+def test_exported_report_rejects_boolean_in_place_of_rank_one(report_verifier: tuple[Any, dict[str, Any]]) -> None:
+    verify, report = report_verifier
+    rows = report["runs"][0]["prefixes"][0]["ranks"]
+    ranks = next(row["ranks"] for row in rows if 1 in row["ranks"])
+    ranks[ranks.index(1)] = True
+    with pytest.raises(ValueError, match="ranks disagree"):
+        verify(report)
 
 
 @pytest.mark.parametrize(

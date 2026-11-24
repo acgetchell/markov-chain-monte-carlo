@@ -51,8 +51,8 @@ jobs:
           git --no-pager merge-base --is-ancestor "$commit" origin/main
           mkdir "$RUNNER_TEMP/handoff"
           runtime=(uv run --no-config --no-project --isolated --no-cache --managed-python
-            --exclude-newer 2026-11-22T02:44:08Z
-            --with 'research-repo-tools==0.3.1'
+            --exclude-newer 2026-11-23T18:46:36Z
+            --with 'research-repo-tools==0.3.2'
             python -I -m research_repo_tools)
           "${runtime[@]}" --root "$GITHUB_WORKSPACE" release assets plan \
             tooling/release-evidence.toml --repository "$GITHUB_REPOSITORY" \
@@ -112,7 +112,7 @@ jobs:
           runner-labels = ["ubuntu-latest"]
           TOML
           uv run --no-config --no-project --isolated --no-cache --managed-python \
-            --exclude-newer 2026-11-22T02:44:08Z --with 'research-repo-tools==0.3.1' \
+            --exclude-newer 2026-11-23T18:46:36Z --with 'research-repo-tools==0.3.2' \
             python -I -m research_repo_tools release assets prepare-authenticated handoff-policy.toml \
             --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" \
             --run-id "$GITHUB_RUN_ID" --attempt 1 --artifact-id "$HANDOFF_ID" --artifact-sha256 "$HANDOFF_SHA256" \

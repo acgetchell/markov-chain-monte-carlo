@@ -116,15 +116,16 @@ changing numerical semantics, or changing acceptance/error behavior.
 
 ### Python Tooling
 
-- Use the exact published `research-repo-tools==0.3.1` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
+- Use the exact published `research-repo-tools==0.3.2` registry pin. This is a non-package uv environment; reusable support implementations and generic tests
   belong upstream. Keep MCMC workload policy in `tooling/` and consumer checks in `tests/tooling/`.
   The shared changelog CLI owns prepared citation-date selection through `changelog.date-source = "citation"`.
-- Earlier reports and converted legacy evidence were retired by maintainer request. The current release-performance series starts at the tagged v0.5.0
-  baseline and retains a comparison of the prepared v0.5.1 tree against it. Preserve `docs/performance/v1/` as frozen legacy evidence. Future reports use
-  `docs/performance/current.md` with retained artifacts under `docs/performance/runs/`. Keep the v1 guard until #221's post-v0.5.3 verification is complete.
-  Preserve `tooling/performance-readme.toml` with the frozen v1 evidence. New release preparation infers package and published-baseline identities through
-  `tooling/performance-release.toml`; independently review its complete workload declaration and `tooling/performance-publication.toml` before publication.
-  Preserve measurements and provenance; keep experiments distinct from release comparisons. See `docs/BENCHMARKING.md` for the current series and workflow.
+- The immutable v0.5.2 tag preserves the
+  [historical measurements](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1)
+  and their [reproduction configuration](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/tooling).
+  Active reports use `docs/performance/current.md` and `docs/performance/runs/`. Keep v0.5.3 on the two-trial paired protocol.
+  Check the [series initialization prerequisites](docs/BENCHMARKING.md#starting-an-approved-series) before adopting a new series.
+  Review the measurement and README declarations before acquisition. Preserve measurements and provenance.
+  Keep experiments distinct from release comparisons.
 - Shared setup and maintenance use the exact `research-repo-tools` pin in `pyproject.toml` and `uv.lock`. Keep uv in `[tool.uv].required-version`, Python in
   `.python-version` as a checked mirror of the shared Python baseline, Rust in `rust-toolchain.toml`, and supported Cargo tools in
   `[tool.research-repo-tools.toolchain.cargo]`. Keep `toolchain.inherit-python` and `toolchain.inherit-python-tools` enabled. The shared `python-tools` extra
@@ -185,6 +186,7 @@ just test-all         # Broad release Rust tests + doc + Python tooling tests
 just examples         # Run all examples
 just release-version-check # Validate final current metadata and generated notes
 just release-package # Verify clean default and all-feature packages without uploading
+just release-preflight COMMIT # Check the clean preparation commit against the original acquisition before merge
 just release-evidence # Verify exact-source signed main CI evidence before tagging
 just release-benchmarks TAG # Dispatch benchmarks using the exact tag workflow
 just release-publish TAG # Publish the reviewed GitHub draft (maintainer)

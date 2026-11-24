@@ -35,6 +35,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Noteboo
 
 
 def write_ising_trace(path: Path) -> None:
+    """Create the parent directories and write a valid trace containing a single Ising observation."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"chain_id,step,accepted,proposed,log_prob,energy,magnetization\n0,0,false,false,-1.0,-2.0,0.5\n")
 
@@ -584,6 +585,7 @@ def validate_plot_report() -> Callable[[dict[str, Any], Path], None]:
 
 
 def prior_plot_outputs(output: Path) -> dict[str, bytes]:
+    """Seed three existing plot artifacts and return their exact bytes for rollback assertions."""
     output.mkdir()
     previous = {"diagnostics.json": b"prior report\r\n", "manifest.json": b"prior manifest\n", "rank_overlays.png": b"prior figure"}
     for name, content in previous.items():

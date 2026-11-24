@@ -13,11 +13,13 @@ import re
 import shlex
 import subprocess
 import tempfile
+from contextlib import ExitStack
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from research_repo_tools.benchmark_series import SeriesBaseline, SeriesPair
 from research_repo_tools.candidate_handoff import capture_candidate_handoff
 from research_repo_tools.candidate_reuse import (
     acquisition_assertion_digest,
@@ -31,8 +33,15 @@ from research_repo_tools.config import load as load_config
 from research_repo_tools.dependency_provenance import check_release_dependencies
 from research_repo_tools.files import replace_many
 from research_repo_tools.measurement import resolve_revision
+from research_repo_tools.performance_acquisition import measure_and_retain
 from research_repo_tools.performance_progress import ProgressReporter
-from research_repo_tools.performance_release import load_performance_release, load_preparation, measure_release, serialize_preparation
+from research_repo_tools.performance_release import (
+    load_performance_release,
+    load_preparation,
+    load_readme_plan,
+    parse_preparation,
+    serialize_preparation,
+)
 from research_repo_tools.process import ExecutableNotFoundError, format_exception_diagnostics, run_command_bytes, run_command_live, run_git_bytes
 from research_repo_tools.publication import publish_publication
 from research_repo_tools.registry import lookup_version
@@ -52,6 +61,7 @@ from research_repo_tools.release_staging import stage_release_assets
 from research_repo_tools.release_validation import api, parse_release_json
 
 if TYPE_CHECKING:
+    from research_repo_tools.performance_release import PerformanceRelease, Preparation
     from research_repo_tools.release_assets import GitHubRelease, ReleaseTarget
 
 SETTINGS = "tooling/performance-release.toml"
@@ -90,7 +100,11 @@ def owner_directory(root: Path, checkpoint: str, selected: Path | None = None) -
 
 
 def freeze(directory: Path, files: dict[str, bytes]) -> None:
-    """Atomically retain owner assertions; retries cannot replace earlier bytes."""
+    """Retain files under exclusive writer control and reject conflicting bytes.
+
+    A caught write failure triggers rollback. A process crash can leave a partial
+    group. See docs/dev/release-recovery.md before retrying an interrupted write.
+    """
     directory = directory.resolve(strict=True)
     updates = {directory / name: data for name, data in files.items()}
     if any(not path.resolve().is_relative_to(directory) for path in updates):
@@ -128,7 +142,11 @@ def remember_owner(root: Path, owner: Path) -> None:
 
 
 def selected_owner(root: Path, explicit: str = "") -> Path:
-    """Resolve the original external selection; explicit recovery never replaces it."""
+    """Check that an explicit owner is separate from the checkout.
+
+    With no explicit path, verify the registered checkout, tag, policy and
+    independent digests before returning the recorded owner directory.
+    """
     if explicit:
         return owner_directory(root, "", Path(explicit))
     path = selection_directory(root) / "owner.json"
@@ -168,13 +186,31 @@ def selected_owner(root: Path, explicit: str = "") -> Path:
     return owner
 
 
+def _capture_preparation(root: Path, settings: PerformanceRelease, owner: Path) -> Preparation:
+    """Load the verified preparation, restoring missing scratch from the owner's original."""
+    original = (owner / "preparation.json").read_bytes()
+    path = root.resolve() / settings.preparation
+    with ExitStack() as rollback:
+        try:
+            preparation = load_preparation(root, settings)
+        except FileNotFoundError as error:
+            # Only restore the scratch file after the shared loader has checked its path.
+            if error.filename != str(path):
+                raise
+            freeze(root, {settings.preparation: original})
+            rollback.callback(path.unlink)
+            preparation = load_preparation(root, settings)
+        if serialize_preparation(preparation) != original or path.read_bytes() != original:
+            message = "independent preparation changed since acquisition"
+            raise ValueError(message)
+        rollback.pop_all()
+    return preparation
+
+
 def capture(root: Path, owner: Path, *, retained_scratch: bool = False) -> dict[str, str]:
     """Finish the trusted owner's receipt from its already retained original bytes."""
     settings = load_performance_release(root, SETTINGS)
-    preparation = load_preparation(root, settings)
-    if serialize_preparation(preparation) != (owner / "preparation.json").read_bytes():
-        message = "independent preparation changed since acquisition"
-        raise ValueError(message)
+    preparation = _capture_preparation(root, settings, owner)
     if retained_scratch:
         # Explicit owner recovery after a failed callback; never infer this
         # authority from an incoming artifact or silently fall back to scratch.
@@ -187,6 +223,25 @@ def capture(root: Path, owner: Path, *, retained_scratch: bool = False) -> dict[
     return {"owner_directory": str(owner), "acquisition_sha256": acquisition, "publication_sha256": publication}
 
 
+def retained_capture_command(root: Path, owner: Path, payload: str, manifest: str) -> tuple[str, ...] | None:
+    """Prefer the owner's raw pair, or select retained scratch with the original preparation.
+
+    Return None when neither location has raw evidence. Raise on incomplete evidence
+    so that a retry cannot start a new acquisition.
+    """
+    originals = (owner / "run.json", owner / "evidence.json")
+    scratch = (root / payload, root / manifest)
+    if (owner / "preparation.json").is_file():
+        if all(path.is_file() for path in originals):
+            return ("just", "performance-capture", str(owner))
+        if all(path.is_file() for path in scratch):
+            return ("just", "performance-capture", str(owner), "--retained-scratch")
+    if any(path.exists() for path in (*originals, *scratch)):
+        message = "retained evidence exists without a complete matching handoff; reconcile the original owner and scratch before acquisition"
+        raise ValueError(message)
+    return None
+
+
 def acquire(root: Path, owner: Path, checkpoint: str, *, resume: bool, progress: ProgressReporter) -> dict[str, str]:
     """Acquire under owner control, freezing assertions before report promotion."""
     settings = load_performance_release(root, SETTINGS)
@@ -194,6 +249,9 @@ def acquire(root: Path, owner: Path, checkpoint: str, *, resume: bool, progress:
     check_release_dependencies(root)
     if (selection_directory(root) / "owner.json").exists() and selected_owner(root) != owner.resolve():
         message = "this checkout/tag already selects a different original owner; use that record or explicitly reconcile the release before acquisition"
+        raise ValueError(message)
+    if recovery := retained_capture_command(root, owner, settings.payload, settings.manifest):
+        message = f"raw acquisition already retained; use {shlex.join(recovery)}"
         raise ValueError(message)
     if resume:
         if not owner.is_dir():
@@ -212,25 +270,29 @@ def acquire(root: Path, owner: Path, checkpoint: str, *, resume: bool, progress:
             raise ValueError(message) from error
     freeze(owner, {"preparation.json": serialize_preparation(preparation)})
 
-    def before_promotion() -> None:
-        freeze(owner, {"run.json": (root / settings.payload).read_bytes(), "evidence.json": (root / settings.manifest).read_bytes()})
-        capture(root, owner)
-        remember_owner(root, owner)
-
-    measure_release(
+    measure_and_retain(
         root,
-        settings,
+        settings.measurement,
+        preparation.pair,
+        payload=settings.payload,
+        manifest=settings.manifest,
+        working_tree=preparation.working_tree,
         allow_git_mutations=True,
+        verify=partial(preparation.verify, root),
         checkpoint=checkpoint,
         resume=resume,
         progress=progress,
-        before_promotion=before_promotion,
-        release_intent=True,
+        read_release=partial(api, repository=settings.repository) if isinstance(preparation.pair, (SeriesBaseline, SeriesPair)) else None,
     )
+    with progress.stage("publication"):
+        freeze(owner, {"run.json": (root / settings.payload).read_bytes(), "evidence.json": (root / settings.manifest).read_bytes()})
+        plan, acquisition, publication = capture_candidate_handoff(root, settings, owner)
+        remember_owner(root, owner)
+        publish_publication(plan)
     return {
         "owner_directory": str(owner),
-        "acquisition_sha256": (owner / "acquisition.sha256").read_text(encoding="ascii").strip(),
-        "publication_sha256": (owner / "publication.sha256").read_text(encoding="ascii").strip(),
+        "acquisition_sha256": acquisition,
+        "publication_sha256": publication,
     }
 
 
@@ -240,6 +302,42 @@ def final_directory(owner: Path, commit: str, selection: str) -> Path:
         message = "final evidence requires a full commit and a short lowercase review selection name"
         raise ValueError(message)
     return owner / "final" / commit / selection
+
+
+def candidate_inputs(root: Path, owner: Path, commit: str) -> list[str]:
+    """Select the same original evidence and assertions before and after merge."""
+    return [
+        "--checkout",
+        str(root),
+        "--policy",
+        str(owner / "policy.json"),
+        "--commit",
+        commit,
+        "--payload",
+        str(owner / "run.json"),
+        "--manifest",
+        str(owner / "evidence.json"),
+        "--publication-receipt",
+        str(owner / "publication.json"),
+        "--acquisition-sha256",
+        (owner / "acquisition.sha256").read_text(encoding="ascii").strip(),
+        "--publication-sha256",
+        (owner / "publication.sha256").read_text(encoding="ascii").strip(),
+    ]
+
+
+def preflight(root: Path, owner: Path, commit: str) -> None:
+    """Check the preparation commit against the original acquisition before merge."""
+    status = shared_main(["--root", str(root), "release", "evidence", "candidate-preflight", *candidate_inputs(root, owner, commit)])
+    if status:
+        message = f"candidate preflight failed with exit {status}"
+        raise RuntimeError(message)
+    preparation = parse_preparation((owner / "preparation.json").read_bytes())
+    readme = load_readme_plan(root, load_performance_release(root, SETTINGS), identities=preparation.identities)
+    if readme.changed_paths:
+        changed = ", ".join(path.relative_to(root).as_posix() for path in readme.changed_paths)
+        message = f"committed README publication differs from the original acquisition: {changed}"
+        raise ValueError(message)
 
 
 def verify(root: Path, owner: Path, selection: str = "reviewed", *, commit: str | None = None, require_existing: bool = False) -> Path:
@@ -261,24 +359,9 @@ def verify(root: Path, owner: Path, selection: str = "reviewed", *, commit: str 
         "evidence",
         "candidate",
         "tooling/release-evidence.toml",
-        "--checkout",
-        str(root),
-        "--policy",
-        str(owner / "policy.json"),
-        "--commit",
-        commit,
+        *candidate_inputs(root, owner, commit),
         "--policy-output",
         str(final / "policy.json"),
-        "--payload",
-        str(owner / "run.json"),
-        "--manifest",
-        str(owner / "evidence.json"),
-        "--publication-receipt",
-        str(owner / "publication.json"),
-        "--acquisition-sha256",
-        (owner / "acquisition.sha256").read_text(encoding="ascii").strip(),
-        "--publication-sha256",
-        (owner / "publication.sha256").read_text(encoding="ascii").strip(),
         "--output",
         str(accepted),
         "--format",
@@ -631,7 +714,10 @@ def record_path(root: Path, owner: Path, selection: str, role: Literal["transfer
 
 
 def workflow_run(root: Path, workflow: str, tag: str, commit: str, *, event: str = "workflow_dispatch") -> tuple[int, bool, bool] | None:
-    """Observe the latest run for this phase without selecting evidence or rerunning it."""
+    """Return (run_id, completed, succeeded) for the latest matching run, or None if absent.
+
+    A failed GitHub command or an invalid provider response raises an exception.
+    """
     result = run_command_bytes(
         "gh",
         [
@@ -796,7 +882,7 @@ def report_release_step(root: Path, owner: Path, context: tuple[str, ...]) -> tu
         if not output.is_file() or hashlib.sha256(output.read_bytes()).hexdigest() != expected:
             incomplete.append(name)
     if not incomplete:
-        print("Review the report and README, then wait for the exact main-push and SARIF checks.")
+        print("Before merge, run just release-preflight with the clean preparation commit SHA. After merge, wait for the exact main-push and SARIF checks.")
         return ("just", "release-evidence", *context)
 
     print(f"Report publication is incomplete: {', '.join(incomplete)}")
@@ -821,8 +907,9 @@ def release_status(root: Path, explicit: str, selection: str, checkpoint: str) -
     context = (explicit, selection) if explicit or selection != "reviewed" else ()
     next_command: tuple[str, ...]
     if not registered and not (explicit and (owner / "policy.json").is_file()):
-        if all((owner / name).is_file() for name in ("run.json", "evidence.json")):
-            next_command = ("just", "performance-capture", str(owner))
+        settings = load_performance_release(root, SETTINGS)
+        if recovery := retained_capture_command(root, owner, settings.payload, settings.manifest):
+            next_command = recovery
         elif (root / checkpoint).exists() and owner == owner_directory(root, checkpoint):
             next_command = ("just", "performance-resume", checkpoint)
         elif explicit or owner.exists():
@@ -1086,6 +1173,9 @@ def argument_parser() -> argparse.ArgumentParser:
     measurement.add_argument("--owner-directory", type=Path)
     measurement.add_argument("--progress", choices=("human", "json", "none"), default="human")
     measurement.add_argument("--progress-cadence", type=float, default=300)
+    preparation = commands.add_parser("preflight")
+    preparation.add_argument("commit", help="full commit SHA of the clean preparation checkout")
+    preparation.add_argument("owner_directory", nargs="?", default="")
     for name in ("capture", "verify", "reviewed", "archive", "stage", "seal", "record", "publish", "upload", "status"):
         command = commands.add_parser(name)
         if name == "record":
@@ -1124,6 +1214,8 @@ def run_owner_operation(root: Path, options: argparse.Namespace) -> None:
         assertions = capture(root, owner, retained_scratch=options.retained_scratch)
         remember_owner(root, owner)
         print(json.dumps(assertions))
+    elif options.operation == "preflight":
+        preflight(root, owner, options.commit)
     elif options.operation == "verify":
         accepted = verify(root, owner, options.selection)
         print(json.dumps({"acceptance": str(accepted), "sha256": hashlib.sha256(accepted.read_bytes()).hexdigest()}))

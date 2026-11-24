@@ -97,6 +97,16 @@ fn reranked_prefixes_match_pinned_scipy_and_arviz_references() {
                 );
                 if let Ok(mcse) = mcse {
                     check_estimate(prefix, &format!("{label}_value"), Ok(mcse.quantile()));
+                    let bounds: [f64; 2] =
+                        serde_json::from_value(prefix["intervals"][label].clone()).unwrap();
+                    assert_eq!(
+                        mcse.interval(),
+                        bounds,
+                        "{} prefix {length} {label}",
+                        case["name"]
+                    );
+                } else {
+                    assert!(prefix["intervals"].get(label).is_none());
                 }
             }
             let tail = TailEss::estimate(&chains).unwrap();

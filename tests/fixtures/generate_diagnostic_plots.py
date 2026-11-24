@@ -81,15 +81,28 @@ def parse_estimate(raw: object, context: str) -> _Estimated | _Unavailable:
 
 
 def reference(chains: list[list[float]]) -> dict[str, Any]:
-    """Use SciPy ranks and the existing public-ArviZ reference harness."""
-    from scipy.stats import rankdata  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated pinned oracle, not a notebook dependency.
+    """Compute SciPy ranks, ArviZ estimates and the order statistics bounding each available quantile MCSE."""
+    from scipy.stats import beta, rankdata  # ty: ignore[unresolved-import]  # noqa: PLC0415 - isolated pinned oracle.
 
     draws = np.asarray(chains, dtype=np.float64)
     estimates = ESS["references"](chains)
+    unavailable = ESS["unavailable"](chains, estimates)
+    ordered = np.sort(draws, axis=None)
+    intervals = {}
+    for label, probability in ESS["QUANTILES"]:
+        if f"{label}_mcse" in unavailable:
+            continue
+        ess = estimates[f"{label}_ess"]
+        # ArviZ _mcse_quantile uses these beta quantiles and outward-rounded order statistics.
+        low, high = beta.ppf([0.1586553, 0.8413447], 1 + ess * probability, 1 + ess * (1 - probability))
+        first = math.floor(max(low * ordered.size - 1, 0))
+        last = math.ceil(min(high * ordered.size - 1, ordered.size - 1))
+        intervals[label] = [float(ordered[first]), float(ordered[last])]
     return {
         "ranks": rankdata(draws, method="average").reshape(draws.shape).tolist(),
         "estimates": estimates,
-        "unavailable": ESS["unavailable"](chains, estimates),
+        "unavailable": unavailable,
+        "intervals": intervals,
     }
 
 
@@ -129,6 +142,20 @@ def check_number(actual: object, expected: float | None, label: str) -> None:
         raise ValueError(message)
 
 
+def matches_numeric_row(observed: object, expected: list[float]) -> bool:
+    """Match exact oracle numbers in order and reject JSON booleans that compare equal to numbers."""
+    return isinstance(observed, list) and all(type(value) in (int, float) for value in observed) and observed == expected
+
+
+def matches_ranks(observed: object, expected: list[list[float]]) -> bool:
+    """Match one numeric row per original chain, including tied ranks."""
+    return (
+        isinstance(observed, list)
+        and len(observed) == len(expected)
+        and all(matches_numeric_row(row, ranks) for row, ranks in zip(observed, expected, strict=True))
+    )
+
+
 def verify_fixture(saved: dict[str, Any]) -> None:
     """Keep provenance, case/prefix inventories, ranks, errors, and metrics fixed."""
     expected = fixture()
@@ -140,8 +167,20 @@ def verify_fixture(saved: dict[str, Any]) -> None:
             message = "Plot fixture prefix inventory changed"
             raise ValueError(message)
         for prefix, oracle in zip(case["prefixes"], fresh["prefixes"], strict=True):
-            if prefix["ranks"] != oracle["ranks"] or prefix["unavailable"] != oracle["unavailable"] or prefix["estimates"].keys() != oracle["estimates"].keys():
+            if (
+                not matches_ranks(prefix["ranks"], oracle["ranks"])
+                or prefix["unavailable"] != oracle["unavailable"]
+                or prefix["estimates"].keys() != oracle["estimates"].keys()
+            ):
                 message = f"{case['name']}: rank, availability, or metric inventory changed"
+                raise ValueError(message)
+            intervals = prefix.get("intervals")
+            if (
+                not isinstance(intervals, dict)
+                or intervals.keys() != oracle["intervals"].keys()
+                or any(not matches_numeric_row(intervals[label], bounds) for label, bounds in oracle["intervals"].items())
+            ):
+                message = f"{case['name']} prefix {prefix['draws_per_chain']}: quantile intervals changed"
                 raise ValueError(message)
             for metric, value in prefix["estimates"].items():
                 check_number(value, oracle["estimates"][metric], f"{case['name']} prefix {prefix['draws_per_chain']} {metric}")
@@ -221,7 +260,7 @@ def verify_report(report: dict[str, Any]) -> None:
             if any(name in oracle["unavailable"] for name in ("q05_ess", "q95_ess")):
                 oracle["unavailable"]["tail_ess"] = "component_unavailable"
             ranks = [chain["ranks"] for chain in prefix["ranks"]]
-            if ranks != oracle["ranks"]:
+            if not matches_ranks(ranks, oracle["ranks"]):
                 message = f"{run['scenario']} prefix {length}: ranks disagree"
                 raise ValueError(message)
             metrics = {
@@ -235,6 +274,9 @@ def verify_report(report: dict[str, Any]) -> None:
                 metrics[f"{label}_mcse"] = quantile["mcse"]
                 if f"{label}_mcse" not in oracle["unavailable"]:
                     check_number(quantile["quantile"], oracle["estimates"][f"{label}_value"], f"{run['scenario']} {label} value")
+                    if not matches_numeric_row(quantile.get("interval"), oracle["intervals"][label]):
+                        message = f"{run['scenario']} prefix {length}: {label} interval disagrees with the selected order statistics"
+                        raise ValueError(message)
                 elif quantile["quantile"] is not None or quantile["interval"] is not None:
                     message = f"{run['scenario']} {label}: unavailable quantile retains a point or interval"
                     raise ValueError(message)

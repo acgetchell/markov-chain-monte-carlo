@@ -11,8 +11,9 @@ The executable procedure lives in [RELEASING.md](../RELEASING.md).
 
 | Entry point | Shared work and retained boundary | Acceptance |
 | --- | --- | --- |
-| `performance-release` / `performance-resume` | Prepare the explicit release pair, acquire once, freeze external owner and publisher receipt before report promotion | Consumer acquisition and failure/retry fixtures; real scientific acquisition belongs to release preparation |
+| `performance-release` / `performance-resume` | Infer the pair for a fresh acquisition or reuse the original preparation when resuming. Freeze the external owner record and publisher receipt before report promotion. | Consumer acquisition and failure/retry fixtures |
 | `performance-readme` | Publish the reviewed trial/row selection from the same retained run | Existing MCMC workload and publication-policy tests |
+| `release-preflight COMMIT` | Compare the clean preparation commit with the original acquisition and reproduce the README section, CSV, and SVG | Candidate integration tests reject undeclared changes and stale generated files |
 | `release-evidence` | Independently bind original measured source to clean final HEAD and signed native/package evidence; freeze named acceptance | Installed native verifier and candidate handoff tests; final main-push proof remains required |
 | `release-status` | Inspect retained checkpoint, owner, acceptance, ref, and hosted state; print a continuation without advancing it | Disposable local and provider fixtures |
 | `tag TAG [OWNER] [SELECTION] [--commit SHA] [--force]` | Require reviewed acceptance and run shared tag preflight with managed Cargo | Source-bound review, command wiring and failed-prerequisite tests |
@@ -20,7 +21,7 @@ The executable procedure lives in [RELEASING.md](../RELEASING.md).
 | `release-stage` / `release-benchmarks TAG` | Original four inert asset IDs/hashes, exact tag dispatch, verification and attachment without measurement | Actual inline writer/receiver, retry/conflict and dispatch tests |
 | `release-publish TAG` / `release-upload TAG` | Publish immutable reviewed draft; separate explicit Cargo dispatch with independent transfer and full acceptance SHA-256 | Real shared publishing assertions and operator-selection tests |
 | Protected `crates-io` job | Same approval artifact ID/digest/current attempt, full acceptance recheck, registry absence, then OIDC and nonbuilding Cargo upload | Actual shell failure guards and frozen-selection tests |
-| Post-upload `release-verify TAG TARGET` | Recheck the captured release ID, tag commit, generated notes and exact registry version | Installed CLI regression for drift during registry polling |
+| Post-upload `release-verify TAG [TARGET]` | Check the release and exact registry version. Supplying the captured target also pins the release ID and tag commit. | Installed CLI regression for drift during registry polling |
 | `actions-check` / `update-actions` | Offline coupled pin validation and shared update with one policy/scope | Installed-package partial-pin rejection and CI wiring tests |
 
 The release adapter follows the tagged reference protocol. MCMC declarations
@@ -29,7 +30,9 @@ repository tooling and independent SARIF gates, scientific tests, and clean
 default/all-feature Cargo verification. The measurement policy retains all 22
 stepping workloads, two alternating paired trials and 100 raw samples per case.
 README publication still selects all 13 unthinned workloads from trial 1.
-The diagnostic workspace and frozen v1 evidence/guard remain unchanged.
+The diagnostic workspace remains available. The v0.5.2 tag preserves the
+[v1 evidence](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1) and its
+[original validation recipe](https://github.com/acgetchell/markov-chain-monte-carlo/blob/v0.5.2/justfile).
 
 The supported Cargo guarantee is signed source. The final trusted main-push
 attempt owns verification builds; Step 2 consumes its signed evidence.

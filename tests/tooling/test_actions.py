@@ -14,6 +14,7 @@ INPUTS = [".github/workflows", ".github/actions/setup-toolchain/action.yml"]
 
 @pytest.fixture
 def actions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Copy the repository's Actions configuration and forbid upstream tag resolution during offline checks."""
     shutil.copytree(ROOT / ".github", tmp_path / ".github")
     monkeypatch.setattr(action_updates, "resolve", lambda *_args: pytest.fail("offline consistency must never resolve upstream tags"))
     return tmp_path

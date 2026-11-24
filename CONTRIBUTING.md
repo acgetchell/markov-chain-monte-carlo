@@ -93,7 +93,7 @@ Windows needs Git for Windows' `bin` directory, containing `bash.exe` and `sh.ex
 
 ### Declarations and installation
 
-The published `research-repo-tools==0.3.1` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
+The published `research-repo-tools==0.3.2` package owns setup and checked execution. It installs the declared Python, Rust 1.100.0 components/targets, and Cargo
 tools in isolated managed locations. It supplies Just through its pinned `rust-just` dependency, installs a persistent user command with uv, and configures
 shell PATH. Open a new terminal if setup reports a PATH change.
 
@@ -427,9 +427,9 @@ just bench-compile          # compile benchmark harness without measuring
 cargo bench --bench stepping <filter>   # run a subset
 ```
 
-Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. The current release-performance series starts at the tagged v0.5.0 baseline;
-the retained comparison measures the prepared v0.5.1 tree against it. Preserve that v1 evidence and `tooling/performance-readme.toml` as frozen history. For new
-release preparation, `just performance-prepare` infers the release pair, `just performance-release` retains complete evidence under `docs/performance/runs/`,
+Use `just bench-save-baseline last` before the first `bench-latest-vs-last` run. Historical timings are available in the
+[v0.5.2 archive](https://github.com/acgetchell/markov-chain-monte-carlo/tree/v0.5.2/docs/performance/v1).
+For release preparation, `just performance-prepare` selects the release, `just performance-release` retains complete evidence under `docs/performance/runs/`,
 and `just performance-doc` reproduces `docs/performance/current.md`. `just performance-readme` uses the independently reviewed
 `tooling/performance-publication.toml` selection and preparation identities. `just performance-github-assets CURRENT BASELINE` compares historical two-file
 release assets. See [GitHub Release Assets](docs/BENCHMARKING.md#github-release-assets) for complete candidate archive inspection and comparison limits.
@@ -557,13 +557,12 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 
 1. Run `just update`; review, validate, and land dependency/tool upgrades separately before preparing the release PR.
 2. Set `TAG` and run `just update-version "$TAG"`, then `just changelog-release "$TAG"` using the prepared citation date and committed history.
-3. Follow [retained performance publication](docs/BENCHMARKING.md#release-preparation-and-readme-publication): run `just performance-prepare` and
-   `just performance-release`, review the complete run and publication selection, then preview and publish the README table/CSV/SVG with
-   `just performance-readme`.
-4. Once a report exists, confirm it reproduces with `just performance-doc --check`. Run `just ci`, commit the reviewed artifacts, then run `just publish-check`
-   on the clean commit.
-5. Commit and push the release PR. After merge, sync and verify the exact reviewed `main` commit, require its trusted main-push validation and run
-   `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
+3. Run `just release-dependency-builds` and `just performance-release`. Review both trials against the predeclared selection, then preview and publish
+   the [README performance table and assets](docs/BENCHMARKING.md#release-preparation-and-readme-publication) with `just performance-readme`.
+4. Run `just release-version-check`, `just security`, and `just ci`. Commit the reviewed files, then run `just release-preflight "$(git rev-parse HEAD)"`,
+   `just publish-check`, and `just review origin/main` on the clean preparation commit.
+5. Push the reviewed branch and open the release PR. After merge, sync `main` and verify the trusted CI run for the exact release commit.
+   Run `just release-evidence` before `just tag "$TAG"`. Inspect the annotated tag and push it.
 6. Inspect the automatically prepared stable draft, run `just release-stage`, then `just release-benchmarks "$TAG"` to attach the accepted Step 1 archive
    without measuring again. Review the draft and run `just release-publish "$TAG"` in a human GitHub CLI session. Run `just release-upload "$TAG"` with that
    reviewed acceptance, then approve the crates.io deployment. Run `just release-verify "$TAG"` and complete the guide's downstream/Zenodo checks before
@@ -572,7 +571,7 @@ The full release procedure lives in [`docs/RELEASING.md`](docs/RELEASING.md). Hi
 Doc-only changes still require a version bump on crates.io, so prefer to land documentation updates **before** publishing.
 
 Breaking API changes and MSRV bumps are allowed in any release up to and including v1.0.0, including patch releases. The release number during this
-pre-stability period reflects project scope rather than compatibility impact alone; breaking changes still use `feat!` or a `BREAKING CHANGE:` trailer.
+pre-stability period reflects project scope. Mark breaking changes with a bang after the commit type (for example, `fix!`) or a `BREAKING CHANGE:` trailer.
 
 After v1.0.0, this project follows [Semantic Versioning](https://semver.org/):
 

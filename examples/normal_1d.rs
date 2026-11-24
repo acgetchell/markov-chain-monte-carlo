@@ -1,19 +1,19 @@
 //! Sample from a 1D standard normal distribution using Metropolis–Hastings.
 //!
-//! Demonstrates [`Sampler`] with `run` for burn-in and `step` for
-//! per-sample collection.  This is a mechanics example: the target is known,
+//! Demonstrates [`Sampler`] with `run` for burn-in and [`OnlineStats`] for
+//! streaming measurements. This is a mechanics example: the target is known,
 //! the proposal is symmetric, and the printed summary is a quick sanity check
 //! rather than a convergence proof.
 //!
 //! Run with: `cargo run --example normal_1d`
 
 use markov_chain_monte_carlo::prelude::by_value::*;
+use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 
 // --- State ---
 
-#[derive(Clone, Debug)]
 struct Scalar(f64);
 
 // --- Target: N(0,1), up to an additive log-normalization constant ---
@@ -37,21 +37,21 @@ impl Proposal<Scalar> for RandomWalk {
     }
 }
 
-fn main() -> Result<(), McmcError> {
+fn main() -> ObservedIntoRunResult<McmcError, StatisticsError> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
 
     let target = StandardNormal;
     let proposal = RandomWalk { width: 1.0 };
-    let chain = Chain::new(Scalar(5.0), &target)?;
-    let mut sampler = Sampler::new(chain, &target, &proposal, &mut rng)?;
+    let mut sampler = Sampler::from_state(Scalar(5.0), &target, &proposal, &mut rng)
+        .map_err(ObservedStreamError::Step)?;
 
     println!("Sampling N(0,1) with Metropolis–Hastings (seed={seed})");
     println!("Initial state: x = {:.3}", sampler.chain_ref().state().0);
 
     // Burn-in
     let burn_in = 1_000;
-    sampler.run(burn_in)?;
+    sampler.run(burn_in).map_err(ObservedStreamError::Step)?;
     println!(
         "After {burn_in} burn-in steps: x = {:.3}",
         sampler.chain_ref().state().0
@@ -62,21 +62,14 @@ fn main() -> Result<(), McmcError> {
 
     // Collect samples
     let n_samples = 10_000;
-    let mut sum = 0.0;
-    let mut sum_sq = 0.0;
-    for _ in 0..n_samples {
-        let _ = sampler.step()?;
-        let sample = sampler.chain_ref().state().0;
-        sum += sample;
-        sum_sq = sample.mul_add(sample, sum_sq);
-    }
-
-    let mean = sum / f64::from(n_samples);
-    let variance = mean.mul_add(-mean, sum_sq / f64::from(n_samples));
+    let mut stats = OnlineStats::new();
+    sampler.run_observing_into(n_samples, &mut |state: &Scalar| state.0, &mut stats)?;
 
     println!("\nResults ({n_samples} samples):");
-    println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
-    println!("  Sample variance: {variance:.4} (expected: 1.0)");
+    if let (Some(mean), Some(variance)) = (stats.mean(), stats.sample_variance()) {
+        println!("  Sample mean:     {mean:+.4} (expected: 0.0)");
+        println!("  Sample variance: {variance:.4} (expected: 1.0)");
+    }
     println!(
         "  Acceptance rate: {:.1}%",
         sampler.chain_ref().acceptance_rate() * 100.0

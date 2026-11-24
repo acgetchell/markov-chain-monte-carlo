@@ -48,8 +48,8 @@ jobs:
           CANDIDATE_TRANSFER: ${{ inputs.candidate }}
         run: |
           set -euo pipefail
-          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-22T02:44:08Z \
-            --with 'research-repo-tools==0.3.1' \
+          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-23T18:46:36Z \
+            --with 'research-repo-tools==0.3.2' \
             python -I - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -66,7 +66,8 @@ jobs:
               raise ValueError("dispatch differs from independent release target")
           if set(data["assets"]) != {"policy", "publication", "acceptance", "archive"}:
               raise ValueError("attachment requires the original four-asset transfer")
-          def check():
+          def recheck_draft_assets() -> None:
+              """Re-read the draft and verify the four selected asset IDs and any reported digests."""
               release = revalidate_release_target(root, target)
               for selected in data["assets"].values():
                   entries = [item for item in release.assets if item[0] == selected["name"]]
@@ -74,7 +75,7 @@ jobs:
                       raise ValueError("original candidate asset ID changed")
                   if entries[0][3] is not None and entries[0][3] != selected["sha256"]:
                       raise ValueError("original candidate asset digest changed")
-          check()
+          recheck_draft_assets()
           directory = root / "incoming-candidate"
           directory.mkdir()
           for role, selected in data["assets"].items():
@@ -83,7 +84,7 @@ jobs:
                   root, target.repository, target.tag, selected["name"], destination,
                   expected_sha256=selected["sha256"], allow_draft=True,
               )
-          check()
+          recheck_draft_assets()
           PY
 
       - name: Upload inert candidate input
@@ -194,8 +195,8 @@ jobs:
           CANDIDATE_TRANSFER: ${{ inputs.candidate }}
         run: |
           set -euo pipefail
-          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-22T02:44:08Z \
-            --with 'research-repo-tools==0.3.1' \
+          uv run --no-config --no-project --isolated --managed-python --exclude-newer 2026-11-23T18:46:36Z \
+            --with 'research-repo-tools==0.3.2' \
             python -I - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -212,7 +213,8 @@ jobs:
               raise ValueError("dispatch differs from independent release target")
           if set(data["assets"]) != {"policy", "publication", "acceptance", "archive"}:
               raise ValueError("attachment requires the original four-asset transfer")
-          def check():
+          def recheck_draft_assets() -> None:
+              """Re-read the draft and verify the four selected asset IDs and any reported digests."""
               release = revalidate_release_target(root, target)
               for selected in data["assets"].values():
                   entries = [item for item in release.assets if item[0] == selected["name"]]
@@ -220,12 +222,12 @@ jobs:
                       raise ValueError("original candidate asset ID changed")
                   if entries[0][3] is not None and entries[0][3] != selected["sha256"]:
                       raise ValueError("original candidate asset digest changed")
-          check()
+          recheck_draft_assets()
           directory = root / "accepted-candidate"
           artifact = directory / f"markov-chain-monte-carlo-{target.tag}-criterion-baseline.tar.gz"
           for role, path in (("acceptance", directory / "acceptance.json"), ("archive", artifact)):
               if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != data["assets"][role]["sha256"]:
                   raise ValueError("verified artifact differs from independent dispatch assertion")
           publish_release_asset(root, target.repository, target.tag, artifact, target=target)
-          check()
+          recheck_draft_assets()
           PY

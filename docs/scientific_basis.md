@@ -81,7 +81,10 @@ log proposal ratio through:
 - `DelayedProposal::log_q_ratio(state, plan) -> Result<f64, Self::Error>`
 
 These ratios must describe the same concrete transition that was proposed. For combinatorial systems, this usually means accounting for move-kind probabilities,
-site counts, reverse-site counts, and invalid-move handling.
+site counts, reverse-site counts, and invalid-move handling. For weighted discrete proposals, `DiscreteProposalRatio` forms the numerator and denominator
+from the supplied binary weights and integer site counts. Equal products give a zero log ratio. For unequal products near a tie, it computes the magnitude
+with `ln_1p((larger - smaller) / smaller)`, taking the difference exactly before rounding. The correction is positive when the numerator is larger and
+negative when the denominator is larger, even when dividing the products directly would round the odds to one.
 
 Detailed balance, or a valid Metropolis-Hastings correction for a non-symmetric proposal, is a property of the user-provided target+proposal pair. The crate
 checks transition mechanics; domain code still owns irreducibility, aperiodicity, burn-in, autocorrelation, convergence, and observable interpretation.
@@ -320,7 +323,8 @@ Quantile interpretation needs adequate local information and, conventionally, po
 Counts/ties lack that ordinary density interpretation: constant indicators are unavailable, and coinciding order-statistic bounds return
 `CollapsedQuantileInterval`, never zero uncertainty. Mean and quantile results retain typed ESS/input failures. Scaled centering restores physical
 units for mean MCSE; overflow or underflow of the final positive error is unavailable. Quantile differences use half-scaled subtraction when necessary.
-The regularized beta CDF comes from statrs 0.19.1; inversion uses 80 bisection steps and requires finite CDF residual at most `1e-8`.
+The regularized beta CDF comes from statrs 0.19.1. Inversion uses at most 80 bisection steps, stops when no interior midpoint is representable,
+and checks that the absolute difference between the evaluated CDF and the requested probability is finite and at most `1e-8`.
 Unresolved inversion returns `NumericalFailure`, rather than entering an unbounded Newton loop or accepting a finite-looking endpoint.
 
 [`examples/ising_1d.rs`](../examples/ising_1d.rs) demonstrates mean MCSE for energy and magnetization per spin, with baseline and cold temperatures.
@@ -404,7 +408,9 @@ M2 = M2_old + delta * (x - mean)
 ```
 
 The implementation retains the rounding error of the running mean so deviations can resolve variation between nearby measurements. It uses a fused
-multiply-add for the `M2` update. Finite inputs can still overflow intermediate arithmetic. A failed update leaves the accumulator unchanged. Batch
+multiply-add for the `M2` update. For tiny observations it rescales by a common power of two before squaring. Standard deviations and standard errors
+are converted back to sample units after the square root, so they can remain positive when the variance rounds to zero. Finite inputs can still overflow
+intermediate arithmetic. A failed update leaves the accumulator unchanged. Batch
 accumulation retains earlier successful samples.
 
 Population variance is `M2 / n` for at least one sample, and sample variance is `M2 / (n - 1)` for at least two. The latter is unbiased for independent,

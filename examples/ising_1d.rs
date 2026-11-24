@@ -289,8 +289,7 @@ fn sample_chain(
             *spin = -1;
         }
     }
-    let chain = Chain::new(initial, target)?;
-    let mut sampler = Sampler::new(chain, target, SpinFlip, &mut rng)?;
+    let mut sampler = Sampler::from_state(initial, target, SpinFlip, &mut rng)?;
 
     println!("1-D Ising model ({n_spins} spins, β={beta}, J={coupling}, seed={seed})");
     println!(
@@ -309,8 +308,7 @@ fn sample_chain(
     sampler.reset_counters();
 
     // Collect samples and export a reusable trace for downstream diagnostics.
-    let mut mag_sum = 0.0;
-    let mut mag_sq_sum = 0.0;
+    let mut magnetization = OnlineStats::new();
     let chain_id = ChainId::new(chain_index);
     let mut trace = TraceRecorder::new(chain_id, ["energy", "magnetization"])?;
     let started = Instant::now();
@@ -321,18 +319,19 @@ fn sample_chain(
         let energy = target.energy(state);
         let m = state.magnetization();
         trace.record(chain, TraceStepOutcome::from(&step), [energy, m])?;
-        mag_sum += m;
-        mag_sq_sum = m.mul_add(m, mag_sq_sum);
+        magnetization.try_push(m)?;
     }
     let elapsed = started.elapsed();
-    let mean_mag = mag_sum / f64::from(SAMPLES);
-    let mean_mag_sq = mag_sq_sum / f64::from(SAMPLES);
-    // Finite-sample fluctuation estimate, not a thermodynamic-limit claim.
-    let susceptibility = beta * n_spins_f64 * mean_mag.mul_add(-mean_mag, mean_mag_sq);
     println!("\nChain {chain_id} results ({SAMPLES} samples):");
-    println!("  <m>:             {mean_mag:+.4}");
-    println!("  <m²>:            {mean_mag_sq:.4}");
-    println!("  susceptibility:  {susceptibility:.2}");
+    if let (Some(mean), Some(variance)) =
+        (magnetization.mean(), magnetization.population_variance())
+    {
+        let second_moment = mean.mul_add(mean, variance);
+        let susceptibility = beta * n_spins_f64 * variance;
+        println!("  <m>:             {mean:+.4}");
+        println!("  <m²>:            {second_moment:.4}");
+        println!("  susceptibility:  {susceptibility:.2}");
+    }
     println!(
         "  acceptance rate: {:.1}%",
         sampler.chain_ref().acceptance_rate() * 100.0

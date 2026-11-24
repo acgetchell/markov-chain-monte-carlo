@@ -1,6 +1,6 @@
 //! Core traits for target distributions and proposal distributions.
 
-use core::{fmt, num::NonZeroUsize};
+use core::{cmp::Ordering, f64::consts::LN_2, fmt, num::NonZeroUsize};
 use std::error::Error;
 
 use rand::Rng;
@@ -310,8 +310,9 @@ impl DiscreteProposalRatio {
 
     /// Compute `log(q(current | proposed) / q(proposed | current))`.
     ///
-    /// Construction validates the forward proposal probability and move-family
-    /// weights, so this method only performs the log-space arithmetic.  A zero
+    /// The cross products retain the exact input weights and integer site
+    /// counts. For nearly equal odds, the logarithm uses their relative
+    /// difference so a small correction survives rounding. A zero
     /// reverse-site count or zero reverse move-family weight produces
     /// `f64::NEG_INFINITY`.
     ///
@@ -340,10 +341,30 @@ impl DiscreteProposalRatio {
             return f64::NEG_INFINITY;
         }
 
-        self.reverse_weight.ln() - self.reverse_weight_sum.ln() - self.forward_weight.ln()
-            + self.forward_weight_sum.ln()
-            + count_ln(self.forward_site_count)
-            - count_ln(reverse_site_count)
+        let (numerator, n_exp) = weighted_site_product(
+            self.reverse_weight,
+            self.forward_weight_sum,
+            self.forward_site_count,
+        );
+        let (denominator, d_exp) = weighted_site_product(
+            self.forward_weight,
+            self.reverse_weight_sum,
+            reverse_site_count,
+        );
+        let shift = n_exp - d_exp;
+        // Each factor's normalized significand spans less than a factor of
+        // two. Beyond three exponent bits the products cannot nearly cancel.
+        if shift.abs() > 3 {
+            return f64::from(shift)
+                .mul_add(LN_2, (numerator.as_f64() / denominator.as_f64()).ln());
+        }
+        let numerator = numerator.shift_left(shift.max(0).unsigned_abs());
+        let denominator = denominator.shift_left(shift.min(0).unsigned_abs());
+        match numerator.cmp(&denominator) {
+            Ordering::Equal => 0.0,
+            Ordering::Greater => numerator.log_relative_to(denominator),
+            Ordering::Less => -denominator.log_relative_to(numerator),
+        }
     }
 }
 
@@ -411,16 +432,66 @@ impl fmt::Display for DiscreteProposalRatioError {
 
 impl Error for DiscreteProposalRatioError {}
 
-/// Convert a valid-site count into a logarithm for proposal-ratio arithmetic.
-///
-/// The [`NonZeroUsize`] argument records the constructor invariant for counts
-/// that must be positive before they enter log-space arithmetic.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "valid-site counts intentionally cross into log-space f64 proposal arithmetic"
-)]
-fn count_ln(count: NonZeroUsize) -> f64 {
-    (count.get() as f64).ln()
+/// Exact product of two binary64 significands and one site count (at most 170 bits).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SiteProduct {
+    high: u128,
+    low: u128,
+}
+
+impl SiteProduct {
+    /// Align nearby exponents before subtracting. At most three extra bits are needed.
+    const fn shift_left(self, bits: u32) -> Self {
+        if bits == 0 {
+            return self;
+        }
+        Self {
+            high: (self.high << bits) | (self.low >> (128 - bits)),
+            low: self.low << bits,
+        }
+    }
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "round only after exact product comparison and subtraction"
+    )]
+    const fn as_f64(self) -> f64 {
+        const TWO_TO_128: f64 = f64::from_bits((1023 + 128) << 52);
+        (self.high as f64).mul_add(TWO_TO_128, self.low as f64)
+    }
+
+    /// Compute log(self / smaller) from the exact positive difference.
+    fn log_relative_to(self, smaller: Self) -> f64 {
+        let (low, borrow) = self.low.overflowing_sub(smaller.low);
+        let high = self.high - smaller.high - u128::from(borrow);
+        (Self { high, low }.as_f64() / smaller.as_f64()).ln_1p()
+    }
+}
+
+/// Keep the binary exponent separate so finite endpoint weights cannot underflow
+/// or overflow during cross multiplication. Common exponent offsets cancel in the ratio.
+fn weighted_site_product(weight: f64, total: f64, sites: NonZeroUsize) -> (SiteProduct, i32) {
+    fn parts(value: f64) -> (u128, i32) {
+        const HIDDEN_BIT: u64 = 1 << 52;
+        let (normal, adjustment) = if value.is_subnormal() {
+            (value * f64::from_bits((1023 + 52) << 52), 52)
+        } else {
+            (value, 0)
+        };
+        let bits = normal.to_bits();
+        let exponent = i32::from((bits >> 52) as u16);
+        (
+            u128::from(HIDDEN_BIT | (bits & (HIDDEN_BIT - 1))),
+            exponent - adjustment,
+        )
+    }
+
+    let (weight, weight_exponent) = parts(weight);
+    let (total, total_exponent) = parts(total);
+    let shift = sites.leading_zeros();
+    let (low, high) = (weight * total).carrying_mul((sites.get() << shift) as u128, 0);
+    let exponent = weight_exponent + total_exponent - shift.cast_signed();
+    (SiteProduct { high, low }, exponent)
 }
 
 /// Additive composition of two target log-weight components.
@@ -1322,6 +1393,69 @@ mod tests {
             .log_q_ratio();
 
         assert_relative_eq!(ratio, 3.0_f64.ln(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn adjacent_large_counts_keep_the_direction_of_the_hastings_correction() {
+        let n = usize::MAX;
+        // log(n / (n - 1)) = log1p(1 / (n - 1)), including above the exact f64 integer range.
+        let expected = (1.0 / crate::numerics::count_as_f64(n - 1)).ln_1p();
+        for (forward, reverse, correction) in [(n, n - 1, expected), (n - 1, n, -expected)] {
+            let ratio = DiscreteProposalRatio::from_counts(forward, reverse).unwrap();
+            assert_eq!(ratio.log_q_ratio().to_bits(), correction.to_bits());
+        }
+    }
+
+    #[test]
+    fn family_probabilities_preserve_small_relative_changes_at_extreme_scales() {
+        let weight = 2.0_f64.powi(-900);
+        let ratio = DiscreteProposalRatio::from_endpoints(
+            DiscreteProposalEndpoint::new(weight, 1.0, 1),
+            DiscreteProposalEndpoint::new(weight.next_up(), 1.0, 1),
+        )
+        .unwrap();
+        assert_eq!(
+            ratio.log_q_ratio().to_bits(),
+            f64::EPSILON.ln_1p().to_bits()
+        );
+    }
+
+    #[test]
+    fn weighted_site_counts_retain_the_residual_when_first_order_terms_cancel() {
+        let n = 1_usize << (usize::BITS / 2 - 1);
+        let gap = crate::numerics::count_as_f64(n).recip();
+        // (1 - 1/n) * (1 + 1/n) = 1 - 1/n², even when the product rounds to 1.
+        let forward = DiscreteProposalEndpoint::new(1.0, 1.0, n + 1);
+        let reverse = DiscreteProposalEndpoint::new(1.0 - gap, 1.0, n);
+        let expected = (-(gap * gap)).ln_1p();
+        let log_ratio = DiscreteProposalRatio::from_endpoints(forward, reverse)
+            .unwrap()
+            .log_q_ratio();
+        assert_relative_eq!(
+            log_ratio,
+            expected,
+            epsilon = 0.0,
+            max_relative = 2.0 * f64::EPSILON
+        );
+        assert_eq!(
+            DiscreteProposalRatio::from_endpoints(reverse, forward)
+                .unwrap()
+                .log_q_ratio(),
+            -log_ratio
+        );
+    }
+
+    #[test]
+    fn subnormal_endpoint_weights_retain_finite_log_odds() {
+        let tiny = f64::from_bits(1);
+        let forward = DiscreteProposalEndpoint::new(tiny, 2.0_f64.powi(1000), 1);
+        let reverse = DiscreteProposalEndpoint::new(tiny, tiny, 1);
+        let ratio = DiscreteProposalRatio::from_endpoints(forward, reverse).unwrap();
+        assert_relative_eq!(
+            ratio.log_q_ratio(),
+            2074.0 * LN_2,
+            max_relative = f64::EPSILON
+        );
     }
 
     #[test]

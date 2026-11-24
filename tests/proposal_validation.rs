@@ -4,10 +4,21 @@ use core::convert::Infallible;
 
 use approx::assert_relative_eq;
 use markov_chain_monte_carlo::prelude::testing::{
-    DelayedProposal, DetailedBalanceConfig, DetailedBalanceError, DiscreteProposalRatio,
-    DiscreteProposalRatioError, Target, verify_detailed_balance_delayed,
+    DelayedProposal, DetailedBalanceConfig, DetailedBalanceError, DiscreteProposalEndpoint,
+    DiscreteProposalRatio, DiscreteProposalRatioError, Target, verify_detailed_balance_delayed,
 };
 use rand::{Rng, RngExt, SeedableRng, TryRng, rngs::StdRng};
+
+#[test]
+fn equally_probable_weighted_moves_have_zero_hastings_correction() {
+    // The probability of the concrete move is (1/3)/2 = (5/10)/3 = 1/6.
+    let left = DiscreteProposalEndpoint::new(1.0, 3.0, 2);
+    let right = DiscreteProposalEndpoint::new(5.0, 10.0, 3);
+    for (forward, reverse) in [(left, right), (right, left)] {
+        let ratio = DiscreteProposalRatio::from_endpoints(forward, reverse).unwrap();
+        assert_eq!(ratio.log_q_ratio(), 0.0);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {

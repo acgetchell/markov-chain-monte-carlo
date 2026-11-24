@@ -120,7 +120,9 @@ const fn check_stats(stats: &OnlineStats) -> Result<(), StatisticsError> {
 ///
 /// The accumulator retains the mean's rounding error so variance can
 /// resolve variation between nearby values even when the mean rounds to one
-/// of the samples.
+/// of the samples. For tiny measurements it accumulates in power-of-two
+/// scaled units so standard deviations and standard errors can remain
+/// representable even when the variance rounds to zero.
 ///
 /// # Examples
 ///
@@ -142,9 +144,15 @@ pub struct OnlineStats {
     mean: f64,
     mean_roundoff: f64,
     m2: f64,
+    scaled: bool,
 }
 
 impl OnlineStats {
+    // In these units even the smallest binary64 sample has a normal square.
+    // The cutoff leaves room for squared differences and a full usize count.
+    const MAGNIFICATION: f64 = f64::from_bits((1023 + 768) << 52);
+    const SMALL_SAMPLE_LIMIT: f64 = f64::from_bits((1023 - 384) << 52);
+
     /// Create an empty accumulator.
     ///
     /// ```
@@ -159,6 +167,7 @@ impl OnlineStats {
             mean: 0.0,
             mean_roundoff: 0.0,
             m2: 0.0,
+            scaled: false,
         }
     }
 
@@ -207,7 +216,20 @@ impl OnlineStats {
             .count
             .checked_add(1)
             .ok_or(StatisticsError::CountOverflow)?;
-        let sample = sample.into_inner();
+        let mut sample = sample.into_inner();
+        if self.count == 1 {
+            self.scaled = sample.abs() <= Self::SMALL_SAMPLE_LIMIT;
+        }
+        if self.scaled {
+            if sample.abs() <= Self::SMALL_SAMPLE_LIMIT {
+                sample *= Self::MAGNIFICATION;
+            } else {
+                self.mean /= Self::MAGNIFICATION;
+                self.mean_roundoff /= Self::MAGNIFICATION;
+                self.m2 = self.m2 / Self::MAGNIFICATION / Self::MAGNIFICATION;
+                self.scaled = false;
+            }
+        }
         // Subtract the high part first so a sub-ulp correction survives.
         let delta = (sample - self.mean) - self.mean_roundoff;
         let increment = delta / count_as_f64(self.count) + self.mean_roundoff;
@@ -215,6 +237,20 @@ impl OnlineStats {
         let delta_after = (sample - self.mean) - self.mean_roundoff;
         self.m2 = delta.mul_add(delta_after, self.m2);
         Ok(())
+    }
+
+    /// Convert a first-order result from the accumulator's units to sample units.
+    fn in_sample_units(&self, value: f64) -> f64 {
+        if self.scaled {
+            value / Self::MAGNIFICATION
+        } else {
+            value
+        }
+    }
+
+    fn variance(&self, degrees_of_freedom: usize) -> f64 {
+        let variance = self.m2 / count_as_f64(degrees_of_freedom);
+        self.in_sample_units(self.in_sample_units(variance))
     }
 
     /// Add one finite sample to the accumulator.
@@ -342,7 +378,7 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn mean(&self) -> Option<f64> {
-        (self.count > 0).then_some(self.mean)
+        (self.count > 0).then(|| self.in_sample_units(self.mean))
     }
 
     /// Population variance, using `n` in the denominator.
@@ -358,7 +394,7 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn population_variance(&self) -> Option<f64> {
-        (self.count > 0).then_some(self.m2 / count_as_f64(self.count))
+        (self.count > 0).then(|| self.variance(self.count))
     }
 
     /// Sample variance, using `n - 1` in the denominator.
@@ -377,12 +413,13 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn sample_variance(&self) -> Option<f64> {
-        (self.count > 1).then(|| self.m2 / count_as_f64(self.count - 1))
+        (self.count > 1).then(|| self.variance(self.count - 1))
     }
 
     /// Population standard deviation.
     ///
     /// Returns `None` until at least one sample has been added.
+    /// For tiny samples this can be positive even when [`Self::population_variance`] rounds to zero.
     ///
     /// ```
     /// use markov_chain_monte_carlo::prelude::{OnlineStats, StatisticsError};
@@ -393,12 +430,13 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn population_std_dev(&self) -> Option<f64> {
-        self.population_variance().map(f64::sqrt)
+        (self.count > 0).then(|| self.in_sample_units((self.m2 / count_as_f64(self.count)).sqrt()))
     }
 
-    /// Square root of the sample variance.
+    /// Sample standard deviation, using `n - 1` in the variance estimate.
     ///
     /// Returns `None` until at least two samples have been added.
+    /// For tiny samples this can be positive even when [`Self::sample_variance`] rounds to zero.
     /// Taking the square root does not preserve the unbiasedness of the
     /// variance estimator, even for independent samples.
     ///
@@ -411,11 +449,14 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn sample_std_dev(&self) -> Option<f64> {
-        self.sample_variance().map(f64::sqrt)
+        (self.count > 1)
+            .then(|| self.in_sample_units((self.m2 / count_as_f64(self.count - 1)).sqrt()))
     }
 
     /// Naive standard error of the mean, ignoring autocorrelation.
     ///
+    /// Returns `None` until at least two samples have been added. The calculation
+    /// uses the scaled variance and can resolve a positive error even when [`Self::sample_variance`] rounds to zero.
     /// For autocorrelated MCMC measurements, prefer [`BinningAnalysis`] and
     /// inspect the blocked standard-error estimates.
     ///
@@ -428,8 +469,10 @@ impl OnlineStats {
     /// ```
     #[must_use]
     pub fn standard_error(&self) -> Option<f64> {
-        self.sample_variance()
-            .map(|variance| (variance / count_as_f64(self.count)).sqrt())
+        (self.count > 1).then(|| {
+            let variance = self.m2 / count_as_f64(self.count - 1);
+            self.in_sample_units((variance / count_as_f64(self.count)).sqrt())
+        })
     }
 }
 
@@ -871,9 +914,11 @@ impl BinningAnalysis {
     /// ```
     #[must_use]
     pub fn coarsest_estimate(&self) -> Option<BinningEstimate> {
-        self.estimates()
-            .filter(|estimate| estimate.standard_error().is_some())
-            .last()
+        self.levels
+            .iter()
+            .rev()
+            .find(|level| level.stats.count() >= 2)
+            .and_then(BinningLevel::estimate)
     }
 
     /// Coarsest available standard error from the binning hierarchy.
@@ -950,9 +995,8 @@ impl BinningAnalysis {
 
     /// Create a lazily allocated level without mutating the visible hierarchy.
     ///
-    /// This mirrors `ensure_level` for staged updates, deriving the next block
-    /// size from the latest staged level. An empty staged hierarchy is always
-    /// creating level zero.
+    /// Each level combines pairs from the preceding level. Level zero
+    /// starts with individual samples.
     fn new_staged_level(&self) -> BinningLevel {
         let block_size = self
             .staged_levels
@@ -1063,6 +1107,44 @@ mod tests {
         assert_close(stats.sample_variance().unwrap(), 32.0 / 7.0);
         assert_close(stats.population_std_dev().unwrap(), 2.0);
         assert_close(stats.standard_error().unwrap(), (4.0_f64 / 7.0).sqrt());
+    }
+
+    #[test]
+    fn tiny_fluctuations_preserve_standard_deviation_and_standard_error() {
+        for amplitude in [2.0_f64.powi(-540), 2.0_f64.powi(-1000), f64::from_bits(8)] {
+            let stats = OnlineStats::try_from_iter([-amplitude, amplitude]).unwrap();
+            assert_eq!(stats.mean(), Some(0.0));
+            assert_eq!(stats.population_variance(), Some(0.0));
+            assert_eq!(stats.population_std_dev(), Some(amplitude));
+            assert_eq!(stats.sample_std_dev(), Some(2.0_f64.sqrt() * amplitude));
+            assert_eq!(stats.standard_error(), Some(amplitude));
+            let bins = BinningAnalysis::try_from_iter([-amplitude, amplitude]).unwrap();
+            assert_eq!(bins.unblocked_standard_error(), Some(amplitude));
+        }
+    }
+
+    #[test]
+    fn tiny_accumulator_can_resume_in_original_units() {
+        let limit = OnlineStats::SMALL_SAMPLE_LIMIT;
+        for samples in [
+            [-limit, limit, -2.0 * limit, 2.0 * limit],
+            [-2.0 * limit, 2.0 * limit, -limit, limit],
+        ] {
+            let stats = OnlineStats::try_from_iter(samples).unwrap();
+            let expected = 2.5 * limit * limit;
+            assert_relative_eq!(
+                stats.population_variance().unwrap(),
+                expected,
+                epsilon = 0.0,
+                max_relative = f64::EPSILON
+            );
+            assert_relative_eq!(
+                stats.population_std_dev().unwrap(),
+                expected.sqrt(),
+                epsilon = 0.0,
+                max_relative = f64::EPSILON
+            );
+        }
     }
 
     #[test]
