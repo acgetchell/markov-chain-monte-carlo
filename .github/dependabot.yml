@@ -2,7 +2,10 @@ version: 2
 updates:
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # Scan the workflows and composite together so setup-uv bumps cover both.
+    directories:
+      - "/"
+      - "/.github/actions/setup-toolchain"
     schedule:
       interval: "weekly"
       day: "wednesday"
