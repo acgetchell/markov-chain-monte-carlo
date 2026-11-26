@@ -106,6 +106,10 @@ Update the tree whenever tracked paths or the generated layout change.
 │   │       └── proptest_extreme_oracle.rs
 │   └── stepping.rs
 ├── clippy.toml
+├── data/
+│   └── ising/
+│       └── v0.5.3/
+│           └── ising_1d_trace.csv
 ├── dependency-sources.toml
 ├── docs/
 │   ├── ANALYZING_CHAINS.md
@@ -278,6 +282,8 @@ Update the tree whenever tracked paths or the generated layout change.
 
 - `src/` — core library modules and crate-level documentation. The detailed source file map is below.
 - `examples/` — complete runnable workflows that demonstrate public APIs.
+- [v0.5.3 Ising trace](../data/ising/v0.5.3/ising_1d_trace.csv) — 20,000 retained draws per chain for seeds 42–45 at β = 0.5.
+  The energy trace figure plots `energy` against `step` for `chain_id = 0`.
 - `notebooks/` — notebook consumers for example-generated artifacts such as exported diagnostic traces.
 - `tests/` — integration tests, property-based tests named `tests/proptest_*.rs`, and project-rule tests including Semgrep fixtures under `tests/semgrep/`.
 - `benches/` — Criterion benchmarks for stepping, sampler loops, observing overhead, and scalar autocorrelation diagnostics.
